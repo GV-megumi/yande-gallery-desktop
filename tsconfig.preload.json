@@ -2,16 +2,19 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "target": "ES2020",
-    "module": "ESNext",
+    "module": "CommonJS",
     "outDir": "build",
     "rootDir": "src",
     "noEmit": false,
     "sourceMap": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
     "baseUrl": ".",
     "paths": {
       "@/*": ["src/*"]
     }
   },
-  "include": ["src/main/**/*", "src/shared/**/*", "src/core/**/*"],
-  "exclude": ["src/renderer/**/*", "src/preload/**/*"]
+  "include": ["src/preload/**/*"],
+  "exclude": []
 }
+

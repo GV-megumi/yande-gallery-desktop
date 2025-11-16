@@ -1,81 +1,200 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Image, Tag, Button, Modal, Descriptions, Space } from 'antd';
-import { EyeOutlined, DownloadOutlined, TagsOutlined } from '@ant-design/icons';
+import { EyeOutlined, TagsOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 
 interface ImageGridProps {
   images: any[];
   onReload: () => void;
+  groupBy?: 'none' | 'day' | 'month' | 'year';
+  // 排序方式：按时间（修改时间优先）或按文件名
+  sortBy?: 'time' | 'name';
+  // 是否显示右侧时间刻度（仅对按时间分组时生效）
+  showTimeline?: boolean;
 }
 
-export const ImageGrid: React.FC<ImageGridProps> = ({ images, onReload }) => {
+// 将本地文件路径转换为 app:// 协议 URL
+const getImageUrl = (filePath: string): string => {
+  if (!filePath) return '';
+  // 如果已经是 app:// 协议，直接返回
+  if (filePath.startsWith('app://')) return filePath;
+  // 将 Windows 路径中的反斜杠替换为斜杠，不再整体做 URL 编码
+  const normalized = filePath.replace(/\\/g, '/');
+  // 形成形如 app://M:/booru/xxx.png 的路径，由主进程协议处理器转换为本地文件路径
+  return `app://${normalized}`;
+};
+
+// 按修改时间分组 key
+const getDateGroupKey = (image: any, mode: 'day' | 'month' | 'year'): string => {
+  const date = new Date(image.updatedAt || image.createdAt || Date.now());
+  const y = date.getFullYear();
+  const m = `${date.getMonth() + 1}`.padStart(2, '0');
+  const d = `${date.getDate()}`.padStart(2, '0');
+
+  if (mode === 'year') return `${y}年`;
+  if (mode === 'month') return `${y}年${m}月`;
+  return `${y}年${m}月${d}日`;
+};
+
+export const ImageGrid: React.FC<ImageGridProps> = ({
+  images,
+  onReload,
+  groupBy = 'none',
+  sortBy = 'time',
+  showTimeline = false
+}) => {
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<any>(null);
 
   const handlePreview = (imagePath: string) => {
-    setPreviewImage(imagePath);
+    setPreviewImage(getImageUrl(imagePath));
   };
 
   const handleImageInfo = (image: any) => {
     setSelectedImage(image);
   };
 
+  // 根据 groupBy 对图片按修改时间分组（降序）
+  const groupedImages = useMemo(() => {
+    const sorted = [...images].sort((a, b) => {
+      if (sortBy === 'name') {
+        return (a.filename || '').localeCompare(b.filename || '');
+      }
+      // 默认按修改时间倒序（最近的在前）
+      return (
+        new Date(b.updatedAt || b.createdAt || 0).getTime() -
+        new Date(a.updatedAt || a.createdAt || 0).getTime()
+      );
+    });
+
+    if (groupBy === 'none') {
+      return { '__all__': sorted };
+    }
+
+    const groups: Record<string, any[]> = {};
+    for (const img of sorted) {
+      const key = getDateGroupKey(img, groupBy);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(img);
+    }
+    return groups;
+  }, [images, groupBy, sortBy]);
+
+  const renderCard = (image: any) => {
+    return (
+      <Card
+        key={image.id}
+        hoverable
+        bodyStyle={{ padding: 0 }}
+        style={{ borderRadius: 8, overflow: 'hidden' }}
+        cover={
+          <div
+            style={{
+              width: '100%',
+              position: 'relative',
+              overflow: 'hidden',
+              cursor: 'pointer'
+            }}
+          >
+            <Image
+              src={getImageUrl(image.filepath)}
+              alt={image.filename}
+              // 宽度自适应列宽，高度按图片实际比例缩放
+              style={{ width: '100%', height: 'auto', display: 'block' }}
+              preview={false}
+              onClick={() => handlePreview(image.filepath)}
+            />
+            {/* 右上角信息按钮 */}
+            <Button
+              type="text"
+              size="small"
+              icon={<TagsOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImageInfo(image);
+              }}
+              style={{
+                position: 'absolute',
+                top: 4,
+                right: 4,
+                background: 'rgba(0,0,0,0.45)',
+                color: '#fff'
+              }}
+            />
+          </div>
+        }
+      />
+    );
+  };
+
   return (
     <>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: '16px' }}>
-        {images.map((image) => (
-          <Card
-            key={image.id}
-            hoverable
-            cover={
-              <div style={{ height: '200px', overflow: 'hidden', cursor: 'pointer' }}>
-                <Image
-                  src={image.filepath}
-                  alt={image.filename}
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  preview={false}
-                  onClick={() => handlePreview(image.filepath)}
-                />
+      <div style={{ position: 'relative' }}>
+        {/* 主内容：按时间分段 + 瀑布流排版 */}
+        <div>
+          {Object.entries(groupedImages).map(([key, group]) => (
+            <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : 32 }} id={key}>
+              {groupBy !== 'none' && (
+                <div
+                  style={{
+                    margin: '8px 0 12px',
+                    fontWeight: 600,
+                    fontSize: groupBy === 'year' ? 20 : groupBy === 'month' ? 18 : 16,
+                    color: '#666'
+                  }}
+                >
+                  {key}
+                </div>
+              )}
+              <div
+                style={{
+                  columnWidth: 220,
+                  columnGap: 16
+                }}
+              >
+                {group.map((image: any) => (
+                  <div key={image.id} style={{ breakInside: 'avoid', marginBottom: 16 }}>
+                    {renderCard(image)}
+                  </div>
+                ))}
               </div>
-            }
-            actions={[
-              <Button
-                key="preview"
-                type="text"
-                icon={<EyeOutlined />}
-                onClick={() => handlePreview(image.filepath)}
-              >
-                预览
-              </Button>,
-              <Button
-                key="info"
-                type="text"
-                icon={<TagsOutlined />}
-                onClick={() => handleImageInfo(image)}
-              >
-                信息
-              </Button>
-            ]}
+            </div>
+          ))}
+        </div>
+
+        {/* 右侧时间刻度，仅在按时间分组时显示 */}
+        {showTimeline && groupBy !== 'none' && (
+          <div
+            style={{
+              position: 'absolute',
+              top: 0,
+              right: 0,
+              paddingLeft: 8,
+              paddingRight: 4,
+              fontSize: 12,
+              color: '#999',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'flex-end',
+              pointerEvents: 'none'
+            }}
           >
-            <Card.Meta
-              title={image.filename}
-              description={
-                <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                  <span>尺寸: {image.width} × {image.height}</span>
-                  <span>大小: {formatFileSize(image.fileSize)}</span>
-                  <span>格式: {image.format?.toUpperCase()}</span>
-                  {image.tags && image.tags.length > 0 && (
-                    <div>
-                      {image.tags.slice(0, 3).map((tag: string) => (
-                        <Tag key={tag} style={{ margin: '2px' }}>{tag}</Tag>
-                      ))}
-                    </div>
-                  )}
-                </Space>
-              }
-            />
-          </Card>
-        ))}
+            {Object.keys(groupedImages).map((key) => (
+              <div
+                key={`timeline-${key}`}
+                style={{ marginBottom: 16, cursor: 'pointer', pointerEvents: 'auto' }}
+                onClick={() => {
+                  const el = document.getElementById(key);
+                  if (el) {
+                    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                  }
+                }}
+              >
+                {key}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 图片预览模态框 */}
@@ -93,6 +212,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({ images, onReload }) => {
               src={previewImage}
               alt="Preview"
               style={{ maxWidth: '100%', maxHeight: '80vh' }}
+              fallback="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="
             />
           </div>
         )}

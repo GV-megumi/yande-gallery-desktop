@@ -2,17 +2,52 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "Debug Electron App",
+      "name": "1. 启动 Vite 服务器",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:renderer"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 1
+      }
+    },
+    {
+      "name": "2. 启动 Electron",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
-      "windows": {
-        "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron.cmd"
+      "program": "${workspaceFolder}/build/main/index.js",
+      "args": [],
+      "env": {
+        "NODE_ENV": "development"
       },
-      "args": ["."],
-      "outputCapture": "std",
-      "console": "integratedTerminal"
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "preLaunchTask": "📦 仅编译（主进程 + Preload）",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/build/main/**/*.js"],
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 2
+      }
+    },
+    {
+      "name": "3. 仅编译代码",
+      "type": "shell",
+      "request": "launch",
+      "command": "echo '编译任务请使用任务面板运行：Ctrl+Shift+P -> Tasks: Run Task -> 📦 仅编译（主进程 + Preload）'",
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 3
+      }
     }
   ]
 }

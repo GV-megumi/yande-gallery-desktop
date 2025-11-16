@@ -1,0 +1,57 @@
+database:
+  path: data/gallery.db
+  logging: true
+downloads:
+  path: downloads
+  createSubfolders: true
+  subfolderFormat:
+    - tags
+    - date
+galleries:
+  folders:
+    - path: M:\booru_u
+      name: booru_u
+      autoScan: true
+      recursive: true
+      extensions:
+        - .jpg
+        - .jpeg
+        - .png
+        - .gif
+        - .webp
+        - .bmp
+    - path: M:\booru
+      name: booru
+      autoScan: true
+      recursive: true
+      extensions:
+        - .jpg
+        - .jpeg
+        - .png
+        - .gif
+        - .webp
+        - .bmp
+thumbnails:
+  cachePath: data/thumbnails
+  maxWidth: 150
+  maxHeight: 150
+  quality: 85
+  format: webp
+app:
+  recentImagesCount: 100
+  pageSize: 50
+  defaultViewMode: grid
+  showImageInfo: true
+  autoScan: true
+  autoScanInterval: 30
+yande:
+  apiUrl: https://yande.re/post.json
+  pageSize: 20
+  downloadTimeout: 60
+  maxConcurrentDownloads: 5
+logging:
+  level: info
+  filePath: data/app.log
+  consoleOutput: true
+  maxFileSize: 10
+  maxFiles: 5

@@ -25,5 +25,20 @@
   "files.associations": {
     "*.tsx": "typescriptreact",
     "*.ts": "typescript"
-  }
+  },
+  "debug.console.collapseIdenticalLines": true,
+  "debug.inlineValues": true,
+  "debug.showInStatusBar": "always",
+  "debug.internalConsoleOptions": "neverOpen",
+  "debug.console.acceptSuggestionOnEnter": "on",
+  "debug.console.fontSize": 14,
+  "debug.console.fontFamily": "Consolas, 'Courier New', monospace",
+  "debug.openDebug": "openOnDebugBreak",
+  "debug.focusWindowOnBreak": false,
+  "debug.showBreakpointsInOverviewRuler": true,
+  "debug.showInlineBreakpointCandidates": true,
+  "debug.onTaskErrors": "debugAnyway",
+  "terminal.integrated.showExitAlert": false,
+  "notifications.maxVisible": 3,
+  "window.dialogStyle": "custom"
 }

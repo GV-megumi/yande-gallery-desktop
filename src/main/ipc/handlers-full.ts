@@ -35,7 +35,7 @@ export function setupIPC() {
       const result = await mockDatabase.init();
       return result;
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -45,7 +45,7 @@ export function setupIPC() {
       const images = await mockDatabase.getImages(page, pageSize);
       return { success: true, data: images };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -55,7 +55,7 @@ export function setupIPC() {
       const id = await mockDatabase.addImage(image);
       return { success: true, data: id };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -65,7 +65,7 @@ export function setupIPC() {
       const images = await mockDatabase.searchImages(query);
       return { success: true, data: images };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -92,7 +92,7 @@ export function setupIPC() {
 
       return { success: true, data: images };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -107,7 +107,7 @@ export function setupIPC() {
 
       return { success: true, data: thumbnailPath };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -129,7 +129,7 @@ export function setupIPC() {
 
       return { success: true, data: mockImages };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -145,7 +145,7 @@ export function setupIPC() {
       // 模拟下载完成
       return { success: true, data: downloadPath };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 

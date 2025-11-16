@@ -1,80 +1,75 @@
-import { ipcMain, dialog } from 'electron';
+import { ipcMain, dialog, IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from './channels.js';
 import path from 'path';
 import fs from 'fs/promises';
-
-// 模拟数据库操作（简化版本，不使用sharp）
-const mockDatabase = {
-  images: [] as any[],
-  async init() {
-    console.log('Database initialized');
-    return { success: true };
-  },
-  async getImages(page: number, pageSize: number) {
-    const start = (page - 1) * pageSize;
-    const end = start + pageSize;
-    return this.images.slice(start, end);
-  },
-  async addImage(image: any) {
-    const newImage = {
-      ...image,
-      id: Date.now(),
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    };
-    this.images.push(newImage);
-    return newImage.id;
-  },
-  async searchImages(query: string) {
-    return this.images.filter(img =>
-      img.filename.toLowerCase().includes(query.toLowerCase())
-    );
-  }
-};
+import {
+  initDatabase,
+  getImages,
+  addImage,
+  searchImages,
+  getImageById,
+  deleteImage,
+  updateImageTags,
+  getAllTags,
+  searchTags,
+  addYandeImage,
+  markYandeImageAsDownloaded,
+  getRecentImages,
+  getImagesByFolder,
+  getAllFolders,
+  scanAndImportFolder
+} from '../services/imageService.js';
+import {
+  getGalleries,
+  getGallery,
+  createGallery,
+  updateGallery,
+  deleteGallery,
+  setGalleryCover,
+  updateGalleryStats,
+  scanSubfoldersAndCreateGalleries
+} from '../services/galleryService.js';
+import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
 
 export function setupIPC() {
   // 数据库初始化
-  ipcMain.handle(IPC_CHANNELS.DB_INIT, async () => {
+  ipcMain.handle(IPC_CHANNELS.DB_INIT, async (_event: IpcMainInvokeEvent) => {
     try {
-      const result = await mockDatabase.init();
-      return result;
+      return await initDatabase();
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 获取图片列表
-  ipcMain.handle(IPC_CHANNELS.DB_GET_IMAGES, async (_, page: number = 1, pageSize: number = 50) => {
+  ipcMain.handle(IPC_CHANNELS.DB_GET_IMAGES, async (_event: IpcMainInvokeEvent, page: number = 1, pageSize: number = 50) => {
     try {
-      const images = await mockDatabase.getImages(page, pageSize);
-      return { success: true, data: images };
+      return await getImages(page, pageSize);
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 添加图片
-  ipcMain.handle(IPC_CHANNELS.DB_ADD_IMAGE, async (_, image: any) => {
+  ipcMain.handle(IPC_CHANNELS.DB_ADD_IMAGE, async (_event: IpcMainInvokeEvent, image: any) => {
     try {
-      const id = await mockDatabase.addImage(image);
-      return { success: true, data: id };
+      return await addImage(image);
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 搜索图片
-  ipcMain.handle(IPC_CHANNELS.DB_SEARCH_IMAGES, async (_, query: string) => {
+  ipcMain.handle(IPC_CHANNELS.DB_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, query: string) => {
     try {
-      const images = await mockDatabase.searchImages(query);
-      return { success: true, data: images };
+      return await searchImages(query);
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 扫描文件夹（简化版，不处理图片内容）
-  ipcMain.handle(IPC_CHANNELS.IMAGE_SCAN_FOLDER, async (_, folderPath: string) => {
+  ipcMain.handle(IPC_CHANNELS.IMAGE_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string) => {
     try {
       const images = [];
       const files = await scanDirectory(folderPath);
@@ -85,8 +80,10 @@ export function setupIPC() {
           try {
             const imageInfo = await getImageInfo(file);
             if (imageInfo) {
-              const id = await mockDatabase.addImage(imageInfo);
-              images.push({ ...imageInfo, id });
+              const result = await addImage(imageInfo);
+              if (result.success && result.data) {
+                images.push({ ...imageInfo, id: result.data });
+              }
             }
           } catch (error) {
             console.error(`Failed to process image ${file}:`, error);
@@ -96,24 +93,24 @@ export function setupIPC() {
 
       return { success: true, data: images };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 生成缩略图（简化版，直接返回原图路径）
-  ipcMain.handle(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, async (_, imagePath: string) => {
+  ipcMain.handle(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {
       // 简化版本，直接返回原图路径
       // 实际项目中应该使用sharp生成缩略图
       console.log(`Thumbnail generation skipped for: ${imagePath}`);
       return { success: true, data: imagePath };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  // 获取Yande.re图片
-  ipcMain.handle(IPC_CHANNELS.YANDE_GET_IMAGES, async (_, page: number = 1, tags?: string[]) => {
+  // 获取Yande.re图片（模拟数据）
+  ipcMain.handle(IPC_CHANNELS.YANDE_GET_IMAGES, async (_event: IpcMainInvokeEvent, page: number = 1, tags?: string[]) => {
     try {
       // 模拟Yande.re API响应
       const mockImages = Array.from({ length: 20 }, (_, i) => ({
@@ -130,21 +127,34 @@ export function setupIPC() {
 
       return { success: true, data: mockImages };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 搜索图片
-  ipcMain.handle(IPC_CHANNELS.YANDE_SEARCH_IMAGES, async (_, tags: string[], page: number = 1) => {
+  ipcMain.handle(IPC_CHANNELS.YANDE_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, tags: string[], page: number = 1) => {
     try {
-      return await ipcMain.handle(IPC_CHANNELS.YANDE_GET_IMAGES, null, page, tags);
+      // 模拟搜索功能，使用相同的模拟数据但过滤标签
+      const mockImages = Array.from({ length: 20 }, (_, i) => ({
+        id: i + 1,
+        yandeId: i + 1000 * page,
+        filename: `yande_${i + 1000 * page}.jpg`,
+        fileUrl: `https://via.placeholder.com/800x600/1890ff/ffffff?text=Yande+${i + 1000 * page}`,
+        previewUrl: `https://via.placeholder.com/200x150/1890ff/ffffff?text=Preview+${i + 1000 * page}`,
+        rating: ['safe', 'questionable', 'explicit'][Math.floor(Math.random() * 3)],
+        tags: tags || ['anime', 'girl', 'cute'],
+        downloaded: false,
+        createdAt: new Date().toISOString()
+      }));
+
+      return { success: true, data: mockImages };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
   // 下载图片（简化版）
-  ipcMain.handle(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, async (_, imageData: any) => {
+  ipcMain.handle(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, async (_event: IpcMainInvokeEvent, imageData: any) => {
     try {
       // 模拟下载过程
       console.log(`Downloading image: ${imageData.filename}`);
@@ -162,7 +172,7 @@ export function setupIPC() {
 
       return { success: true, data: downloadPath };
     } catch (error) {
-      return { success: false, error: error.message };
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
@@ -187,9 +197,149 @@ export function setupIPC() {
   });
 
   // 在文件管理器中显示项目
-  ipcMain.handle(IPC_CHANNELS.SYSTEM_SHOW_ITEM, async (_, filePath: string) => {
-    const { shell } = await import('electron');
-    shell.showItemInFolder(filePath);
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_SHOW_ITEM, async (_event: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const { shell } = await import('electron');
+      shell.showItemInFolder(filePath);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 最近图片 =====
+  ipcMain.handle('gallery:get-recent-images', async (_event: IpcMainInvokeEvent, count: number = 100) => {
+    try {
+      return await getRecentImages(count);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 文件夹相关 =====
+  ipcMain.handle('gallery:get-images-by-folder', async (_event: IpcMainInvokeEvent, folderPath: string, page: number = 1, pageSize: number = 50) => {
+    try {
+      return await getImagesByFolder(folderPath, page, pageSize);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:get-all-folders', async (_event: IpcMainInvokeEvent) => {
+    try {
+      return await getAllFolders();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:scan-and-import-folder', async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
+    try {
+      return await scanAndImportFolder(folderPath, extensions, recursive);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 图库（Gallery）管理 =====
+  ipcMain.handle('gallery:get-galleries', async (_event: IpcMainInvokeEvent) => {
+    try {
+      return await getGalleries();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:get-gallery', async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      return await getGallery(id);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:create-gallery', async (_event: IpcMainInvokeEvent, galleryData: any) => {
+    try {
+      return await createGallery(galleryData);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:update-gallery', async (_event: IpcMainInvokeEvent, id: number, updates: any) => {
+    try {
+      return await updateGallery(id, updates);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:delete-gallery', async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      return await deleteGallery(id);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:set-gallery-cover', async (_event: IpcMainInvokeEvent, id: number, coverImageId: number) => {
+    try {
+      return await setGalleryCover(id, coverImageId);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:update-gallery-stats', async (_event: IpcMainInvokeEvent, id: number, imageCount: number, lastScannedAt: string) => {
+    try {
+      return await updateGalleryStats(id, imageCount, lastScannedAt);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 配置管理 =====
+  ipcMain.handle('config:get', async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      return { success: true, data: config };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('config:save', async (_event: IpcMainInvokeEvent, newConfig: any) => {
+    try {
+      return await saveConfig(newConfig);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('config:update-gallery-folders', async (_event: IpcMainInvokeEvent, folders: any[]) => {
+    try {
+      return await updateGalleryFolders(folders);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('config:reload', async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = await reloadConfig();
+      return { success: true, data: config };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 扫描子文件夹并创建图集 =====
+  ipcMain.handle('gallery:scan-subfolders', async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
+    try {
+      return await scanSubfoldersAndCreateGalleries(rootPath, extensions);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
   });
 }
 
@@ -230,7 +380,7 @@ async function getImageInfo(filePath: string): Promise<any | null> {
       'bmp': { width: 1920, height: 1080 }
     };
 
-    const dimensions = mockDimensions[format] || { width: 800, height: 600 };
+    const dimensions = mockDimensions[format as keyof typeof mockDimensions] || { width: 800, height: 600 };
 
     return {
       filename: path.basename(filePath),
