@@ -1,13 +1,111 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, ClockCircleOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal } from 'antd';
+import { FolderOpenOutlined, SearchOutlined, ClockCircleOutlined, AppstoreOutlined, QuestionCircleOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
+import { ImageListWrapper } from '../components/ImageListWrapper';
+import { ImageSearchBar } from '../components/ImageSearchBar';
+import { LazyLoadFooter } from '../components/LazyLoadFooter';
+import { GalleryCoverImage } from '../components/GalleryCoverImage';
 
 const { Search } = Input;
+
+// 添加样式，限制超大屏幕上最多5列
+const galleryGridStyle = `
+  @media (min-width: 1200px) {
+    .gallery-grid .gallery-col.ant-col-xl-4 {
+      flex: 0 0 calc(20% - 13.6px) !important;
+      max-width: calc(20% - 13.6px) !important;
+    }
+  }
+`;
+
+// 注入样式
+if (typeof document !== 'undefined') {
+  const styleId = 'gallery-grid-style';
+  let styleElement = document.getElementById(styleId);
+  if (!styleElement) {
+    styleElement = document.createElement('style');
+    styleElement.id = styleId;
+    styleElement.textContent = galleryGridStyle;
+    document.head.appendChild(styleElement);
+  }
+}
 
 interface GalleryPageProps {
   subTab?: 'recent' | 'all' | 'galleries';
 }
+
+// 图集卡片列表组件（处理缩略图加载）
+const GalleryCardList: React.FC<{
+  galleries: any[];
+  onSelect: (gallery: any) => void;
+  getImageUrl: (path: string) => string;
+}> = ({ galleries, onSelect, getImageUrl }) => {
+  const [coverThumbnails, setCoverThumbnails] = React.useState<Record<number, string | null>>({});
+
+  // 加载所有封面的缩略图
+  React.useEffect(() => {
+    if (!window.electronAPI || galleries.length === 0) return;
+
+    const loadThumbnails = async () => {
+      const thumbnails: Record<number, string | null> = {};
+      
+      for (const gallery of galleries) {
+        if (gallery.coverImage?.filepath) {
+          try {
+            const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
+            if (result.success && result.data) {
+              thumbnails[gallery.id] = result.data;
+            }
+          } catch (error) {
+            console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
+          }
+        }
+      }
+      
+      setCoverThumbnails(thumbnails);
+    };
+
+    loadThumbnails();
+  }, [galleries]);
+
+  return (
+    <Row gutter={[16, 16]}>
+      {galleries.map((gallery: any) => (
+        <Col key={gallery.id} xs={24} sm={12} md={8} lg={6}>
+          <Card
+            hoverable
+            cover={
+              gallery.coverImage ? (
+                <div style={{ height: '200px', overflow: 'hidden' }}>
+                  <img
+                    src={coverThumbnails[gallery.id] 
+                      ? getImageUrl(coverThumbnails[gallery.id]!) 
+                      : (gallery.coverImage.filepath ? getImageUrl(gallery.coverImage.filepath) : undefined)}
+                    alt={gallery.name}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
+                </div>
+              ) : (
+                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0' }}>
+                  <AppstoreOutlined style={{ fontSize: '48px', color: '#ccc' }} />
+                </div>
+              )
+            }
+            onClick={() => onSelect(gallery)}
+          >
+            <Card.Meta
+              title={gallery.name}
+              description={
+                <div>图片数量: {gallery.imageCount}</div>
+              }
+            />
+          </Card>
+        </Col>
+      ))}
+    </Row>
+  );
+};
 
 export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) => {
   // 分离不同模式的状态，避免相互干扰
@@ -26,6 +124,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const [searchQuery, setSearchQuery] = useState('');
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [allGalleries, setAllGalleries] = useState<any[]>([]);
+  const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchPage, setSearchPage] = useState(1);
@@ -185,12 +284,29 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       setGalleryVisibleCount(200);
       const galleryResult = await window.electronAPI.gallery.getGallery(galleryId);
       if (galleryResult.success && galleryResult.data) {
-        const folderPath = galleryResult.data.folderPath;
+        const gallery = galleryResult.data;
+        const folderPath = gallery.folderPath;
         // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
         const result = await window.electronAPI.gallery.getImagesByFolder(folderPath, 1, 1000);
         if (result.success) {
           const data = result.data || [];
           setGalleryImages(data); // 存储到galleryImages
+          
+          // 如果没有封面且有图片，自动设置第一张图为封面
+          if (!gallery.coverImageId && data.length > 0 && data[0].id) {
+            try {
+              await window.electronAPI.gallery.setGalleryCover(galleryId, data[0].id);
+              // 更新选中的图集信息
+              const updatedResult = await window.electronAPI.gallery.getGallery(galleryId);
+              if (updatedResult.success && updatedResult.data) {
+                setSelectedGallery(updatedResult.data);
+                // 刷新图集列表
+                loadGalleries();
+              }
+            } catch (error) {
+              console.error('自动设置封面失败:', error);
+            }
+          }
         } else {
           message.error('加载图集图片失败: ' + result.error);
         }
@@ -200,6 +316,84 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       message.error('加载图集图片失败');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // 设置图集封面
+  const handleSetCover = async (imageId: number) => {
+    if (!window.electronAPI || !selectedGallery) return;
+
+    try {
+      const result = await window.electronAPI.gallery.setGalleryCover(selectedGallery.id, imageId);
+      if (result.success) {
+        message.success('封面设置成功');
+        
+        // 找到新设置的封面图片（从当前已加载的图片中找）
+        const newCoverImage = galleryImages.find((img: any) => img.id === imageId);
+        
+        // 更新当前选中的图集信息（直接使用已有数据，避免重新请求）
+        setSelectedGallery((prev: any) => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            coverImage: newCoverImage || prev.coverImage,
+            coverImageId: imageId
+          };
+        });
+        
+        // 更新 allGalleries 中的封面信息（用于图集列表显示，不影响当前查看的图集）
+        setAllGalleries((prevAllGalleries) => {
+          return prevAllGalleries.map((gallery: any) => {
+            if (gallery.id === selectedGallery.id) {
+              return {
+                ...gallery,
+                coverImage: newCoverImage || gallery.coverImage,
+                coverImageId: imageId
+              };
+            }
+            return gallery;
+          });
+        });
+        
+        // 只有在显示图集列表且没有选中图集时才更新 galleries（避免触发不必要的 useEffect）
+        // 这样当用户在查看图集内的图片时，不会触发 galleries 的 useEffect
+        if (subTab === 'galleries' && !selectedGallery) {
+          setGalleries((prevGalleries) => {
+            return prevGalleries.map((gallery: any) => {
+              if (gallery.id === selectedGallery.id) {
+                return {
+                  ...gallery,
+                  coverImage: newCoverImage || gallery.coverImage,
+                  coverImageId: imageId
+                };
+              }
+              return gallery;
+            });
+          });
+        }
+        
+        // 异步加载新封面的缩略图（不阻塞 UI）
+        if (newCoverImage?.filepath) {
+          window.electronAPI.image
+            .getThumbnail(newCoverImage.filepath)
+            .then((thumbResult) => {
+              if (thumbResult.success && thumbResult.data) {
+                setCoverThumbnails((prev) => ({
+                  ...prev,
+                  [selectedGallery.id]: thumbResult.data || null
+                }));
+              }
+            })
+            .catch((error) => {
+              console.error('获取新封面缩略图失败:', error);
+            });
+        }
+      } else {
+        message.error('设置封面失败: ' + result.error);
+      }
+    } catch (error) {
+      console.error('Failed to set cover:', error);
+      message.error('设置封面失败');
     }
   };
 
@@ -303,6 +497,35 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     // 依赖于 recentImages.length，保证新数据加载后滚动逻辑仍然生效
   }, [subTab, recentImages.length, recentImages]);
 
+  // 图集封面缩略图状态
+  const [coverThumbnails, setCoverThumbnails] = useState<Record<number, string | null>>({});
+
+  // 加载图集封面缩略图
+  useEffect(() => {
+    if (!window.electronAPI || galleries.length === 0) return;
+
+    const loadThumbnails = async () => {
+      const thumbnails: Record<number, string | null> = {};
+      
+      for (const gallery of galleries) {
+        if (gallery.coverImage?.filepath) {
+          try {
+            const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
+            if (result.success && result.data) {
+              thumbnails[gallery.id] = result.data;
+            }
+          } catch (error) {
+            console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
+          }
+        }
+      }
+      
+      setCoverThumbnails(thumbnails);
+    };
+
+    loadThumbnails();
+  }, [galleries]);
+
   // 将本地文件路径转换为 app:// 协议 URL（用于图集封面）
   const getImageUrl = (filePath: string): string => {
     if (!filePath) return '';
@@ -311,213 +534,227 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     return `app://${normalized}`;
   };
 
+
   // 根据 subTab 渲染不同内容
   const renderContent = () => {
     if (subTab === 'recent') {
       return (
         <>
-          <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <Search
-              placeholder="搜索图片..."
-              allowClear
-              enterButton={<SearchOutlined />}
-              style={{ width: 300 }}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onSearch={handleSearchInput}
-            />
-          </div>
+          <ImageSearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onSearch={handleSearchInput}
+          />
 
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-              <Spin size="large" />
-            </div>
-          ) : recentImages.length === 0 ? (
-            <Empty
-              description="暂无最近图片"
-              style={{ marginTop: '100px' }}
+          <ImageListWrapper
+            images={recentImages.slice(0, recentVisibleCount)}
+            loading={loading}
+            emptyDescription="暂无最近图片"
+            onReload={loadRecentImages}
+            groupBy="day"
+            showTimeline
+            layout="waterfall"
+          >
+            <LazyLoadFooter
+              current={recentVisibleCount}
+              total={recentImages.length}
+              onLoadMore={() =>
+                setRecentVisibleCount((prev) =>
+                  Math.min(prev + 200, recentImages.length)
+                )
+              }
             />
-          ) : (
-            <>
-              {/* 最近图片：懒加载模式，只渲染可见部分 */}
-              <ImageGrid
-                images={recentImages.slice(0, recentVisibleCount)}
-                onReload={loadRecentImages}
-                groupBy="day"
-                showTimeline
-              />
-              {recentVisibleCount < recentImages.length && (
-                <div style={{ marginTop: 24, textAlign: 'center' }}>
-                  <Button
-                    onClick={() =>
-                      setRecentVisibleCount((prev) =>
-                        Math.min(prev + 200, recentImages.length)
-                      )
-                    }
-                  >
-                    加载更多（{recentVisibleCount}/{recentImages.length}）
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
+          </ImageListWrapper>
         </>
       );
     } else if (subTab === 'all') {
       return (
         <>
-          <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <Search
-              placeholder="搜索图片..."
-              allowClear
-              enterButton={<SearchOutlined />}
-              style={{ width: 300 }}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onSearch={handleSearchInput}
-            />
-          </div>
+          <ImageSearchBar
+            value={searchQuery}
+            onChange={setSearchQuery}
+            onSearch={handleSearchInput}
+          />
 
-          {loading ? (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-              <Spin size="large" />
+          {isSearchMode && !loading && allImages.length > 0 && (
+            <div style={{ marginBottom: '16px', color: '#666' }}>
+              找到 {searchTotal} 张匹配的图片
             </div>
-          ) : allImages.length === 0 ? (
-            <Empty
-              description={isSearchMode ? `未找到匹配"${searchQuery}"的图片` : '暂无图片'}
-              style={{ marginTop: '100px' }}
-            />
-          ) : (
-            <>
-              {isSearchMode && (
-                <div style={{ marginBottom: '16px', color: '#666' }}>
-                  找到 {searchTotal} 张匹配的图片
-                </div>
-              )}
-              {/* 所有图片：分页模式，只渲染当前页的20张图片 */}
-              <ImageGrid images={allImages} onReload={() => isSearchMode ? handleSearch(searchQuery, searchPage, 20) : loadImages(allPage, 20)} sortBy="time" groupBy="none" />
-              <div style={{ marginTop: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
-                    onClick={() => {
-                      if (isSearchMode) {
-                        const next = Math.max(1, searchPage - 1);
-                        handleSearch(searchQuery, next, 20);
-                      } else {
-                        const next = Math.max(1, allPage - 1);
-                        setAllPage(next);
-                        loadImages(next, 20);
-                      }
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>
-                    第 {isSearchMode ? searchPage : allPage} 页
-                    {isSearchMode && searchTotal > 0 && ` / 共 ${Math.ceil(searchTotal / 20)} 页`}
-                  </span>
-                  <Button
-                    disabled={isSearchMode ? !searchHasMore : !allHasMore}
-                    onClick={() => {
-                      if (isSearchMode) {
-                        if (!searchHasMore) return;
-                        const next = searchPage + 1;
-                        handleSearch(searchQuery, next, 20);
-                      } else {
-                        if (!allHasMore) return;
-                        const next = allPage + 1;
-                        setAllPage(next);
-                        loadImages(next, 20);
-                      }
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            </>
           )}
+          <ImageListWrapper
+            images={allImages}
+            loading={loading}
+            emptyDescription={isSearchMode ? `未找到匹配"${searchQuery}"的图片` : '暂无图片'}
+            onReload={() => isSearchMode ? handleSearch(searchQuery, searchPage, 20) : loadImages(allPage, 20)}
+            sortBy="time"
+            layout="waterfall"
+            groupBy="none"
+          >
+            <div style={{ marginTop: 24, textAlign: 'center' }}>
+              <Space>
+                <Button
+                  disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
+                  onClick={() => {
+                    if (isSearchMode) {
+                      const next = Math.max(1, searchPage - 1);
+                      handleSearch(searchQuery, next, 20);
+                    } else {
+                      const next = Math.max(1, allPage - 1);
+                      setAllPage(next);
+                      loadImages(next, 20);
+                    }
+                  }}
+                >
+                  上一页
+                </Button>
+                <span>
+                  第 {isSearchMode ? searchPage : allPage} 页
+                  {isSearchMode && searchTotal > 0 && ` / 共 ${Math.ceil(searchTotal / 20)} 页`}
+                </span>
+                <Button
+                  disabled={isSearchMode ? !searchHasMore : !allHasMore}
+                  onClick={() => {
+                    if (isSearchMode) {
+                      if (!searchHasMore) return;
+                      const next = searchPage + 1;
+                      handleSearch(searchQuery, next, 20);
+                    } else {
+                      if (!allHasMore) return;
+                      const next = allPage + 1;
+                      setAllPage(next);
+                      loadImages(next, 20);
+                    }
+                  }}
+                >
+                  下一页
+                </Button>
+              </Space>
+            </div>
+          </ImageListWrapper>
         </>
       );
     } else if (subTab === 'galleries') {
       return (
         <>
-          <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <Button
-              type="primary"
-              icon={<FolderOpenOutlined />}
-              onClick={handleCreateGallery}
-            >
-              创建图集
-            </Button>
-            <Search
-              placeholder="搜索图集名称..."
-              allowClear
-              enterButton={<SearchOutlined />}
-              style={{ width: 300 }}
-              value={gallerySearchQuery}
-              onChange={(e) => setGallerySearchQuery(e.target.value)}
-              onSearch={handleGallerySearch}
-            />
-          </div>
+          {!selectedGallery && (
+            <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+              <Button
+                type="primary"
+                icon={<FolderOpenOutlined />}
+                onClick={handleCreateGallery}
+              >
+                创建图集
+              </Button>
+              <Search
+                placeholder="搜索图集名称..."
+                allowClear
+                enterButton={<SearchOutlined />}
+                style={{ width: 300 }}
+                value={gallerySearchQuery}
+                onChange={(e) => setGallerySearchQuery(e.target.value)}
+                onSearch={handleGallerySearch}
+              />
+            </div>
+          )}
 
           {selectedGallery ? (
             <>
-              <div style={{ marginBottom: '16px' }}>
-                <Button onClick={() => { 
-                  setSelectedGallery(null); 
-                  setGalleryImages([]);
-                }}>
-                  返回图集列表
-                </Button>
-                <span style={{ marginLeft: 16, fontWeight: 'bold' }}>
-                  当前图集：{selectedGallery.name}
-                </span>
-                <span style={{ marginLeft: 24 }}>
-                  排序：
-                  <Segmented
-                    size="small"
-                    style={{ marginLeft: 8 }}
-                    value={gallerySort}
-                    onChange={(val) => setGallerySort(val as 'time' | 'name')}
-                    options={[
-                      { label: '按时间', value: 'time' },
-                      { label: '按文件名', value: 'name' }
-                    ]}
-                  />
-                </span>
-              </div>
-              {loading ? (
-                <div style={{ textAlign: 'center', padding: '50px' }}>
-                  <Spin size="large" />
+              <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <Button onClick={() => { 
+                    setSelectedGallery(null); 
+                    setGalleryImages([]);
+                  }}>
+                    返回图集列表
+                  </Button>
+                  <span style={{ fontWeight: 'bold' }}>
+                    当前图集：{selectedGallery.name}
+                  </span>
+                  <span>
+                    排序：
+                    <Segmented
+                      size="small"
+                      style={{ marginLeft: 8 }}
+                      value={gallerySort}
+                      onChange={(val) => setGallerySort(val as 'time' | 'name')}
+                      options={[
+                        { label: '按时间', value: 'time' },
+                        { label: '按文件名', value: 'name' }
+                      ]}
+                    />
+                  </span>
                 </div>
-              ) : galleryImages.length === 0 ? (
-                <Empty description="该图集暂无图片" style={{ marginTop: '100px' }} />
-              ) : (
-                <>
-                  {/* 图集：懒加载模式，只渲染可见部分 */}
-                  <ImageGrid
-                    images={galleryImages.slice(0, galleryVisibleCount)}
-                    onReload={() => loadGalleryImages(selectedGallery.id)}
-                    groupBy={gallerySort === 'time' ? 'day' : 'none'}
-                    sortBy={gallerySort}
+                <Space>
+                  <Button
+                    type="text"
+                    icon={<ReloadOutlined />}
+                    onClick={() => {
+                      if (selectedGallery) {
+                        loadGalleryImages(selectedGallery.id);
+                      }
+                    }}
+                    loading={loading}
+                    style={{ fontSize: 16 }}
                   />
-                  {galleryVisibleCount < galleryImages.length && (
-                    <div style={{ textAlign: 'center', marginTop: 24 }}>
-                      <Button
-                        onClick={() =>
-                          setGalleryVisibleCount((prev) =>
-                            Math.min(prev + 200, galleryImages.length)
-                          )
-                        }
-                      >
-                        加载更多（{galleryVisibleCount}/{galleryImages.length}）
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
+                  <Popover
+                    content={
+                      <Descriptions bordered column={1} size="small" style={{ maxWidth: 400 }}>
+                        <Descriptions.Item label="图集名称">{selectedGallery.name}</Descriptions.Item>
+                        <Descriptions.Item label="文件夹路径">{selectedGallery.folderPath}</Descriptions.Item>
+                        <Descriptions.Item label="图片数量">{selectedGallery.imageCount}</Descriptions.Item>
+                        {selectedGallery.lastScannedAt && (
+                          <Descriptions.Item label="最后扫描">
+                            {new Date(selectedGallery.lastScannedAt).toLocaleString()}
+                          </Descriptions.Item>
+                        )}
+                        <Descriptions.Item label="创建时间">
+                          {new Date(selectedGallery.createdAt).toLocaleString()}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="更新时间">
+                          {new Date(selectedGallery.updatedAt).toLocaleString()}
+                        </Descriptions.Item>
+                        <Descriptions.Item label="递归扫描">{selectedGallery.recursive ? '是' : '否'}</Descriptions.Item>
+                        <Descriptions.Item label="监视目录">{selectedGallery.isWatching ? '是' : '否'}</Descriptions.Item>
+                        {selectedGallery.extensions && selectedGallery.extensions.length > 0 && (
+                          <Descriptions.Item label="支持格式">
+                            {selectedGallery.extensions.join(', ')}
+                          </Descriptions.Item>
+                        )}
+                      </Descriptions>
+                    }
+                    title="图集详细信息"
+                    trigger="click"
+                    placement="bottomRight"
+                  >
+                    <Button
+                      type="text"
+                      icon={<QuestionCircleOutlined />}
+                      style={{ fontSize: 16 }}
+                    />
+                  </Popover>
+                </Space>
+              </div>
+              <ImageListWrapper
+                images={galleryImages.slice(0, galleryVisibleCount)}
+                loading={loading}
+                emptyDescription="该图集暂无图片"
+                onReload={() => loadGalleryImages(selectedGallery.id)}
+                groupBy={gallerySort === 'time' ? 'day' : 'none'}
+                sortBy={gallerySort}
+                layout="waterfall"
+                onSetCover={handleSetCover}
+                currentGallery={selectedGallery}
+              >
+                <LazyLoadFooter
+                  current={galleryVisibleCount}
+                  total={galleryImages.length}
+                  onLoadMore={() =>
+                    setGalleryVisibleCount((prev) =>
+                      Math.min(prev + 200, galleryImages.length)
+                    )
+                  }
+                />
+              </ImageListWrapper>
             </>
           ) : loading ? (
             <div style={{ textAlign: 'center', padding: '50px' }}>
@@ -533,46 +770,52 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
               </Button>
             </Empty>
           ) : (
-            <Row gutter={[16, 16]}>
+            <Row gutter={[16, 16]} className="gallery-grid">
               {galleries.map((gallery: any) => (
-                <Col key={gallery.id} xs={24} sm={12} md={8} lg={6}>
-                  <Card
-                    hoverable
-                    cover={
-                      gallery.coverImage ? (
-                        <div style={{ height: '200px', overflow: 'hidden' }}>
-                          <img
-                            src={gallery.coverImage.filepath ? getImageUrl(gallery.coverImage.filepath) : undefined}
-                            alt={gallery.name}
-                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                          />
-                        </div>
-                      ) : (
-                        <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0' }}>
-                          <AppstoreOutlined style={{ fontSize: '48px', color: '#ccc' }} />
-                        </div>
-                      )
-                    }
+                <Col 
+                  key={gallery.id} 
+                  xs={24} 
+                  sm={12} 
+                  md={8} 
+                  lg={8} 
+                  xl={4}
+                  className="gallery-col"
+                >
+                  <div
+                    style={{
+                      cursor: 'pointer',
+                      background: 'transparent'
+                    }}
                     onClick={() => {
                       setSelectedGallery(gallery);
                       loadGalleryImages(gallery.id);
                     }}
                   >
-                    <Card.Meta
-                      title={gallery.name}
-                      description={
-                        <Space direction="vertical" size="small" style={{ width: '100%' }}>
-                          <span>图片数量: {gallery.imageCount}</span>
-                          {gallery.lastScannedAt && (
-                            <span>最后扫描: {new Date(gallery.lastScannedAt).toLocaleString()}</span>
-                          )}
-                          <span style={{ fontSize: '12px', color: '#999', wordBreak: 'break-all' }}>
-                            {gallery.folderPath}
-                          </span>
-                        </Space>
-                      }
+                    {/* 图片区域 - 使用独立的封面组件 */}
+                    <GalleryCoverImage
+                      coverImage={gallery.coverImage}
+                      thumbnailPath={coverThumbnails[gallery.id] || null}
+                      getImageUrl={getImageUrl}
+                      onInfoClick={() => setSelectedGalleryInfo(gallery)}
                     />
-                  </Card>
+                    {/* 文字区域 */}
+                    <div
+                      style={{
+                        fontSize: gallery.name.length > 20 ? '12px' : '13px',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontWeight: 500,
+                        lineHeight: '1.2',
+                        textAlign: 'center',
+                        padding: '0 4px',
+                        background: 'transparent'
+                      }}
+                      title={gallery.name}
+                    >
+                      {gallery.name}
+                    </div>
+                  </div>
                 </Col>
               ))}
             </Row>
@@ -586,6 +829,41 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   return (
     <div style={{ padding: '24px' }}>
       {renderContent()}
+      
+      {/* 图集信息模态框 */}
+      <Modal
+        open={!!selectedGalleryInfo}
+        title="图集信息"
+        footer={null}
+        onCancel={() => setSelectedGalleryInfo(null)}
+        width={600}
+      >
+        {selectedGalleryInfo && (
+          <Descriptions bordered column={1}>
+            <Descriptions.Item label="图集名称">{selectedGalleryInfo.name}</Descriptions.Item>
+            <Descriptions.Item label="文件夹路径">{selectedGalleryInfo.folderPath}</Descriptions.Item>
+            <Descriptions.Item label="图片数量">{selectedGalleryInfo.imageCount}</Descriptions.Item>
+            {selectedGalleryInfo.lastScannedAt && (
+              <Descriptions.Item label="最后扫描">
+                {new Date(selectedGalleryInfo.lastScannedAt).toLocaleString()}
+              </Descriptions.Item>
+            )}
+            <Descriptions.Item label="创建时间">
+              {new Date(selectedGalleryInfo.createdAt).toLocaleString()}
+            </Descriptions.Item>
+            <Descriptions.Item label="更新时间">
+              {new Date(selectedGalleryInfo.updatedAt).toLocaleString()}
+            </Descriptions.Item>
+            <Descriptions.Item label="递归扫描">{selectedGalleryInfo.recursive ? '是' : '否'}</Descriptions.Item>
+            <Descriptions.Item label="监视目录">{selectedGalleryInfo.isWatching ? '是' : '否'}</Descriptions.Item>
+            {selectedGalleryInfo.extensions && selectedGalleryInfo.extensions.length > 0 && (
+              <Descriptions.Item label="支持格式">
+                {selectedGalleryInfo.extensions.join(', ')}
+              </Descriptions.Item>
+            )}
+          </Descriptions>
+        )}
+      </Modal>
     </div>
   );
 };

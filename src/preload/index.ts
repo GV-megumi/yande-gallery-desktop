@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('gallery:update-gallery', id, updates),
     deleteGallery: (id: number) =>
       ipcRenderer.invoke('gallery:delete-gallery', id),
+    setGalleryCover: (id: number, coverImageId: number) =>
+      ipcRenderer.invoke('gallery:set-gallery-cover', id, coverImageId),
     getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) =>
       ipcRenderer.invoke('gallery:get-images-by-folder', folderPath, page, pageSize),
     scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
@@ -141,6 +143,7 @@ declare global {
         createGallery: (galleryData: any) => Promise<{ success: boolean; data?: number; error?: string }>;
         updateGallery: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         deleteGallery: (id: number) => Promise<{ success: boolean; error?: string }>;
+        setGalleryCover: (id: number, coverImageId: number) => Promise<{ success: boolean; error?: string }>;
         getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;

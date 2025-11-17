@@ -14,6 +14,7 @@
 2. [tags](#tags) - 标签表
 3. [image_tags](#image_tags) - 图片与标签关联表
 4. [yande_images](#yande_images) - Yande.re 图片记录表
+5. [galleries](#galleries) - 图库/图集信息表
 
 ## 详细表结构
 
@@ -155,6 +156,56 @@
   "localPath": "C:/downloads/yande_123456.jpg",
   "createdAt": "2024-01-15T10:30:00.000Z",
   "updatedAt": "2024-01-15T10:35:00.000Z"
+}
+```
+
+---
+
+### galleries
+
+存储图库/图集信息，支持多图库管理和懒加载机制。
+
+| 字段名 | 类型 | 约束 | 说明 |
+|--------|------|------|------|
+| id | INTEGER | PRIMARY KEY AUTOINCREMENT | 主键ID |
+| folderPath | TEXT | NOT NULL, UNIQUE | 文件夹完整路径（唯一） |
+| name | TEXT | NOT NULL | 图库名称（用户自定义） |
+| coverImageId | INTEGER | FOREIGN KEY | 封面图片ID（引用images表） |
+| imageCount | INTEGER | DEFAULT 0 | 图片数量（缓存，提升性能） |
+| lastScannedAt | TEXT | | 最后扫描时间 |
+| isWatching | INTEGER | DEFAULT 1 | 是否监视目录变化（0/1） |
+| recursive | INTEGER | DEFAULT 1 | 是否递归扫描子目录（0/1） |
+| extensions | TEXT | | 支持的扩展名（JSON数组） |
+| createdAt | TEXT | NOT NULL | 创建时间（ISO字符串） |
+| updatedAt | TEXT | NOT NULL | 更新时间（ISO字符串） |
+
+**外键约束：**
+- `coverImageId` 引用 `images.id` ON DELETE SET NULL
+
+**索引：**
+- `idx_galleries_folderPath` - 文件夹路径索引
+- `idx_galleries_lastScannedAt` - 最后扫描时间倒序索引
+
+**说明：**
+- 图库信息存储在数据库中，支持懒加载机制
+- 封面图默认取第一张图片的缩略图
+- 用户可以在图集内点击图片设置为封面
+- `imageCount` 是缓存值，用于快速显示，实际数量在扫描时更新
+
+**示例数据：**
+```json
+{
+  "id": 1,
+  "folderPath": "M:/booru/paseri",
+  "name": "paseri",
+  "coverImageId": 123,
+  "imageCount": 282,
+  "lastScannedAt": "2025-11-17T02:00:22.000Z",
+  "isWatching": 1,
+  "recursive": 1,
+  "extensions": "[".jpg", ".png", ".webp"]",
+  "createdAt": "2025-11-16T10:00:00.000Z",
+  "updatedAt": "2025-11-17T02:00:22.000Z"
 }
 ```
 
