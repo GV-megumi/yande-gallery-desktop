@@ -123,6 +123,43 @@ class TagManager:
     - 标签统计和分析
 ```
 
+## 开发规范
+
+### 日志输出规范
+
+**要求**：所有代码必须在控制台输出日志，以便于调试和问题追踪。
+
+**规范说明**：
+- **前端代码**：使用 `console.log()`、`console.warn()`、`console.error()` 等控制台方法输出日志
+  - 关键操作（如数据加载、状态变更、用户交互）应输出日志
+  - 错误情况必须使用 `console.error()` 输出错误信息
+  - 警告信息使用 `console.warn()` 输出
+- **后端代码**：使用适当的日志库（如 Python 的 `logging` 模块）输出日志
+  - API 请求和响应应记录日志
+  - 业务逻辑关键步骤应输出日志
+  - 异常情况必须记录错误日志
+- **日志级别**：
+  - `debug`: 详细的调试信息
+  - `info`: 一般信息（如操作成功、状态变更）
+  - `warn`: 警告信息（如参数异常、性能问题）
+  - `error`: 错误信息（如异常、失败操作）
+- **日志格式**：建议包含时间戳、模块名称、操作描述等信息，便于问题定位
+
+**示例**：
+```typescript
+// 前端示例
+console.log('[ImageGrid] 加载图片列表，数量:', images.length);
+console.error('[ImageService] 图片加载失败:', error);
+```
+
+```python
+# 后端示例
+import logging
+logger = logging.getLogger(__name__)
+logger.info(f'开始下载图片: {image_url}')
+logger.error(f'下载失败: {error}')
+```
+
 ## 性能优化
 
 ### 前端优化
@@ -211,11 +248,155 @@ class TagManager:
 - [yande.re](https://yande.re) - 目标网站
 - [Hydrus Network](https://github.com/hydrusnetwork/hydrus) - 图片管理工具
 
+## 图库页面实现逻辑
+
+### 页面结构
+
+图库页面 (`GalleryPage.tsx`) 支持三种不同的浏览模式，通过 `subTab` prop 控制：
+- `recent`: 最近图片（懒加载模式）
+- `all`: 所有图片（分页模式）
+- `galleries`: 图集列表和浏览（懒加载模式）
+
+### 状态管理
+
+为了避免不同模式之间的数据干扰，使用了独立的状态变量：
+
+```typescript
+// 分离不同模式的状态，避免相互干扰
+const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
+const [allImages, setAllImages] = useState<any[]>([]); // 所有图片分页数据（每次20张）
+const [galleryImages, setGalleryImages] = useState<any[]>([]); // 图集图片数据（懒加载，一次1000张）
+```
+
+### 三种模式的实现逻辑
+
+#### 1. 最近图片（懒加载模式）
+
+**数据加载**：
+- 一次性从数据库加载2000张最近更新的图片到 `recentImages`
+- 使用 `getRecentImages(2000)` API
+
+**渲染策略**：
+- 初始只渲染前200张（`recentVisibleCount = 200`）
+- 使用 `recentImages.slice(0, recentVisibleCount)` 切片渲染
+- 滚动到底部时，自动增加200张（通过 `useEffect` 监听滚动事件）
+- 显示"加载更多"按钮，手动点击也可以加载200张
+
+**特点**：
+- 数据一次性加载到内存，但DOM只渲染可见部分
+- 适合快速浏览大量最近图片
+
+#### 2. 所有图片（分页模式）
+
+**数据加载**：
+- 每次只从数据库加载20张图片（`pageSize = 20`）
+- 使用 `getImages(page, 20)` API，支持分页查询
+- 切换页面时先清空旧数据：`setAllImages([])`
+
+**渲染策略**：
+- 直接渲染当前页的20张图片（`allImages`）
+- 通过"上一页/下一页"按钮切换页面
+- 不支持滚动加载，必须点击分页按钮
+
+**搜索功能**：
+- 支持按文件名和标签搜索
+- 搜索结果也使用分页模式，每页20张
+- 搜索时使用 `searchImages(query, page, 20)` API
+
+**特点**：
+- 内存占用最小，每次只加载20张
+- 适合精确查找和浏览特定范围的图片
+
+#### 3. 图集（懒加载模式）
+
+**数据加载**：
+- 点击图集后，一次性加载该图集的1000张图片到 `galleryImages`
+- 使用 `getImagesByFolder(folderPath, 1, 1000)` API
+
+**渲染策略**：
+- 初始只渲染前200张（`galleryVisibleCount = 200`）
+- 使用 `galleryImages.slice(0, galleryVisibleCount)` 切片渲染
+- 显示"加载更多"按钮，点击后增加200张
+
+**图集列表搜索**：
+- 支持按图集名称搜索
+- 前端过滤，不重新查询数据库
+
+**特点**：
+- 单个图集数据一次性加载，但DOM只渲染可见部分
+- 适合浏览单个图集的内容
+
+### 切换模式时的清理逻辑
+
+当切换 `subTab` 时，会清空其他模式的数据，避免内存累积：
+
+```typescript
+useEffect(() => {
+  if (subTab === 'recent') {
+    setAllImages([]);
+    setGalleryImages([]);
+    loadRecentImages(2000);
+  } else if (subTab === 'all') {
+    setRecentImages([]);
+    setGalleryImages([]);
+    setAllImages([]);
+    loadImages(1, 20);
+  } else if (subTab === 'galleries') {
+    setRecentImages([]);
+    setAllImages([]);
+    setGalleryImages([]);
+    loadGalleries();
+  }
+}, [subTab]);
+```
+
+### ImageGrid 组件
+
+`ImageGrid` 组件接收 `images` prop，直接渲染传入的图片数组：
+- 对于"所有图片"：传入的是 `allImages`（当前页20张）
+- 对于"最近图片"：传入的是 `recentImages.slice(0, recentVisibleCount)`（已切片）
+- 对于"图集"：传入的是 `galleryImages.slice(0, galleryVisibleCount)`（已切片）
+
+组件内部使用 `useMemo` 对图片进行分组和排序，支持按时间分组和按文件名排序。
+
+### 数据库查询
+
+**所有图片分页查询**：
+```sql
+SELECT i.*, GROUP_CONCAT(t.name) as tags
+FROM images i
+LEFT JOIN image_tags it ON i.id = it.imageId
+LEFT JOIN tags t ON it.tagId = t.id
+GROUP BY i.id
+ORDER BY i.updatedAt DESC
+LIMIT ? OFFSET ?
+```
+
+**搜索图片分页查询**：
+```sql
+SELECT i.*, GROUP_CONCAT(t.name) as tags
+FROM images i
+LEFT JOIN image_tags it ON i.id = it.imageId
+LEFT JOIN tags t ON it.tagId = t.id
+WHERE LOWER(i.filename) LIKE ? OR LOWER(t.name) LIKE ?
+GROUP BY i.id
+ORDER BY i.updatedAt DESC
+LIMIT ? OFFSET ?
+```
+
+### 性能优化
+
+1. **状态分离**：三种模式使用独立状态，避免数据污染
+2. **分页加载**："所有图片"模式每次只加载20张，内存占用最小
+3. **懒加载渲染**："最近图片"和"图集"模式只渲染可见部分
+4. **切换清理**：切换模式时清空其他模式的数据，释放内存
+5. **图片懒加载**：使用 `loading="lazy"` 属性，浏览器自动延迟加载视口外的图片
+
 ## 许可证
 
 MIT License - 允许自由使用、修改和分发
 
 ---
 
-*最后更新: 2024年11月16日*
+*最后更新: 2024年11月17日*
 *作者: Claude Code*

@@ -2,6 +2,8 @@ import { Image, Tag, YandeImage } from '../../shared/types.js';
 import { getDatabase, run, get, all } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { generateThumbnail } from './thumbnailService.js';
+import { getConfig } from './config.js';
 
 /**
  * 图片服务 - 数据库操作实现
@@ -22,6 +24,8 @@ export async function getImages(page: number = 1, pageSize: number = 50): Promis
   try {
     const db = await getDatabase();
     const offset = (page - 1) * pageSize;
+
+    console.log(`[getImages] 查询参数: page=${page}, pageSize=${pageSize}, offset=${offset}`);
 
     // 定义SQL查询结果的临时类型
     interface ImageQueryResult extends Omit<Image, 'tags'> {
@@ -44,6 +48,8 @@ export async function getImages(page: number = 1, pageSize: number = 50): Promis
       [pageSize, offset]
     );
 
+    console.log(`[getImages] 实际查询返回数量: ${images.length}`);
+
     // 转换tags字符串为Tag数组
     const result = images.map(image => {
       const imageData: Image = {
@@ -57,6 +63,7 @@ export async function getImages(page: number = 1, pageSize: number = 50): Promis
       return imageData;
     });
 
+    console.log(`[getImages] 最终返回数量: ${result.length}`);
     return { success: true, data: result };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -119,17 +126,36 @@ export async function addImage(
 }
 
 /**
- * 搜索图片
+ * 搜索图片（支持分页）
  */
-export async function searchImages(query: string): Promise<{ success: boolean; data?: Image[]; error?: string }> {
+export async function searchImages(
+  query: string,
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ success: boolean; data?: Image[]; total?: number; error?: string }> {
   try {
     const db = await getDatabase();
     const searchTerm = `%${query.toLowerCase()}%`;
+    const offset = (page - 1) * pageSize;
 
     // 定义SQL查询结果的临时类型
     interface ImageQueryResult extends Omit<Image, 'tags'> {
       tags?: string;
     }
+
+    // 查询总数
+    const countResult = await get<{ count: number }>(
+      db,
+      `
+        SELECT COUNT(DISTINCT i.id) as count
+        FROM images i
+        LEFT JOIN image_tags it ON i.id = it.imageId
+        LEFT JOIN tags t ON it.tagId = t.id
+        WHERE LOWER(i.filename) LIKE ? OR LOWER(t.name) LIKE ?
+      `,
+      [searchTerm, searchTerm]
+    );
+    const total = countResult?.count || 0;
 
     const images = await all<ImageQueryResult>(
       db,
@@ -143,8 +169,9 @@ export async function searchImages(query: string): Promise<{ success: boolean; d
         WHERE LOWER(i.filename) LIKE ? OR LOWER(t.name) LIKE ?
         GROUP BY i.id
         ORDER BY i.updatedAt DESC
+        LIMIT ? OFFSET ?
       `,
-      [searchTerm, searchTerm]
+      [searchTerm, searchTerm, pageSize, offset]
     );
 
     // 转换tags字符串为Tag数组（简化处理）
@@ -161,7 +188,7 @@ export async function searchImages(query: string): Promise<{ success: boolean; d
       };
     });
 
-    return { success: true, data: result };
+    return { success: true, data: result, total };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Error searching images:', errorMessage);
@@ -585,6 +612,20 @@ export async function scanAndImportFolder(
               const result = await addImage(imageInfo);
               if (result.success && result.data) {
                 imported.push({ ...imageInfo, id: result.data });
+                
+                // 自动生成缩略图（如果配置启用了自动生成）
+                try {
+                  const config = getConfig();
+                  if (config.app.autoScan) {
+                    // 异步生成缩略图，不阻塞导入流程
+                    generateThumbnail(file).catch(error => {
+                      console.error(`自动生成缩略图失败 ${file}:`, error);
+                    });
+                  }
+                } catch (error) {
+                  // 缩略图生成失败不影响导入
+                  console.error(`自动生成缩略图失败 ${file}:`, error);
+                }
               }
             }
           } else {

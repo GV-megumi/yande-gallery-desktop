@@ -81,9 +81,9 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   thumbnails: {
     cachePath: 'data/thumbnails',
-    maxWidth: 300,
-    maxHeight: 300,
-    quality: 85,
+    maxWidth: 800,
+    maxHeight: 800,
+    quality: 92,
     format: 'webp'
   },
   app: {

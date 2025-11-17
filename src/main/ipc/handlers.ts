@@ -30,6 +30,7 @@ import {
   scanSubfoldersAndCreateGalleries
 } from '../services/galleryService.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
+import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 
 export function setupIPC() {
   // 数据库初始化
@@ -59,10 +60,10 @@ export function setupIPC() {
     }
   });
 
-  // 搜索图片
-  ipcMain.handle(IPC_CHANNELS.DB_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, query: string) => {
+  // 搜索图片（支持分页）
+  ipcMain.handle(IPC_CHANNELS.DB_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, query: string, page?: number, pageSize?: number) => {
     try {
-      return await searchImages(query);
+      return await searchImages(query, page, pageSize);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -97,13 +98,29 @@ export function setupIPC() {
     }
   });
 
-  // 生成缩略图（简化版，直接返回原图路径）
-  ipcMain.handle(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string) => {
+  // 生成缩略图
+  ipcMain.handle(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string, force?: boolean) => {
     try {
-      // 简化版本，直接返回原图路径
-      // 实际项目中应该使用sharp生成缩略图
-      console.log(`Thumbnail generation skipped for: ${imagePath}`);
-      return { success: true, data: imagePath };
+      return await generateThumbnail(imagePath, force || false);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取缩略图路径（如果存在）
+  ipcMain.handle('image:get-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
+    try {
+      const thumbnailPath = await getThumbnailIfExists(imagePath);
+      return { success: true, data: thumbnailPath };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 删除缩略图
+  ipcMain.handle('image:delete-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
+    try {
+      return await deleteThumbnail(imagePath);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

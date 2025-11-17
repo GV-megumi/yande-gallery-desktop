@@ -38,7 +38,8 @@ export const SettingsPage: React.FC = () => {
         setFolders(config.galleries?.folders || []);
         form.setFieldsValue({
           downloadPath: config.downloads?.path || './downloads',
-          thumbnailSize: config.thumbnails?.maxWidth || 200,
+          thumbnailSize: config.thumbnails?.maxWidth || 800,
+          thumbnailQuality: config.thumbnails?.quality || 92,
           autoGenerateThumbnail: true,
           theme: config.app?.defaultViewMode || 'light',
           language: 'zh-CN'
@@ -214,7 +215,8 @@ export const SettingsPage: React.FC = () => {
         thumbnails: {
           ...configResult.data.thumbnails,
           maxWidth: values.thumbnailSize,
-          maxHeight: values.thumbnailSize
+          maxHeight: values.thumbnailSize,
+          quality: values.thumbnailQuality || 92
         },
         app: {
           ...configResult.data.app,
@@ -319,11 +321,29 @@ export const SettingsPage: React.FC = () => {
             label="缩略图大小"
             name="thumbnailSize"
             rules={[{ required: true, message: '请选择缩略图大小' }]}
+            tooltip="缩略图的宽度和高度（像素），建议 400-1000 以获得更好的质量"
           >
             <Select>
-              <Option value={150}>小 (150px)</Option>
-              <Option value={200}>中 (200px)</Option>
-              <Option value={300}>大 (300px)</Option>
+              <Option value={300}>小 (300px)</Option>
+              <Option value={400}>中 (400px)</Option>
+              <Option value={600}>大 (600px)</Option>
+              <Option value={800}>高清 (800px)</Option>
+              <Option value={1000}>超清 (1000px)</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="缩略图质量"
+            name="thumbnailQuality"
+            rules={[{ required: true, message: '请输入缩略图质量' }]}
+            tooltip="图片质量 (1-100)，数值越高质量越好，文件也越大。建议 85-95，通常 90 以上能达到约 500KB 大小"
+          >
+            <Select>
+              <Option value={80}>标准 (80)</Option>
+              <Option value={85}>良好 (85)</Option>
+              <Option value={90}>高质量 (90)</Option>
+              <Option value={92}>超高质量 (92)</Option>
+              <Option value={95}>极高 (95)</Option>
             </Select>
           </Form.Item>
 
@@ -331,6 +351,7 @@ export const SettingsPage: React.FC = () => {
             label="自动生成缩略图"
             name="autoGenerateThumbnail"
             valuePropName="checked"
+            tooltip="导入新图片时自动生成缩略图"
           >
             <Switch />
           </Form.Item>

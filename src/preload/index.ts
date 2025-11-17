@@ -44,8 +44,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.DB_GET_IMAGES, page, pageSize),
     addImage: (image: any) =>
       ipcRenderer.invoke(IPC_CHANNELS.DB_ADD_IMAGE, image),
-    searchImages: (query: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.DB_SEARCH_IMAGES, query)
+    searchImages: (query: string, page?: number, pageSize?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.DB_SEARCH_IMAGES, query, page, pageSize)
   },
 
   // 图库操作
@@ -80,8 +80,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   image: {
     scanFolder: (folderPath: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.IMAGE_SCAN_FOLDER, folderPath),
-    generateThumbnail: (imagePath: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, imagePath)
+    generateThumbnail: (imagePath: string, force?: boolean) =>
+      ipcRenderer.invoke(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, imagePath, force),
+    getThumbnail: (imagePath: string) =>
+      ipcRenderer.invoke('image:get-thumbnail', imagePath),
+    deleteThumbnail: (imagePath: string) =>
+      ipcRenderer.invoke('image:delete-thumbnail', imagePath)
   },
 
   // Yande.re API
@@ -112,11 +116,13 @@ declare global {
         init: () => Promise<{ success: boolean; error?: string }>;
         getImages: (page: number, pageSize: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addImage: (image: any) => Promise<{ success: boolean; data?: number; error?: string }>;
-        searchImages: (query: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        searchImages: (query: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
       };
       image: {
         scanFolder: (folderPath: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        generateThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        generateThumbnail: (imagePath: string, force?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>;
+        getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
+        deleteThumbnail: (imagePath: string) => Promise<{ success: boolean; error?: string }>;
       };
       yande: {
         getImages: (page: number, tags?: string[]) => Promise<{ success: boolean; data?: any[]; error?: string }>;

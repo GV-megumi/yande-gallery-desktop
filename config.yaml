@@ -33,9 +33,9 @@ galleries:
         - .bmp
 thumbnails:
   cachePath: data/thumbnails
-  maxWidth: 150
-  maxHeight: 150
-  quality: 85
+  maxWidth: 1000
+  maxHeight: 1000
+  quality: 95
   format: webp
 app:
   recentImagesCount: 100

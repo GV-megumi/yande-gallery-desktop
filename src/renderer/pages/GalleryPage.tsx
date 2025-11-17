@@ -1,14 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Tabs, Row, Col, Segmented } from 'antd';
+import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, ClockCircleOutlined, AppstoreOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 
 const { Search } = Input;
-const { TabPane } = Tabs;
 
-export const GalleryPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState('recent');
-  const [images, setImages] = useState<any[]>([]);
+interface GalleryPageProps {
+  subTab?: 'recent' | 'all' | 'galleries';
+}
+
+export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) => {
+  // 分离不同模式的状态，避免相互干扰
+  const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
+  const [allImages, setAllImages] = useState<any[]>([]); // 所有图片分页数据（每次20张）
+  const [galleryImages, setGalleryImages] = useState<any[]>([]); // 图集图片数据（懒加载，一次1000张）
   const [galleries, setGalleries] = useState<any[]>([]);
   const [selectedGallery, setSelectedGallery] = useState<any | null>(null);
   // 最近图片懒加载：当前可见数量
@@ -18,8 +23,14 @@ export const GalleryPage: React.FC = () => {
   const [allHasMore, setAllHasMore] = useState(true);
   const [galleryVisibleCount, setGalleryVisibleCount] = useState(200);
   const [loading, setLoading] = useState(false);
-  const [scanning, setScanning] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [gallerySearchQuery, setGallerySearchQuery] = useState('');
+  const [allGalleries, setAllGalleries] = useState<any[]>([]);
+  // 搜索模式状态
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchPage, setSearchPage] = useState(1);
+  const [searchHasMore, setSearchHasMore] = useState(true);
+  const [searchTotal, setSearchTotal] = useState(0);
 
   // 加载最近图片
   const loadRecentImages = async (count: number = 2000) => {
@@ -34,7 +45,8 @@ export const GalleryPage: React.FC = () => {
     try {
       const result = await window.electronAPI.gallery.getRecentImages(count);
       if (result.success) {
-        setImages(result.data || []);
+        const data = result.data || [];
+        setRecentImages(data); // 存储到recentImages
       } else {
         message.error('加载最近图片失败: ' + result.error);
       }
@@ -46,19 +58,23 @@ export const GalleryPage: React.FC = () => {
     }
   };
 
-  // 加载所有图片
-  const loadImages = async (page: number = 1, pageSize: number = 500) => {
+  // 加载所有图片（分页加载，每次只加载一页，每页20张避免内存问题）
+  const loadImages = async (page: number = 1, pageSize: number = 20) => {
     if (!window.electronAPI) {
       console.error('electronAPI is not available');
       return;
     }
 
     setLoading(true);
+    // 切换页面时先清空旧数据，避免内存累积
+    setAllImages([]); // 清空所有图片数据
+    console.log(`[loadImages] 前端请求: page=${page}, pageSize=${pageSize}`);
     try {
       const result = await window.electronAPI.db.getImages(page, pageSize);
       if (result.success) {
         const list = result.data || [];
-        setImages(list);
+        console.log(`[loadImages] 前端收到数据数量: ${list.length}`);
+        setAllImages(list); // 存储到allImages（只包含当前页的20张）
         // 如果返回数量少于 pageSize，说明已经没有更多
         setAllHasMore(list.length >= pageSize);
       } else {
@@ -83,7 +99,17 @@ export const GalleryPage: React.FC = () => {
     try {
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success) {
-        setGalleries(result.data || []);
+        const galleryList = result.data || [];
+        setAllGalleries(galleryList);
+        // 根据搜索查询过滤图集
+        if (gallerySearchQuery.trim()) {
+          const filtered = galleryList.filter((gallery: any) =>
+            gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
+          );
+          setGalleries(filtered);
+        } else {
+          setGalleries(galleryList);
+        }
       } else {
         message.error('加载图集失败: ' + result.error);
       }
@@ -95,56 +121,58 @@ export const GalleryPage: React.FC = () => {
     }
   };
 
-  // 扫描文件夹
-  const handleScanFolder = async () => {
-    if (!window.electronAPI) {
-      console.error('electronAPI is not available. Preload script may not be loaded.');
-      message.error('系统功能不可用：electronAPI 未加载，请检查 preload 脚本');
-      return;
-    }
-
-    const result = await window.electronAPI.system.selectFolder();
-    if (!result.success || !result.data) {
-      return;
-    }
-
-    setScanning(true);
-    try {
-      const scanResult = await window.electronAPI.image.scanFolder(result.data);
-      if (scanResult.success) {
-        message.success(`扫描完成，共找到 ${scanResult.data?.length || 0} 张图片`);
-        loadImages();
-      } else {
-        message.error('扫描失败: ' + scanResult.error);
-      }
-    } catch (error) {
-      console.error('Failed to scan folder:', error);
-      message.error('扫描失败');
-    } finally {
-      setScanning(false);
+  // 搜索图集名称
+  const handleGallerySearch = (query: string) => {
+    setGallerySearchQuery(query);
+    if (!query.trim()) {
+      setGalleries(allGalleries);
+    } else {
+      const filtered = allGalleries.filter((gallery: any) =>
+        gallery.name.toLowerCase().includes(query.toLowerCase())
+      );
+      setGalleries(filtered);
     }
   };
 
-  // 搜索图片
-  const handleSearch = async (query: string) => {
+  // 搜索图片（支持分页，每次只加载一页，每页20张避免内存问题）
+  const handleSearch = async (query: string, page: number = 1, pageSize: number = 20) => {
     if (!window.electronAPI) return;
 
     if (!query.trim()) {
-      loadImages();
+      setIsSearchMode(false);
+      setSearchQuery('');
+      setSearchPage(1);
+      loadImages(1, 20);
       return;
     }
 
+    setLoading(true);
+    setIsSearchMode(true);
+    setSearchPage(page);
+    // 切换页面时先清空旧数据，避免内存累积
+    setAllImages([]); // 清空所有图片数据
     try {
-      const result = await window.electronAPI.db.searchImages(query);
+      const result: any = await window.electronAPI.db.searchImages(query, page, pageSize);
       if (result.success) {
-        setImages(result.data || []);
+        const list = result.data || [];
+        setAllImages(list); // 存储到allImages（搜索结果，只包含当前页的20张）
+        setSearchTotal(result.total || 0);
+        // 如果返回数量少于 pageSize，说明已经没有更多
+        setSearchHasMore(list.length >= pageSize);
       } else {
         message.error('搜索失败: ' + result.error);
       }
     } catch (error) {
       console.error('Search failed:', error);
       message.error('搜索失败');
+    } finally {
+      setLoading(false);
     }
+  };
+
+  // 搜索输入框的回调（只接收一个参数）
+  const handleSearchInput = (value: string) => {
+    handleSearch(value, 1, 50);
   };
 
   // 加载图集图片
@@ -161,7 +189,8 @@ export const GalleryPage: React.FC = () => {
         // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
         const result = await window.electronAPI.gallery.getImagesByFolder(folderPath, 1, 1000);
         if (result.success) {
-          setImages(result.data || []);
+          const data = result.data || [];
+          setGalleryImages(data); // 存储到galleryImages
         } else {
           message.error('加载图集图片失败: ' + result.error);
         }
@@ -209,41 +238,70 @@ export const GalleryPage: React.FC = () => {
   };
 
   useEffect(() => {
-    if (activeTab === 'recent') {
-      // 切换到“最近图片”标签时，重置可见数量
+    if (subTab === 'recent') {
+      // 切换到"最近图片"时，重置可见数量
       setRecentVisibleCount(200);
+      setIsSearchMode(false);
+      setSearchQuery('');
+      // 切换tab时先清空其他模式的数据
+      setAllImages([]);
+      setGalleryImages([]);
       loadRecentImages(2000);
-    } else if (activeTab === 'all') {
+    } else if (subTab === 'all') {
       setAllPage(1);
-      loadImages(1, 500);
-    } else if (activeTab === 'galleries') {
+      setIsSearchMode(false);
+      setSearchQuery('');
+      // 切换tab时先清空其他模式的数据
+      setRecentImages([]);
+      setGalleryImages([]);
+      setAllImages([]);
+      loadImages(1, 20);
+    } else if (subTab === 'galleries') {
+      // 切换tab时先清空其他模式的数据
+      setRecentImages([]);
+      setAllImages([]);
+      setGalleryImages([]);
       loadGalleries();
     }
-  }, [activeTab]);
+  }, [subTab]);
+
+  // 当图集搜索查询改变时，重新过滤图集列表
+  useEffect(() => {
+    if (subTab === 'galleries' && allGalleries.length > 0) {
+      if (!gallerySearchQuery.trim()) {
+        setGalleries(allGalleries);
+      } else {
+        const filtered = allGalleries.filter((gallery: any) =>
+          gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
+        );
+        setGalleries(filtered);
+      }
+    }
+  }, [gallerySearchQuery, allGalleries, subTab]);
 
   // 最近图片：滚动到底部附近时，自动再加载 200 张（懒加载渲染）
   useEffect(() => {
-    if (activeTab !== 'recent') return;
+    if (subTab !== 'recent') return;
 
     const handleScroll = () => {
       const scrollElement = document.documentElement || document.body;
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
 
       // 距离底部 300px 以内并且还有未显示的图片时，增加可见数量
-      if (scrollHeight - (scrollTop + clientHeight) < 300) {
-        setRecentVisibleCount((prev) => {
-          if (prev >= images.length) return prev;
-          return Math.min(prev + 200, images.length);
-        });
-      }
+        if (scrollHeight - (scrollTop + clientHeight) < 300) {
+          setRecentVisibleCount((prev) => {
+            if (prev >= recentImages.length) return prev;
+            return Math.min(prev + 200, recentImages.length);
+          });
+        }
     };
 
     window.addEventListener('scroll', handleScroll);
     return () => {
       window.removeEventListener('scroll', handleScroll);
     };
-    // 依赖于 images.length，保证新数据加载后滚动逻辑仍然生效
-  }, [activeTab, images.length, images]);
+    // 依赖于 recentImages.length，保证新数据加载后滚动逻辑仍然生效
+  }, [subTab, recentImages.length, recentImages]);
 
   // 将本地文件路径转换为 app:// 协议 URL（用于图集封面）
   const getImageUrl = (filePath: string): string => {
@@ -253,27 +311,12 @@ export const GalleryPage: React.FC = () => {
     return `app://${normalized}`;
   };
 
-  return (
-    <div style={{ padding: '24px' }}>
-      <Tabs activeKey={activeTab} onChange={setActiveTab}>
-        <TabPane
-          tab={
-            <span>
-              <ClockCircleOutlined />
-              最近图片
-            </span>
-          }
-          key="recent"
-        >
+  // 根据 subTab 渲染不同内容
+  const renderContent = () => {
+    if (subTab === 'recent') {
+      return (
+        <>
           <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <Button
-              type="primary"
-              icon={<FolderOpenOutlined />}
-              onClick={handleScanFolder}
-              loading={scanning}
-            >
-              扫描文件夹
-            </Button>
             <Search
               placeholder="搜索图片..."
               allowClear
@@ -281,7 +324,7 @@ export const GalleryPage: React.FC = () => {
               style={{ width: 300 }}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onSearch={handleSearch}
+              onSearch={handleSearchInput}
             />
           </div>
 
@@ -289,58 +332,41 @@ export const GalleryPage: React.FC = () => {
             <div style={{ textAlign: 'center', padding: '50px' }}>
               <Spin size="large" />
             </div>
-          ) : images.length === 0 ? (
+          ) : recentImages.length === 0 ? (
             <Empty
               description="暂无最近图片"
               style={{ marginTop: '100px' }}
-            >
-              <Button type="primary" onClick={handleScanFolder}>
-                扫描文件夹
-              </Button>
-            </Empty>
+            />
           ) : (
             <>
+              {/* 最近图片：懒加载模式，只渲染可见部分 */}
               <ImageGrid
-                images={images.slice(0, recentVisibleCount)}
+                images={recentImages.slice(0, recentVisibleCount)}
                 onReload={loadRecentImages}
                 groupBy="day"
                 showTimeline
               />
-              {recentVisibleCount < images.length && (
+              {recentVisibleCount < recentImages.length && (
                 <div style={{ marginTop: 24, textAlign: 'center' }}>
                   <Button
                     onClick={() =>
                       setRecentVisibleCount((prev) =>
-                        Math.min(prev + 200, images.length)
+                        Math.min(prev + 200, recentImages.length)
                       )
                     }
                   >
-                    加载更多（{recentVisibleCount}/{images.length}）
+                    加载更多（{recentVisibleCount}/{recentImages.length}）
                   </Button>
                 </div>
               )}
             </>
           )}
-        </TabPane>
-
-        <TabPane
-          tab={
-            <span>
-              <AppstoreOutlined />
-              所有图片
-            </span>
-          }
-          key="all"
-        >
+        </>
+      );
+    } else if (subTab === 'all') {
+      return (
+        <>
           <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
-            <Button
-              type="primary"
-              icon={<FolderOpenOutlined />}
-              onClick={handleScanFolder}
-              loading={scanning}
-            >
-              扫描文件夹
-            </Button>
             <Search
               placeholder="搜索图片..."
               allowClear
@@ -348,7 +374,7 @@ export const GalleryPage: React.FC = () => {
               style={{ width: 300 }}
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onSearch={handleSearch}
+              onSearch={handleSearchInput}
             />
           </div>
 
@@ -356,38 +382,54 @@ export const GalleryPage: React.FC = () => {
             <div style={{ textAlign: 'center', padding: '50px' }}>
               <Spin size="large" />
             </div>
-          ) : images.length === 0 ? (
+          ) : allImages.length === 0 ? (
             <Empty
-              description="暂无图片"
+              description={isSearchMode ? `未找到匹配"${searchQuery}"的图片` : '暂无图片'}
               style={{ marginTop: '100px' }}
-            >
-              <Button type="primary" onClick={handleScanFolder}>
-                扫描文件夹
-              </Button>
-            </Empty>
+            />
           ) : (
             <>
-              <ImageGrid images={images} onReload={() => loadImages(allPage, 500)} sortBy="time" />
+              {isSearchMode && (
+                <div style={{ marginBottom: '16px', color: '#666' }}>
+                  找到 {searchTotal} 张匹配的图片
+                </div>
+              )}
+              {/* 所有图片：分页模式，只渲染当前页的20张图片 */}
+              <ImageGrid images={allImages} onReload={() => isSearchMode ? handleSearch(searchQuery, searchPage, 20) : loadImages(allPage, 20)} sortBy="time" groupBy="none" />
               <div style={{ marginTop: 24, textAlign: 'center' }}>
                 <Space>
                   <Button
-                    disabled={allPage <= 1}
+                    disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
                     onClick={() => {
-                      const next = Math.max(1, allPage - 1);
-                      setAllPage(next);
-                      loadImages(next, 500);
+                      if (isSearchMode) {
+                        const next = Math.max(1, searchPage - 1);
+                        handleSearch(searchQuery, next, 20);
+                      } else {
+                        const next = Math.max(1, allPage - 1);
+                        setAllPage(next);
+                        loadImages(next, 20);
+                      }
                     }}
                   >
                     上一页
                   </Button>
-                  <span>第 {allPage} 页</span>
+                  <span>
+                    第 {isSearchMode ? searchPage : allPage} 页
+                    {isSearchMode && searchTotal > 0 && ` / 共 ${Math.ceil(searchTotal / 20)} 页`}
+                  </span>
                   <Button
-                    disabled={!allHasMore}
+                    disabled={isSearchMode ? !searchHasMore : !allHasMore}
                     onClick={() => {
-                      if (!allHasMore) return;
-                      const next = allPage + 1;
-                      setAllPage(next);
-                      loadImages(next, 500);
+                      if (isSearchMode) {
+                        if (!searchHasMore) return;
+                        const next = searchPage + 1;
+                        handleSearch(searchQuery, next, 20);
+                      } else {
+                        if (!allHasMore) return;
+                        const next = allPage + 1;
+                        setAllPage(next);
+                        loadImages(next, 20);
+                      }
                     }}
                   >
                     下一页
@@ -396,18 +438,12 @@ export const GalleryPage: React.FC = () => {
               </div>
             </>
           )}
-        </TabPane>
-
-        <TabPane
-          tab={
-            <span>
-              <AppstoreOutlined />
-              图集
-            </span>
-          }
-          key="galleries"
-        >
-          <div style={{ marginBottom: '24px' }}>
+        </>
+      );
+    } else if (subTab === 'galleries') {
+      return (
+        <>
+          <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
             <Button
               type="primary"
               icon={<FolderOpenOutlined />}
@@ -415,12 +451,24 @@ export const GalleryPage: React.FC = () => {
             >
               创建图集
             </Button>
+            <Search
+              placeholder="搜索图集名称..."
+              allowClear
+              enterButton={<SearchOutlined />}
+              style={{ width: 300 }}
+              value={gallerySearchQuery}
+              onChange={(e) => setGallerySearchQuery(e.target.value)}
+              onSearch={handleGallerySearch}
+            />
           </div>
 
           {selectedGallery ? (
             <>
               <div style={{ marginBottom: '16px' }}>
-                <Button onClick={() => { setSelectedGallery(null); setImages([]); }}>
+                <Button onClick={() => { 
+                  setSelectedGallery(null); 
+                  setGalleryImages([]);
+                }}>
                   返回图集列表
                 </Button>
                 <span style={{ marginLeft: 16, fontWeight: 'bold' }}>
@@ -444,26 +492,27 @@ export const GalleryPage: React.FC = () => {
                 <div style={{ textAlign: 'center', padding: '50px' }}>
                   <Spin size="large" />
                 </div>
-              ) : images.length === 0 ? (
+              ) : galleryImages.length === 0 ? (
                 <Empty description="该图集暂无图片" style={{ marginTop: '100px' }} />
               ) : (
                 <>
+                  {/* 图集：懒加载模式，只渲染可见部分 */}
                   <ImageGrid
-                    images={images.slice(0, galleryVisibleCount)}
+                    images={galleryImages.slice(0, galleryVisibleCount)}
                     onReload={() => loadGalleryImages(selectedGallery.id)}
                     groupBy={gallerySort === 'time' ? 'day' : 'none'}
                     sortBy={gallerySort}
                   />
-                  {galleryVisibleCount < images.length && (
+                  {galleryVisibleCount < galleryImages.length && (
                     <div style={{ textAlign: 'center', marginTop: 24 }}>
                       <Button
                         onClick={() =>
                           setGalleryVisibleCount((prev) =>
-                            Math.min(prev + 200, images.length)
+                            Math.min(prev + 200, galleryImages.length)
                           )
                         }
                       >
-                        加载更多（{galleryVisibleCount}/{images.length}）
+                        加载更多（{galleryVisibleCount}/{galleryImages.length}）
                       </Button>
                     </div>
                   )}
@@ -476,7 +525,7 @@ export const GalleryPage: React.FC = () => {
             </div>
           ) : galleries.length === 0 ? (
             <Empty
-              description="暂无图集"
+              description={gallerySearchQuery ? '未找到匹配的图集' : '暂无图集'}
               style={{ marginTop: '100px' }}
             >
               <Button type="primary" onClick={handleCreateGallery}>
@@ -528,8 +577,15 @@ export const GalleryPage: React.FC = () => {
               ))}
             </Row>
           )}
-        </TabPane>
-      </Tabs>
+        </>
+      );
+    }
+    return null;
+  };
+
+  return (
+    <div style={{ padding: '24px' }}>
+      {renderContent()}
     </div>
   );
 };
