@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, ClockCircleOutlined, AppstoreOutlined, QuestionCircleOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
@@ -130,6 +130,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const [searchPage, setSearchPage] = useState(1);
   const [searchHasMore, setSearchHasMore] = useState(true);
   const [searchTotal, setSearchTotal] = useState(0);
+  // 图集排序相关状态
+  const [gallerySortKey, setGallerySortKey] = useState<'name' | 'createdAt' | 'updatedAt'>('updatedAt');
+  const [gallerySortOrder, setGallerySortOrder] = useState<'asc' | 'desc'>('desc');
 
   // 加载最近图片
   const loadRecentImages = async (count: number = 2000) => {
@@ -209,17 +212,21 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       if (result.success) {
         const galleryList = result.data || [];
         console.log(`[GalleryPage] 图集列表加载成功，共 ${galleryList.length} 个图集`);
+        // 先保存原始数据到 allGalleries
         setAllGalleries(galleryList);
         // 根据搜索查询过滤图集
+        let filtered;
         if (gallerySearchQuery.trim()) {
-          const filtered = galleryList.filter((gallery: any) =>
+          filtered = galleryList.filter((gallery: any) =>
             gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
           );
           console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
-          setGalleries(filtered);
         } else {
-          setGalleries(galleryList);
+          filtered = galleryList;
         }
+        // 对过滤后的图集进行排序
+        const sorted = sortGalleries(filtered);
+        setGalleries(sorted);
       } else {
         console.error('[GalleryPage] 加载图集失败:', result.error);
         message.error('加载图集失败: ' + result.error);
@@ -237,16 +244,19 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const handleGallerySearch = (query: string) => {
     console.log(`[GalleryPage] 搜索图集，查询条件: ${query}`);
     setGallerySearchQuery(query);
+    let filtered;
     if (!query.trim()) {
       console.log('[GalleryPage] 图集搜索条件为空，显示全部图集');
-      setGalleries(allGalleries);
+      filtered = allGalleries;
     } else {
-      const filtered = allGalleries.filter((gallery: any) =>
+      filtered = allGalleries.filter((gallery: any) =>
         gallery.name.toLowerCase().includes(query.toLowerCase())
       );
       console.log(`[GalleryPage] 图集搜索结果数量: ${filtered.length}`);
-      setGalleries(filtered);
     }
+    // 对搜索结果应用排序
+    const sorted = sortGalleries(filtered);
+    setGalleries(sorted);
   };
 
   // 搜索图片（支持分页，每次只加载一页，每页20张避免内存问题）
@@ -467,6 +477,40 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     }
   };
 
+  // 对图集列表进行排序
+  const sortGalleries = (galleryList: any[]): any[] => {
+    console.log(`[GalleryPage] 开始对图集进行排序，排序字段: ${gallerySortKey}, 排序顺序: ${gallerySortOrder}`);
+
+    const sorted = [...galleryList].sort((a, b) => {
+      let aValue: any;
+      let bValue: any;
+
+      switch (gallerySortKey) {
+        case 'name':
+          aValue = a.name?.toLowerCase() || '';
+          bValue = b.name?.toLowerCase() || '';
+          break;
+        case 'createdAt':
+          aValue = new Date(a.createdAt || 0).getTime();
+          bValue = new Date(b.createdAt || 0).getTime();
+          break;
+        case 'updatedAt':
+          aValue = new Date(a.updatedAt || 0).getTime();
+          bValue = new Date(b.updatedAt || 0).getTime();
+          break;
+        default:
+          return 0;
+      }
+
+      if (aValue < bValue) return gallerySortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return gallerySortOrder === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    console.log(`[GalleryPage] 图集排序完成，共 ${sorted.length} 个`);
+    return sorted;
+  };
+
   useEffect(() => {
     console.log(`[GalleryPage] 切换标签页到: ${subTab}`);
     if (subTab === 'recent') {
@@ -519,30 +563,63 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     }
   }, [gallerySearchQuery, allGalleries, subTab]);
 
+  // 当图集排序参数改变时，重新排序图集列表
+  useEffect(() => {
+    if (subTab === 'galleries' && galleries.length > 0) {
+      console.log(`[GalleryPage] 排序参数变更，重新排序 ${galleries.length} 个图集`);
+      const sorted = sortGalleries(galleries);
+      setGalleries(sorted);
+    }
+  }, [gallerySortKey, gallerySortOrder, subTab]);
+
+  // 内容容器 ref，用于监听滚动
+  const contentRef = useRef<HTMLDivElement>(null);
+
   // 最近图片：滚动到底部附近时，自动再加载 200 张（懒加载渲染）
   useEffect(() => {
     if (subTab !== 'recent') return;
 
     console.log('[GalleryPage] 注册滚动事件监听器（最近图片懒加载）');
-    const handleScroll = () => {
-      const scrollElement = document.documentElement || document.body;
-      const { scrollTop, scrollHeight, clientHeight } = scrollElement;
-
-      // 距离底部 300px 以内并且还有未显示的图片时，增加可见数量
-        if (scrollHeight - (scrollTop + clientHeight) < 300) {
-          setRecentVisibleCount((prev) => {
-            if (prev >= recentImages.length) return prev;
-            const newCount = Math.min(prev + 200, recentImages.length);
-            console.log(`[GalleryPage] 滚动触发懒加载，可见数量: ${newCount}/${recentImages.length}`);
-            return newCount;
-          });
+    
+    // 查找最近的滚动容器（父级的 Content 元素）
+    const findScrollContainer = (): HTMLElement | null => {
+      if (!contentRef.current) return null;
+      
+      let parent = contentRef.current.parentElement;
+      while (parent) {
+        const style = window.getComputedStyle(parent);
+        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+          return parent;
         }
+        parent = parent.parentElement;
+      }
+      return null;
     };
 
-    window.addEventListener('scroll', handleScroll);
+    const scrollContainer = findScrollContainer();
+    if (!scrollContainer) {
+      console.warn('[GalleryPage] 未找到滚动容器，使用 window 滚动');
+      return;
+    }
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+
+      // 距离底部 300px 以内并且还有未显示的图片时，增加可见数量
+      if (scrollHeight - (scrollTop + clientHeight) < 300) {
+        setRecentVisibleCount((prev) => {
+          if (prev >= recentImages.length) return prev;
+          const newCount = Math.min(prev + 200, recentImages.length);
+          console.log(`[GalleryPage] 滚动触发懒加载，可见数量: ${newCount}/${recentImages.length}`);
+          return newCount;
+        });
+      }
+    };
+
+    scrollContainer.addEventListener('scroll', handleScroll);
     return () => {
       console.log('[GalleryPage] 移除滚动事件监听器');
-      window.removeEventListener('scroll', handleScroll);
+      scrollContainer.removeEventListener('scroll', handleScroll);
     };
     // 依赖于 recentImages.length，保证新数据加载后滚动逻辑仍然生效
   }, [subTab, recentImages.length, recentImages]);
@@ -705,6 +782,33 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                 value={gallerySearchQuery}
                 onChange={(e) => setGallerySearchQuery(e.target.value)}
                 onSearch={handleGallerySearch}
+              />
+              {/* 排序控件 */}
+              <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#666' }}>排序:</span>
+              <Segmented
+                size="small"
+                value={gallerySortKey}
+                onChange={(val) => {
+                  console.log(`[GalleryPage] 图集排序字段变更: ${val}`);
+                  setGallerySortKey(val as 'name' | 'createdAt' | 'updatedAt');
+                }}
+                options={[
+                  { label: '名字', value: 'name' },
+                  { label: '创建时间', value: 'createdAt' },
+                  { label: '更新时间', value: 'updatedAt' }
+                ]}
+              />
+              <Segmented
+                size="small"
+                value={gallerySortOrder}
+                onChange={(val) => {
+                  console.log(`[GalleryPage] 图集排序顺序变更: ${val}`);
+                  setGallerySortOrder(val as 'asc' | 'desc');
+                }}
+                options={[
+                  { label: '升序', value: 'asc' },
+                  { label: '降序', value: 'desc' }
+                ]}
               />
             </div>
           )}
@@ -884,7 +988,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   };
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div ref={contentRef} style={{ padding: '24px' }}>
       {renderContent()}
       
       {/* 图集信息模态框 */}

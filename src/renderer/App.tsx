@@ -92,9 +92,9 @@ export const App: React.FC = () => {
   };
 
   return (
-    <Layout style={{ minHeight: '100vh' }}>
-      <Sider width={200} theme="light" style={{ display: 'flex', flexDirection: 'column' }}>
-        {/* 主菜单 - 顶部 */}
+    <Layout style={{ height: '100vh', overflow: 'hidden' }}>
+      <Sider width={200} theme="light" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+        {/* 主菜单 - 顶部固定 */}
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
@@ -106,33 +106,40 @@ export const App: React.FC = () => {
               setSelectedSubKey('recent');
             }
           }}
-          style={{ borderBottom: '1px solid #f0f0f0' }}
+          style={{ borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}
         />
         
-        {/* 子菜单 - 只在图库模式下显示 */}
+        {/* 子菜单 - 只在图库模式下显示，独立滚动 */}
         {selectedKey === 'gallery' && (
-          <Menu
-            mode="inline"
-            selectedKeys={[selectedSubKey]}
-            items={gallerySubMenuItems}
-            onClick={({ key }) => {
-              console.log(`[App] 图库子菜单切换: ${key}`);
-              setSelectedSubKey(key);
-            }}
-            style={{ flex: 1 }}
-          />
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedSubKey]}
+              items={gallerySubMenuItems}
+              onClick={({ key }) => {
+                console.log(`[App] 图库子菜单切换: ${key}`);
+                setSelectedSubKey(key);
+              }}
+            />
+          </div>
         )}
       </Sider>
 
-      <Layout>
-        <Header style={{ padding: 0, background: colorBgContainer }}>
+      <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+        <Header style={{ padding: 0, background: colorBgContainer, flexShrink: 0 }}>
           <h2 style={{ margin: '0 24px' }}>
             {selectedKey === 'gallery' 
               ? `图库 - ${gallerySubMenuItems.find(item => item.key === selectedSubKey)?.label}`
               : mainMenuItems.find(item => item.key === selectedKey)?.label}
           </h2>
         </Header>
-        <Content style={{ margin: '24px 16px 0', overflow: 'initial' }}>
+        <Content style={{ 
+          margin: '24px 16px', 
+          overflowY: 'auto', 
+          overflowX: 'hidden',
+          flex: 1,
+          height: 0 // 用于 flex 布局中正确计算高度
+        }}>
           {renderContent()}
         </Content>
       </Layout>
