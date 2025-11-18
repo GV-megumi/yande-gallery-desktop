@@ -21,20 +21,23 @@ export const SettingsPage: React.FC = () => {
 
   // 加载配置
   useEffect(() => {
+    console.log('[SettingsPage] 组件挂载，加载配置');
     loadConfig();
   }, []);
 
   const loadConfig = async () => {
     if (!window.electronAPI) {
-      console.error('electronAPI is not available');
+      console.error('[SettingsPage] electronAPI is not available');
       return;
     }
 
+    console.log('[SettingsPage] 开始加载配置');
     try {
       setLoading(true);
       const result = await window.electronAPI.config.get();
       if (result.success && result.data) {
         const config = result.data;
+        console.log('[SettingsPage] 配置加载成功', config);
         setFolders(config.galleries?.folders || []);
         form.setFieldsValue({
           downloadPath: config.downloads?.path || './downloads',
@@ -44,38 +47,47 @@ export const SettingsPage: React.FC = () => {
           theme: config.app?.defaultViewMode || 'light',
           language: 'zh-CN'
         });
+      } else {
+        console.error('[SettingsPage] 配置加载失败:', result.error);
       }
     } catch (error) {
       console.error('Failed to load config:', error);
       message.error('加载配置失败');
     } finally {
       setLoading(false);
+      console.log('[SettingsPage] 配置加载完成');
     }
   };
 
   // 添加文件夹
   const handleAddFolder = async () => {
     if (!window.electronAPI) {
+      console.error('[SettingsPage] electronAPI is not available');
       message.error('系统功能不可用');
       return;
     }
 
+    console.log('[SettingsPage] 开始添加文件夹');
     try {
       const result = await window.electronAPI.system.selectFolder();
       if (!result.success || !result.data) {
+        console.log('[SettingsPage] 取消添加文件夹或选择失败');
         return;
       }
 
       const folderPath = result.data;
-      
+      console.log(`[SettingsPage] 选择文件夹成功: ${folderPath}`);
+
       // 检查是否已存在
       if (folders.some(f => f.path === folderPath)) {
+        console.warn('[SettingsPage] 文件夹已存在，跳过添加');
         message.warning('该文件夹已存在');
         return;
       }
 
       // 生成文件夹名称（使用文件夹名）
       const folderName = folderPath.split(/[/\\]/).pop() || '未命名文件夹';
+      console.log(`[SettingsPage] 生成文件夹名称: ${folderName}`);
 
       // 创建新文件夹配置
       const newFolder: GalleryFolder = {
@@ -89,6 +101,7 @@ export const SettingsPage: React.FC = () => {
       // 添加到列表
       const updatedFolders = [...folders, newFolder];
       setFolders(updatedFolders);
+      console.log(`[SettingsPage] 添加到列表，当前文件夹数量: ${updatedFolders.length}`);
 
       // 保存配置
       await saveFoldersConfig(updatedFolders);
@@ -100,6 +113,7 @@ export const SettingsPage: React.FC = () => {
         okText: '立即扫描',
         cancelText: '稍后扫描',
         onOk: () => {
+          console.log('[SettingsPage] 用户确认扫描子文件夹');
           // 后台触发，不阻塞弹框关闭
           void scanSubfolders(folderPath, newFolder.extensions);
         }
@@ -113,27 +127,31 @@ export const SettingsPage: React.FC = () => {
   // 扫描子文件夹并创建图集
   const scanSubfolders = async (rootPath: string, extensions: string[]) => {
     if (!window.electronAPI) {
+      console.error('[SettingsPage] electronAPI is not available');
       message.error('系统功能不可用');
       return;
     }
 
+    console.log(`[SettingsPage] 开始扫描子文件夹: ${rootPath}`);
     try {
       setScanning(rootPath);
       message.loading({ content: '正在后台扫描子文件夹...', key: 'scanning', duration: 0 });
 
       const result = await window.electronAPI.gallery.scanSubfolders(rootPath, extensions);
-      
+
       if (result.success && result.data) {
         const anyData: any = result.data;
         const { created, skipped } = anyData;
         const imported = anyData.imported ?? 0;
         const imageSkipped = anyData.imageSkipped ?? 0;
+        console.log(`[SettingsPage] 子文件夹扫描成功: 创建图集 ${created} 个，跳过 ${skipped} 个，导入图片 ${imported} 张，跳过 ${imageSkipped} 张`);
         message.success({
           content: `扫描完成：创建图集 ${created} 个，跳过 ${skipped} 个，导入图片 ${imported} 张，跳过 ${imageSkipped} 张`,
           key: 'scanning',
           duration: 5
         });
       } else {
+        console.error('[SettingsPage] 子文件夹扫描失败:', result.error);
         message.error({
           content: result.error || '扫描失败',
           key: 'scanning',
@@ -149,21 +167,26 @@ export const SettingsPage: React.FC = () => {
       });
     } finally {
       setScanning(null);
+      console.log('[SettingsPage] 子文件夹扫描完成');
     }
   };
 
   // 删除文件夹
   const handleDeleteFolder = (index: number) => {
+    const folderName = folders[index].name;
+    console.log(`[SettingsPage] 用户请求删除文件夹: ${folderName}`);
     Modal.confirm({
       title: '确认删除',
-      content: `确定要删除文件夹 "${folders[index].name}" 吗？`,
+      content: `确定要删除文件夹 "${folderName}" 吗？`,
       okText: '删除',
       cancelText: '取消',
       okType: 'danger',
       onOk: async () => {
+        console.log(`[SettingsPage] 确认删除文件夹: ${folderName}`);
         const updatedFolders = folders.filter((_, i) => i !== index);
         setFolders(updatedFolders);
         await saveFoldersConfig(updatedFolders);
+        console.log('[SettingsPage] 文件夹删除成功');
         message.success('已删除文件夹');
       }
     });
@@ -172,15 +195,18 @@ export const SettingsPage: React.FC = () => {
   // 保存文件夹配置
   const saveFoldersConfig = async (foldersToSave: GalleryFolder[]) => {
     if (!window.electronAPI) {
+      console.error('[SettingsPage] electronAPI is not available');
       message.error('系统功能不可用');
       return;
     }
 
+    console.log(`[SettingsPage] 保存文件夹配置，数量: ${foldersToSave.length}`);
     try {
       const result = await window.electronAPI.config.updateGalleryFolders(foldersToSave);
       if (result.success) {
-        console.log('Folders config saved');
+        console.log('[SettingsPage] 文件夹配置保存成功');
       } else {
+        console.error('[SettingsPage] 保存文件夹配置失败:', result.error);
         message.error(result.error || '保存配置失败');
       }
     } catch (error) {
@@ -191,21 +217,26 @@ export const SettingsPage: React.FC = () => {
 
   // 保存设置
   const handleSave = async (values: any) => {
+    console.log('[SettingsPage] 开始保存设置', values);
     setSaving(true);
     try {
       if (!window.electronAPI) {
+        console.error('[SettingsPage] electronAPI is not available');
         message.error('系统功能不可用');
         return;
       }
 
       // 加载当前配置
+      console.log('[SettingsPage] 加载当前配置');
       const configResult = await window.electronAPI.config.get();
       if (!configResult.success || !configResult.data) {
+        console.error('[SettingsPage] 获取配置失败:', configResult.error);
         message.error('获取配置失败');
         return;
       }
 
       // 更新配置
+      console.log('[SettingsPage] 更新配置项');
       const updatedConfig = {
         ...configResult.data,
         downloads: {
@@ -226,8 +257,10 @@ export const SettingsPage: React.FC = () => {
 
       const result = await window.electronAPI.config.save(updatedConfig);
       if (result.success) {
+        console.log('[SettingsPage] 设置保存成功');
         message.success('设置已保存');
       } else {
+        console.error('[SettingsPage] 设置保存失败:', result.error);
         message.error(result.error || '保存失败');
       }
     } catch (error) {
@@ -235,6 +268,7 @@ export const SettingsPage: React.FC = () => {
       message.error('保存失败');
     } finally {
       setSaving(false);
+      console.log('[SettingsPage] 设置保存完成');
     }
   };
 

@@ -56,15 +56,18 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
   const [selectedImage, setSelectedImage] = useState<any>(null);
 
   const handlePreview = (imagePath: string) => {
+    console.log(`[ImageGrid] 预览图片: ${imagePath}`);
     setPreviewImage(getImageUrl(imagePath));
   };
 
   const handleImageInfo = (image: any) => {
+    console.log(`[ImageGrid] 查看图片信息: ${image.filename} (ID: ${image.id})`);
     setSelectedImage(image);
   };
 
   // 根据 groupBy 对图片按修改时间分组（降序）
   const groupedImages = useMemo(() => {
+    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${images.length}, 分组: ${groupBy}, 排序: ${sortBy}`);
     const sorted = [...images].sort((a, b) => {
       if (sortBy === 'name') {
         return (a.filename || '').localeCompare(b.filename || '');
@@ -77,6 +80,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
     });
 
     if (groupBy === 'none') {
+      console.log('[ImageGrid] 不分组，直接返回所有图片');
       return { '__all__': sorted };
     }
 
@@ -86,6 +90,8 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
       if (!groups[key]) groups[key] = [];
       groups[key].push(img);
     }
+    const groupKeys = Object.keys(groups);
+    console.log(`[ImageGrid] 分组完成，分组数量: ${groupKeys.length}, 分组键: ${groupKeys.join(', ')}`);
     return groups;
   }, [images, groupBy, sortBy]);
 
@@ -211,7 +217,10 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
         open={!!previewImage}
         title="图片预览"
         footer={null}
-        onCancel={() => setPreviewImage(null)}
+        onCancel={() => {
+          console.log('[ImageGrid] 关闭图片预览');
+          setPreviewImage(null);
+        }}
         width="80%"
         style={{ maxWidth: '1200px' }}
       >
@@ -232,7 +241,10 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
         open={!!selectedImage}
         title="图片信息"
         footer={null}
-        onCancel={() => setSelectedImage(null)}
+        onCancel={() => {
+          console.log('[ImageGrid] 关闭图片信息');
+          setSelectedImage(null);
+        }}
         width={600}
       >
         {selectedImage && (
@@ -261,6 +273,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                   type={currentGallery.coverImageId === selectedImage.id ? 'primary' : 'default'}
                   onClick={() => {
                     if (onSetCover && selectedImage.id) {
+                      console.log(`[ImageGrid] 设置封面请求: 图片ID ${selectedImage.id}`);
                       onSetCover(selectedImage.id);
                       setSelectedImage(null);
                     }

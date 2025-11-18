@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(npm config:*)",
-      "Bash(npm run build:*)"
+      "Bash(npm run build:*)",
+      "Bash(tree src/renderer -I node_modules)"
     ],
     "deny": [],
     "ask": []

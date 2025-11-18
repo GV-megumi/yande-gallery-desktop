@@ -138,6 +138,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return;
     }
 
+    console.log(`[GalleryPage] 开始加载最近图片，数量: ${count}`);
     setLoading(true);
     // 每次重新加载最近图片时，重置可见数量
     setRecentVisibleCount(200);
@@ -145,8 +146,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       const result = await window.electronAPI.gallery.getRecentImages(count);
       if (result.success) {
         const data = result.data || [];
+        console.log(`[GalleryPage] 最近图片加载成功，共 ${data.length} 张`);
         setRecentImages(data); // 存储到recentImages
       } else {
+        console.error('[GalleryPage] 加载最近图片失败:', result.error);
         message.error('加载最近图片失败: ' + result.error);
       }
     } catch (error) {
@@ -154,6 +157,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       message.error('加载最近图片失败');
     } finally {
       setLoading(false);
+      console.log('[GalleryPage] 最近图片加载完成');
     }
   };
 
@@ -164,6 +168,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return;
     }
 
+    console.log(`[GalleryPage] 开始加载所有图片，页码: ${page}, 每页: ${pageSize}`);
     setLoading(true);
     // 切换页面时先清空旧数据，避免内存累积
     setAllImages([]); // 清空所有图片数据
@@ -176,7 +181,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
         setAllImages(list); // 存储到allImages（只包含当前页的20张）
         // 如果返回数量少于 pageSize，说明已经没有更多
         setAllHasMore(list.length >= pageSize);
+        console.log(`[GalleryPage] 所有图片加载成功，当前页 ${page}，共 ${list.length} 张`);
       } else {
+        console.error('[GalleryPage] 加载所有图片失败:', result.error);
         message.error('加载图片失败: ' + result.error);
       }
     } catch (error) {
@@ -184,6 +191,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       message.error('加载图片失败');
     } finally {
       setLoading(false);
+      console.log('[GalleryPage] 所有图片加载完成');
     }
   };
 
@@ -194,22 +202,26 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return;
     }
 
+    console.log('[GalleryPage] 开始加载图集列表');
     setLoading(true);
     try {
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success) {
         const galleryList = result.data || [];
+        console.log(`[GalleryPage] 图集列表加载成功，共 ${galleryList.length} 个图集`);
         setAllGalleries(galleryList);
         // 根据搜索查询过滤图集
         if (gallerySearchQuery.trim()) {
           const filtered = galleryList.filter((gallery: any) =>
             gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
           );
+          console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
           setGalleries(filtered);
         } else {
           setGalleries(galleryList);
         }
       } else {
+        console.error('[GalleryPage] 加载图集失败:', result.error);
         message.error('加载图集失败: ' + result.error);
       }
     } catch (error) {
@@ -217,18 +229,22 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       message.error('加载图集失败');
     } finally {
       setLoading(false);
+      console.log('[GalleryPage] 图集列表加载完成');
     }
   };
 
   // 搜索图集名称
   const handleGallerySearch = (query: string) => {
+    console.log(`[GalleryPage] 搜索图集，查询条件: ${query}`);
     setGallerySearchQuery(query);
     if (!query.trim()) {
+      console.log('[GalleryPage] 图集搜索条件为空，显示全部图集');
       setGalleries(allGalleries);
     } else {
       const filtered = allGalleries.filter((gallery: any) =>
         gallery.name.toLowerCase().includes(query.toLowerCase())
       );
+      console.log(`[GalleryPage] 图集搜索结果数量: ${filtered.length}`);
       setGalleries(filtered);
     }
   };
@@ -238,6 +254,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     if (!window.electronAPI) return;
 
     if (!query.trim()) {
+      console.log('[GalleryPage] 搜索条件为空，退出搜索模式');
       setIsSearchMode(false);
       setSearchQuery('');
       setSearchPage(1);
@@ -245,6 +262,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return;
     }
 
+    console.log(`[GalleryPage] 开始搜索图片，查询: "${query}", 页码: ${page}, 每页: ${pageSize}`);
     setLoading(true);
     setIsSearchMode(true);
     setSearchPage(page);
@@ -254,11 +272,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       const result: any = await window.electronAPI.db.searchImages(query, page, pageSize);
       if (result.success) {
         const list = result.data || [];
+        console.log(`[GalleryPage] 图片搜索成功，页码: ${page}, 数量: ${list.length}, 总计: ${result.total || 0}`);
         setAllImages(list); // 存储到allImages（搜索结果，只包含当前页的20张）
         setSearchTotal(result.total || 0);
         // 如果返回数量少于 pageSize，说明已经没有更多
         setSearchHasMore(list.length >= pageSize);
       } else {
+        console.error('[GalleryPage] 图片搜索失败:', result.error);
         message.error('搜索失败: ' + result.error);
       }
     } catch (error) {
@@ -266,11 +286,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       message.error('搜索失败');
     } finally {
       setLoading(false);
+      console.log('[GalleryPage] 图片搜索完成');
     }
   };
 
   // 搜索输入框的回调（只接收一个参数）
   const handleSearchInput = (value: string) => {
+    console.log(`[GalleryPage] 搜索输入: ${value}`);
     handleSearch(value, 1, 50);
   };
 
@@ -278,6 +300,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const loadGalleryImages = async (galleryId: number) => {
     if (!window.electronAPI) return;
 
+    console.log(`[GalleryPage] 开始加载图集图片，图集ID: ${galleryId}`);
     setLoading(true);
     try {
       // 每次加载新图集时重置可见数量
@@ -286,14 +309,17 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       if (galleryResult.success && galleryResult.data) {
         const gallery = galleryResult.data;
         const folderPath = gallery.folderPath;
+        console.log(`[GalleryPage] 图集 "${gallery.name}" 路径: ${folderPath}`);
         // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
         const result = await window.electronAPI.gallery.getImagesByFolder(folderPath, 1, 1000);
         if (result.success) {
           const data = result.data || [];
+          console.log(`[GalleryPage] 图集图片加载成功，数量: ${data.length}`);
           setGalleryImages(data); // 存储到galleryImages
-          
+
           // 如果没有封面且有图片，自动设置第一张图为封面
           if (!gallery.coverImageId && data.length > 0 && data[0].id) {
+            console.log('[GalleryPage] 图集无封面，自动设置第一张图片为封面');
             try {
               await window.electronAPI.gallery.setGalleryCover(galleryId, data[0].id);
               // 更新选中的图集信息
@@ -308,14 +334,18 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             }
           }
         } else {
+          console.error('[GalleryPage] 加载图集图片失败:', result.error);
           message.error('加载图集图片失败: ' + result.error);
         }
+      } else {
+        console.error('[GalleryPage] 获取图集信息失败:', galleryResult.error);
       }
     } catch (error) {
       console.error('Failed to load gallery images:', error);
       message.error('加载图集图片失败');
     } finally {
       setLoading(false);
+      console.log('[GalleryPage] 图集图片加载完成');
     }
   };
 
@@ -323,24 +353,27 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const handleSetCover = async (imageId: number) => {
     if (!window.electronAPI || !selectedGallery) return;
 
+    console.log(`[GalleryPage] 开始设置图集封面，图集ID: ${selectedGallery.id}, 图片ID: ${imageId}`);
     try {
       const result = await window.electronAPI.gallery.setGalleryCover(selectedGallery.id, imageId);
       if (result.success) {
+        console.log('[GalleryPage] 封面设置成功');
         message.success('封面设置成功');
-        
+
         // 找到新设置的封面图片（从当前已加载的图片中找）
         const newCoverImage = galleryImages.find((img: any) => img.id === imageId);
-        
+
         // 更新当前选中的图集信息（直接使用已有数据，避免重新请求）
         setSelectedGallery((prev: any) => {
           if (!prev) return prev;
+          console.log('[GalleryPage] 更新选中图集的封面信息');
           return {
             ...prev,
             coverImage: newCoverImage || prev.coverImage,
             coverImageId: imageId
           };
         });
-        
+
         // 更新 allGalleries 中的封面信息（用于图集列表显示，不影响当前查看的图集）
         setAllGalleries((prevAllGalleries) => {
           return prevAllGalleries.map((gallery: any) => {
@@ -354,7 +387,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             return gallery;
           });
         });
-        
+
         // 只有在显示图集列表且没有选中图集时才更新 galleries（避免触发不必要的 useEffect）
         // 这样当用户在查看图集内的图片时，不会触发 galleries 的 useEffect
         if (subTab === 'galleries' && !selectedGallery) {
@@ -371,9 +404,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             });
           });
         }
-        
+
         // 异步加载新封面的缩略图（不阻塞 UI）
         if (newCoverImage?.filepath) {
+          console.log('[GalleryPage] 异步加载新封面的缩略图');
           window.electronAPI.image
             .getThumbnail(newCoverImage.filepath)
             .then((thumbResult) => {
@@ -382,6 +416,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                   ...prev,
                   [selectedGallery.id]: thumbResult.data || null
                 }));
+                console.log('[GalleryPage] 新封面缩略图加载成功');
               }
             })
             .catch((error) => {
@@ -389,6 +424,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             });
         }
       } else {
+        console.error('[GalleryPage] 设置封面失败:', result.error);
         message.error('设置封面失败: ' + result.error);
       }
     } catch (error) {
@@ -432,26 +468,33 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   };
 
   useEffect(() => {
+    console.log(`[GalleryPage] 切换标签页到: ${subTab}`);
     if (subTab === 'recent') {
+      console.log('[GalleryPage] 初始化"最近图片"模式');
       // 切换到"最近图片"时，重置可见数量
       setRecentVisibleCount(200);
       setIsSearchMode(false);
       setSearchQuery('');
       // 切换tab时先清空其他模式的数据
+      console.log('[GalleryPage] 清空其他模式的数据');
       setAllImages([]);
       setGalleryImages([]);
       loadRecentImages(2000);
     } else if (subTab === 'all') {
+      console.log('[GalleryPage] 初始化"所有图片"模式');
       setAllPage(1);
       setIsSearchMode(false);
       setSearchQuery('');
       // 切换tab时先清空其他模式的数据
+      console.log('[GalleryPage] 清空其他模式的数据');
       setRecentImages([]);
       setGalleryImages([]);
       setAllImages([]);
       loadImages(1, 20);
     } else if (subTab === 'galleries') {
+      console.log('[GalleryPage] 初始化"图集"模式');
       // 切换tab时先清空其他模式的数据
+      console.log('[GalleryPage] 清空其他模式的数据');
       setRecentImages([]);
       setAllImages([]);
       setGalleryImages([]);
@@ -462,12 +505,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   // 当图集搜索查询改变时，重新过滤图集列表
   useEffect(() => {
     if (subTab === 'galleries' && allGalleries.length > 0) {
+      console.log(`[GalleryPage] 图集搜索查询变更: ${gallerySearchQuery}`);
       if (!gallerySearchQuery.trim()) {
+        console.log('[GalleryPage] 显示全部图集');
         setGalleries(allGalleries);
       } else {
         const filtered = allGalleries.filter((gallery: any) =>
           gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
         );
+        console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
         setGalleries(filtered);
       }
     }
@@ -477,6 +523,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   useEffect(() => {
     if (subTab !== 'recent') return;
 
+    console.log('[GalleryPage] 注册滚动事件监听器（最近图片懒加载）');
     const handleScroll = () => {
       const scrollElement = document.documentElement || document.body;
       const { scrollTop, scrollHeight, clientHeight } = scrollElement;
@@ -485,13 +532,16 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
         if (scrollHeight - (scrollTop + clientHeight) < 300) {
           setRecentVisibleCount((prev) => {
             if (prev >= recentImages.length) return prev;
-            return Math.min(prev + 200, recentImages.length);
+            const newCount = Math.min(prev + 200, recentImages.length);
+            console.log(`[GalleryPage] 滚动触发懒加载，可见数量: ${newCount}/${recentImages.length}`);
+            return newCount;
           });
         }
     };
 
     window.addEventListener('scroll', handleScroll);
     return () => {
+      console.log('[GalleryPage] 移除滚动事件监听器');
       window.removeEventListener('scroll', handleScroll);
     };
     // 依赖于 recentImages.length，保证新数据加载后滚动逻辑仍然生效
@@ -504,9 +554,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   useEffect(() => {
     if (!window.electronAPI || galleries.length === 0) return;
 
+    console.log(`[GalleryPage] 开始加载图集封面缩略图，图集数量: ${galleries.length}`);
     const loadThumbnails = async () => {
       const thumbnails: Record<number, string | null> = {};
-      
+
       for (const gallery of galleries) {
         if (gallery.coverImage?.filepath) {
           try {
@@ -519,7 +570,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
           }
         }
       }
-      
+
+      console.log(`[GalleryPage] 图集封面缩略图加载完成，成功数量: ${Object.keys(thumbnails).length}`);
       setCoverThumbnails(thumbnails);
     };
 
@@ -661,8 +713,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             <>
               <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <Button onClick={() => { 
-                    setSelectedGallery(null); 
+                  <Button onClick={() => {
+                    console.log('[GalleryPage] 返回图集列表');
+                    setSelectedGallery(null);
                     setGalleryImages([]);
                   }}>
                     返回图集列表
@@ -787,6 +840,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                       background: 'transparent'
                     }}
                     onClick={() => {
+                      console.log(`[GalleryPage] 点击图集: ${gallery.name} (ID: ${gallery.id})`);
                       setSelectedGallery(gallery);
                       loadGalleryImages(gallery.id);
                     }}
@@ -796,7 +850,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                       coverImage={gallery.coverImage}
                       thumbnailPath={coverThumbnails[gallery.id] || null}
                       getImageUrl={getImageUrl}
-                      onInfoClick={() => setSelectedGalleryInfo(gallery)}
+                      onInfoClick={() => {
+                      console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
+                      setSelectedGalleryInfo(gallery);
+                    }}
                     />
                     {/* 文字区域 */}
                     <div
@@ -835,7 +892,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
         open={!!selectedGalleryInfo}
         title="图集信息"
         footer={null}
-        onCancel={() => setSelectedGalleryInfo(null)}
+        onCancel={() => {
+          console.log('[GalleryPage] 关闭图集信息模态框');
+          setSelectedGalleryInfo(null);
+        }}
         width={600}
       >
         {selectedGalleryInfo && (

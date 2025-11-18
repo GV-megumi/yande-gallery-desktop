@@ -14,17 +14,22 @@ export const DownloadPage: React.FC = () => {
   // 加载Yande.re图片
   const loadImages = async (page: number = 1, tags?: string[]) => {
     if (!window.electronAPI) {
+      console.error('[DownloadPage] electronAPI is not available');
       message.error('Yande.re功能暂不可用');
       return;
     }
 
+    console.log(`[DownloadPage] 开始加载Yande.re图片，页码: ${page}, 标签: ${tags?.join(', ') || '无'}`);
     setLoading(true);
     try {
       const result = await window.electronAPI.yande.getImages(page, tags);
       if (result.success) {
-        setImages(result.data || []);
+        const data = result.data || [];
+        console.log(`[DownloadPage] Yande.re图片加载成功，数量: ${data.length}`);
+        setImages(data);
         setTotal(200); // 模拟总数量
       } else {
+        console.error('[DownloadPage] 加载Yande.re图片失败:', result.error);
         message.error('加载失败: ' + result.error);
       }
     } catch (error) {
@@ -32,12 +37,15 @@ export const DownloadPage: React.FC = () => {
       message.error('加载失败');
     } finally {
       setLoading(false);
+      console.log('[DownloadPage] Yande.re图片加载完成');
     }
   };
 
   // 搜索图片
   const handleSearch = (query: string) => {
+    console.log(`[DownloadPage] 搜索图片，查询: "${query}"`);
     const tags = query.split(' ').filter(tag => tag.trim());
+    console.log(`[DownloadPage] 解析标签: ${tags.join(', ')}`);
     setCurrentPage(1);
     loadImages(1, tags);
   };
@@ -45,15 +53,19 @@ export const DownloadPage: React.FC = () => {
   // 下载图片
   const handleDownload = async (image: any) => {
     if (!window.electronAPI) {
+      console.error('[DownloadPage] electronAPI is not available');
       message.error('下载功能暂不可用');
       return;
     }
 
+    console.log(`[DownloadPage] 开始下载图片: ${image.filename} (ID: ${image.id})`);
     try {
       const result = await window.electronAPI.yande.downloadImage(image);
       if (result.success) {
+        console.log('[DownloadPage] 图片下载成功');
         message.success('下载成功');
       } else {
+        console.error('[DownloadPage] 图片下载失败:', result.error);
         message.error('下载失败: ' + result.error);
       }
     } catch (error) {
@@ -64,12 +76,14 @@ export const DownloadPage: React.FC = () => {
 
   // 分页变化
   const handlePageChange = (page: number) => {
+    console.log(`[DownloadPage] 切换到第 ${page} 页`);
     setCurrentPage(page);
     const tags = searchTags.split(' ').filter(tag => tag.trim());
     loadImages(page, tags);
   };
 
   useEffect(() => {
+    console.log('[DownloadPage] 组件挂载，加载初始图片');
     loadImages();
   }, []);
 
@@ -82,7 +96,10 @@ export const DownloadPage: React.FC = () => {
           enterButton={<SearchOutlined />}
           style={{ width: 400 }}
           value={searchTags}
-          onChange={(e) => setSearchTags(e.target.value)}
+          onChange={(e) => {
+            console.log(`[DownloadPage] 搜索输入变更: ${e.target.value}`);
+            setSearchTags(e.target.value);
+          }}
           onSearch={handleSearch}
         />
       </div>
@@ -116,7 +133,10 @@ export const DownloadPage: React.FC = () => {
                       type="primary"
                       icon={<DownloadOutlined />}
                       size="small"
-                      onClick={() => handleDownload(image)}
+                      onClick={() => {
+                        console.log(`[DownloadPage] 点击下载按钮: ${image.filename}`);
+                        handleDownload(image);
+                      }}
                     >
                       下载
                     </Button>

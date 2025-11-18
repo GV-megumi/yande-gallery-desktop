@@ -35,19 +35,27 @@ export const App: React.FC = () => {
 
   // 初始化数据库
   useEffect(() => {
+    console.log('[App] 应用启动，开始初始化数据库');
     const initDatabase = async () => {
       try {
         if (window.electronAPI) {
+          console.log('[App] 调用 db.init() 初始化数据库');
           const result = await window.electronAPI.db.init();
-          if (!result.success) {
+          if (result.success) {
+            console.log('[App] 数据库初始化成功');
+          } else {
+            console.error('[App] 数据库初始化失败:', result.error);
             message.error('数据库初始化失败: ' + result.error);
           }
+        } else {
+          console.error('[App] electronAPI 不可用，无法初始化数据库');
         }
       } catch (error) {
         console.error('Failed to initialize database:', error);
         message.error('数据库初始化失败');
       } finally {
         setLoading(false);
+        console.log('[App] 应用初始化完成');
       }
     };
 
@@ -57,6 +65,7 @@ export const App: React.FC = () => {
   // 当主菜单切换时，如果是图库，默认选择"最近"子菜单
   useEffect(() => {
     if (selectedKey === 'gallery' && !selectedSubKey) {
+      console.log('[App] 默认选择图库的"最近"子菜单');
       setSelectedSubKey('recent');
     }
   }, [selectedKey]);
@@ -91,6 +100,7 @@ export const App: React.FC = () => {
           selectedKeys={[selectedKey]}
           items={mainMenuItems}
           onClick={({ key }) => {
+            console.log(`[App] 主菜单切换: ${key}`);
             setSelectedKey(key);
             if (key === 'gallery') {
               setSelectedSubKey('recent');
@@ -105,7 +115,10 @@ export const App: React.FC = () => {
             mode="inline"
             selectedKeys={[selectedSubKey]}
             items={gallerySubMenuItems}
-            onClick={({ key }) => setSelectedSubKey(key)}
+            onClick={({ key }) => {
+              console.log(`[App] 图库子菜单切换: ${key}`);
+              setSelectedSubKey(key);
+            }}
             style={{ flex: 1 }}
           />
         )}
