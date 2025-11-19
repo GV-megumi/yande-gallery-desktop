@@ -73,3 +73,5 @@ booru:
     spacing: 16
     borderRadius: 8
     margin: 24
+  download:
+    filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'

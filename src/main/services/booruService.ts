@@ -746,6 +746,107 @@ export async function removeFromDownloadQueue(id: number): Promise<void> {
   }
 }
 
+/**
+ * 从标签字符串中提取特定类别的标签
+ * @param siteId 站点ID
+ * @param tagsStr 标签字符串（空格分隔）
+ * @param category 标签类别（artist/character/copyright）
+ * @returns 该类别的标签字符串
+ */
+export async function extractTagsByCategory(
+  siteId: number,
+  tagsStr: string,
+  category: 'artist' | 'character' | 'copyright'
+): Promise<string> {
+  if (!tagsStr || tagsStr.trim() === '') {
+    return '';
+  }
+
+  try {
+    const db = await getDatabase();
+    const tags = tagsStr.split(/\s+/).filter(tag => tag.trim() !== '');
+
+    if (tags.length === 0) {
+      return '';
+    }
+
+    // 从数据库查询这些标签的类别信息
+    const placeholders = tags.map(() => '?').join(',');
+    const query = `
+      SELECT name
+      FROM booru_tags
+      WHERE siteId = ? AND category = ? AND name IN (${placeholders})
+    `;
+
+    const result = await all<{ name: string }>(db, query, [siteId, category, ...tags]);
+
+    // 返回该类别的标签列表（空格分隔）
+    return result.map(row => row.name).join(' ');
+  } catch (error) {
+    console.error(`[booruService] 提取${category}标签失败:`, { siteId, tagsStr }, error);
+    // 出错时返回空字符串
+    return '';
+  }
+}
+
+/**
+ * 保存Booru标签
+ */
+export async function saveBooruTags(siteId: number, tags: Array<{ name: string; category?: string; postCount?: number }>): Promise<void> {
+  console.log('[booruService] 保存Booru标签:', { siteId, tagCount: tags.length });
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    for (const tag of tags) {
+      await run(db, `
+        INSERT OR REPLACE INTO booru_tags (siteId, name, category, postCount, createdAt)
+        VALUES (?, ?, ?, ?, ?)
+      `, [siteId, tag.name, tag.category || null, tag.postCount || 0, now]);
+    }
+
+    console.log('[booruService] 保存标签成功');
+  } catch (error) {
+    console.error('[booruService] 保存标签失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 搜索Booru标签
+ */
+export async function searchBooruTags(siteId: number, query: string, limit: number = 10): Promise<Array<{ name: string; category?: string; postCount: number }>> {
+  console.log('[booruService] 搜索Booru标签:', { siteId, query, limit });
+  try {
+    const db = await getDatabase();
+
+    const tags = await all<{
+      name: string;
+      category: string;
+      postCount: number;
+    }>(
+      db,
+      `
+        SELECT name, category, postCount
+        FROM booru_tags
+        WHERE siteId = ? AND name LIKE ?
+        ORDER BY postCount DESC
+        LIMIT ?
+      `,
+      [siteId, `%${query}%`, limit]
+    );
+
+    return tags.map(tag => ({
+      name: tag.name,
+      category: tag.category || undefined,
+      postCount: tag.postCount || 0
+    }));
+  } catch (error) {
+    console.error('[booruService] 搜索标签失败:', { siteId, query }, error);
+    throw error;
+  }
+}
+
 // ========= 批量导出 =========
 
 export default {
@@ -776,6 +877,11 @@ export default {
   getDownloadQueue,
   updateDownloadProgress,
   updateDownloadStatus,
-  removeFromDownloadQueue
+  removeFromDownloadQueue,
+
+  // 标签管理
+  extractTagsByCategory,
+  saveBooruTags,
+  searchBooruTags
 };
 

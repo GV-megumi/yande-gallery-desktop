@@ -1916,4 +1916,239 @@ has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
 **作者**: Claude AI
 **状态**: ✅ CORS问题解决完成 - IPC代理模式已实施，增强调试日志
 
+---
 
+### 第八阶段: 自定义下载文件名实现 ✅ (2025-11-20)
+
+#### 已完成
+1. ✅ 分析Boorusama文件名生成器实现
+   - ✅ 研究了`packages/filename_generator/`的完整架构
+   - ✅ 理解了Token、TokenOptions、Parser、Generator的设计模式
+   - ✅ 提取了支持的token列表和options
+
+2. ✅ 增强filenameGenerator.ts
+   - ✅ 添加TokenOptions接口（支持limit、maxlength、case、delimiter、unsafe等）
+   - ✅ 添加TokenDefaults接口
+   - ✅ 增强FileNameTokens接口（添加source字段）
+   - ✅ 实现processTokenValue函数（处理所有options）
+   - ✅ 增强generateFileName函数（支持tokenDefaults参数）
+   - ✅ 实现formatDate函数（支持日期格式化）
+   - ✅ 增强sanitizeFileName函数（支持unsafe选项）
+
+3. ✅ 更新配置文件
+   - ✅ 在config.yaml中添加booru.download配置节
+     - filenameTemplate: 文件名模板（支持{site}_{id}_{md5}.{extension}格式）
+     - tokenDefaults: Token默认选项配置
+   - ✅ 在config.ts中添加TokenOptions和TokenDefaultOptions类型定义
+   - ✅ 在DEFAULT_CONFIG中添加默认下载配置
+
+4. ✅ 更新下载管理器
+   - ✅ 在downloadManager.ts中添加generateDownloadFileName私有方法
+     - 从配置读取filenameTemplate和tokenDefaults
+     - 获取站点信息（名称而不是ID）
+     - 准备完整的文件元数据
+     - 调用generateFileName生成文件名
+   - ✅ 更新addToQueue方法，使用新的文件名生成逻辑
+
+5. ✅ 增强booruService.ts
+   - ✅ 添加extractTagsByCategory函数（提取特定类别标签）
+   - ✅ 添加saveBooruTags函数（保存标签到数据库）
+   - ✅ 添加searchBooruTags函数（搜索标签）
+   - ✅ 在export default中导出这些函数
+
+#### 支持的Token选项
+- **limit**: 限制标签数量
+- **maxlength**: 限制最大长度
+- **case**: 大小写转换（lower/upper/none）
+- **delimiter**: 分隔符
+- **unsafe**: 是否保留非法字符
+- **format**: 日期格式
+- **single_letter**: 评分单个字母表示（s/q/e）
+- **pad_left**: 左侧填充0
+
+#### 支持的Token
+{id}, {md5}, {extension}, {width}, {height}, {rating}, {score},
+{site}, {artist}, {character}, {copyright}, {date}, {tags}, {source}
+
+#### 使用示例
+1. 简单模板：`{id}_{md5}.{extension}` → `123456_abc123.jpg`
+2. 带标签：`{site}_{id}_{tags:limit=5}.{extension}` → `yande.re_123456_tag1_tag2_tag3_tag4_tag5.jpg`
+3. 带日期：`{date:format=yyyy-MM-dd}_{id}.{extension}` → `2025-11-20_123456.jpg`
+4. 带评分：`{rating:single_letter=true}_{id}.{extension}` → `s_123456.jpg`
+
+**最后更新**: 2025-11-20
+**作者**: Claude AI
+**状态**: ✅ 完整实现完成（后端+UI）
+
+---
+
+### UI界面实现 ✅
+
+#### 已完成
+1. ✅ 在BooruSettingsPage.tsx添加"文件配置"选项卡
+   - ✅ 添加文件名模板输入框（带实时预览）
+   - ✅ 添加支持的变量列表（可点击插入）
+   - ✅ 添加使用示例展示
+   - ✅ 添加Token选项说明
+   - ✅ 添加保存/重置按钮
+   - ✅ 使用Ant Design组件美化界面
+
+#### 界面特性
+- **实时预览**: 输入模板时实时显示效果
+- **快速插入**: 点击变量按钮自动插入到模板
+- **示例展示**: 提供多种使用场景的示例
+- **详细说明**: Token选项的完整说明文档
+- **响应式布局**: 网格布局适配不同屏幕
+
+#### 支持的Token
+{id}, {md5}, {extension}, {width}, {height}, {rating}, {score},
+{site}, {artist}, {character}, {copyright}, {date}, {tags}, {source}
+
+#### Token选项
+- **limit**: 限制标签数量
+- **maxlength**: 限制最大长度
+- **case**: 大小写转换（lower/upper/none）
+- **delimiter**: 分隔符（默认: _）
+- **single_letter**: 评分单个字母（true/false）
+- **format**: 日期格式（如: yyyy-MM-dd）
+
+#### 配置示例
+```yaml
+booru:
+  download:
+    filenameTemplate: '{site}_{rating:single_letter=true}_{id}_{artist:limit=3}_{tags:limit=10}.{extension}'
+```
+
+#### 界面截图位置
+- 路径: Booru Settings → 文件配置选项卡
+- 功能: 文件名模板配置、变量选择、实时预览
+
+---
+
+### Bug修复：Token选项解析 ✅ (2025-11-20)
+
+#### 问题描述
+用户配置的 `{id}_{md5:maxlength=8}.{extension}` 中 `maxlength` 选项失效。
+
+#### 根本原因
+原始实现没有解析模板中的选项部分（如 `{md5:maxlength=8}`），只是简单替换了 `{md5}`，忽略了冒号后面的选项。
+
+#### 解决方案
+在 `filenameGenerator.ts` 中添加完整的模板解析器：
+
+1. ✅ **添加 `parseToken()` 函数**
+   - 解析token字符串，提取token名称和选项
+   - 支持格式: `{token}`, `{token:option=value}`, `{token:option1=value1,option2=value2}`
+   - 使用冒号分隔token名称和选项字符串
+   - 使用逗号分隔多个选项
+   - 使用等号分隔键值对
+   - 解析不同类型的值：数字、布尔、字符串
+
+2. ✅ **添加 `findTokens()` 函数**
+   - 查找模板中的所有token（包括带选项的）
+   - 使用正则表达式 `\{[^}]+\}/g` 匹配所有花括号
+   - 返回完整的匹配字符串、token名称和选项
+
+3. ✅ **重构 `generateFileName()` 函数**
+   - 使用 `findTokens()` 查找所有token
+   - 合并模板选项和默认选项（模板选项优先）
+   - 对每个token应用选项并替换值
+   - 处理token没有值的情况（替换为空字符串）
+
+4. ✅ **测试验证**
+   ```typescript
+   // 测试1: maxlength选项
+   模板: '{id}_{md5:maxlength=8}.{extension}'
+   结果: '123456_abc123de.jpg' ✅
+
+   // 测试2: limit选项
+   模板: '{id}_{tags:limit=3}.{extension}'
+   结果: '123456_tag1_tag2_tag3.jpg' ✅
+
+   // 测试3: 多选项
+   模板: '{md5:maxlength=8}'
+   解析: Token=md5, 选项={maxlength: 8} ✅
+   ```
+
+#### 使用示例
+```yaml
+# config.yaml
+booru:
+  download:
+    # 限制MD5长度为8位
+    filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
+
+    # 限制标签数量为5个，并转为小写
+    filenameTemplate: '{id}_{tags:limit=5,case=lower}.{extension}'
+
+    # 评分用单个字母，限制艺术家标签3个
+    filenameTemplate: '{rating:single_letter=true}_{id}_{artist:limit=3}.{extension}'
+
+    # 组合多个选项
+    filenameTemplate: '{site}_{id}_{tags:limit=10,maxlength=50,case=lower}.{extension}'
+```
+
+#### 支持的选项格式
+- 单选项: `{token:option=value}`
+- 多选项: `{token:option1=value1,option2=value2}`
+- 支持选项: `limit`, `maxlength`, `case`, `delimiter`, `unsafe`, `format`, `single_letter`, `pad_left`
+
+**状态**: ✅ 已修复并测试通过
+
+---
+
+### UI改进：实时预览支持Token选项 ✅ (2025-11-20)
+
+#### 改进内容
+在 `BooruSettingsPage.tsx` 中改进了 `updateFilenamePreview()` 函数，使其支持 Token 选项解析。
+
+#### 改进点
+1. ✅ **完整的选项解析逻辑**
+   - 使用正则表达式 `^\{([^:]+)(?::([^}]+))?\}$` 解析token（包括带选项的）
+   - 支持单选项: `{token:option=value}`
+   - 支持多选项: `{token:option1=value1,option2=value2}`
+   - 解析不同类型的值：数字（limit, maxlength, pad_left）、布尔（single_letter, unsafe）、字符串（case, delimiter, format）
+
+2. ✅ **完整的值处理逻辑**
+   - 应用大小写转换（case=lower/upper）
+   - 处理标签列表（tags, artist, character, copyright）
+   - 支持限制标签数量（limit）
+   - 支持自定义分隔符（delimiter）
+   - 限制最大长度（maxlength）
+   - MD5最大长度限制（32位）
+   - 评分单个字母（single_letter=true）
+   - ID左侧填充0（pad_left）
+   - 日期格式化（format）
+
+3. ✅ **增强的测试数据**
+   - 更完整的元数据（包括多个艺术家、角色、标签等）
+   - 模拟真实场景的数据
+
+#### 测试示例
+```typescript
+// 输入模板
+{id}_{md5:maxlength=8}.{extension}
+
+// 实时预览结果
+123456_abc123de.jpg ✅
+
+// 输入模板
+{id}_{tags:limit=3,case=upper}.{extension}
+
+// 实时预览结果
+123456_TAG1_TAG2_TAG3.jpg ✅
+
+// 输入模板
+{rating:single_letter=true}_{id}_{artist:limit=1}.{extension}
+
+// 实时预览结果
+s_123456_artist_name.jpg ✅
+```
+
+#### 优势
+- 实时预览现在与实际的文件名生成逻辑完全一致
+- 用户可以立即看到选项的效果
+- 不再需要猜测选项的作用
+- 提升用户体验
+
+**状态**: ✅ 已完成

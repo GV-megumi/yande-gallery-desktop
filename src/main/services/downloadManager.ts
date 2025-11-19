@@ -28,44 +28,82 @@ class DownloadManager {
   }
 
   /**
+   * 根据配置文件生成文件名
+   * @param post Booru图片
+   * @param siteId 站点ID
+   * @param targetDir 目标目录
+   */
+  private async generateDownloadFileName(
+    post: BooruPost,
+    siteId: number,
+    targetDir: string
+  ): Promise<string> {
+    try {
+      // 1. 获取配置文件
+      const config = getConfig();
+      const booruConfig = config.booru;
+
+      if (!booruConfig?.download?.filenameTemplate) {
+        console.warn('[DownloadManager] 无法获取文件名模板配置，使用默认值');
+      }
+
+      const filenameTemplate = booruConfig?.download?.filenameTemplate || '{site}_{id}_{md5}.{extension}';
+      const tokenDefaults = booruConfig?.download?.tokenDefaults || {};
+
+      // 2. 获取站点信息
+      const site = await booruService.getBooruSiteById(siteId);
+      const siteName = site?.name || `site_${siteId}`;
+
+      // 3. 准备文件元数据
+      const metadata: FileNameTokens = {
+        id: post.postId,
+        md5: post.md5 || '',
+        extension: post.fileExt || '',
+        width: post.width,
+        height: post.height,
+        rating: post.rating || '',
+        score: post.score,
+        site: siteName,
+        tags: post.tags || '',
+        source: post.source || ''
+      };
+
+      // 4. 生成文件名
+      const filename = generateFileName(filenameTemplate, metadata, tokenDefaults);
+      const targetPath = path.join(targetDir, filename);
+
+      console.log(`[DownloadManager] 生成文件名: ${filename}`);
+      return targetPath;
+
+    } catch (error) {
+      console.error('[DownloadManager] 生成文件名失败:', error);
+      // 失败时使用回退方案
+      const fallbackName = `fallback_${post.postId}_${post.md5 || 'unknown'}.${post.fileExt || 'jpg'}`;
+      return path.join(targetDir, fallbackName);
+    }
+  }
+
+  /**
    * 添加下载任务
    */
   async addToQueue(post: BooruPost, siteId: number): Promise<boolean> {
     try {
       // 1. 获取配置的下载路径
-      // 1. 获取配置的下载路径
-      // 使用 getDownloadsPath() 获取绝对路径，避免使用相对路径导致保存位置不确定
       const downloadPath = getDownloadsPath();
-      
-      // 2. 生成文件名
-      // 默认模板: {site}_{id}_{tags}.{extension}
-      // 这里简化处理，实际应该从配置读取模板
-      const filenameTemplate = '{site}_{id}_{md5}.{extension}';
-      
-      const metadata: FileNameTokens = {
-        id: post.postId,
-        md5: post.md5,
-        extension: post.fileExt,
-        width: post.width,
-        height: post.height,
-        rating: post.rating,
-        score: post.score,
-        site: `site_${siteId}`, // 暂时用ID代替，理想情况应该查站点名
-        tags: post.tags.replace(/\s+/g, '_').substring(0, 50) // 限制标签长度
-      };
-      
-      const filename = generateFileName(filenameTemplate, metadata);
-      const targetPath = path.join(downloadPath, filename);
+
+      // 2. 生成文件名（使用配置模板）
+      const targetPath = await this.generateDownloadFileName(post, siteId, downloadPath);
 
       // 3. 添加到数据库队列
       await booruService.addToDownloadQueue(post.postId, siteId, 0, targetPath);
-      
+
       // 4. 触发队列处理
       this.processQueue();
-      
+
       return true;
     } catch (error) {
-      console.error('[DownloadManager] 添加下载任务失败:', error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[DownloadManager] 添加下载任务失败:', errorMessage);
       return false;
     }
   }

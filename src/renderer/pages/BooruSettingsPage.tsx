@@ -16,14 +16,35 @@ import {
   Tag,
   Popconfirm,
   App,
-  Slider
+  Slider,
+  Typography,
+  Alert
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
 
 const { Option } = Select;
+const { Text, Paragraph } = Typography;
 
 interface BooruSettingsPageProps {}
+
+// 支持的token列表
+const SUPPORTED_TOKENS = [
+  { token: '{id}', desc: '图片ID' },
+  { token: '{md5}', desc: 'MD5哈希' },
+  { token: '{extension}', desc: '文件扩展名' },
+  { token: '{width}', desc: '图片宽度' },
+  { token: '{height}', desc: '图片高度' },
+  { token: '{rating}', desc: '分级(safe/questionable/explicit)' },
+  { token: '{score}', desc: '评分' },
+  { token: '{site}', desc: '站点名称' },
+  { token: '{artist}', desc: '艺术家标签' },
+  { token: '{character}', desc: '角色标签' },
+  { token: '{copyright}', desc: '版权标签' },
+  { token: '{date}', desc: '日期' },
+  { token: '{tags}', desc: '所有标签' },
+  { token: '{source}', desc: '来源URL' }
+];
 
 export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   const { message } = App.useApp();
@@ -33,8 +54,11 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   const [editingSite, setEditingSite] = useState<BooruSite | null>(null);
   const [form] = Form.useForm();
   const [appearanceForm] = Form.useForm();
+  const [filenameForm] = Form.useForm();
   const [activeTab, setActiveTab] = useState('sites');
   const [savingAppearance, setSavingAppearance] = useState(false);
+  const [savingFilename, setSavingFilename] = useState(false);
+  const [filenamePreview, setFilenamePreview] = useState('');
 
   // 加载站点列表
   const loadSites = async () => {
@@ -96,6 +120,196 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     } catch (error) {
       console.error('[BooruSettingsPage] 加载外观配置失败:', error);
     }
+  };
+
+  // 加载文件名模板配置
+  const loadFilenameConfig = async () => {
+    console.log('[BooruSettingsPage] 加载文件名模板配置');
+    try {
+      if (!window.electronAPI) {
+        console.error('[BooruSettingsPage] electronAPI is not available');
+        return;
+      }
+
+      const result = await window.electronAPI.config.get();
+      if (result.success && result.data) {
+        const config = result.data;
+        const downloadConfig = config.booru?.download || {
+          filenameTemplate: '{site}_{id}_{md5}.{extension}',
+          tokenDefaults: {
+            tags: { limit: 10, maxlength: 50, case: 'lower', delimiter: '_', unsafe: false },
+            artist: { limit: 5, maxlength: 30, case: 'lower', delimiter: '_', unsafe: false },
+            character: { limit: 5, maxlength: 30, case: 'lower', delimiter: '_', unsafe: false },
+            copyright: { limit: 3, maxlength: 30, case: 'lower', delimiter: '_', unsafe: false },
+            date: { format: 'yyyy-MM-dd' },
+            rating: { case: 'lower', single_letter: false },
+            site: { case: 'lower' },
+            id: { pad_left: 0 },
+            md5: { maxlength: 32 },
+            width: { unsafe: true },
+            height: { unsafe: true }
+          }
+        };
+
+        console.log('[BooruSettingsPage] 文件名模板配置加载成功:', downloadConfig);
+        filenameForm.setFieldsValue(downloadConfig);
+        updateFilenamePreview(downloadConfig.filenameTemplate || '{site}_{id}_{md5}.{extension}');
+      } else {
+        console.error('[BooruSettingsPage] 加载文件名模板配置失败:', result.error);
+      }
+    } catch (error) {
+      console.error('[BooruSettingsPage] 加载文件名模板配置失败:', error);
+    }
+  };
+
+  // 更新文件名预览（使用与后端相同的解析逻辑）
+  const updateFilenamePreview = (template: string) => {
+    // 模拟完整的元数据
+    const metadata: any = {
+      id: '123456',
+      md5: 'abc123def4567890123456789012345',
+      extension: 'jpg',
+      width: 1920,
+      height: 1080,
+      rating: 'safe',
+      score: 85,
+      site: 'yande.re',
+      artist: 'artist_name another_artist',
+      character: 'character_name another_character',
+      copyright: 'original',
+      date: '2025-11-20',
+      tags: 'tag1 tag2 tag3 tag4 tag5 tag6 tag7 tag8 tag9 tag10',
+      source: 'https://example.com/source.jpg'
+    };
+
+    // 使用正则表达式查找所有token（包括带选项的）
+    const regex = /\{[^}]+\}/g;
+    let preview = template;
+    let match;
+
+    while ((match = regex.exec(template)) !== null) {
+      const tokenStr = match[0];
+
+      // 解析token（处理带选项的情况）
+      const matchResult = tokenStr.match(/^\{([^:]+)(?::([^}]+))?\}$/);
+      if (!matchResult) {
+        // 无法解析，直接替换为空
+        preview = preview.replace(tokenStr, '');
+        continue;
+      }
+
+      const tokenName = matchResult[1];
+      const optionStr = matchResult[2];
+
+      // 解析选项
+      const options: any = {};
+      if (optionStr) {
+        const pairs = optionStr.split(',');
+        for (const pair of pairs) {
+          const [key, value] = pair.split('=');
+          if (key && value !== undefined) {
+            const cleanValue = value.trim();
+
+            if (key.trim() === 'limit' || key.trim() === 'maxlength' || key.trim() === 'pad_left') {
+              options[key.trim()] = parseInt(cleanValue, 10);
+            } else if (key.trim() === 'single_letter' || key.trim() === 'unsafe') {
+              options[key.trim()] = cleanValue === 'true';
+            } else {
+              options[key.trim()] = cleanValue;
+            }
+          }
+        }
+      }
+
+      // 获取值
+      const value = metadata[tokenName];
+      if (value === undefined || value === null || value === '') {
+        preview = preview.replace(tokenStr, '');
+        continue;
+      }
+
+      // 处理值（应用选项）
+      let processedValue = String(value);
+
+      // 1. 应用大小写转换
+      if (options.case) {
+        switch (options.case) {
+          case 'lower':
+            processedValue = processedValue.toLowerCase();
+            break;
+          case 'upper':
+            processedValue = processedValue.toUpperCase();
+            break;
+        }
+      }
+
+      // 2. 处理标签列表（tags, artist, character, copyright）
+      let items: string[] = [processedValue];
+      if (['tags', 'artist', 'character', 'copyright'].includes(tokenName)) {
+        items = processedValue.split(/\s+/).filter(item => item.trim() !== '');
+
+        // 限制数量
+        if (options.limit && options.limit > 0) {
+          items = items.slice(0, options.limit);
+        }
+      }
+
+      // 重新组合
+      if (items.length > 1) {
+        const delimiter = options.delimiter || '_';
+        processedValue = items.join(delimiter);
+      } else {
+        processedValue = items[0] || '';
+      }
+
+      // 3. 限制最大长度
+      if (options.maxlength && processedValue.length > options.maxlength) {
+        processedValue = processedValue.substring(0, options.maxlength);
+      }
+
+      // 4. MD5最大长度限制
+      if (options.maxlength && tokenName === 'md5' && processedValue.length > 32) {
+        processedValue = processedValue.substring(0, 32);
+      }
+
+      // 5. 评分单个字母（s/q/e）
+      if (options.single_letter && tokenName === 'rating') {
+        processedValue = processedValue.charAt(0).toLowerCase();
+      }
+
+      // 6. ID左侧填充0
+      if (options.pad_left && tokenName === 'id' && !isNaN(Number(processedValue))) {
+        processedValue = processedValue.padStart(options.pad_left, '0');
+      }
+
+      // 7. 日期格式化
+      if (options.format && tokenName === 'date' && processedValue) {
+        try {
+          const date = new Date(processedValue);
+          if (!isNaN(date.getTime())) {
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            processedValue = options.format
+              .replace(/yyyy/g, String(year))
+              .replace(/MM/g, month)
+              .replace(/dd/g, day);
+          }
+        } catch (e) {
+          // 保持原样
+        }
+      }
+
+      preview = preview.replace(tokenStr, processedValue);
+    }
+
+    // 清理未替换的token（不应该有）
+    preview = preview.replace(/\{[^}]+\}/g, '');
+
+    // 清理文件名中的非法字符
+    preview = preview.replace(/[<>:"/\\|?*\x00-\x1F]/g, '_').trim();
+
+    setFilenamePreview(preview);
   };
 
   // 打开添加站点模态框
@@ -235,6 +449,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       const updatedConfig = {
         ...configResult.data,
         booru: {
+          ...(configResult.data.booru || {}),
           appearance: values
         }
       };
@@ -256,6 +471,52 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       message.error('保存失败');
     } finally {
       setSavingAppearance(false);
+    }
+  };
+
+  // 保存文件名模板配置
+  const handleSaveFilename = async (values: any) => {
+    console.log('[BooruSettingsPage] 保存文件名模板配置:', values);
+    setSavingFilename(true);
+    try {
+      if (!window.electronAPI) {
+        console.error('[BooruSettingsPage] electronAPI is not available');
+        message.error('系统功能不可用');
+        return;
+      }
+
+      // 加载当前配置
+      const configResult = await window.electronAPI.config.get();
+      if (!configResult.success || !configResult.data) {
+        console.error('[BooruSettingsPage] 获取配置失败:', configResult.error);
+        message.error('获取配置失败');
+        return;
+      }
+
+      // 更新配置
+      const updatedConfig = {
+        ...configResult.data,
+        booru: {
+          ...(configResult.data.booru || {}),
+          download: values
+        }
+      };
+
+      const result = await window.electronAPI.config.save(updatedConfig);
+      if (result.success) {
+        console.log('[BooruSettingsPage] 文件名模板配置保存成功');
+        message.success('文件名模板配置已保存');
+        // 保存后更新预览
+        updateFilenamePreview(values.filenameTemplate);
+      } else {
+        console.error('[BooruSettingsPage] 文件名模板配置保存失败:', result.error);
+        message.error(result.error || '保存失败');
+      }
+    } catch (error) {
+      console.error('[BooruSettingsPage] 保存文件名模板配置失败:', error);
+      message.error('保存失败');
+    } finally {
+      setSavingFilename(false);
     }
   };
 
@@ -369,6 +630,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     console.log('[BooruSettingsPage] 初始化页面');
     loadSites();
     loadAppearanceConfig();
+    loadFilenameConfig();
   }, []);
 
   return (
@@ -577,6 +839,140 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                       <Button onClick={() => {
                         appearanceForm.resetFields();
                         loadAppearanceConfig();
+                      }}>
+                        重置
+                      </Button>
+                    </Space>
+                  </Form.Item>
+                </Form>
+              </Card>
+            )
+          },
+          {
+            key: 'filename',
+            label: (
+              <span>
+                <FileTextOutlined />
+                文件配置
+              </span>
+            ),
+            children: (
+              <Card
+                title={
+                  <Space>
+                    <FileTextOutlined />
+                    下载文件名模板配置
+                  </Space>
+                }
+              >
+                <Alert
+                  message="提示"
+                  description="配置下载文件时的文件名格式，支持丰富的模板变量"
+                  type="info"
+                  showIcon
+                  style={{ marginBottom: 24 }}
+                />
+
+                <Form
+                  form={filenameForm}
+                  layout="vertical"
+                  onFinish={handleSaveFilename}
+                  initialValues={{
+                    filenameTemplate: '{site}_{id}_{md5}.{extension}'
+                  }}
+                >
+                  <Form.Item
+                    label="文件名模板"
+                    name="filenameTemplate"
+                    rules={[{ required: true, message: '请输入文件名模板' }]}
+                    tooltip="使用 {token} 格式插入变量，支持 token选项 如 {tags:limit=10}"
+                  >
+                    <Input
+                      placeholder="{site}_{id}_{md5}.{extension}"
+                      onChange={(e) => updateFilenamePreview(e.target.value)}
+                    />
+                  </Form.Item>
+
+                  <Form.Item label="实时预览" style={{ marginBottom: 8 }}>
+                    <Alert
+                      message={<Text code>{filenamePreview || '请输入模板查看预览'}</Text>}
+                      type="success"
+                      style={{ marginTop: 8 }}
+                    />
+                  </Form.Item>
+
+                  <Divider orientation="left" style={{ marginTop: 32 }}>支持的模板变量</Divider>
+
+                  <Paragraph type="secondary">
+                    点击变量可以快速插入到模板中：
+                  </Paragraph>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(250px, 1fr))', gap: '8px', marginTop: 16 }}>
+                    {SUPPORTED_TOKENS.map(({ token, desc }) => (
+                      <Button
+                        key={token}
+                        size="small"
+                        style={{ textAlign: 'left', height: 'auto', padding: '8px' }}
+                        onClick={() => {
+                          const currentTemplate = filenameForm.getFieldValue('filenameTemplate') || '';
+                          const newTemplate = currentTemplate + token;
+                          filenameForm.setFieldsValue({ filenameTemplate: newTemplate });
+                          updateFilenamePreview(newTemplate);
+                        }}
+                      >
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <Text strong style={{ fontFamily: 'monospace' }}>{token}</Text>
+                          <Text type="secondary" style={{ fontSize: '12px' }}>{desc}</Text>
+                        </div>
+                      </Button>
+                    ))}
+                  </div>
+
+                  <Divider orientation="left" style={{ marginTop: 32 }}>使用示例</Divider>
+
+                  <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 4, fontFamily: 'monospace', fontSize: '13px' }}>
+                    <Paragraph>
+                      <Text strong>简单：</Text> <Text code>{`{id}_{md5}.{extension}`}</Text> → 123456_abc123.jpg
+                    </Paragraph>
+                    <Paragraph>
+                      <Text strong>带标签：</Text> <Text code>{`{site}_{id}_{tags:limit=5}.{extension}`}</Text> → yande.re_123456_tag1_tag2_tag3_tag4_tag5.jpg
+                    </Paragraph>
+                    <Paragraph>
+                      <Text strong>带艺术家：</Text> <Text code>{`{artist}_{id}.{extension}`}</Text> → artist_name_123456.jpg
+                    </Paragraph>
+                    <Paragraph>
+                      <Text strong>带日期：</Text> <Text code>{`{date}_{id}.{extension}`}</Text> → 2025-11-20_123456.jpg
+                    </Paragraph>
+                  </div>
+
+                  <Divider orientation="left" style={{ marginTop: 32 }}>Token选项</Divider>
+
+                  <Alert
+                    message="高级用法"
+                    description={
+                      <div>
+                        <Paragraph style={{ marginBottom: 8 }}>支持的选项（在token后使用冒号分隔）：</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>limit</Text> - 限制标签数量 {'(如: {tags:limit=10})'}</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>maxlength</Text> - 限制最大长度</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>case</Text> - 大小写转换 (lower/upper/none)</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>delimiter</Text> - 分隔符 (默认: _)</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>single_letter</Text> - 评分单个字母 (true/false)</Paragraph>
+                        <Paragraph style={{ marginLeft: 16, marginBottom: 4 }}><Text code>format</Text> - 日期格式 (如: yyyy-MM-dd)</Paragraph>
+                      </div>
+                    }
+                    type="info"
+                    showIcon
+                    icon={<InfoCircleOutlined />}
+                  />
+
+                  <Form.Item style={{ marginTop: 24 }}>
+                    <Space>
+                      <Button type="primary" htmlType="submit" loading={savingFilename}>
+                        保存文件配置
+                      </Button>
+                      <Button onClick={() => {
+                        filenameForm.resetFields();
+                        loadFilenameConfig();
                       }}>
                         重置
                       </Button>

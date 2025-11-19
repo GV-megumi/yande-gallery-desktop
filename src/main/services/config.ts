@@ -5,6 +5,38 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// Token选项类型
+export interface TokenOptions {
+  limit?: number;
+  maxlength?: number;
+  case?: 'lower' | 'upper' | 'none';
+  delimiter?: string;
+  unsafe?: boolean;
+  format?: string;
+  single_letter?: boolean;
+  pad_left?: number;
+  sort?: {
+    attribute?: 'name' | 'length';
+    order?: 'asc' | 'desc';
+  };
+}
+
+// Token默认选项配置
+export interface TokenDefaultOptions {
+  [key: string]: TokenOptions | undefined;
+  tags?: TokenOptions;
+  artist?: TokenOptions;
+  character?: TokenOptions;
+  copyright?: TokenOptions;
+  date?: TokenOptions;
+  rating?: TokenOptions;
+  site?: TokenOptions;
+  id?: TokenOptions;
+  md5?: TokenOptions;
+  width?: TokenOptions;
+  height?: TokenOptions;
+}
+
 // 配置类型定义
 export interface AppConfig {
   database: {
@@ -67,6 +99,10 @@ export interface AppConfig {
       spacing: number; // 间距（像素）
       borderRadius: number; // 圆角（像素）
       margin: number; // 边距（像素）
+    };
+    download: {
+      filenameTemplate: string; // 文件名模板
+      tokenDefaults: TokenDefaultOptions; // Token默认选项
     };
   };
 }
@@ -149,6 +185,61 @@ const DEFAULT_CONFIG: AppConfig = {
       spacing: 16, // 间距16px
       borderRadius: 8, // 圆角8px
       margin: 24 // 边距24px
+    },
+    download: {
+      filenameTemplate: '{site}_{id}_{md5}.{extension}', // 默认文件名模板
+      tokenDefaults: {
+        tags: {
+          limit: 10,
+          maxlength: 50,
+          case: 'lower',
+          delimiter: '_',
+          unsafe: false
+        },
+        artist: {
+          limit: 5,
+          maxlength: 30,
+          case: 'lower',
+          delimiter: '_',
+          unsafe: false
+        },
+        character: {
+          limit: 5,
+          maxlength: 30,
+          case: 'lower',
+          delimiter: '_',
+          unsafe: false
+        },
+        copyright: {
+          limit: 3,
+          maxlength: 30,
+          case: 'lower',
+          delimiter: '_',
+          unsafe: false
+        },
+        date: {
+          format: 'yyyy-MM-dd'
+        },
+        rating: {
+          case: 'lower',
+          single_letter: false
+        },
+        site: {
+          case: 'lower'
+        },
+        id: {
+          pad_left: 0
+        },
+        md5: {
+          maxlength: 32
+        },
+        width: {
+          unsafe: true
+        },
+        height: {
+          unsafe: true
+        }
+      }
     }
   }
 };
