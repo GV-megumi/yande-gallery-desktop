@@ -75,3 +75,93 @@ export interface ApiResponse<T> {
   error?: string;
   message?: string;
 }
+
+// ========= Booru 相关类型定义 (新增) =========
+
+// Booru站点配置
+export interface BooruSite {
+  id: number;
+  name: string;
+  url: string;
+  type: 'moebooru' | 'danbooru' | 'gelbooru';
+  salt?: string;
+  version?: string;
+  apiKey?: string;
+  username?: string;
+  passwordHash?: string;
+  favoriteSupport: boolean;
+  active: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Booru图片
+export interface BooruPost {
+  id: number;
+  siteId: number;
+  postId: number;
+  md5?: string;
+  fileUrl: string;
+  previewUrl?: string;
+  sampleUrl?: string;
+  width?: number;
+  height?: number;
+  fileSize?: number;
+  fileExt?: string;
+  rating?: 'safe' | 'questionable' | 'explicit';
+  score?: number;
+  source?: string;
+  tags: string;
+  downloaded: boolean;
+  localPath?: string;
+  localImageId?: number;
+  isFavorited: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Booru标签
+export interface BooruTag {
+  id: number;
+  siteId: number;
+  name: string;
+  category?: 'artist' | 'character' | 'copyright' | 'general' | 'meta';
+  postCount: number;
+  createdAt: string;
+}
+
+// Booru收藏
+export interface BooruFavorite {
+  id: number;
+  postId: number;
+  siteId: number;
+  notes?: string;
+  createdAt: string;
+}
+
+// 下载队列项
+export interface DownloadQueueItem {
+  id: number;
+  postId: number;
+  siteId: number;
+  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'paused';
+  progress: number;
+  downloadedBytes: number;
+  totalBytes: number;
+  errorMessage?: string;
+  retryCount: number;
+  priority: number;
+  targetPath?: string;
+  createdAt: string;
+  updatedAt: string;
+  completedAt?: string;
+}
+
+// 搜索历史项
+export interface SearchHistoryItem {
+  id: number;
+  siteId: number;
+  query: string;
+  resultCount: number;
+  createdAt: string;
+}

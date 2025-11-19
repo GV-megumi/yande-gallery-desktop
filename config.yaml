@@ -2,7 +2,7 @@ database:
   path: data/gallery.db
   logging: true
 downloads:
-  path: downloads
+  path: M:\test
   createSubfolders: true
   subfolderFormat:
     - tags
@@ -55,3 +55,21 @@ logging:
   consoleOutput: true
   maxFileSize: 10
   maxFiles: 5
+network:
+  proxy:
+    enabled: true
+    protocol: http
+    host: 127.0.0.1
+    port: '7897'
+    username: ''
+    password: ''
+booru:
+  appearance:
+    gridSize: 220
+    previewQuality: original
+    itemsPerPage: 10
+    paginationPosition: both
+    pageMode: pagination
+    spacing: 16
+    borderRadius: 8
+    margin: 24

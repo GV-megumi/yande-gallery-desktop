@@ -1,9 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Layout, Menu, theme, message } from 'antd';
-import { PictureOutlined, CloudDownloadOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined } from '@ant-design/icons';
+import { Layout, Menu, theme, message, App as AntApp } from 'antd';
+import { PictureOutlined, CloudDownloadOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { DownloadPage } from './pages/DownloadPage';
 import { SettingsPage } from './pages/SettingsPage';
+import { BooruPage } from './pages/BooruPage';
+import { BooruSettingsPage } from './pages/BooruSettingsPage';
+import BooruDownloadPage from './pages/BooruDownloadPage';
 
 const { Header, Content, Sider } = Layout;
 
@@ -15,6 +18,7 @@ type MenuItem = {
 
 const mainMenuItems: MenuItem[] = [
   { key: 'gallery', icon: <PictureOutlined />, label: '图库' },
+  { key: 'booru', icon: <CloudOutlined />, label: 'Booru' },
   { key: 'download', icon: <CloudDownloadOutlined />, label: 'Yande.re' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' }
 ];
@@ -25,9 +29,16 @@ const gallerySubMenuItems: MenuItem[] = [
   { key: 'galleries', icon: <AppstoreOutlined />, label: '图集' }
 ];
 
-export const App: React.FC = () => {
+const booruSubMenuItems: MenuItem[] = [
+  { key: 'posts', icon: <CloudOutlined />, label: '图片浏览' },
+  { key: 'downloads', icon: <CloudDownloadOutlined />, label: '下载管理' },
+  { key: 'settings', icon: <BooruSettingOutlined />, label: '站点配置' }
+];
+
+export const AppContent: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState('gallery');
   const [selectedSubKey, setSelectedSubKey] = useState('recent');
+  const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
   const [loading, setLoading] = useState(true);
   const {
     token: { colorBgContainer },
@@ -62,11 +73,15 @@ export const App: React.FC = () => {
     initDatabase();
   }, []);
 
-  // 当主菜单切换时，如果是图库，默认选择"最近"子菜单
+  // 当主菜单切换时，设置默认子菜单
   useEffect(() => {
     if (selectedKey === 'gallery' && !selectedSubKey) {
       console.log('[App] 默认选择图库的"最近"子菜单');
       setSelectedSubKey('recent');
+    }
+    if (selectedKey === 'booru' && !selectedBooruSubKey) {
+      console.log('[App] 默认选择Booru的"图片浏览"子菜单');
+      setSelectedBooruSubKey('posts');
     }
   }, [selectedKey]);
 
@@ -81,13 +96,19 @@ export const App: React.FC = () => {
 
     switch (selectedKey) {
       case 'gallery':
-        return <GalleryPage subTab={selectedSubKey} />;
+        return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
+      case 'booru':
+        if (selectedBooruSubKey === 'posts') return <BooruPage />;
+        if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
+        if (selectedBooruSubKey === 'settings') return <BooruSettingsPage />;
+        return <BooruPage />;
       case 'download':
         return <DownloadPage />;
       case 'settings':
         return <SettingsPage />;
+      // case 'downloads': return <BooruDownloadPage />; // Removed as it's now a sub-menu of booru
       default:
-        return <GalleryPage subTab={selectedSubKey} />;
+        return <BooruPage />;
     }
   };
 
@@ -109,7 +130,7 @@ export const App: React.FC = () => {
           style={{ borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}
         />
         
-        {/* 子菜单 - 只在图库模式下显示，独立滚动 */}
+        {/* 子菜单 - 只在图库和Booru模式下显示，独立滚动 */}
         {selectedKey === 'gallery' && (
           <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
             <Menu
@@ -123,13 +144,28 @@ export const App: React.FC = () => {
             />
           </div>
         )}
+        {selectedKey === 'booru' && (
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedBooruSubKey]}
+              items={booruSubMenuItems}
+              onClick={({ key }) => {
+                console.log(`[App] Booru子菜单切换: ${key}`);
+                setSelectedBooruSubKey(key);
+              }}
+            />
+          </div>
+        )}
       </Sider>
 
       <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Header style={{ padding: 0, background: colorBgContainer, flexShrink: 0 }}>
           <h2 style={{ margin: '0 24px' }}>
-            {selectedKey === 'gallery' 
+            {selectedKey === 'gallery'
               ? `图库 - ${gallerySubMenuItems.find(item => item.key === selectedSubKey)?.label}`
+              : selectedKey === 'booru'
+              ? `Booru - ${booruSubMenuItems.find(item => item.key === selectedBooruSubKey)?.label}`
               : mainMenuItems.find(item => item.key === selectedKey)?.label}
           </h2>
         </Header>
@@ -146,3 +182,9 @@ export const App: React.FC = () => {
     </Layout>
   );
 };
+
+export const App: React.FC = () => (
+  <AntApp>
+    <AppContent />
+  </AntApp>
+);

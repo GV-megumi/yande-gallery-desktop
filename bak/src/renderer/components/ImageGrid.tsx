@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { Card, Image, Tag, Button, Modal, Descriptions, Space } from 'antd';
-import { TagsOutlined } from '@ant-design/icons';
+import { EyeOutlined, TagsOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 
 export interface ImageGridProps {
@@ -17,8 +17,6 @@ export interface ImageGridProps {
   onSetCover?: (imageId: number) => void;
   // 当前图集信息（用于显示设置封面按钮）
   currentGallery?: any;
-  // 批次大小：先按批次分组（每批多少张），再在每个批次内按时间分组（默认200）
-  batchSize?: number;
 }
 
 // 将本地文件路径转换为 app:// 协议 URL
@@ -52,8 +50,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
   showTimeline = false,
   layout = 'waterfall',
   onSetCover,
-  currentGallery,
-  batchSize = 200
+  currentGallery
 }) => {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   // 存储每个图片的缩略图路径，key 是 image.id
@@ -108,9 +105,9 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
     setSelectedImage(image);
   };
 
-  // 先按批次分组，再在每个批次内按时间分组
+  // 根据 groupBy 对图片按修改时间分组（降序）
   const groupedImages = useMemo(() => {
-    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${images.length}, 分组: ${groupBy}, 排序: ${sortBy}, 批次大小: ${batchSize}`);
+    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${images.length}, 分组: ${groupBy}, 排序: ${sortBy}`);
     const sorted = [...images].sort((a, b) => {
       if (sortBy === 'name') {
         return (a.filename || '').localeCompare(b.filename || '');
@@ -127,58 +124,23 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
       return { '__all__': sorted };
     }
 
-    // 先按批次分组
-    const batches: any[][] = [];
-    for (let i = 0; i < sorted.length; i += batchSize) {
-      batches.push(sorted.slice(i, i + batchSize));
+    const groups: Record<string, any[]> = {};
+    for (const img of sorted) {
+      const key = getDateGroupKey(img, groupBy);
+      if (!groups[key]) groups[key] = [];
+      groups[key].push(img);
     }
-    console.log(`[ImageGrid] 分为 ${batches.length} 个批次`);
-
-    // 在每个批次内按时间分组
-    const finalGroups: Record<string, any[]> = {};
-    batches.forEach((batch, batchIndex) => {
-      const batchGroups: Record<string, any[]> = {};
-      for (const img of batch) {
-        const timeKey = getDateGroupKey(img, groupBy);
-        if (!batchGroups[timeKey]) batchGroups[timeKey] = [];
-        batchGroups[timeKey].push(img);
-      }
-
-      // 将批次内的分组添加到最终分组，使用批次前缀区分
-      for (const [timeKey, imgs] of Object.entries(batchGroups)) {
-        // 如果只有一个批次，直接使用时间键；否则添加批次前缀
-        const finalKey = batches.length === 1 ? timeKey : `批次${batchIndex + 1}_${timeKey}`;
-        finalGroups[finalKey] = imgs;
-      }
-    });
-
-    const groupKeys = Object.keys(finalGroups);
+    const groupKeys = Object.keys(groups);
     console.log(`[ImageGrid] 分组完成，分组数量: ${groupKeys.length}, 分组键: ${groupKeys.join(', ')}`);
-    return finalGroups;
-  }, [images, groupBy, sortBy, batchSize]);
+    return groups;
+  }, [images, groupBy, sortBy]);
 
   const renderCard = (image: any) => {
-    // 获取该图片的缩略图路径
+    // 优先使用缩略图，如果还没有加载完成则不显示图片（避免读取原图）
     const thumbnailPath = thumbnailPaths[image.id];
+    const isLoading = thumbnailPath === undefined; // 检查是否还在加载中（undefined 表示还没开始加载）
+    const imageSrc = thumbnailPath ? getImageUrl(thumbnailPath) : undefined;
     
-    // 判断缩略图状态：undefined=加载中，string=已加载，null=加载失败
-    const isThumbnailLoading = thumbnailPath === undefined;
-    const hasThumbnail = typeof thumbnailPath === 'string';
-    const thumbnailFailed = thumbnailPath === null;
-
-    // 计算图片的宽高比（用于创建占位符）
-    const aspectRatio = image.width && image.height 
-      ? (image.height / image.width) * 100 
-      : 75; // 默认 4:3 比例 (3/4 * 100 = 75)
-
-    // 确定显示的图片源：优先使用缩略图，失败时使用原图
-    const displaySrc = hasThumbnail 
-      ? getImageUrl(thumbnailPath)  // 使用缩略图
-      : (thumbnailFailed ? getImageUrl(image.filepath) : undefined); // 缩略图加载失败，使用原图
-    
-    // 预览时始终使用原图
-    const previewSrc = getImageUrl(image.filepath);
-
     return (
       <Card
         key={image.id}
@@ -191,17 +153,34 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
               width: '100%',
               position: 'relative',
               overflow: 'hidden',
-              cursor: 'pointer'
+              cursor: 'pointer',
+              backgroundColor: '#f0f0f0',
+              minHeight: '200px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center'
             }}
           >
-            {isThumbnailLoading ? (
-              // 缩略图加载中：显示占位符，使用 padding-bottom 技巧保持宽高比
+            {imageSrc ? (
+              <Image
+                src={imageSrc}
+                alt={image.filename}
+                // 宽度自适应列宽，高度按图片实际比例缩放
+                style={{ width: '100%', height: 'auto', display: 'block' }}
+                // 使用原图路径进行预览，支持上一张、下一张、放大等功能
+                preview={{
+                  src: getImageUrl(image.filepath),
+                  mask: <div style={{ color: '#fff', fontSize: '14px' }}>点击查看原图</div>
+                }}
+                loading="lazy"
+              />
+            ) : (
+              // 缩略图加载中，显示占位符（避免读取原图）
               <div
                 style={{
                   width: '100%',
-                  paddingBottom: `${aspectRatio}%`,
+                  paddingTop: '75%', // 4:3 比例
                   backgroundColor: '#f0f0f0',
-                  display: 'block',
                   position: 'relative'
                 }}
               >
@@ -216,43 +195,6 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                   }}
                 >
                   加载中...
-                </div>
-              </div>
-            ) : displaySrc ? (
-              // 有图片源（缩略图或原图），显示图片
-              <Image
-                src={displaySrc}
-                alt={image.filename}
-                // 宽度自适应列宽，高度按图片实际比例缩放
-                style={{ width: '100%', height: 'auto', display: 'block' }}
-                // 使用 Ant Design 的 preview 属性，支持上一张、下一张导航
-                preview={{
-                  src: previewSrc,
-                  mask: <div style={{ color: '#fff', fontSize: '14px' }}>点击查看原图</div>
-                }}
-              />
-            ) : (
-              // 兜底：如果既没有缩略图也没有原图，显示占位符
-              <div
-                style={{
-                  width: '100%',
-                  paddingBottom: `${aspectRatio}%`,
-                  backgroundColor: '#f0f0f0',
-                  display: 'block',
-                  position: 'relative'
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    color: '#999',
-                    fontSize: '12px'
-                  }}
-                >
-                  加载失败
                 </div>
               </div>
             )}
@@ -270,10 +212,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 top: 4,
                 right: 4,
                 background: 'rgba(0,0,0,0.45)',
-                color: '#fff',
-                zIndex: 10,
-                // 加载中时隐藏按钮
-                display: isThumbnailLoading ? 'none' : 'block'
+                color: '#fff'
               }}
             />
           </div>
@@ -293,39 +232,34 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
         }}>
           {/* 主内容：按时间分段 + 瀑布流排版 */}
           <div>
-            {Object.entries(groupedImages).map(([key, group]) => {
-              // 解析分组键：如果是批次格式 "批次1_2024年11月17日"，提取时间部分
-              const displayTitle = key.includes('_') ? key.split('_').slice(1).join('_') : key;
-              
-              return (
-                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : 32 }} id={key}>
-                  {groupBy !== 'none' && (
-                    <div
-                      style={{
-                        margin: '8px 0 12px',
-                        fontWeight: 600,
-                        fontSize: groupBy === 'year' ? 20 : groupBy === 'month' ? 18 : 16,
-                        color: '#666'
-                      }}
-                    >
-                      {displayTitle}
-                    </div>
-                  )}
+            {Object.entries(groupedImages).map(([key, group]) => (
+            <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : 32 }} id={key}>
+              {groupBy !== 'none' && (
                 <div
                   style={{
-                    columnWidth: 220,
-                    columnGap: 16
+                    margin: '8px 0 12px',
+                    fontWeight: 600,
+                    fontSize: groupBy === 'year' ? 20 : groupBy === 'month' ? 18 : 16,
+                    color: '#666'
                   }}
                 >
-                  {group.map((image: any) => (
-                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: 16 }}>
-                      {renderCard(image)}
-                    </div>
-                  ))}
+                  {key}
                 </div>
+              )}
+              <div
+                style={{
+                  columnWidth: 220,
+                  columnGap: 16
+                }}
+              >
+                {group.map((image: any) => (
+                  <div key={image.id} style={{ breakInside: 'avoid', marginBottom: 16 }}>
+                    {renderCard(image)}
+                  </div>
+                ))}
               </div>
-            );
-            })}
+            </div>
+          ))}
           </div>
         </Image.PreviewGroup>
 

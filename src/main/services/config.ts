@@ -47,6 +47,28 @@ export interface AppConfig {
     maxFileSize: number;
     maxFiles: number;
   };
+  network: {
+    proxy: {
+      enabled: boolean;
+      protocol: 'http' | 'https' | 'socks5';
+      host: string;
+      port: number;
+      username?: string;
+      password?: string;
+    };
+  };
+  booru?: {
+    appearance: {
+      gridSize: number; // 图片网格大小（像素）
+      previewQuality: 'auto' | 'low' | 'medium' | 'high' | 'original'; // 预览图质量
+      itemsPerPage: number; // 每页数量
+      paginationPosition: 'top' | 'bottom' | 'both'; // 页码位置
+      pageMode: 'pagination' | 'infinite'; // 页面模式：翻页或无限滚动
+      spacing: number; // 间距（像素）
+      borderRadius: number; // 圆角（像素）
+      margin: number; // 边距（像素）
+    };
+  };
 }
 
 export interface GalleryFolder {
@@ -106,6 +128,28 @@ const DEFAULT_CONFIG: AppConfig = {
     consoleOutput: true,
     maxFileSize: 10,
     maxFiles: 5
+  },
+  network: {
+    proxy: {
+      enabled: false,
+      protocol: 'http',
+      host: '127.0.0.1',
+      port: 7890,
+      username: '',
+      password: ''
+    }
+  },
+  booru: {
+    appearance: {
+      gridSize: 220, // 默认网格大小
+      previewQuality: 'auto', // 自动选择预览质量
+      itemsPerPage: 20, // 每页20张
+      paginationPosition: 'bottom', // 页码在底部
+      pageMode: 'pagination', // 翻页模式
+      spacing: 16, // 间距16px
+      borderRadius: 8, // 圆角8px
+      margin: 24 // 边距24px
+    }
   }
 };
 
@@ -335,4 +379,42 @@ export function getGalleryFolders(): GalleryFolder[] {
 export function getAppConfig() {
   const config = getConfig();
   return config.app;
+}
+
+/**
+ * 获取网络配置（包含代理设置）
+ */
+export function getNetworkConfig() {
+  const config = getConfig();
+  return config.network;
+}
+
+/**
+ * 获取代理配置（如果启用）
+ * 返回 Axios 代理配置格式
+ */
+export function getProxyConfig() {
+  const config = getConfig();
+
+  if (!config.network.proxy.enabled) {
+    return undefined;
+  }
+
+  const { protocol, host, port, username, password } = config.network.proxy;
+
+  const proxyConfig: any = {
+    protocol,
+    host,
+    port
+  };
+
+  // 如果有认证信息，添加 auth
+  if (username && password) {
+    proxyConfig.auth = {
+      username,
+      password
+    };
+  }
+
+  return proxyConfig;
 }

@@ -17,13 +17,37 @@
       }
     },
     {
-      "name": "2. 启动 Electron",
+      "name": "2. 启动 Electron (无代理)",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
       "program": "${workspaceFolder}/build/main/index.js",
       "args": [],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "preLaunchTask": "📦 仅编译（主进程 + Preload）",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/build/main/**/*.js"],
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 2
+      }
+    },
+    {
+      "name": "2.1 启动 Electron (带代理)",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "program": "${workspaceFolder}/build/main/index.js",
+      "args": [
+        "--proxy-server=http://127.0.0.1:7897"  // ⚠️ 修改为实际的代理地址
+      ],
       "env": {
         "NODE_ENV": "development"
       },

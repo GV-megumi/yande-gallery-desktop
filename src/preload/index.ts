@@ -31,7 +31,23 @@ const IPC_CHANNELS = {
   // 系统操作
   SYSTEM_SELECT_FOLDER: 'system:select-folder',
   SYSTEM_OPEN_EXTERNAL: 'system:open-external',
-  SYSTEM_SHOW_ITEM: 'system:show-item'
+  SYSTEM_SHOW_ITEM: 'system:show-item',
+
+  // === Booru 相关通道 (新增) ===
+  BOORU_GET_SITES: 'booru:get-sites',
+  BOORU_ADD_SITE: 'booru:add-site',
+  BOORU_UPDATE_SITE: 'booru:update-site',
+  BOORU_DELETE_SITE: 'booru:delete-site',
+  BOORU_GET_ACTIVE_SITE: 'booru:get-active-site',
+  BOORU_GET_POSTS: 'booru:get-posts',
+  BOORU_GET_POST: 'booru:get-post',
+  BOORU_SEARCH_POSTS: 'booru:search-posts',
+  BOORU_GET_FAVORITES: 'booru:get-favorites',
+  BOORU_ADD_FAVORITE: 'booru:add-favorite',
+  BOORU_REMOVE_FAVORITE: 'booru:remove-favorite',
+  BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
+  BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
+  BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -100,11 +116,58 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, imageData)
   },
 
+  // Booru API (新增)
+  booru: {
+    // 站点管理
+    getSites: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SITES),
+    addSite: (site: any) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_SITE, site),
+    updateSite: (id: number, updates: any) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_SITE, id, updates),
+    deleteSite: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_SITE, id),
+    getActiveSite: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ACTIVE_SITE),
+
+    // 图片
+    getPosts: (siteId: number, page: number = 1, tags?: string[], limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POSTS, siteId, page, tags, limit),
+    getPost: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POST, siteId, postId),
+    searchPosts: (siteId: number, tags: string[], page: number = 1, limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page, limit),
+
+    // 收藏
+    getFavorites: (siteId: number, page: number = 1, limit: number = 20) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit),
+    addFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
+    removeFavorite: (postId: number, syncToServer: boolean = false) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, postId, syncToServer),
+
+    // 下载
+    addToDownload: (postId: number, siteId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_TO_DOWNLOAD, postId, siteId),
+    retryDownload: (postId: number, siteId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD, postId, siteId),
+    getDownloadQueue: (status?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
+    onDownloadProgress: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('booru:download-progress', subscription);
+      return () => ipcRenderer.removeListener('booru:download-progress', subscription);
+    },
+    onDownloadStatus: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('booru:download-status', subscription);
+      return () => ipcRenderer.removeListener('booru:download-status', subscription);
+    }
+  },
+
   // 系统操作
   system: {
     selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, url),
-    showItem: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_ITEM, path)
+    showItem: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_ITEM, path),
+    // 网络测试（从主进程发起，绕过CORS限制）
+    testBaidu: () => ipcRenderer.invoke('network:test-baidu'),
+    testGoogle: () => ipcRenderer.invoke('network:test-google')
   }
 });
 
@@ -131,10 +194,31 @@ declare global {
         searchImages: (tags: string[], page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         downloadImage: (imageData: any) => Promise<{ success: boolean; data?: any; error?: string }>;
       };
+      // Booru API (新增)
+      booru: {
+        getSites: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        addSite: (site: any) => Promise<{ success: boolean; data?: number; error?: string }>;
+        updateSite: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
+        deleteSite: (id: number) => Promise<{ success: boolean; error?: string }>;
+        getActiveSite: () => Promise<{ success: boolean; data?: any; error?: string }>;
+        getPosts: (siteId: number, page?: number, tags?: string[], limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPost: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+        searchPosts: (siteId: number, tags: string[], page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
+        removeFavorite: (postId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
+        addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+        retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: number; error?: string }>;
+        getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        onDownloadProgress: (callback: (data: any) => void) => () => void;
+        onDownloadStatus: (callback: (data: any) => void) => () => void;
+      };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;
         openExternal: (url: string) => Promise<void>;
         showItem: (path: string) => Promise<void>;
+        testBaidu: () => Promise<{ success: boolean; status?: number; error?: string }>;
+        testGoogle: () => Promise<{ success: boolean; status?: number; error?: string }>;
       };
       gallery: {
         getRecentImages: (count?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;

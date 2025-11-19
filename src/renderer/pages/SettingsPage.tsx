@@ -18,6 +18,7 @@ export const SettingsPage: React.FC = () => {
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState<string | null>(null);
+  const [proxyForm] = Form.useForm();
 
   // 加载配置
   useEffect(() => {
@@ -46,6 +47,24 @@ export const SettingsPage: React.FC = () => {
           autoGenerateThumbnail: true,
           theme: config.app?.defaultViewMode || 'light',
           language: 'zh-CN'
+        });
+
+        // 加载代理配置
+        const proxy = config.network?.proxy || {
+          enabled: false,
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: 7890,
+          username: '',
+          password: ''
+        };
+        proxyForm.setFieldsValue({
+          proxyEnabled: proxy.enabled,
+          proxyProtocol: proxy.protocol,
+          proxyHost: proxy.host,
+          proxyPort: proxy.port,
+          proxyUsername: proxy.username || '',
+          proxyPassword: proxy.password || ''
         });
       } else {
         console.error('[SettingsPage] 配置加载失败:', result.error);
@@ -215,6 +234,24 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  // 选择下载路径
+  const handleSelectDownloadPath = async () => {
+    if (!window.electronAPI) {
+      message.error('系统功能不可用');
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.system.selectFolder();
+      if (result.success && result.data) {
+        form.setFieldsValue({ downloadPath: result.data });
+      }
+    } catch (error) {
+      console.error('Failed to select download path:', error);
+      message.error('选择路径失败');
+    }
+  };
+
   // 保存设置
   const handleSave = async (values: any) => {
     console.log('[SettingsPage] 开始保存设置', values);
@@ -346,8 +383,15 @@ export const SettingsPage: React.FC = () => {
             rules={[{ required: true, message: '请输入下载路径' }]}
           >
             <Input
-              addonAfter={<FolderOutlined />}
-              placeholder="./downloads"
+              readOnly
+              addonAfter={
+                <FolderOutlined 
+                  style={{ cursor: 'pointer' }} 
+                  onClick={handleSelectDownloadPath} 
+                />
+              }
+              placeholder="请选择下载路径"
+              onClick={handleSelectDownloadPath}
             />
           </Form.Item>
 
@@ -419,6 +463,129 @@ export const SettingsPage: React.FC = () => {
                 保存设置
               </Button>
               <Button onClick={() => form.resetFields()}>
+                重置
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Card>
+
+      <Card title="网络设置" style={{ marginBottom: '24px' }}>
+        <Form
+          form={proxyForm}
+          layout="vertical"
+          onFinish={async (values) => {
+            console.log('[SettingsPage] 保存代理配置', values);
+            try {
+              if (!window.electronAPI) {
+                console.error('[SettingsPage] electronAPI is not available');
+                message.error('系统功能不可用');
+                return;
+              }
+
+              // 加载当前配置
+              console.log('[SettingsPage] 加载当前配置');
+              const configResult = await window.electronAPI.config.get();
+              if (!configResult.success || !configResult.data) {
+                console.error('[SettingsPage] 获取配置失败:', configResult.error);
+                message.error('获取配置失败');
+                return;
+              }
+
+              // 更新代理配置
+              const updatedConfig = {
+                ...configResult.data,
+                network: {
+                  ...configResult.data.network,
+                  proxy: {
+                    enabled: values.proxyEnabled,
+                    protocol: values.proxyProtocol,
+                    host: values.proxyHost,
+                    port: values.proxyPort,
+                    username: values.proxyUsername || '',
+                    password: values.proxyPassword || ''
+                  }
+                }
+              };
+
+              const result = await window.electronAPI.config.save(updatedConfig);
+              if (result.success) {
+                console.log('[SettingsPage] 代理设置保存成功');
+                message.success('代理设置已保存');
+              } else {
+                console.error('[SettingsPage] 代理设置保存失败:', result.error);
+                message.error(result.error || '保存代理设置失败');
+              }
+            } catch (error) {
+              console.error('Failed to save proxy settings:', error);
+              message.error('保存代理设置失败');
+            }
+          }}
+        >
+          <Form.Item
+            label="启用代理"
+            name="proxyEnabled"
+            valuePropName="checked"
+            tooltip="用于访问 Google、Booru 站点等需要代理的网络资源"
+          >
+            <Switch />
+          </Form.Item>
+
+          <Form.Item
+            label="代理协议"
+            name="proxyProtocol"
+            rules={[{ required: true, message: '请选择代理协议' }]}
+          >
+            <Select style={{ width: 200 }}>
+              <Option value="http">HTTP</Option>
+              <Option value="https">HTTPS</Option>
+              <Option value="socks5">SOCKS5</Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item
+            label="代理主机"
+            name="proxyHost"
+            rules={[{ required: true, message: '请输入代理主机' }]}
+            tooltip="例如：127.0.0.1 或 localhost"
+          >
+            <Input placeholder="127.0.0.1" style={{ width: '50%' }} />
+          </Form.Item>
+
+          <Form.Item
+            label="代理端口"
+            name="proxyPort"
+            rules={[{ required: true, message: '请输入代理端口' }]}
+            tooltip="通常为 7890、1080、10809 等"
+          >
+            <Input type="number" placeholder="7890" style={{ width: 200 }} />
+          </Form.Item>
+
+          <Form.Item
+            label="用户名（可选）"
+            name="proxyUsername"
+            tooltip="如果代理需要认证，请输入用户名"
+          >
+            <Input placeholder="留空表示不需要认证" style={{ width: '50%' }} />
+          </Form.Item>
+
+          <Form.Item
+            label="密码（可选）"
+            name="proxyPassword"
+            tooltip="如果代理需要认证，请输入密码"
+          >
+            <Input.Password placeholder="留空表示不需要认证" style={{ width: '50%' }} />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" icon={<SaveOutlined />}>
+                保存代理设置
+              </Button>
+              <Button onClick={async () => {
+                await proxyForm.resetFields();
+                await loadConfig();
+              }}>
                 重置
               </Button>
             </Space>

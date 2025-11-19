@@ -135,6 +135,205 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_folderPath ON galleries (folderPath)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC)');
 
+    // === Booru 相关表开始 ===
+    console.log('[database] 开始创建 Booru 相关表...');
+
+    // 创建 booru_sites 表 - Booru站点配置信息
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_sites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        url TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL,
+        salt TEXT,
+        version TEXT,
+        apiKey TEXT,
+        username TEXT,
+        passwordHash TEXT,
+        favoriteSupport INTEGER DEFAULT 1,
+        active INTEGER DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+
+    // 创建 booru_posts 表 - Booru图片信息
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_posts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER NOT NULL,
+        postId INTEGER NOT NULL,
+        md5 TEXT,
+        fileUrl TEXT NOT NULL,
+        previewUrl TEXT,
+        sampleUrl TEXT,
+        width INTEGER,
+        height INTEGER,
+        fileSize INTEGER,
+        fileExt TEXT,
+        rating TEXT,
+        score INTEGER,
+        source TEXT,
+        tags TEXT,
+        downloaded INTEGER DEFAULT 0,
+        localPath TEXT,
+        localImageId INTEGER,
+        isFavorited INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+        FOREIGN KEY (localImageId) REFERENCES images(id) ON DELETE SET NULL,
+        UNIQUE(siteId, postId)
+      )
+    `);
+
+    // 创建 booru_tags 表 - Booru标签信息
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        category TEXT,
+        postCount INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+        UNIQUE(siteId, name)
+      )
+    `);
+
+    // 创建 booru_post_tags 表 - Booru图片标签关联表
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_post_tags (
+        postId INTEGER NOT NULL,
+        tagId INTEGER NOT NULL,
+        PRIMARY KEY (postId, tagId),
+        FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (tagId) REFERENCES booru_tags(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 booru_favorites 表 - 收藏的Booru图片
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_favorites (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        postId INTEGER NOT NULL,
+        siteId INTEGER NOT NULL,
+        notes TEXT,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+        UNIQUE(postId)
+      )
+    `);
+
+    // 创建 booru_download_queue 表 - 下载队列
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_download_queue (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        postId INTEGER NOT NULL,
+        siteId INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        progress INTEGER DEFAULT 0,
+        downloadedBytes INTEGER DEFAULT 0,
+        totalBytes INTEGER DEFAULT 0,
+        errorMessage TEXT,
+        retryCount INTEGER DEFAULT 0,
+        priority INTEGER DEFAULT 0,
+        targetPath TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        completedAt TEXT,
+        FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 booru_search_history 表 - 搜索历史
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_search_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER NOT NULL,
+        query TEXT NOT NULL,
+        resultCount INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 Booru 相关索引
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_sites_type ON booru_sites(type)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_sites_active ON booru_sites(active)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_siteId ON booru_posts(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_postId ON booru_posts(postId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_downloaded ON booru_posts(downloaded)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_isFavorited ON booru_posts(isFavorited)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_rating ON booru_posts(rating)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_md5 ON booru_posts(md5)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_siteId ON booru_tags(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_name ON booru_tags(name)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_category ON booru_tags(category)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_postCount ON booru_tags(postCount DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_post_tags_postId ON booru_post_tags(postId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_post_tags_tagId ON booru_post_tags(tagId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_siteId ON booru_favorites(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_createdAt ON booru_favorites(createdAt DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_status ON booru_download_queue(status)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_siteId ON booru_download_queue(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_priority ON booru_download_queue(priority DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_search_history_siteId ON booru_search_history(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_search_history_createdAt ON booru_search_history(createdAt DESC)');
+
+    console.log('[database] Booru相关表创建成功');
+    // === Booru 相关表结束 ===
+
+    // 插入默认站点（如果不存在）
+    console.log('[database] 检查并插入默认Booru站点...');
+    const defaultSites = [
+      {
+        name: 'Yande.re',
+        url: 'https://yande.re',
+        type: 'moebooru',
+        salt: 'choujin-steiner--{0}--',
+        favoriteSupport: 1,
+        active: 1
+      },
+      {
+        name: 'Konachan.com',
+        url: 'https://konachan.com',
+        type: 'moebooru',
+        salt: 'So-I-Heard-You-Like-Mupkids-?--{0}--',
+        favoriteSupport: 1,
+        active: 0
+      },
+      {
+        name: 'Konachan.net',
+        url: 'https://konachan.net',
+        type: 'moebooru',
+        salt: 'So-I-Heard-You-Like-Mupkids-?--{0}--',
+        favoriteSupport: 1,
+        active: 0
+      }
+    ];
+
+    for (const site of defaultSites) {
+      try {
+        await run(database, `
+          INSERT OR IGNORE INTO booru_sites (name, url, type, salt, favoriteSupport, active, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?, datetime('now'), datetime('now'))
+        `, [
+          site.name,
+          site.url,
+          site.type,
+          site.salt,
+          site.favoriteSupport,
+          site.active
+        ]);
+        console.log(`[database] 站点 ${site.name} 已添加（如果不存在）`);
+      } catch (error) {
+        console.error(`[database] 添加站点 ${site.name} 失败:`, error);
+      }
+    }
+
     console.log('Database tables created successfully');
     return { success: true };
   } catch (error) {

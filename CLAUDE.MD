@@ -4,6 +4,7 @@
 
 本项目是一个基于 Electron 的桌面应用程序，提供**本地图库管理**和**MBooru（Yande.re 等 Booru 站点）对接**功能。程序支持本地图片的浏览、管理和组织，同时可以对接多个 Booru 站点的 API，实现图片的搜索、浏览和下载。
 
+在example 文件夹中有另一个示例对接mbooru的项目，可以提供参考
 ## 功能特性
 
 ### 核心功能
@@ -228,6 +229,137 @@ logger = logging.getLogger(__name__)
 logger.info(f'开始下载图片: {image_url}')
 logger.error(f'下载失败: {error}')
 ```
+
+## 网络访问与CORS解决方案
+
+### 问题描述
+在 Electron 应用中，渲染进程（前端）直接发起外部网络请求（如访问 Baidu、Google、Booru API）时会遇到 **CORS（跨域资源共享）** 限制。这是因为浏览器安全策略禁止前端代码从不同源（origin）访问资源。
+
+**错误示例**：
+```
+Access to fetch at 'https://www.google.com/' from origin 'http://localhost:5173'
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present
+on the requested resource.
+```
+
+### 解决方案：IPC 代理模式
+
+**核心原则**：所有外部网络请求必须通过 **主进程（Main Process）** 发起，然后通过 IPC 通信将结果返回给渲染进程。
+
+**架构优势**：
+- ✅ 绕过浏览器 CORS 限制
+- ✅ 统一网络请求管理（便于日志、错误处理、代理配置）
+- ✅ 更好的安全性（敏感操作在受保护的环境下运行）
+- ✅ 便于实现请求缓存和限流
+
+### 实现示例
+
+#### 1. 主进程 IPC 处理器（src/main/ipc/handlers.ts）
+```typescript
+// 在 setupIPC() 函数中添加网络测试处理器
+ipcMain.handle('network:test-baidu', async () => {
+  try {
+    const response = await fetch('https://www.baidu.com');
+    return { success: true, status: response.status };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+});
+```
+
+#### 2. Preload 脚本暴露 API（src/preload/index.ts）
+```typescript
+contextBridge.exposeInMainWorld('electronAPI', {
+  system: {
+    // ... 其他系统操作
+    testBaidu: () => ipcRenderer.invoke('network:test-baidu'),
+    testGoogle: () => ipcRenderer.invoke('network:test-google')
+  }
+});
+```
+
+#### 3. 前端调用（src/renderer/pages/BooruSettingsPage.tsx）
+```typescript
+const testBaidu = async () => {
+  try {
+    const result = await window.electronAPI.system.testBaidu();
+    if (result.success) {
+      message.success(`百度连接成功！状态: ${result.status}`);
+    } else {
+      message.error('百度连接失败: ' + result.error);
+    }
+  } catch (error) {
+    message.error('百度连接失败: ' + String(error));
+  }
+};
+```
+
+### 应用范围
+此模式应用于所有外部 API 调用：
+- Booru API（Yande.re、Konachan 等）
+- 网络连接测试（Baidu、Google）
+- 下载外部图片资源
+- 其他任何跨域网络请求
+
+### 代理配置指南
+
+在中国大陆访问 Google 或某些 Booru 站点时，可能需要配置代理。
+
+#### 方法1：环境变量（推荐）
+在启动应用前设置环境变量：
+
+**Windows (CMD):**
+```cmd
+set HTTP_PROXY=http://127.0.0.1:7890
+set HTTPS_PROXY=http://127.0.0.1:7890
+npm run dev
+```
+
+**Windows (PowerShell):**
+```powershell
+$env:HTTP_PROXY="http://127.0.0.1:7890"
+$env:HTTPS_PROXY="http://127.0.0.1:7890"
+npm run dev
+```
+
+**macOS/Linux:**
+```bash
+export HTTP_PROXY=http://127.0.0.1:7890
+export HTTPS_PROXY=http://127.0.0.1:7890
+npm run dev
+```
+
+#### 方法2：Electron 启动参数
+```bash
+npm run dev -- --proxy-server="http://127.0.0.1:7890"
+```
+
+#### 方法3：在代码中配置 Axios 代理
+修改 `src/main/services/moebooruClient.ts`：
+```typescript
+this.client = axios.create({
+  baseURL: config.baseUrl,
+  timeout: config.timeout || 30000,
+  headers: {
+    'User-Agent': 'YandeGalleryDesktop/1.0.0'
+  },
+  // 添加代理配置
+  proxy: {
+    protocol: 'http',
+    host: '127.0.0.1',
+    port: 7890
+  }
+});
+```
+
+#### 验证代理配置
+点击"测试百度"按钮应该显示：
+```
+[IPC] 当前代理配置: http://127.0.0.1:7890
+```
+
+如果显示"无"，说明代理未正确配置。
 
 ## 性能优化
 
