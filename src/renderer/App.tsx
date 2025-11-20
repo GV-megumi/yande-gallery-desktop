@@ -7,6 +7,7 @@ import { SettingsPage } from './pages/SettingsPage';
 import { BooruPage } from './pages/BooruPage';
 import { BooruSettingsPage } from './pages/BooruSettingsPage';
 import BooruDownloadPage from './pages/BooruDownloadPage';
+import { BooruBulkDownloadPage } from './pages/BooruBulkDownloadPage';
 
 const { Header, Content, Sider } = Layout;
 
@@ -32,6 +33,7 @@ const gallerySubMenuItems: MenuItem[] = [
 const booruSubMenuItems: MenuItem[] = [
   { key: 'posts', icon: <CloudOutlined />, label: '图片浏览' },
   { key: 'downloads', icon: <CloudDownloadOutlined />, label: '下载管理' },
+  { key: 'bulk-download', icon: <CloudDownloadOutlined />, label: '批量下载' },
   { key: 'settings', icon: <BooruSettingOutlined />, label: '站点配置' }
 ];
 
@@ -100,6 +102,7 @@ export const AppContent: React.FC = () => {
       case 'booru':
         if (selectedBooruSubKey === 'posts') return <BooruPage />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
+        if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
         if (selectedBooruSubKey === 'settings') return <BooruSettingsPage />;
         return <BooruPage />;
       case 'download':

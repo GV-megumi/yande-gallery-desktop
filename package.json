@@ -37,6 +37,7 @@
     "@types/prop-types": "^15.7.15",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
+    "@types/uuid": "^9.0.0",
     "@vitejs/plugin-react": "^4.2.0",
     "concurrently": "^8.2.2",
     "electron": "^39.2.1",
@@ -55,7 +56,8 @@
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "sharp": "^0.32.6",
-    "sqlite3": "^5.1.6"
+    "sqlite3": "^5.1.6",
+    "uuid": "^9.0.0"
   },
   "build": {
     "appId": "com.yourname.yande-gallery",

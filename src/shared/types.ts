@@ -165,3 +165,107 @@ export interface SearchHistoryItem {
   resultCount: number;
   createdAt: string;
 }
+
+// ========= 批量下载相关类型定义 =========
+
+// 批量下载任务状态
+export type BulkDownloadSessionStatus = 
+  | 'pending' 
+  | 'dryRun' 
+  | 'running' 
+  | 'completed' 
+  | 'allSkipped' 
+  | 'failed' 
+  | 'paused' 
+  | 'suspended' 
+  | 'cancelled';
+
+// 批量下载记录状态
+export type BulkDownloadRecordStatus = 
+  | 'pending' 
+  | 'downloading' 
+  | 'paused' 
+  | 'completed' 
+  | 'failed' 
+  | 'cancelled';
+
+// 批量下载任务配置
+export interface BulkDownloadTask {
+  id: string;
+  siteId: number;
+  path: string;
+  tags: string;  // 空格分隔的标签字符串
+  blacklistedTags?: string;
+  notifications: boolean;
+  skipIfExists: boolean;
+  quality?: string;
+  perPage: number;
+  concurrency: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// 批量下载会话
+export interface BulkDownloadSession {
+  id: string;
+  taskId: string;
+  siteId: number;
+  status: BulkDownloadSessionStatus;
+  startedAt: string;
+  completedAt?: string;
+  currentPage: number;
+  totalPages?: number;
+  error?: string;
+  task?: BulkDownloadTask;
+  stats?: BulkDownloadSessionStats;
+}
+
+// 批量下载记录
+export interface BulkDownloadRecord {
+  url: string;
+  sessionId: string;
+  status: BulkDownloadRecordStatus;
+  page: number;
+  pageIndex: number;
+  createdAt: string;
+  fileSize?: number;
+  fileName: string;
+  extension?: string;
+  error?: string;
+  downloadId?: string;
+  headers?: Record<string, string>;
+  thumbnailUrl?: string;
+  sourceUrl?: string;
+}
+
+// 批量下载会话统计
+export interface BulkDownloadSessionStats {
+  id?: number;
+  sessionId: string;
+  coverUrl?: string;
+  siteUrl?: string;
+  totalFiles: number;
+  totalSize?: number;
+  averageDuration?: number;
+  averageFileSize?: number;
+  largestFileSize?: number;
+  smallestFileSize?: number;
+  medianFileSize?: number;
+  avgFilesPerPage?: number;
+  maxFilesPerPage?: number;
+  minFilesPerPage?: number;
+  extensionCounts?: Record<string, number>;
+}
+
+// 批量下载任务选项（用于创建任务）
+export interface BulkDownloadOptions {
+  siteId: number;
+  path: string;
+  tags: string[];
+  blacklistedTags?: string[];
+  notifications?: boolean;
+  skipIfExists?: boolean;
+  quality?: string;
+  perPage?: number;
+  concurrency?: number;
+}

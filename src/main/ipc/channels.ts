@@ -75,5 +75,22 @@ export const IPC_CHANNELS = {
 
   // Booru 搜索历史
   BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',
-  BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history'
+  BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history',
+
+  // === 批量下载相关通道 ===
+  BULK_DOWNLOAD_CREATE_TASK: 'bulk-download:create-task',
+  BULK_DOWNLOAD_GET_TASKS: 'bulk-download:get-tasks',
+  BULK_DOWNLOAD_GET_TASK: 'bulk-download:get-task',
+  BULK_DOWNLOAD_UPDATE_TASK: 'bulk-download:update-task',
+  BULK_DOWNLOAD_DELETE_TASK: 'bulk-download:delete-task',
+  BULK_DOWNLOAD_CREATE_SESSION: 'bulk-download:create-session',
+  BULK_DOWNLOAD_GET_ACTIVE_SESSIONS: 'bulk-download:get-active-sessions',
+  BULK_DOWNLOAD_START_SESSION: 'bulk-download:start-session',
+  BULK_DOWNLOAD_PAUSE_SESSION: 'bulk-download:pause-session',
+  BULK_DOWNLOAD_CANCEL_SESSION: 'bulk-download:cancel-session',
+  BULK_DOWNLOAD_DELETE_SESSION: 'bulk-download:delete-session',
+  BULK_DOWNLOAD_GET_SESSION_STATS: 'bulk-download:get-session-stats',
+  BULK_DOWNLOAD_GET_RECORDS: 'bulk-download:get-records',
+  BULK_DOWNLOAD_RETRY_ALL_FAILED: 'bulk-download:retry-all-failed',
+  BULK_DOWNLOAD_RETRY_FAILED_RECORD: 'bulk-download:retry-failed-record'
 } as const;

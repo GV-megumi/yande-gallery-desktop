@@ -286,6 +286,105 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     console.log('[database] Booru相关表创建成功');
     // === Booru 相关表结束 ===
 
+    // === 批量下载相关表开始 ===
+    console.log('[database] 开始创建批量下载相关表...');
+
+    // 创建 bulk_download_tasks 表 - 批量下载任务配置
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS bulk_download_tasks (
+        id TEXT PRIMARY KEY,
+        siteId INTEGER NOT NULL,
+        path TEXT NOT NULL,
+        tags TEXT NOT NULL,
+        blacklistedTags TEXT,
+        notifications INTEGER DEFAULT 1,
+        skipIfExists INTEGER DEFAULT 1,
+        quality TEXT,
+        perPage INTEGER DEFAULT 20,
+        concurrency INTEGER DEFAULT 3,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 bulk_download_sessions 表 - 批量下载会话
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS bulk_download_sessions (
+        id TEXT PRIMARY KEY,
+        taskId TEXT NOT NULL,
+        siteId INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        startedAt TEXT NOT NULL,
+        completedAt TEXT,
+        currentPage INTEGER DEFAULT 1,
+        totalPages INTEGER,
+        error TEXT,
+        deletedAt TEXT,
+        FOREIGN KEY (taskId) REFERENCES bulk_download_tasks(id) ON DELETE CASCADE,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 bulk_download_records 表 - 批量下载记录（每个图片的下载记录）
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS bulk_download_records (
+        url TEXT NOT NULL,
+        sessionId TEXT NOT NULL,
+        status TEXT NOT NULL,
+        page INTEGER NOT NULL,
+        pageIndex INTEGER NOT NULL,
+        createdAt TEXT NOT NULL,
+        fileSize INTEGER,
+        fileName TEXT NOT NULL,
+        extension TEXT,
+        error TEXT,
+        downloadId TEXT,
+        headers TEXT,
+        thumbnailUrl TEXT,
+        sourceUrl TEXT,
+        PRIMARY KEY (url, sessionId),
+        FOREIGN KEY (sessionId) REFERENCES bulk_download_sessions(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 创建 bulk_download_session_stats 表 - 批量下载会话统计
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS bulk_download_session_stats (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        sessionId TEXT UNIQUE,
+        coverUrl TEXT,
+        siteUrl TEXT,
+        totalFiles INTEGER,
+        totalSize INTEGER,
+        averageDuration INTEGER,
+        averageFileSize INTEGER,
+        largestFileSize INTEGER,
+        smallestFileSize INTEGER,
+        medianFileSize INTEGER,
+        avgFilesPerPage REAL,
+        maxFilesPerPage INTEGER,
+        minFilesPerPage INTEGER,
+        extensionCounts TEXT,
+        FOREIGN KEY (sessionId) REFERENCES bulk_download_sessions(id) ON DELETE SET NULL
+      )
+    `);
+
+    // 创建批量下载相关索引
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_siteId ON bulk_download_tasks(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_createdAt ON bulk_download_tasks(createdAt DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_taskId ON bulk_download_sessions(taskId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_status ON bulk_download_sessions(status)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_startedAt ON bulk_download_sessions(startedAt DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_deletedAt ON bulk_download_sessions(deletedAt) WHERE deletedAt IS NULL');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_sessionId ON bulk_download_records(sessionId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_status ON bulk_download_records(status)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_page ON bulk_download_records(page, pageIndex)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_downloadId ON bulk_download_records(sessionId, downloadId)');
+
+    console.log('[database] 批量下载相关表创建成功');
+    // === 批量下载相关表结束 ===
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [

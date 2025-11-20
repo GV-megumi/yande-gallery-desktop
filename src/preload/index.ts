@@ -160,6 +160,27 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
+  // 批量下载 API
+  bulkDownload: {
+    createTask: (options: any) => ipcRenderer.invoke('bulk-download:create-task', options),
+    getTasks: () => ipcRenderer.invoke('bulk-download:get-tasks'),
+    getTask: (taskId: string) => ipcRenderer.invoke('bulk-download:get-task', taskId),
+    updateTask: (taskId: string, updates: any) => ipcRenderer.invoke('bulk-download:update-task', taskId, updates),
+    deleteTask: (taskId: string) => ipcRenderer.invoke('bulk-download:delete-task', taskId),
+    createSession: (taskId: string) => ipcRenderer.invoke('bulk-download:create-session', taskId),
+    getActiveSessions: () => ipcRenderer.invoke('bulk-download:get-active-sessions'),
+    startSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:start-session', sessionId),
+    pauseSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:pause-session', sessionId),
+    cancelSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:cancel-session', sessionId),
+    deleteSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:delete-session', sessionId),
+    getSessionStats: (sessionId: string) => ipcRenderer.invoke('bulk-download:get-session-stats', sessionId),
+    getRecords: (sessionId: string, status?: string, page?: number) => 
+      ipcRenderer.invoke('bulk-download:get-records', sessionId, status, page),
+    retryAllFailed: (sessionId: string) => ipcRenderer.invoke('bulk-download:retry-all-failed', sessionId),
+    retryFailedRecord: (sessionId: string, recordUrl: string) => 
+      ipcRenderer.invoke('bulk-download:retry-failed-record', sessionId, recordUrl)
+  },
+
   // 系统操作
   system: {
     selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
@@ -212,6 +233,23 @@ declare global {
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
+      };
+      bulkDownload: {
+        createTask: (options: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getTasks: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getTask: (taskId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        updateTask: (taskId: string, updates: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+        deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
+        createSession: (taskId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getActiveSessions: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        startSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        pauseSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        cancelSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        getSessionStats: (sessionId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getRecords: (sessionId: string, status?: string, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        retryAllFailed: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
+        retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; error?: string }>;
       };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;
