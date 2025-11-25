@@ -47,7 +47,15 @@ const IPC_CHANNELS = {
   BOORU_REMOVE_FAVORITE: 'booru:remove-favorite',
   BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
-  BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue'
+  BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
+
+  // Booru 图片缓存
+  BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
+  BOORU_CACHE_IMAGE: 'booru:cache-image',
+  BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
+
+  // Booru 标签分类
+  BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -148,6 +156,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD, postId, siteId),
     getDownloadQueue: (status?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
+
+    // 图片缓存
+    getCachedImageUrl: (md5: string, extension: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_CACHED_IMAGE_URL, md5, extension),
+    cacheImage: (url: string, md5: string, extension: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CACHE_IMAGE, url, md5, extension),
+    getCacheStats: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_CACHE_STATS),
+
+    // 标签分类
+    getTagsCategories: (siteId: number, tagNames: string[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAGS_CATEGORIES, siteId, tagNames),
+
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-progress', subscription);
@@ -231,6 +252,10 @@ declare global {
         addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: number; error?: string }>;
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getCachedImageUrl: (md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
+        getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
       };

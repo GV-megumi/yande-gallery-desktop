@@ -288,24 +288,107 @@ export class MoebooruClient {
   }
 
   /**
-   * 获取标签详情（按标签名列表）
+   * 从标签摘要中获取指定标签的分类信息
+   * 优先使用 tag/summary.json，如果失败则回退到逐个查询
    * @param names - 标签名称列表
    * @returns 标签列表
    */
   async getTagsByNames(names: string[]): Promise<MoebooruTagResponse[]> {
     try {
-      const queryParams = {
-        name: names.join(' '),
-        ...this.getAuthParams()
-      };
-
       console.log('[MoebooruClient] 获取标签详情:', names);
 
-      const response = await this.client.get('/tag.json', {
-        params: queryParams
-      });
+      const results: MoebooruTagResponse[] = [];
+      
+      // 方法1: 优先使用 tag/summary.json 获取所有标签分类（一次性获取所有标签）
+      try {
+        const tagSummary = await this.getTagSummary();
+        const tagCategoryMap = this.parseTagSummary(tagSummary.data);
+        
+        // 从摘要中查找标签分类
+        for (const tagName of names) {
+          const category = tagCategoryMap.get(tagName);
+          if (category !== undefined) {
+            results.push({
+              id: 0, // 摘要中没有 ID
+              name: tagName,
+              count: 0, // 摘要中没有 count
+              type: category,
+              ambiguous: false
+            });
+          }
+        }
+        
+        if (results.length === names.length) {
+          console.log(`[MoebooruClient] 从标签摘要中成功获取所有 ${results.length} 个标签信息`);
+          return results;
+        } else {
+          console.log(`[MoebooruClient] 从标签摘要中获取了 ${results.length}/${names.length} 个标签，继续查询剩余的`);
+        }
+      } catch (error) {
+        console.warn('[MoebooruClient] 从标签摘要获取标签失败，使用逐个查询:', error);
+      }
+      
+      // 方法2: 对于未找到的标签，使用 tag.json 逐个查询
+      const notFound = names.filter(name => !results.find(r => r.name === name));
+      if (notFound.length > 0) {
+        console.log(`[MoebooruClient] 需要查询 ${notFound.length} 个标签`);
+        
+        for (const tagName of notFound) {
+          try {
+          // 尝试使用 name 参数（精确匹配）
+          let response;
+          try {
+            response = await this.client.get('/tag.json', {
+              params: {
+                name: tagName, // 先尝试 name 参数
+                limit: 1,
+                ...this.getAuthParams()
+              }
+            });
+          } catch (error) {
+            // 如果 name 参数失败，尝试 name_pattern
+            response = await this.client.get('/tag.json', {
+              params: {
+                name_pattern: tagName,
+                limit: 100, // 增加限制
+                ...this.getAuthParams()
+              }
+            });
+          }
 
-      return response.data;
+          if (Array.isArray(response.data)) {
+            // 在返回的结果中查找精确匹配的标签
+            const exactMatch = response.data.find((tag: MoebooruTagResponse) => tag.name === tagName);
+            if (exactMatch) {
+              results.push(exactMatch);
+              console.log(`[MoebooruClient] 找到标签 "${tagName}": type=${exactMatch.type} (${TAG_TYPE_MAP[exactMatch.type] || 'unknown'})`);
+            } else if (response.data.length > 0) {
+              // 如果没有精确匹配，但返回了结果，打印前几个结果用于调试
+              console.warn(`[MoebooruClient] 标签 "${tagName}" 未找到精确匹配，返回了 ${response.data.length} 个结果`);
+              const firstThree = response.data.slice(0, 3).map((t: MoebooruTagResponse) => `${t.name} (type=${t.type})`);
+              console.warn(`[MoebooruClient] 前3个结果:`, firstThree);
+              
+              // 尝试查找部分匹配（标签名包含在结果中）
+              const partialMatch = response.data.find((tag: MoebooruTagResponse) => 
+                tag.name.toLowerCase().includes(tagName.toLowerCase()) || 
+                tagName.toLowerCase().includes(tag.name.toLowerCase())
+              );
+              if (partialMatch) {
+                console.warn(`[MoebooruClient] 找到部分匹配: "${partialMatch.name}"，但跳过（需要精确匹配）`);
+              }
+            } else {
+              console.warn(`[MoebooruClient] 标签 "${tagName}" 查询返回空数组`);
+            }
+          }
+          } catch (error) {
+            console.warn(`[MoebooruClient] 获取标签 "${tagName}" 失败:`, error);
+            // 继续处理下一个标签
+          }
+        }
+      }
+
+      console.log(`[MoebooruClient] 成功获取 ${results.length}/${names.length} 个标签信息`);
+      return results;
     } catch (error) {
       console.error('[MoebooruClient] 获取标签详情失败:', error);
       throw error;
@@ -313,11 +396,13 @@ export class MoebooruClient {
   }
 
   /**
-   * 获取热门标签（标签摘要）
+   * 获取标签摘要（所有标签的分类信息）
+   * 返回格式：{ version: number, data: string }
+   * data 格式：每个标签用空格分隔，每个标签的格式是 category`name`otherName1`otherName2...
    */
   async getTagSummary(): Promise<{
-    tags: MoebooruTagResponse[];
-    tag_types: Record<string, string>;
+    version: number;
+    data: string;
   }> {
     try {
       const queryParams = {
@@ -330,11 +415,62 @@ export class MoebooruClient {
         params: queryParams
       });
 
-      return response.data;
+      return {
+        version: response.data.version || 0,
+        data: response.data.data || ''
+      };
     } catch (error) {
       console.error('[MoebooruClient] 获取标签摘要失败:', error);
       throw error;
     }
+  }
+
+  /**
+   * 从标签摘要中解析标签分类信息
+   * @param tagSummaryData - tag/summary.json 返回的 data 字符串
+   * @returns 标签名到分类的映射
+   */
+  parseTagSummary(tagSummaryData: string): Map<string, number> {
+    const tagMap = new Map<string, number>();
+    
+    if (!tagSummaryData || tagSummaryData.trim() === '') {
+      return tagMap;
+    }
+
+    // 数据格式：每个标签用空格分隔，每个标签的格式是 category`name`otherName1`otherName2...
+    const tagDataList = tagSummaryData.split(' ');
+
+    for (const tagData of tagDataList) {
+      if (!tagData || tagData.trim() === '') {
+        continue;
+      }
+
+      // 用反引号分隔字段
+      const tagFields = tagData.split('`');
+      
+      if (tagFields.length < 2) {
+        continue;
+      }
+
+      const category = parseInt(tagFields[0], 10);
+      const name = tagFields[1];
+
+      if (!isNaN(category) && name) {
+        // 主标签名
+        tagMap.set(name, category);
+        
+        // 其他名称（别名）
+        for (let i = 2; i < tagFields.length; i++) {
+          const otherName = tagFields[i];
+          if (otherName && otherName.trim() !== '') {
+            tagMap.set(otherName, category);
+          }
+        }
+      }
+    }
+
+    console.log(`[MoebooruClient] 从标签摘要中解析出 ${tagMap.size} 个标签分类信息`);
+    return tagMap;
   }
 
   /**

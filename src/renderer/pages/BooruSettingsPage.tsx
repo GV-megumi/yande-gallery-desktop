@@ -26,6 +26,57 @@ import { BooruSite } from '../../shared/types';
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
 
+// 缓存统计信息显示组件
+const CacheStatsDisplay: React.FC = () => {
+  const [stats, setStats] = useState<{ sizeMB: number; fileCount: number } | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  const loadStats = async () => {
+    setLoading(true);
+    try {
+      if (window.electronAPI?.booru?.getCacheStats) {
+        const result = await window.electronAPI.booru.getCacheStats();
+        if (result.success && result.data) {
+          setStats(result.data);
+        }
+      }
+    } catch (error) {
+      console.error('[CacheStatsDisplay] 加载缓存统计失败:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    loadStats();
+    // 每 5 秒刷新一次
+    const interval = setInterval(loadStats, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  if (!stats) {
+    return null;
+  }
+
+  return (
+    <Form.Item label="当前缓存状态">
+      <Space direction="vertical" style={{ width: '100%' }}>
+        <div>
+          <Text>缓存大小: </Text>
+          <Text strong>{stats.sizeMB.toFixed(2)} MB</Text>
+        </div>
+        <div>
+          <Text>缓存文件数: </Text>
+          <Text strong>{stats.fileCount}</Text>
+        </div>
+        <Button size="small" onClick={loadStats} loading={loading}>
+          刷新统计
+        </Button>
+      </Space>
+    </Form.Item>
+  );
+};
+
 interface BooruSettingsPageProps {}
 
 // 支持的token列表
@@ -108,7 +159,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
             pageMode: 'pagination',
             spacing: 16,
             borderRadius: 8,
-            margin: 24
+            margin: 24,
+            maxCacheSizeMB: 500
           }
         };
 
@@ -704,7 +756,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     pageMode: 'pagination',
                     spacing: 16,
                     borderRadius: 8,
-                    margin: 24
+                    margin: 24,
+                    maxCacheSizeMB: 500
                   }}
                 >
                   <Form.Item
@@ -830,6 +883,24 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                       }}
                     />
                   </Form.Item>
+
+                  <Divider orientation="left">缓存设置</Divider>
+
+                  <Form.Item
+                    label="缓存目录最大大小"
+                    name="maxCacheSizeMB"
+                    tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
+                  >
+                    <InputNumber
+                      min={100}
+                      max={5000}
+                      step={100}
+                      style={{ width: '100%' }}
+                      addonAfter="MB"
+                    />
+                  </Form.Item>
+
+                  <CacheStatsDisplay />
 
                   <Form.Item>
                     <Space>

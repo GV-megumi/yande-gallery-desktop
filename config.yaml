@@ -65,13 +65,14 @@ network:
     password: ''
 booru:
   appearance:
-    gridSize: 220
+    gridSize: 400
     previewQuality: original
-    itemsPerPage: 10
+    itemsPerPage: 20
     paginationPosition: both
     pageMode: pagination
     spacing: 16
     borderRadius: 8
     margin: 24
+    maxCacheSizeMB: 3000
   download:
     filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'

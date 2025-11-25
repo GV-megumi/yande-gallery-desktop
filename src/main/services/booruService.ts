@@ -245,6 +245,16 @@ export async function setActiveBooruSite(id: number): Promise<void> {
  */
 export async function saveBooruPost(postData: Omit<BooruPost, 'id' | 'createdAt' | 'updatedAt'>): Promise<number> {
   console.log('[booruService] 保存Booru图片:', postData.postId);
+  // 调试：检查 URL 长度
+  if (postData.fileUrl) {
+    console.log('[booruService] fileUrl 长度:', postData.fileUrl.length, '内容:', postData.fileUrl.substring(0, 150));
+  }
+  if (postData.previewUrl) {
+    console.log('[booruService] previewUrl 长度:', postData.previewUrl.length, '内容:', postData.previewUrl.substring(0, 150));
+  }
+  if (postData.sampleUrl) {
+    console.log('[booruService] sampleUrl 长度:', postData.sampleUrl.length, '内容:', postData.sampleUrl.substring(0, 150));
+  }
   try {
     const db = await getDatabase();
     const now = new Date().toISOString();
@@ -361,6 +371,20 @@ export async function getBooruPosts(siteId: number, page: number = 1, limit: num
       downloaded: Boolean(post.downloaded),
       isFavorited: Boolean(post.isFavorited)
     }));
+
+    // 调试：检查第一个 post 的 URL 长度
+    if (result.length > 0 && result[0]) {
+      const firstPost = result[0];
+      console.log('[booruService] 读取到的第一个 post URL 长度:', {
+        postId: firstPost.postId,
+        fileUrlLength: firstPost.fileUrl?.length || 0,
+        previewUrlLength: firstPost.previewUrl?.length || 0,
+        sampleUrlLength: firstPost.sampleUrl?.length || 0,
+        fileUrl: firstPost.fileUrl?.substring(0, 150),
+        previewUrl: firstPost.previewUrl?.substring(0, 150),
+        sampleUrl: firstPost.sampleUrl?.substring(0, 150)
+      });
+    }
 
     console.log('[booruService] 获取到', result.length, '张图片');
     return result;
@@ -844,6 +868,58 @@ export async function searchBooruTags(siteId: number, query: string, limit: numb
   } catch (error) {
     console.error('[booruService] 搜索标签失败:', { siteId, query }, error);
     throw error;
+  }
+}
+
+/**
+ * 批量获取标签分类信息
+ * 返回标签名到分类的映射
+ */
+export async function getTagsCategories(siteId: number, tagNames: string[]): Promise<Map<string, string>> {
+  if (!tagNames || tagNames.length === 0) {
+    return new Map();
+  }
+
+  try {
+    const db = await getDatabase();
+    const placeholders = tagNames.map(() => '?').join(',');
+    const query = `
+      SELECT name, category
+      FROM booru_tags
+      WHERE siteId = ? AND name IN (${placeholders})
+    `;
+
+    const tags = await all<{ name: string; category: string | null }>(
+      db,
+      query,
+      [siteId, ...tagNames]
+    );
+
+    const categoryMap = new Map<string, string>();
+    tags.forEach(tag => {
+      if (tag.category) {
+        categoryMap.set(tag.name, tag.category);
+      } else {
+        // 如果没有分类信息，默认为 general
+        categoryMap.set(tag.name, 'general');
+      }
+    });
+
+    // 对于数据库中没有的标签，默认为 general
+    tagNames.forEach(name => {
+      if (!categoryMap.has(name)) {
+        categoryMap.set(name, 'general');
+      }
+    });
+
+    console.log('[booruService] 获取标签分类:', { siteId, tagCount: tagNames.length, foundCount: tags.length });
+    return categoryMap;
+  } catch (error) {
+    console.error('[booruService] 获取标签分类失败:', { siteId, tagCount: tagNames.length }, error);
+    // 出错时返回默认分类（全部为 general）
+    const defaultMap = new Map<string, string>();
+    tagNames.forEach(name => defaultMap.set(name, 'general'));
+    return defaultMap;
   }
 }
 

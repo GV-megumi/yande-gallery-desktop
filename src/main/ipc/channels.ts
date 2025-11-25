@@ -77,6 +77,14 @@ export const IPC_CHANNELS = {
   BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',
   BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history',
 
+  // Booru 图片缓存
+  BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
+  BOORU_CACHE_IMAGE: 'booru:cache-image',
+  BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
+
+  // Booru 标签分类
+  BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
+
   // === 批量下载相关通道 ===
   BULK_DOWNLOAD_CREATE_TASK: 'bulk-download:create-task',
   BULK_DOWNLOAD_GET_TASKS: 'bulk-download:get-tasks',

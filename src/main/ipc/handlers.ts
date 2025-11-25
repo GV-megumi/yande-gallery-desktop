@@ -31,13 +31,14 @@ import {
   updateGalleryStats,
   scanSubfoldersAndCreateGalleries
 } from '../services/galleryService.js';
-import { MoebooruClient, hashPasswordSHA1, RATING_MAP } from '../services/moebooruClient.js';
+import { MoebooruClient, hashPasswordSHA1, RATING_MAP, TAG_TYPE_MAP } from '../services/moebooruClient.js';
 import * as booruService from '../services/booruService.js';
 import { BooruPost } from '../../shared/types.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
+import * as imageCacheService from '../services/imageCacheService.js';
 
 
 export function setupIPC() {
@@ -472,11 +473,32 @@ export function setupIPC() {
 
       // 保存到数据库（注意：API返回的是snake_case格式，需要转换为camelCase）
       const savedPostIds: number[] = [];
+      const allTagNames = new Set<string>(); // 收集所有标签名
+      
       for (const post of posts) {
         // 确保 URL 是字符串且有效
         const fileUrl = post.file_url ? String(post.file_url).trim() : '';
         const previewUrl = post.preview_url ? String(post.preview_url).trim() : '';
         const sampleUrl = post.sample_url ? String(post.sample_url).trim() : '';
+        
+        // 收集标签名
+        if (post.tags) {
+          const tags = post.tags.split(/\s+/).filter(t => t.trim());
+          tags.forEach(tag => allTagNames.add(tag.trim()));
+        }
+        
+        // 调试：检查第一个 post 的 URL 长度
+        if (post.id === posts[0]?.id) {
+          console.log('[IPC] 保存前的 URL 长度:', {
+            postId: post.id,
+            fileUrlLength: fileUrl.length,
+            previewUrlLength: previewUrl.length,
+            sampleUrlLength: sampleUrl.length,
+            fileUrl: fileUrl.substring(0, 150),
+            previewUrl: previewUrl.substring(0, 150),
+            sampleUrl: sampleUrl.substring(0, 150)
+          });
+        }
         
         // 验证 URL 格式
         if (fileUrl && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://') && !fileUrl.startsWith('//')) {
@@ -504,6 +526,41 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
+      // 异步获取并保存标签分类信息（不阻塞返回）
+      if (allTagNames.size > 0) {
+        (async () => {
+          try {
+            console.log('[IPC] 开始获取标签分类信息，标签数量:', allTagNames.size);
+            const tagNamesArray = Array.from(allTagNames);
+            
+            // 分批获取（每次最多50个标签）
+            const batchSize = 50;
+            for (let i = 0; i < tagNamesArray.length; i += batchSize) {
+              const batch = tagNamesArray.slice(i, i + batchSize);
+              try {
+                const tagInfos = await client.getTagsByNames(batch);
+                const tagsToSave = tagInfos.map(tag => ({
+                  name: tag.name,
+                  category: TAG_TYPE_MAP[tag.type] || 'general',
+                  postCount: tag.count || 0
+                }));
+                
+                if (tagsToSave.length > 0) {
+                  await booruService.saveBooruTags(siteId, tagsToSave);
+                  console.log('[IPC] 保存标签分类成功，批次:', Math.floor(i / batchSize) + 1, ', 标签数:', tagsToSave.length);
+                }
+              } catch (error) {
+                console.warn('[IPC] 获取标签分类失败（批次）:', error);
+                // 继续处理下一批
+              }
+            }
+          } catch (error) {
+            console.error('[IPC] 获取标签分类信息失败:', error);
+            // 不影响主流程，只记录错误
+          }
+        })();
+      }
+
       console.log('[IPC] 获取Booru图片成功，数量:', posts.length);
 
       // 从数据库重新查询，获取包含 id 和正确 isFavorited 的数据
@@ -524,9 +581,15 @@ export function setupIPC() {
           if (post.postId === dbPosts[0]?.postId) {
             console.log('[IPC] 从数据库读取的 URL:', {
               postId: post.postId,
-              fileUrl: fileUrl.substring(0, 100),
-              previewUrl: previewUrl.substring(0, 100),
-              sampleUrl: sampleUrl.substring(0, 100)
+              fileUrlLength: fileUrl.length,
+              previewUrlLength: previewUrl.length,
+              sampleUrlLength: sampleUrl.length,
+              fileUrl: fileUrl.substring(0, 150),
+              previewUrl: previewUrl.substring(0, 150),
+              sampleUrl: sampleUrl.substring(0, 150),
+              fileUrlFull: fileUrl, // 完整 URL（用于调试）
+              previewUrlFull: previewUrl, // 完整 URL（用于调试）
+              sampleUrlFull: sampleUrl // 完整 URL（用于调试）
             });
           }
           
@@ -557,11 +620,19 @@ export function setupIPC() {
 
       // 调试：打印第一个格式化后的 post
       if (formattedPosts.length > 0) {
+        const firstPost = formattedPosts[0];
         console.log('[IPC] 格式化后的第一个 post URL:', {
-          postId: formattedPosts[0].postId,
-          fileUrl: formattedPosts[0].fileUrl?.substring(0, 100),
-          previewUrl: formattedPosts[0].previewUrl?.substring(0, 100),
-          sampleUrl: formattedPosts[0].sampleUrl?.substring(0, 100)
+          postId: firstPost.postId,
+          fileUrlLength: firstPost.fileUrl?.length || 0,
+          previewUrlLength: firstPost.previewUrl?.length || 0,
+          sampleUrlLength: firstPost.sampleUrl?.length || 0,
+          fileUrl: firstPost.fileUrl?.substring(0, 150),
+          previewUrl: firstPost.previewUrl?.substring(0, 150),
+          sampleUrl: firstPost.sampleUrl?.substring(0, 150),
+          // 检查 URL 是否完整（以 .png, .jpg, .jpeg 等结尾）
+          fileUrlEndsWith: firstPost.fileUrl?.slice(-20) || '',
+          previewUrlEndsWith: firstPost.previewUrl?.slice(-20) || '',
+          sampleUrlEndsWith: firstPost.sampleUrl?.slice(-20) || ''
         });
       }
 
@@ -608,11 +679,19 @@ export function setupIPC() {
 
       // 保存到数据库（注意：API返回的是snake_case格式，需要转换为camelCase）
       const savedPostIds: number[] = [];
+      const allTagNames = new Set<string>(); // 收集所有标签名
+      
       for (const post of posts) {
         // 确保 URL 是字符串且有效
         const fileUrl = post.file_url ? String(post.file_url).trim() : '';
         const previewUrl = post.preview_url ? String(post.preview_url).trim() : '';
         const sampleUrl = post.sample_url ? String(post.sample_url).trim() : '';
+        
+        // 收集标签名
+        if (post.tags) {
+          const tags = post.tags.split(/\s+/).filter(t => t.trim());
+          tags.forEach(tag => allTagNames.add(tag.trim()));
+        }
         
         const dbId = await booruService.saveBooruPost({
           siteId,
@@ -633,6 +712,41 @@ export function setupIPC() {
           isFavorited: false
         });
         savedPostIds.push(dbId);
+      }
+
+      // 异步获取并保存标签分类信息（不阻塞返回）
+      if (allTagNames.size > 0) {
+        (async () => {
+          try {
+            console.log('[IPC] 开始获取标签分类信息，标签数量:', allTagNames.size);
+            const tagNamesArray = Array.from(allTagNames);
+            
+            // 分批获取（每次最多50个标签）
+            const batchSize = 50;
+            for (let i = 0; i < tagNamesArray.length; i += batchSize) {
+              const batch = tagNamesArray.slice(i, i + batchSize);
+              try {
+                const tagInfos = await client.getTagsByNames(batch);
+                const tagsToSave = tagInfos.map(tag => ({
+                  name: tag.name,
+                  category: TAG_TYPE_MAP[tag.type] || 'general',
+                  postCount: tag.count || 0
+                }));
+                
+                if (tagsToSave.length > 0) {
+                  await booruService.saveBooruTags(siteId, tagsToSave);
+                  console.log('[IPC] 保存标签分类成功，批次:', Math.floor(i / batchSize) + 1, ', 标签数:', tagsToSave.length);
+                }
+              } catch (error) {
+                console.warn('[IPC] 获取标签分类失败（批次）:', error);
+                // 继续处理下一批
+              }
+            }
+          } catch (error) {
+            console.error('[IPC] 获取标签分类信息失败:', error);
+            // 不影响主流程，只记录错误
+          }
+        })();
       }
 
       // 从数据库重新查询，获取包含 id 和正确 isFavorited 的数据
@@ -996,6 +1110,71 @@ export function setupIPC() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 重试失败记录失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // ===== Booru 图片缓存 =====
+  // 获取缓存的图片 URL
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_CACHED_IMAGE_URL, async (_event: IpcMainInvokeEvent, md5: string, extension: string) => {
+    try {
+      console.log('[IPC] 获取缓存图片URL:', md5, extension);
+      const cachedUrl = await imageCacheService.getCachedImageUrl(md5, extension);
+      if (cachedUrl) {
+        console.log('[IPC] 缓存图片URL:', cachedUrl);
+        return { success: true, data: cachedUrl };
+      } else {
+        console.log('[IPC] 缓存图片不存在');
+        return { success: false, error: '缓存不存在' };
+      }
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取缓存图片URL失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 缓存图片
+  ipcMain.handle(IPC_CHANNELS.BOORU_CACHE_IMAGE, async (_event: IpcMainInvokeEvent, url: string, md5: string, extension: string) => {
+    try {
+      console.log('[IPC] 开始缓存图片:', url.substring(0, 100), md5, extension);
+      const cachePath = await imageCacheService.cacheImage(url, md5, extension);
+      const cachedUrl = await imageCacheService.getCachedImageUrl(md5, extension);
+      console.log('[IPC] 图片缓存成功:', cachedUrl);
+      return { success: true, data: cachedUrl };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 图片缓存失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取缓存统计信息
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_CACHE_STATS, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const stats = await imageCacheService.getCacheStats();
+      return { success: true, data: stats };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取缓存统计失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取标签分类信息
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_TAGS_CATEGORIES, async (_event: IpcMainInvokeEvent, siteId: number, tagNames: string[]) => {
+    try {
+      console.log('[IPC] 获取标签分类:', { siteId, tagCount: tagNames.length });
+      const categoryMap = await booruService.getTagsCategories(siteId, tagNames);
+      // 将 Map 转换为普通对象
+      const result: Record<string, string> = {};
+      categoryMap.forEach((category, name) => {
+        result[name] = category;
+      });
+      return { success: true, data: result };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取标签分类失败:', errorMessage);
       return { success: false, error: errorMessage };
     }
   });

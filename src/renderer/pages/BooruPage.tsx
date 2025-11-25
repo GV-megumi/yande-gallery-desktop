@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button, Empty, message as antdMessage, Spin, Select, Input, Tag, Space, Segmented, Affix, App } from 'antd';
 import { ReloadOutlined, SearchOutlined, HeartOutlined, DownloadOutlined } from '@ant-design/icons';
 import { BooruImageCard } from '../components/BooruImageCard';
+import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 
 const { Search } = Input;
@@ -22,9 +23,11 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
   const [hasMore, setHasMore] = useState(true);
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [favorites, setFavorites] = useState<Set<number>>(new Set());
+  const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
+  const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const [appearanceConfig, setAppearanceConfig] = useState({
-    gridSize: 220,
+    gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
     itemsPerPage: 20,
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
@@ -48,7 +51,7 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
         const config = result.data;
         const booruConfig = config.booru || {
           appearance: {
-            gridSize: 220,
+            gridSize: 330,
             previewQuality: 'auto',
             itemsPerPage: 20,
             paginationPosition: 'bottom',
@@ -153,6 +156,24 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 图片加载成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
+        
+        // 调试：检查第一个 post 的 URL 是否完整
+        if (data.length > 0 && data[0]) {
+          const firstPost = data[0];
+          console.log('[BooruPage] 前端接收到的第一个 post URL:', {
+            postId: firstPost.postId,
+            fileUrlLength: firstPost.fileUrl?.length || 0,
+            previewUrlLength: firstPost.previewUrl?.length || 0,
+            sampleUrlLength: firstPost.sampleUrl?.length || 0,
+            fileUrl: firstPost.fileUrl,
+            previewUrl: firstPost.previewUrl,
+            sampleUrl: firstPost.sampleUrl,
+            fileUrlEndsWith: firstPost.fileUrl?.slice(-30) || '',
+            previewUrlEndsWith: firstPost.previewUrl?.slice(-30) || '',
+            sampleUrlEndsWith: firstPost.sampleUrl?.slice(-30) || ''
+          });
+        }
+        
         setPosts(data);
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
@@ -201,6 +222,24 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 搜索成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
+        
+        // 调试：检查第一个 post 的 URL 是否完整
+        if (data.length > 0 && data[0]) {
+          const firstPost = data[0];
+          console.log('[BooruPage] 搜索后前端接收到的第一个 post URL:', {
+            postId: firstPost.postId,
+            fileUrlLength: firstPost.fileUrl?.length || 0,
+            previewUrlLength: firstPost.previewUrl?.length || 0,
+            sampleUrlLength: firstPost.sampleUrl?.length || 0,
+            fileUrl: firstPost.fileUrl,
+            previewUrl: firstPost.previewUrl,
+            sampleUrl: firstPost.sampleUrl,
+            fileUrlEndsWith: firstPost.fileUrl?.slice(-30) || '',
+            previewUrlEndsWith: firstPost.previewUrl?.slice(-30) || '',
+            sampleUrlEndsWith: firstPost.sampleUrl?.slice(-30) || ''
+          });
+        }
+        
         setPosts(data);
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
@@ -351,7 +390,8 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
   // 处理图片预览
   const handlePreview = (post: BooruPost) => {
     console.log('[BooruPage] 预览图片:', post.postId);
-    message.info('预览功能开发中...');
+    setSelectedPost(post);
+    setDetailsPageOpen(true);
   };
 
   // 初始化
@@ -498,10 +538,25 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
         localPath: post.localPath
       });
     } else {
+      // 调试：检查 URL 是否完整
+      const urlLength = url.length;
+      const expectedMinLength = 100; // 正常 URL 应该至少有 100 个字符
+      if (urlLength < expectedMinLength) {
+        console.warn('[BooruPage] URL 可能被截断:', {
+          postId: post.postId,
+          quality,
+          urlLength,
+          url: url,
+          fileUrlLength: post.fileUrl?.length || 0,
+          previewUrlLength: post.previewUrl?.length || 0,
+          sampleUrlLength: post.sampleUrl?.length || 0
+        });
+      }
       console.log('[BooruPage] 获取图片URL成功:', {
         postId: post.postId,
         quality,
-        url: url.substring(0, 100) + '...',
+        urlLength,
+        url: url.substring(0, 150) + (url.length > 150 ? '...' : ''),
         hasLocalPath: !!post.localPath
       });
     }
@@ -673,39 +728,18 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
               </div>
             )}
 
-            <div style={{
-              columnWidth: appearanceConfig.gridSize,
-              columnGap: appearanceConfig.spacing
-            }}>
-              {posts.map(post => {
-                // 根据分级筛选
-                if (ratingFilter !== 'all' && post.rating !== ratingFilter) {
-                  return null;
-                }
-
-                return (
-                  <div 
-                    key={post.id} 
-                    style={{ 
-                      breakInside: 'avoid', 
-                      marginBottom: appearanceConfig.spacing,
-                      borderRadius: `${appearanceConfig.borderRadius}px`,
-                      overflow: 'hidden'
-                    }}
-                  >
-                    <BooruImageCard
-                      post={post}
-                      siteName={selectedSite?.name || ''}
-                      onPreview={handlePreview}
-                      onDownload={handleDownload}
-                      onToggleFavorite={handleToggleFavorite}
-                      isFavorited={favorites.has(post.id) || post.isFavorited}
-                      previewUrl={getPreviewUrl(post)}
-                    />
-                  </div>
-                );
-              })}
-            </div>
+            <BooruGridLayout
+              posts={posts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
+              gridSize={appearanceConfig.gridSize}
+              spacing={appearanceConfig.spacing}
+              borderRadius={appearanceConfig.borderRadius}
+              selectedSite={selectedSite || null}
+              onPreview={handlePreview}
+              onDownload={handleDownload}
+              onToggleFavorite={handleToggleFavorite}
+              favorites={favorites}
+              getPreviewUrl={getPreviewUrl}
+            />
 
             {/* 底部分页（如果配置为 bottom 或 both） */}
             {(appearanceConfig.paginationPosition === 'bottom' || appearanceConfig.paginationPosition === 'both') && (
@@ -744,6 +778,144 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
           </>
         )}
       </div>
+
+      {/* 图片详情页面 */}
+      <BooruPostDetailsPage
+        open={detailsPageOpen}
+        post={selectedPost}
+        site={selectedSite || null}
+        posts={posts}
+        initialIndex={selectedPost ? posts.findIndex(p => p.id === selectedPost.id) : 0}
+        onClose={() => {
+          console.log('[BooruPage] 关闭详情页面');
+          setDetailsPageOpen(false);
+          setSelectedPost(null);
+        }}
+        onToggleFavorite={handleToggleFavorite}
+        onDownload={handleDownload}
+        onTagClick={handleTagClick}
+      />
+    </div>
+  );
+};
+
+/**
+ * Booru 动态网格布局组件
+ * 按 ID 排序，每行显示多张图片，每行高度取该行图片的最大高度
+ */
+interface BooruGridLayoutProps {
+  posts: BooruPost[];
+  gridSize: number;
+  spacing: number;
+  borderRadius: number;
+  selectedSite: BooruSite | null;
+  onPreview: (post: BooruPost) => void;
+  onDownload: (post: BooruPost) => void;
+  onToggleFavorite: (post: BooruPost) => void;
+  favorites: Set<number>;
+  getPreviewUrl: (post: BooruPost) => string;
+}
+
+const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
+  posts,
+  gridSize,
+  spacing,
+  borderRadius,
+  selectedSite,
+  onPreview,
+  onDownload,
+  onToggleFavorite,
+  favorites,
+  getPreviewUrl
+}) => {
+  // 按 ID 排序
+  const sortedPosts = useMemo(() => {
+    return [...posts].sort((a, b) => a.postId - b.postId);
+  }, [posts]);
+
+  // 计算每行能放多少张图片（根据容器宽度和 gridSize）
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [itemsPerRow, setItemsPerRow] = useState(5);
+
+  useEffect(() => {
+    const updateItemsPerRow = () => {
+      if (containerRef.current) {
+        const containerWidth = containerRef.current.clientWidth;
+        // 计算每行能放多少张：容器宽度 / (gridSize + spacing)
+        const calculated = Math.floor((containerWidth + spacing) / (gridSize + spacing));
+        setItemsPerRow(Math.max(1, calculated));
+      }
+    };
+
+    updateItemsPerRow();
+    window.addEventListener('resize', updateItemsPerRow);
+    return () => window.removeEventListener('resize', updateItemsPerRow);
+  }, [gridSize, spacing]);
+
+  // 将图片分组为行
+  const rows = useMemo(() => {
+    const result: BooruPost[][] = [];
+    for (let i = 0; i < sortedPosts.length; i += itemsPerRow) {
+      result.push(sortedPosts.slice(i, i + itemsPerRow));
+    }
+    return result;
+  }, [sortedPosts, itemsPerRow]);
+
+  // 存储每张图片的实际高度
+  const [imageHeights, setImageHeights] = useState<Record<number, number>>({});
+
+  const handleImageLoad = (postId: number, height: number) => {
+    setImageHeights(prev => ({ ...prev, [postId]: height }));
+  };
+
+  return (
+    <div ref={containerRef} style={{ width: '100%' }}>
+      {rows.map((row, rowIndex) => {
+        // 计算该行的最大高度
+        // 如果该行的所有图片都已加载，使用实际高度；否则使用默认高度
+        const rowHeights = row.map(post => {
+          const height = imageHeights[post.postId];
+          // 如果高度已记录，使用实际高度；否则使用默认高度（gridSize 的 1.5 倍，适应大多数图片比例）
+          return height || (gridSize * 1.5);
+        });
+        const maxHeight = Math.max(...rowHeights);
+
+        return (
+          <div
+            key={rowIndex}
+            style={{
+              display: 'flex',
+              gap: `${spacing}px`,
+              marginBottom: `${spacing}px`,
+              minHeight: `${maxHeight}px`
+            }}
+          >
+            {row.map(post => (
+              <div
+                key={post.id}
+                style={{
+                  width: `${gridSize}px`,
+                  flexShrink: 0,
+                  borderRadius: `${borderRadius}px`,
+                  overflow: 'hidden',
+                  height: '100%'
+                }}
+              >
+                <BooruImageCard
+                  post={post}
+                  siteName={selectedSite?.name || ''}
+                  onPreview={onPreview}
+                  onDownload={onDownload}
+                  onToggleFavorite={onToggleFavorite}
+                  isFavorited={favorites.has(post.id) || post.isFavorited}
+                  previewUrl={getPreviewUrl(post)}
+                  onImageLoad={handleImageLoad}
+                />
+              </div>
+            ))}
+          </div>
+        );
+      })}
     </div>
   );
 };

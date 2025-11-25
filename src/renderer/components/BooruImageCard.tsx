@@ -11,6 +11,7 @@ interface BooruImageCardProps {
   onToggleFavorite: (post: BooruPost) => void;
   isFavorited?: boolean;
   previewUrl?: string; // 可选的预览图URL，如果不提供则使用默认逻辑
+  onImageLoad?: (postId: number, height: number) => void; // 图片加载完成回调
 }
 
 // 格式化标签
@@ -26,7 +27,8 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
   onDownload,
   onToggleFavorite,
   isFavorited = false,
-  previewUrl
+  previewUrl,
+  onImageLoad
 }) => {
   // 获取预览图URL
   const getPreviewUrl = (): string => {
@@ -68,7 +70,23 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
     // 注意：不要解码 URL，因为 yande.re 的 URL 中的 %20 等编码是必需的
     // 浏览器会自动处理 URL 编码
     
-    console.log('[BooruImageCard] 最终图片URL:', url.substring(0, 100) + '...', 'postId:', post.postId);
+    // 调试：检查 URL 是否完整
+    if (url.length < 50) {
+      console.warn('[BooruImageCard] URL 可能被截断:', {
+        postId: post.postId,
+        urlLength: url.length,
+        url: url,
+        fileUrlLength: post.fileUrl?.length || 0,
+        previewUrlLength: post.previewUrl?.length || 0,
+        sampleUrlLength: post.sampleUrl?.length || 0
+      });
+    }
+    
+    console.log('[BooruImageCard] 最终图片URL:', {
+      postId: post.postId,
+      urlLength: url.length,
+      url: url.substring(0, 150) + (url.length > 150 ? '...' : '')
+    });
     return url;
   };
   const [loading, setLoading] = useState(false);
@@ -108,18 +126,25 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
   return (
     <Card
       hoverable
-      bodyStyle={{ padding: 8, height: '100%' }}
+      bodyStyle={{ padding: 8, height: '100%', display: 'flex', flexDirection: 'column' }}
       style={{
         height: '100%',
         borderRadius: 8,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column'
       }}
       cover={
         <div
           style={{
             position: 'relative',
             cursor: 'pointer',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            flex: 1,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            minHeight: 0
           }}
           onClick={handlePreview}
         >
@@ -128,9 +153,8 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
             alt={`Post ${post.postId}`}
             style={{
               width: '100%',
-              height: 'auto',
+              height: '100%',
               display: 'block',
-              minHeight: '100px',
               objectFit: 'contain'
             }}
             loading="lazy"
@@ -146,8 +170,12 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
                 e.target.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
               }
             }}
-            onLoad={() => {
+            onLoad={(e) => {
               console.log('[BooruImageCard] 图片加载成功:', post.postId);
+              if (onImageLoad && e.target && e.target instanceof HTMLImageElement) {
+                const height = e.target.offsetHeight || e.target.naturalHeight;
+                onImageLoad(post.postId, height);
+              }
             }}
           />
           {/* 右上角操作按钮组 */}

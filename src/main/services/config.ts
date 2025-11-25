@@ -99,6 +99,7 @@ export interface AppConfig {
       spacing: number; // 间距（像素）
       borderRadius: number; // 圆角（像素）
       margin: number; // 边距（像素）
+      maxCacheSizeMB?: number; // 缓存目录最大大小（MB），默认 500MB
     };
     download: {
       filenameTemplate: string; // 文件名模板
@@ -177,7 +178,7 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   booru: {
     appearance: {
-      gridSize: 220, // 默认网格大小
+      gridSize: 330, // 默认网格大小（220 * 1.5）
       previewQuality: 'auto', // 自动选择预览质量
       itemsPerPage: 20, // 每页20张
       paginationPosition: 'bottom', // 页码在底部
