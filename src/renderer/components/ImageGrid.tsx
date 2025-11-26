@@ -183,7 +183,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
       <Card
         key={image.id}
         hoverable
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
         style={{ borderRadius: 8, overflow: 'hidden' }}
         cover={
           <div

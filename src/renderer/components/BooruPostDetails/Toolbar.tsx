@@ -1,8 +1,8 @@
 import React from 'react';
 import { Space, Button, message } from 'antd';
 import {
-  HeartOutlined,
-  HeartFilled,
+  BookOutlined,
+  BookFilled,
   DownloadOutlined,
   PlayCircleOutlined,
   ShareAltOutlined
@@ -85,7 +85,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           <Button
             type={post.isFavorited ? 'primary' : 'default'}
             danger={post.isFavorited}
-            icon={post.isFavorited ? <HeartFilled /> : <HeartOutlined />}
+            icon={post.isFavorited ? <BookFilled /> : <BookOutlined />}
             onClick={handleToggleFavorite}
           >
             {post.isFavorited ? '已收藏' : '收藏'}

@@ -329,10 +329,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       onCancel={onClose}
       width="100%"
       style={{ top: 0, paddingBottom: 0 }}
-      bodyStyle={{ padding: 0, height: 'calc(100vh - 55px)', overflow: 'hidden' }}
+      styles={{ 
+        body: { padding: 0, height: 'calc(100vh - 55px)', overflow: 'hidden' },
+        mask: { backgroundColor: 'rgba(0, 0, 0, 0.9)' }
+      }}
       closable={false}
       footer={null}
-      maskStyle={{ backgroundColor: 'rgba(0, 0, 0, 0.9)' }}
     >
       <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
         {/* 顶部工具栏 */}

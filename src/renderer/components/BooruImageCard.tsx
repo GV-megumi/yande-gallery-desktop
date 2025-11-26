@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Card, Image, Tag, Space, Button, message } from 'antd';
-import { HeartOutlined, HeartFilled, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
 
 interface BooruImageCardProps {
@@ -126,7 +126,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
   return (
     <Card
       hoverable
-      bodyStyle={{ padding: 8, height: '100%', display: 'flex', flexDirection: 'column' }}
+      styles={{ body: { padding: 8, height: '100%', display: 'flex', flexDirection: 'column' } }}
       style={{
         height: '100%',
         borderRadius: 8,
@@ -205,7 +205,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
             <Button
               type="text"
               size="small"
-              icon={isFavorited ? <HeartFilled /> : <HeartOutlined />}
+              icon={isFavorited ? <BookFilled /> : <BookOutlined />}
               onClick={(e) => {
                 e.stopPropagation();
                 handleToggleFavorite();

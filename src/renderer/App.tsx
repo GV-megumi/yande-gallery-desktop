@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, theme, message, App as AntApp } from 'antd';
-import { PictureOutlined, CloudDownloadOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined } from '@ant-design/icons';
+import { PictureOutlined, CloudDownloadOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { DownloadPage } from './pages/DownloadPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -8,6 +8,8 @@ import { BooruPage } from './pages/BooruPage';
 import { BooruSettingsPage } from './pages/BooruSettingsPage';
 import BooruDownloadPage from './pages/BooruDownloadPage';
 import { BooruBulkDownloadPage } from './pages/BooruBulkDownloadPage';
+import { BooruTagSearchPage } from './pages/BooruTagSearchPage';
+import { BooruFavoritesPage } from './pages/BooruFavoritesPage';
 
 const { Header, Content, Sider } = Layout;
 
@@ -32,6 +34,7 @@ const gallerySubMenuItems: MenuItem[] = [
 
 const booruSubMenuItems: MenuItem[] = [
   { key: 'posts', icon: <CloudOutlined />, label: '图片浏览' },
+  { key: 'favorites', icon: <BookOutlined />, label: '我的收藏' },
   { key: 'downloads', icon: <CloudDownloadOutlined />, label: '下载管理' },
   { key: 'bulk-download', icon: <CloudDownloadOutlined />, label: '批量下载' },
   { key: 'settings', icon: <BooruSettingOutlined />, label: '站点配置' }
@@ -42,6 +45,8 @@ export const AppContent: React.FC = () => {
   const [selectedSubKey, setSelectedSubKey] = useState('recent');
   const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
   const [loading, setLoading] = useState(true);
+  // 标签搜索页面状态
+  const [tagSearchPage, setTagSearchPage] = useState<{ tag: string; siteId?: number | null } | null>(null);
   const {
     token: { colorBgContainer },
   } = theme.useToken();
@@ -87,6 +92,18 @@ export const AppContent: React.FC = () => {
     }
   }, [selectedKey]);
 
+  // 导航到标签搜索页面
+  const navigateToTagSearch = (tag: string, siteId?: number | null) => {
+    console.log('[App] 导航到标签搜索页面:', tag, siteId);
+    setTagSearchPage({ tag, siteId });
+  };
+
+  // 返回上一页（从标签搜索页面返回）
+  const handleBackFromTagSearch = () => {
+    console.log('[App] 从标签搜索页面返回');
+    setTagSearchPage(null);
+  };
+
   const renderContent = () => {
     if (loading) {
       return (
@@ -96,22 +113,34 @@ export const AppContent: React.FC = () => {
       );
     }
 
+    // 如果显示标签搜索页面，优先渲染
+    if (tagSearchPage) {
+      return (
+        <BooruTagSearchPage
+          initialTag={tagSearchPage.tag}
+          initialSiteId={tagSearchPage.siteId}
+          onBack={handleBackFromTagSearch}
+        />
+      );
+    }
+
     switch (selectedKey) {
       case 'gallery':
         return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
       case 'booru':
-        if (selectedBooruSubKey === 'posts') return <BooruPage />;
+        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
         if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
         if (selectedBooruSubKey === 'settings') return <BooruSettingsPage />;
-        return <BooruPage />;
+        return <BooruPage onTagClick={navigateToTagSearch} />;
       case 'download':
         return <DownloadPage />;
       case 'settings':
         return <SettingsPage />;
       // case 'downloads': return <BooruDownloadPage />; // Removed as it's now a sub-menu of booru
       default:
-        return <BooruPage />;
+        return <BooruPage onTagClick={navigateToTagSearch} />;
     }
   };
 
@@ -165,7 +194,9 @@ export const AppContent: React.FC = () => {
       <Layout style={{ height: '100vh', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
         <Header style={{ padding: 0, background: colorBgContainer, flexShrink: 0 }}>
           <h2 style={{ margin: '0 24px' }}>
-            {selectedKey === 'gallery'
+            {tagSearchPage
+              ? `标签搜索: ${tagSearchPage.tag.replace(/_/g, ' ')}`
+              : selectedKey === 'gallery'
               ? `图库 - ${gallerySubMenuItems.find(item => item.key === selectedSubKey)?.label}`
               : selectedKey === 'booru'
               ? `Booru - ${booruSubMenuItems.find(item => item.key === selectedBooruSubKey)?.label}`

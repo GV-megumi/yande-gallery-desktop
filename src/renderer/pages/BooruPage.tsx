@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button, Empty, message as antdMessage, Spin, Select, Input, Tag, Space, Segmented, Affix, App } from 'antd';
-import { ReloadOutlined, SearchOutlined, HeartOutlined, DownloadOutlined } from '@ant-design/icons';
+import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import { BooruImageCard } from '../components/BooruImageCard';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
@@ -8,9 +8,11 @@ import { BooruPost, BooruSite } from '../../shared/types';
 const { Search } = Input;
 const { Option } = Select;
 
-interface BooruPageProps {}
+interface BooruPageProps {
+  onTagClick?: (tag: string, siteId?: number | null) => void;
+}
 
-export const BooruPage: React.FC<BooruPageProps> = () => {
+export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
@@ -365,11 +367,17 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
   // 处理标签点击
   const handleTagClick = (tag: string) => {
     console.log('[BooruPage] 点击标签:', tag);
-    const newTags = [...selectedTags, tag];
-    setSelectedTags(newTags);
-    const query = newTags.join(' ');
-    setSearchQuery(query);
-    searchPosts(query, 1);
+    // 如果提供了 onTagClick 回调，导航到标签搜索页面
+    if (onTagClick) {
+      onTagClick(tag, selectedSiteId);
+    } else {
+      // 否则使用原来的逻辑（添加到当前搜索）
+      const newTags = [...selectedTags, tag];
+      setSelectedTags(newTags);
+      const query = newTags.join(' ');
+      setSearchQuery(query);
+      searchPosts(query, 1);
+    }
   };
 
   // 处理标签移除
@@ -393,6 +401,12 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
     setSelectedPost(post);
     setDetailsPageOpen(true);
   };
+
+  // 计算排序后的 posts 数组（与 BooruGridLayout 中的排序保持一致）
+  // 按 ID 倒序排序（最新的在前）
+  const sortedPosts = useMemo(() => {
+    return [...posts].sort((a, b) => b.postId - a.postId);
+  }, [posts]);
 
   // 初始化
   useEffect(() => {
@@ -779,13 +793,13 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
         )}
       </div>
 
-      {/* 图片详情页面 */}
+      {/* 图片详情页面 - 使用排序后的 posts 数组，确保索引与显示顺序一致 */}
       <BooruPostDetailsPage
         open={detailsPageOpen}
         post={selectedPost}
         site={selectedSite || null}
-        posts={posts}
-        initialIndex={selectedPost ? posts.findIndex(p => p.id === selectedPost.id) : 0}
+        posts={sortedPosts}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
         onClose={() => {
           console.log('[BooruPage] 关闭详情页面');
           setDetailsPageOpen(false);
@@ -793,7 +807,15 @@ export const BooruPage: React.FC<BooruPageProps> = () => {
         }}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
-        onTagClick={handleTagClick}
+        onTagClick={(tag: string) => {
+          // 如果提供了 onTagClick prop，使用它导航到标签搜索页面
+          if (onTagClick) {
+            onTagClick(tag, selectedSiteId);
+          } else {
+            // 否则使用原来的逻辑
+            handleTagClick(tag);
+          }
+        }}
       />
     </div>
   );
@@ -828,9 +850,9 @@ const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
   favorites,
   getPreviewUrl
 }) => {
-  // 按 ID 排序
+  // 按 ID 倒序排序（最新的在前）
   const sortedPosts = useMemo(() => {
-    return [...posts].sort((a, b) => a.postId - b.postId);
+    return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
 
   // 计算每行能放多少张图片（根据容器宽度和 gridSize）
