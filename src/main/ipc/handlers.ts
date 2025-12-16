@@ -868,6 +868,17 @@ export function setupIPC() {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS, async (_event: IpcMainInvokeEvent, status: 'completed' | 'failed') => {
+    console.log('[IPC] 清空下载记录，状态:', status);
+    try {
+      const deletedCount = await booruService.clearDownloadRecords(status);
+      return { success: true, data: deletedCount };
+    } catch (error) {
+      console.error('[IPC] 清空下载记录失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
 
   // ===== 网络连接测试（从主进程发起，绕过CORS） =====
   ipcMain.handle('network:test-baidu', async () => {

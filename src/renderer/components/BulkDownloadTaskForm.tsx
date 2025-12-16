@@ -46,6 +46,8 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
       const values = await form.validateFields();
       setLoading(true);
 
+      console.log('[BulkDownloadTaskForm] 提交表单，路径:', values.path);
+
       const options: BulkDownloadOptions = {
         siteId: values.siteId,
         path: values.path,
@@ -60,49 +62,58 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
         concurrency: values.concurrency
       };
 
+      console.log('[BulkDownloadTaskForm] 提交的选项:', options);
       await onSubmit(options, task?.id);
     } catch (error) {
-      console.error('表单验证失败:', error);
+      console.error('[BulkDownloadTaskForm] 表单验证失败:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  // 初始化表单值（编辑模式）
+  // 初始化表单值
   useEffect(() => {
-    if (task) {
-      form.setFieldsValue({
-        siteId: task.siteId,
-        path: task.path,
-        tags: task.tags,
-        blacklistedTags: task.blacklistedTags || '',
-        notifications: task.notifications,
-        skipIfExists: task.skipIfExists,
-        quality: task.quality || 'original',
-        perPage: task.perPage,
-        concurrency: task.concurrency
-      });
-      setSelectedSiteId(task.siteId);
-    }
-  }, [task, form]);
+    const initializeForm = async () => {
+      if (task) {
+        // 编辑模式：加载任务数据
+        console.log('[BulkDownloadTaskForm] 加载任务数据（编辑模式）:', task);
+        form.setFieldsValue({
+          siteId: task.siteId,
+          path: task.path || '', // 确保 path 不为 undefined
+          tags: task.tags,
+          blacklistedTags: task.blacklistedTags || '',
+          notifications: task.notifications,
+          skipIfExists: task.skipIfExists,
+          quality: task.quality || 'original',
+          perPage: task.perPage,
+          concurrency: task.concurrency
+        });
+        setSelectedSiteId(task.siteId);
+        console.log('[BulkDownloadTaskForm] 表单已设置任务路径:', task.path);
+      } else {
+        // 创建模式：加载默认路径
+        try {
+          if (!window.electronAPI) return;
 
-  // 获取默认下载路径
-  useEffect(() => {
-    const loadDefaultPath = async () => {
-      try {
-        if (!window.electronAPI) return;
-
-        const configResult = await window.electronAPI.config.get();
-        if (configResult.success && configResult.data?.downloads?.path) {
-          form.setFieldsValue({ path: configResult.data.downloads.path });
+          console.log('[BulkDownloadTaskForm] 加载默认下载路径（创建模式）');
+          const configResult = await window.electronAPI.config.get();
+          if (configResult.success && configResult.data?.downloads?.path) {
+            const defaultPath = configResult.data.downloads.path;
+            console.log('[BulkDownloadTaskForm] 设置默认路径:', defaultPath);
+            // 只有在表单中没有路径值时才设置
+            const currentPath = form.getFieldValue('path');
+            if (!currentPath) {
+              form.setFieldsValue({ path: defaultPath });
+            }
+          }
+        } catch (error) {
+          console.error('[BulkDownloadTaskForm] 加载默认路径失败:', error);
         }
-      } catch (error) {
-        console.error('加载默认路径失败:', error);
       }
     };
 
-    loadDefaultPath();
-  }, [form]);
+    initializeForm();
+  }, [task, form]);
 
   return (
     <Form
@@ -144,6 +155,7 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
             style={{ width: 'calc(100% - 100px)' }}
             placeholder="选择下载目录"
             readOnly
+            value={form.getFieldValue('path') || ''} // 确保显示当前值
           />
           <Button onClick={handleSelectFolder}>选择文件夹</Button>
         </Input.Group>

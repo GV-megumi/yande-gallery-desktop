@@ -71,6 +71,7 @@ export const IPC_CHANNELS = {
   BOORU_CANCEL_DOWNLOAD: 'booru:cancel-download',
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
+  BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
   BOORU_BATCH_DOWNLOAD: 'booru:batch-download',
 
   // Booru 搜索历史

@@ -7,7 +7,8 @@ import {
   DeleteOutlined, 
   CheckCircleOutlined, 
   CloseCircleOutlined,
-  SyncOutlined
+  SyncOutlined,
+  ClearOutlined
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
 
@@ -92,6 +93,50 @@ export const BooruDownloadPage: React.FC = () => {
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // 清空下载记录
+  const handleClearRecords = async (status: 'completed' | 'failed') => {
+    console.log('[BooruDownloadPage] 清空下载记录，状态:', status);
+    try {
+      if (!window.electronAPI) return;
+
+      const result = await window.electronAPI.booru.clearDownloadRecords(status);
+      if (result.success) {
+        const statusText = status === 'completed' ? '已完成' : '失败';
+        message.success(`已清空 ${result.data || 0} 条${statusText}记录`);
+        loadQueue(); // 重新加载队列
+      } else {
+        message.error(result.error || '清空失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 清空下载记录失败:', error);
+      message.error('清空下载记录失败');
+    }
+  };
+
+  // 查看文件（在文件管理器中显示）
+  const handleViewFile = async (record: DownloadQueueItem) => {
+    console.log('[BooruDownloadPage] 查看文件:', record.targetPath);
+    try {
+      if (!window.electronAPI) {
+        message.error('系统API不可用');
+        return;
+      }
+
+      if (!record.targetPath) {
+        message.warning('文件路径不存在');
+        return;
+      }
+
+      const result = await window.electronAPI.system.showItem(record.targetPath);
+      if (!result.success) {
+        message.error(result.error || '打开文件失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 查看文件失败:', error);
+      message.error('查看文件失败: ' + String(error));
+    }
   };
 
   // 活跃下载列定义
@@ -194,7 +239,14 @@ export const BooruDownloadPage: React.FC = () => {
       key: 'action',
       width: 100,
       render: (_: any, record: DownloadQueueItem) => (
-        <Button type="link" size="small">查看</Button>
+        <Button 
+          type="link" 
+          size="small"
+          onClick={() => handleViewFile(record)}
+          disabled={!record.targetPath}
+        >
+          查看
+        </Button>
       )
     }
   ];
@@ -223,7 +275,28 @@ export const BooruDownloadPage: React.FC = () => {
               pagination={false}
             />
           </TabPane>
-          <TabPane tab={`已完成 (${completedDownloads.length})`} key="completed">
+          <TabPane 
+            tab={`已完成 (${completedDownloads.length})`} 
+            key="completed"
+            tabKey="completed"
+          >
+            <div style={{ marginBottom: 16, textAlign: 'right' }}>
+              <Popconfirm
+                title="确定要清空所有已完成的下载记录吗？"
+                onConfirm={() => handleClearRecords('completed')}
+                okText="确定"
+                cancelText="取消"
+                disabled={completedDownloads.length === 0}
+              >
+                <Button 
+                  icon={<ClearOutlined />} 
+                  danger
+                  disabled={completedDownloads.length === 0}
+                >
+                  清空记录
+                </Button>
+              </Popconfirm>
+            </div>
             <Table 
               dataSource={completedDownloads} 
               columns={completedColumns} 
@@ -231,6 +304,23 @@ export const BooruDownloadPage: React.FC = () => {
             />
           </TabPane>
           <TabPane tab={`失败 (${failedDownloads.length})`} key="failed">
+            <div style={{ marginBottom: 16, textAlign: 'right' }}>
+              <Popconfirm
+                title="确定要清空所有失败的下载记录吗？"
+                onConfirm={() => handleClearRecords('failed')}
+                okText="确定"
+                cancelText="取消"
+                disabled={failedDownloads.length === 0}
+              >
+                <Button 
+                  icon={<ClearOutlined />} 
+                  danger
+                  disabled={failedDownloads.length === 0}
+                >
+                  清空记录
+                </Button>
+              </Popconfirm>
+            </div>
             <Table 
               dataSource={failedDownloads} 
               rowKey="id"

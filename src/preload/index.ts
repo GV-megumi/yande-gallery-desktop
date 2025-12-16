@@ -48,6 +48,7 @@ const IPC_CHANNELS = {
   BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
+  BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
 
   // Booru 图片缓存
   BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
@@ -156,6 +157,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD, postId, siteId),
     getDownloadQueue: (status?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
+    clearDownloadRecords: (status: 'completed' | 'failed') =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS, status),
 
     // 图片缓存
     getCachedImageUrl: (md5: string, extension: string) =>
@@ -252,6 +255,7 @@ declare global {
         addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: number; error?: string }>;
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        clearDownloadRecords: (status: 'completed' | 'failed') => Promise<{ success: boolean; data?: number; error?: string }>;
         getCachedImageUrl: (md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
@@ -279,7 +283,7 @@ declare global {
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;
         openExternal: (url: string) => Promise<void>;
-        showItem: (path: string) => Promise<void>;
+        showItem: (path: string) => Promise<{ success: boolean; error?: string }>;
         testBaidu: () => Promise<{ success: boolean; status?: number; error?: string }>;
         testGoogle: () => Promise<{ success: boolean; status?: number; error?: string }>;
       };

@@ -1,5 +1,5 @@
 import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem } from '../../shared/types.js';
-import { getDatabase, run, get, all } from './database.js';
+import { getDatabase, run, runWithChanges, get, all } from './database.js';
 
 // ========= 站点管理 =========
 
@@ -766,6 +766,24 @@ export async function removeFromDownloadQueue(id: number): Promise<void> {
     await run(db, 'DELETE FROM booru_download_queue WHERE id = ?', [id]);
   } catch (error) {
     console.error('[booruService] 移除下载队列失败:', id, error);
+    throw error;
+  }
+}
+
+/**
+ * 清空指定状态的下载记录
+ * @param status 状态（'completed' | 'failed'）
+ * @returns 删除的记录数
+ */
+export async function clearDownloadRecords(status: 'completed' | 'failed'): Promise<number> {
+  console.log('[booruService] 清空下载记录，状态:', status);
+  try {
+    const db = await getDatabase();
+    const result = await runWithChanges(db, 'DELETE FROM booru_download_queue WHERE status = ?', [status]);
+    console.log('[booruService] 清空下载记录成功，删除数量:', result.changes);
+    return result.changes;
+  } catch (error) {
+    console.error('[booruService] 清空下载记录失败:', status, error);
     throw error;
   }
 }

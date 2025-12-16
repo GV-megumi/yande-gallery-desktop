@@ -723,6 +723,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                   rowKey="id"
                   loading={loading}
                   pagination={false}
+                  scroll={{ x: 'max-content' }}
                 />
               </Card>
             )

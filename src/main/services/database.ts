@@ -480,6 +480,21 @@ export function run(db: sqlite3.Database, sql: string, params: any[] = []): Prom
 }
 
 /**
+ * 封装 db.run 为 Promise，并返回 changes（受影响的行数）
+ */
+export function runWithChanges(db: sqlite3.Database, sql: string, params: any[] = []): Promise<{ changes: number }> {
+  return new Promise((resolve, reject) => {
+    db.run(sql, params, function (err) {
+      if (err) {
+        reject(err);
+      } else {
+        resolve({ changes: this.changes });
+      }
+    });
+  });
+}
+
+/**
  * 封装 db.get 为 Promise
  */
 export function get<T = any>(db: sqlite3.Database, sql: string, params: any[] = []): Promise<T | undefined> {
