@@ -83,14 +83,22 @@ export const BooruBulkDownloadPage: React.FC = () => {
     loadSessions();
     loadTasks();
     loadSites();
+  }, []);
+
+  // 定期刷新会话状态（仅在存在活跃会话时刷新）
+  useEffect(() => {
+    // 如果没有活跃会话，不设置定时器
+    if (sessions.length === 0) {
+      return;
+    }
 
     // 定期刷新会话状态
     const interval = setInterval(() => {
       loadSessions();
-    }, 2000); // 每2秒刷新一次
+    }, 5000); // 每5秒刷新一次（降低频率，减少日志输出）
 
     return () => clearInterval(interval);
-  }, []);
+  }, [sessions.length]); // 当会话数量变化时重新设置定时器
 
   // 创建或更新任务
   const handleCreateOrUpdateTask = async (options: BulkDownloadOptions, taskId?: string) => {

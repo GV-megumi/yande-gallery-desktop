@@ -1017,7 +1017,8 @@ export function setupIPC() {
   // 获取活跃的批量下载会话
   ipcMain.handle(IPC_CHANNELS.BULK_DOWNLOAD_GET_ACTIVE_SESSIONS, async (_event: IpcMainInvokeEvent) => {
     try {
-      console.log('[IPC] 获取活跃的批量下载会话');
+      // 减少日志输出频率，避免控制台刷屏
+      // console.log('[IPC] 获取活跃的批量下载会话');
       const sessions = await bulkDownloadService.getActiveBulkDownloadSessions();
       return { success: true, data: sessions };
     } catch (error) {

@@ -306,7 +306,8 @@ export async function createBulkDownloadSession(
  * 获取活跃的批量下载会话
  */
 export async function getActiveBulkDownloadSessions(): Promise<BulkDownloadSession[]> {
-  console.log('[bulkDownloadService] 获取活跃的批量下载会话');
+  // 减少日志输出频率，避免控制台刷屏
+  // console.log('[bulkDownloadService] 获取活跃的批量下载会话');
   try {
     const db = await getDatabase();
     const rows = await all<any>(db, `
