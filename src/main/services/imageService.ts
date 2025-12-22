@@ -1,4 +1,4 @@
-import { Image, Tag, YandeImage } from '../../shared/types.js';
+import { Image, Tag } from '../../shared/types.js';
 import { getDatabase, run, get, all } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -354,87 +354,6 @@ export async function searchTags(query: string): Promise<{ success: boolean; dat
   }
 }
 
-/**
- * 添加Yande.re图片记录
- */
-export async function addYandeImage(image: Omit<YandeImage, 'id'>): Promise<{ success: boolean; data?: number; error?: string }> {
-  try {
-    const db = await getDatabase();
-
-    const sql = `
-      INSERT OR IGNORE INTO yande_images
-      (yandeId, filename, fileUrl, previewUrl, rating, downloaded, localPath, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
-    const now = new Date().toISOString();
-
-    await run(db, sql, [
-      image.yandeId,
-      image.filename,
-      image.fileUrl,
-      image.previewUrl,
-      image.rating,
-      image.downloaded ? 1 : 0,
-      image.localPath,
-      now,
-      now
-    ]);
-
-    const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
-
-    return { success: true, data: result?.id };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error adding Yande image:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
- * 更新Yande.re图片为已下载
- */
-export async function markYandeImageAsDownloaded(yandeId: number, localPath: string): Promise<{ success: boolean; error?: string }> {
-  try {
-    const db = await getDatabase();
-
-    await run(db, `
-      UPDATE yande_images
-      SET downloaded = 1, localPath = ?, updatedAt = ?
-      WHERE yandeId = ?
-    `, [localPath, new Date().toISOString(), yandeId]);
-
-    return { success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error marking image as downloaded:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
- * 获取未下载的Yande图片
- */
-export async function getUndownloadedYandeImages(): Promise<{ success: boolean; data?: YandeImage[]; error?: string }> {
-  try {
-    const db = await getDatabase();
-    const images = await all<YandeImage>(
-      db,
-      'SELECT * FROM yande_images WHERE downloaded = 0 ORDER BY createdAt DESC'
-    );
-
-    // 转换数据格式
-    const result = images.map(img => ({
-      ...img,
-      downloaded: Boolean(img.downloaded)
-    }));
-
-    return { success: true, data: result };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error getting undownloaded images:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
-}
 
 /**
  * 获取最近的图片（按更新时间降序）

@@ -1,1200 +1,82 @@
-# Moebooru 基础功能实现 TODO
+# Yande Gallery Desktop - 开发任务规划
 
-## 当前状态 (Current Status) - 2025-11-19
+## 项目基础信息
 
-### ⚠️ 已发现的缺失组件 (Missing Components)
-*(已修复：所有核心组件均已实现)*
+### 一、核心数据类型 (src/shared/types.ts)
 
-
-### ✅ 已验证的组件 (Verified Components)
-以下组件已确认存在且包含实质性代码：
-- `src/main/services/moebooruClient.ts` (API 客户端)
-- `src/main/services/booruService.ts` (数据库服务)
-- `src/main/services/filenameGenerator.ts` (文件名生成器) ✅
-- `src/main/services/downloadManager.ts` (下载管理器) ✅
-- `src/renderer/pages/BooruPage.tsx` (前端页面)
-- `src/renderer/components/BooruImageCard.tsx` (前端组件)
-- `src/renderer/pages/BooruSettingsPage.tsx` (设置页面)
-- IPC 通信层 (Channels, Handlers, Preload)
-
----
-
-
-本文档详细列出实现 Moebooru 基础功能所需的所有任务，包括数据库变更、配置更新、功能实现等。
-
-## 参考项目
-
-- **Boorusama**: `example/Boorusama-master` - Flutter 实现的 Booru 客户端
-- **核心目录**:
-  - `lib/boorus/moebooru/` - Moebooru 特定实现
-  - `packages/booru_clients/lib/src/moebooru/` - Moebooru API 客户端
-  - `packages/filename_generator/` - 文件名生成器
-  - `lib/core/bookmarks/` - 收藏功能
-  - `lib/core/downloads/` - 下载功能
-
----
-
-## 一、数据库表变更
-
-### 1. 新增 `booru_sites` 表
-
-存储 Moebooru 站点配置信息。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_sites (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL,                    -- 站点名称 (yande.re, konachan.com 等)
-  url TEXT NOT NULL UNIQUE,              -- 站点 URL
-  type TEXT NOT NULL,                    -- 站点类型 (moebooru, danbooru, gelbooru 等)
-  salt TEXT,                             -- 密码加密盐值
-  version TEXT,                          -- API 版本
-  apiKey TEXT,                           -- API Key
-  username TEXT,                         -- 用户名
-  passwordHash TEXT,                     -- 密码哈希
-  favoriteSupport INTEGER DEFAULT 1,    -- 是否支持收藏 (0/1)
-  active INTEGER DEFAULT 1,              -- 是否激活 (0/1)
-  createdAt TEXT NOT NULL,
-  updatedAt TEXT NOT NULL
-);
-
-CREATE INDEX idx_booru_sites_type ON booru_sites(type);
-CREATE INDEX idx_booru_sites_active ON booru_sites(active);
-```
-
-**参考文件**: 
-- `example/Boorusama-master/lib/boorus/moebooru/moebooru.dart` (MoebooruSite 类型定义)
-- `example/Boorusama-master/lib/boorus/moebooru/configs/types.dart` (配置类型)
-
----
-
-### 2. 新增 `booru_posts` 表
-
-存储从 Booru 站点获取的图片信息。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_posts (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  siteId INTEGER NOT NULL,               -- 关联 booru_sites.id
-  postId INTEGER NOT NULL,               -- Booru 站点的原始图片 ID
-  md5 TEXT,                              -- 图片 MD5
-  fileUrl TEXT NOT NULL,                 -- 原图 URL
-  previewUrl TEXT,                       -- 预览图 URL
-  sampleUrl TEXT,                        -- 样本图 URL
-  width INTEGER,                         -- 图片宽度
-  height INTEGER,                        -- 图片高度
-  fileSize INTEGER,                      -- 文件大小
-  fileExt TEXT,                          -- 文件扩展名
-  rating TEXT,                           -- 分级 (safe/questionable/explicit)
-  score INTEGER,                         -- 评分
-  source TEXT,                           -- 来源
-  tags TEXT,                             -- 标签字符串 (空格分隔)
-  downloaded INTEGER DEFAULT 0,          -- 是否已下载 (0/1)
-  localPath TEXT,                        -- 本地存储路径
-  localImageId INTEGER,                  -- 关联本地 images.id
-  isFavorited INTEGER DEFAULT 0,         -- 是否收藏 (0/1)
-  createdAt TEXT NOT NULL,               -- 创建时间
-  updatedAt TEXT NOT NULL,               -- 更新时间
-  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
-  FOREIGN KEY (localImageId) REFERENCES images(id) ON DELETE SET NULL,
-  UNIQUE(siteId, postId)
-);
-
-CREATE INDEX idx_booru_posts_siteId ON booru_posts(siteId);
-CREATE INDEX idx_booru_posts_postId ON booru_posts(postId);
-CREATE INDEX idx_booru_posts_downloaded ON booru_posts(downloaded);
-CREATE INDEX idx_booru_posts_isFavorited ON booru_posts(isFavorited);
-CREATE INDEX idx_booru_posts_rating ON booru_posts(rating);
-CREATE INDEX idx_booru_posts_md5 ON booru_posts(md5);
-```
-
-**参考文件**:
-- `example/Boorusama-master/packages/booru_clients/lib/src/moebooru/types/types.dart` (PostDto 定义)
-- `example/Boorusama-master/lib/boorus/moebooru/posts/types.dart`
-
----
-
-### 3. 新增 `booru_tags` 表
-
-存储从 Booru 站点获取的标签信息。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_tags (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  siteId INTEGER NOT NULL,               -- 关联 booru_sites.id
-  name TEXT NOT NULL,                    -- 标签名称
-  category TEXT,                         -- 标签分类 (artist/character/copyright/general/meta)
-  postCount INTEGER DEFAULT 0,           -- 图片数量
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
-  UNIQUE(siteId, name)
-);
-
-CREATE INDEX idx_booru_tags_siteId ON booru_tags(siteId);
-CREATE INDEX idx_booru_tags_name ON booru_tags(name);
-CREATE INDEX idx_booru_tags_category ON booru_tags(category);
-CREATE INDEX idx_booru_tags_postCount ON booru_tags(postCount DESC);
-```
-
-**参考文件**:
-- `example/Boorusama-master/lib/boorus/moebooru/tags/types.dart`
-- `example/Boorusama-master/lib/boorus/moebooru/tag_summary/types.dart`
-
----
-
-### 4. 新增 `booru_post_tags` 表
-
-Booru 图片与标签的多对多关联表。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_post_tags (
-  postId INTEGER NOT NULL,
-  tagId INTEGER NOT NULL,
-  PRIMARY KEY (postId, tagId),
-  FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (tagId) REFERENCES booru_tags(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_booru_post_tags_postId ON booru_post_tags(postId);
-CREATE INDEX idx_booru_post_tags_tagId ON booru_post_tags(tagId);
-```
-
----
-
-### 5. 新增 `booru_favorites` 表
-
-存储用户本地收藏的 Booru 图片。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_favorites (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  postId INTEGER NOT NULL,               -- 关联 booru_posts.id
-  siteId INTEGER NOT NULL,               -- 关联 booru_sites.id
-  notes TEXT,                            -- 用户备注
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
-  UNIQUE(postId)
-);
-
-CREATE INDEX idx_booru_favorites_siteId ON booru_favorites(siteId);
-CREATE INDEX idx_booru_favorites_createdAt ON booru_favorites(createdAt DESC);
-```
-
-**参考文件**:
-- `example/Boorusama-master/lib/core/bookmarks/` (收藏功能实现)
-- `example/Boorusama-master/lib/boorus/moebooru/favorites/providers.dart`
-
----
-
-### 6. 新增 `booru_download_queue` 表
-
-存储下载队列信息。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_download_queue (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  postId INTEGER NOT NULL,               -- 关联 booru_posts.id
-  siteId INTEGER NOT NULL,               -- 关联 booru_sites.id
-  status TEXT NOT NULL,                  -- 状态 (pending/downloading/completed/failed/paused)
-  progress INTEGER DEFAULT 0,            -- 下载进度 (0-100)
-  downloadedBytes INTEGER DEFAULT 0,     -- 已下载字节数
-  totalBytes INTEGER DEFAULT 0,          -- 总字节数
-  errorMessage TEXT,                     -- 错误信息
-  retryCount INTEGER DEFAULT 0,          -- 重试次数
-  priority INTEGER DEFAULT 0,            -- 优先级
-  targetPath TEXT,                       -- 目标保存路径
-  createdAt TEXT NOT NULL,
-  updatedAt TEXT NOT NULL,
-  completedAt TEXT,
-  FOREIGN KEY (postId) REFERENCES booru_posts(id) ON DELETE CASCADE,
-  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_booru_download_queue_status ON booru_download_queue(status);
-CREATE INDEX idx_booru_download_queue_siteId ON booru_download_queue(siteId);
-CREATE INDEX idx_booru_download_queue_priority ON booru_download_queue(priority DESC);
-```
-
-**参考文件**:
-- `example/Boorusama-master/lib/core/downloads/` (下载管理)
-- `example/Boorusama-master/lib/core/bulk_downloads/` (批量下载)
-
----
-
-### 7. 新增 `booru_search_history` 表
-
-存储搜索历史记录。
-
-```sql
-CREATE TABLE IF NOT EXISTS booru_search_history (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  siteId INTEGER NOT NULL,               -- 关联 booru_sites.id
-  query TEXT NOT NULL,                   -- 搜索查询字符串
-  resultCount INTEGER DEFAULT 0,         -- 结果数量
-  createdAt TEXT NOT NULL,
-  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
-);
-
-CREATE INDEX idx_booru_search_history_siteId ON booru_search_history(siteId);
-CREATE INDEX idx_booru_search_history_createdAt ON booru_search_history(createdAt DESC);
-```
-
----
-
-### 8. 更新 `yande_images` 表（迁移到 booru_posts）
-
-**注意**: 现有的 `yande_images` 表需要迁移到新的 `booru_posts` 表中。
-
-**迁移脚本**:
-```sql
--- 1. 先创建 Yande.re 站点记录
-INSERT INTO booru_sites (name, url, type, salt, favoriteSupport, active, createdAt, updatedAt)
-VALUES ('Yande.re', 'https://yande.re', 'moebooru', 'choujin-steiner--{0}--', 1, 1, datetime('now'), datetime('now'));
-
--- 2. 迁移数据
-INSERT INTO booru_posts (
-  siteId, postId, fileUrl, previewUrl, rating, downloaded, localPath, createdAt, updatedAt
-)
-SELECT 
-  (SELECT id FROM booru_sites WHERE url = 'https://yande.re'),
-  yandeId,
-  fileUrl,
-  previewUrl,
-  rating,
-  downloaded,
-  localPath,
-  createdAt,
-  updatedAt
-FROM yande_images;
-
--- 3. 备份后可以删除旧表 (可选)
--- DROP TABLE yande_images;
-```
-
----
-
-## 二、config.yaml 配置变更
-
-### 1. 新增 `booru` 配置节
-
-在 `config.yaml` 中添加以下配置:
-
-```yaml
-# Moebooru 配置
-booru:
-  # 默认站点
-  defaultSite: yande.re
-  
-  # 站点列表
-  sites:
-    - name: Yande.re
-      url: https://yande.re
-      type: moebooru
-      salt: choujin-steiner--{0}--
-      version: "6.0.0"
-      apiKey: ""
-      username: ""
-      favoriteSupport: true
-      active: true
-      
-    - name: Konachan
-      url: https://konachan.com
-      type: moebooru
-      salt: So-I-Heard-You-Like-Mupkids-?--{0}--
-      version: "6.0.0"
-      apiKey: ""
-      username: ""
-      favoriteSupport: true
-      active: false
-      
-    - name: Konachan.net
-      url: https://konachan.net
-      type: moebooru
-      salt: So-I-Heard-You-Like-Mupkids-?--{0}--
-      version: "6.0.0"
-      apiKey: ""
-      username: ""
-      favoriteSupport: true
-      active: false
-  
-  # API 请求配置
-  api:
-    requestTimeout: 30                    # 请求超时时间（秒）
-    retryTimes: 3                         # 重试次数
-    retryDelay: 1000                      # 重试延迟（毫秒）
-    pageSize: 20                          # 每页图片数量
-    maxConcurrentRequests: 3              # 最大并发请求数
-  
-  # 下载配置
-  download:
-    path: downloads/booru                 # 下载路径
-    createSubfolders: true                # 是否创建子文件夹
-    subfolderFormat: "{site}/{rating}"    # 子文件夹格式
-    filenameFormat: "{id}_{md5}.{extension}"  # 文件名格式
-    maxConcurrentDownloads: 3             # 最大并发下载数
-    chunkSize: 1048576                    # 下载块大小（字节，默认 1MB）
-    autoRetry: true                       # 下载失败自动重试
-    maxRetries: 3                         # 最大重试次数
-    skipExisting: true                    # 跳过已存在文件
-    
-  # 文件名格式支持的标记
-  # {id} - 图片 ID
-  # {md5} - 图片 MD5
-  # {extension} - 文件扩展名
-  # {width} - 图片宽度
-  # {height} - 图片高度
-  # {rating} - 分级
-  # {score} - 评分
-  # {site} - 站点名称
-  # {artist} - 艺术家（从标签提取）
-  # {character} - 角色（从标签提取）
-  # {copyright} - 版权（从标签提取）
-  # {date} - 日期
-  # {tags} - 标签（限制长度）
-  
-  # 搜索配置
-  search:
-    saveHistory: true                     # 保存搜索历史
-    maxHistoryItems: 100                  # 最大历史记录数
-    autocomplete: true                    # 启用标签自动补全
-    autocompleteDelay: 300                # 自动补全延迟（毫秒）
-    
-  # 收藏配置
-  favorites:
-    syncToServer: false                   # 是否同步到服务器（需登录）
-    autoDownload: false                   # 收藏后自动下载
-    
-  # 缓存配置
-  cache:
-    enabled: true                         # 启用缓存
-    thumbnailCache: true                  # 缓存缩略图
-    maxCacheSize: 500                     # 最大缓存大小（MB）
-    cacheExpiry: 86400                    # 缓存过期时间（秒，默认 24 小时）
-    
-  # 过滤配置
-  filter:
-    defaultRating: all                    # 默认分级过滤 (all/safe/questionable/explicit)
-    hideDeleted: true                     # 隐藏已删除的图片
-    blacklistTags: []                     # 黑名单标签
-```
-
-**参考文件**:
-- `example/Boorusama-master/lib/boorus/moebooru/configs/types.dart`
-- `example/Boorusama-master/lib/core/configs/` (配置管理)
-
----
-
-### 2. 更新 `downloads` 配置
-
-```yaml
-downloads:
-  # 原有配置保持不变
-  path: downloads
-  createSubfolders: true
-  subfolderFormat:
-    - tags
-    - date
-  
-  # 新增：Booru 下载独立配置（会覆盖上面的配置）
-  booru:
-    path: downloads/booru
-    filenameFormat: "{id}_{md5}.{extension}"
-```
-
----
-
-### 3. 更新 `app` 配置
-
-```yaml
-app:
-  recentImagesCount: 100
-  pageSize: 50
-  defaultViewMode: grid
-  showImageInfo: true
-  autoScan: true
-  autoScanInterval: 30
-  
-  # 新增：Booru 界面配置
-  booru:
-    defaultLayout: waterfall              # 默认布局 (grid/waterfall)
-    showPreview: true                     # 显示预览图
-    previewQuality: sample                # 预览质量 (preview/sample/original)
-    enableInfiniteScroll: true            # 启用无限滚动
-    imagesPerPage: 20                     # 每页图片数
-```
-
----
-
-## 三、功能实现
-
-### 阶段 1: 核心 API 客户端
-
-#### 1.1 创建 Moebooru API 客户端类
-
-**文件**: `src/main/services/moebooruClient.ts`
-
-**功能**:
-- 实现 Moebooru API 的所有接口
-- 支持认证（用户名 + 密码哈希）
-- 请求超时和重试机制
-- 错误处理
-
-**接口列表**:
-- `getPosts(page, limit, tags)` - 获取图片列表
-- `getPost(id)` - 获取单个图片详情
-- `getPopularPostsRecent(period)` - 获取热门图片
-- `getPopularPostsByDay/Week/Month(date)` - 获取特定时期热门图片
-- `getTags(query, limit)` - 搜索标签
-- `getTagSummary()` - 获取标签摘要
-- `getComments(postId)` - 获取评论
-- `favoritePost(postId)` - 添加收藏
-- `unfavoritePost(postId)` - 取消收藏
-- `votePost(postId, score)` - 投票
-- `getFavoriteUsers(postId)` - 获取收藏该图片的用户
-
-**参考文件**:
-- `example/Boorusama-master/packages/booru_clients/lib/src/moebooru/moebooru_client.dart` ⭐ **主要参考**
-
-**实现要点**:
-```typescript
-// 密码哈希算法
-import crypto from 'crypto';
-
-function hashPasswordSHA1(salt: string, password: string): string {
-  const saltedPassword = salt.replace('{0}', password);
-  return crypto.createHash('sha1').update(saltedPassword).digest('hex');
-}
-
-// API 认证参数
-interface MoebooruAuth {
-  login?: string;
-  password_hash?: string;
-}
-
-// 请求示例
-async function getPosts(params: {
-  page?: number;
-  limit?: number;
-  tags?: string[];
-}): Promise<PostDto[]> {
-  const queryParams = {
-    page: params.page || 1,
-    limit: params.limit || 20,
-    tags: params.tags?.join(' ') || '',
-    ...this.getAuthParams()
-  };
-  
-  const response = await this.dio.get('/post.json', { params: queryParams });
-  return response.data.map(item => PostDto.fromJson(item));
-}
-```
-
----
-
-#### 1.2 创建数据库服务层
-
-**文件**: `src/main/services/booruService.ts`
-
-**功能**:
-- 站点管理（增删改查）
-- 图片记录管理
-- 标签管理
-- 收藏管理
-- 下载队列管理
-- 搜索历史管理
-
-**主要函数**:
-```typescript
-// 站点管理
-export async function getBooruSites(): Promise<BooruSite[]>
-export async function addBooruSite(site: Omit<BooruSite, 'id'>): Promise<number>
-export async function updateBooruSite(id: number, updates: Partial<BooruSite>): Promise<void>
-export async function deleteBooruSite(id: number): Promise<void>
-export async function getActiveBooruSite(): Promise<BooruSite | null>
-
-// 图片管理
-export async function saveBooruPost(post: BooruPost): Promise<number>
-export async function getBooruPosts(siteId: number, page: number, limit: number): Promise<BooruPost[]>
-export async function searchBooruPosts(siteId: number, tags: string[], page: number): Promise<BooruPost[]>
-export async function markPostAsDownloaded(postId: number, localPath: string, localImageId: number): Promise<void>
-
-// 收藏管理
-export async function addToFavorites(postId: number, siteId: number, notes?: string): Promise<number>
-export async function removeFromFavorites(postId: number): Promise<void>
-export async function getFavorites(siteId: number, page: number, limit: number): Promise<BooruPost[]>
-export async function isFavorited(postId: number): Promise<boolean>
-
-// 下载队列
-export async function addToDownloadQueue(postId: number, siteId: number, priority?: number): Promise<number>
-export async function getDownloadQueue(status?: string): Promise<DownloadQueueItem[]>
-export async function updateDownloadProgress(id: number, progress: number, downloadedBytes: number): Promise<void>
-export async function updateDownloadStatus(id: number, status: string, errorMessage?: string): Promise<void>
-export async function removeFromDownloadQueue(id: number): Promise<void>
-
-// 标签管理
-export async function saveBooruTags(siteId: number, tags: BooruTag[]): Promise<void>
-export async function searchBooruTags(siteId: number, query: string, limit?: number): Promise<BooruTag[]>
-export async function getTagsByCategory(siteId: number, category: string): Promise<BooruTag[]>
-
-// 搜索历史
-export async function saveSearchHistory(siteId: number, query: string, resultCount: number): Promise<void>
-export async function getSearchHistory(siteId: number, limit?: number): Promise<SearchHistoryItem[]>
-export async function clearSearchHistory(siteId: number): Promise<void>
-```
-
-**参考文件**:
-- `src/main/services/imageService.ts` (现有数据库服务)
-- `example/Boorusama-master/lib/boorus/moebooru/moebooru_repository.dart`
-
----
-
-#### 1.3 创建文件名生成器
-
-**文件**: `src/main/services/filenameGenerator.ts`
-
-**功能**:
-- 根据模板生成文件名
-- 支持多种标记（token）
-- 处理非法字符
-- 支持日期格式化
-- 支持标签提取和分类
-
-**标记列表**:
-- `{id}` - 图片 ID
-- `{md5}` - MD5
-- `{extension}` - 扩展名
-- `{width}` - 宽度
-- `{height}` - 高度
-- `{rating}` - 分级
-- `{score}` - 评分
-- `{site}` - 站点名称
-- `{artist}` - 艺术家
-- `{character}` - 角色
-- `{copyright}` - 版权
-- `{date}` - 日期
-- `{tags}` - 标签
-
-**参考文件**:
-- `example/Boorusama-master/packages/filename_generator/lib/src/generator.dart` ⭐ **主要参考**
-- `example/Boorusama-master/packages/filename_generator/lib/src/token.dart`
-- `example/Boorusama-master/packages/filename_generator/lib/src/parser.dart`
-
-**实现示例**:
-```typescript
-interface FileNameTokens {
-  id?: string;
-  md5?: string;
-  extension?: string;
-  width?: number;
-  height?: number;
-  rating?: string;
-  score?: number;
-  site?: string;
-  artist?: string;
-  character?: string;
-  copyright?: string;
-  date?: string;
-  tags?: string;
-}
-
-function generateFileName(
-  template: string,
-  metadata: FileNameTokens
-): string {
-  let result = template;
-  
-  // 替换所有标记
-  for (const [key, value] of Object.entries(metadata)) {
-    const token = `{${key}}`;
-    if (result.includes(token) && value !== undefined) {
-      result = result.replace(token, String(value));
-    }
-  }
-  
-  // 移除未替换的标记
-  result = result.replace(/\{[^}]+\}/g, '');
-  
-  // 清理非法字符
-  result = sanitizeFileName(result);
-  
-  return result;
-}
-
-function sanitizeFileName(fileName: string): string {
-  // 替换 Windows/Linux 非法字符
-  return fileName.replace(/[<>:"/\\|?*]/g, '_');
-}
-
-// 从标签中提取特定类别
-function extractTagsByCategory(
-  tags: string,
-  category: 'artist' | 'character' | 'copyright'
-): string[] {
-  // 需要从 booru_tags 表中查询标签分类
-  // 或者从标签字符串中解析（如果包含类别前缀）
-  // 例如: "artist:yoko" -> ["yoko"]
-}
-```
-
----
-
-### 阶段 2: 下载管理器
-
-#### 2.1 创建下载管理器
-
-**文件**: `src/main/services/downloadManager.ts`
-
-**功能**:
-- 下载队列管理
-- 并发控制
-- 断点续传
-- 进度回调
-- 错误重试
-- 下载暂停/恢复/取消
-
-**参考文件**:
-- `example/Boorusama-master/lib/core/download_manager/` ⭐ **主要参考**
-- `example/Boorusama-master/lib/core/bulk_downloads/`
-
-**主要接口**:
-```typescript
-class DownloadManager {
-  private queue: DownloadQueueItem[] = [];
-  private activeDownloads: Map<number, DownloadTask> = new Map();
-  private maxConcurrent: number = 3;
-  
-  // 添加到下载队列
-  async addToQueue(postId: number, siteId: number): Promise<number>
-  
-  // 开始下载
-  async startDownload(queueId: number): Promise<void>
-  
-  // 暂停下载
-  async pauseDownload(queueId: number): Promise<void>
-  
-  // 恢复下载
-  async resumeDownload(queueId: number): Promise<void>
-  
-  // 取消下载
-  async cancelDownload(queueId: number): Promise<void>
-  
-  // 重试失败的下载
-  async retryDownload(queueId: number): Promise<void>
-  
-  // 批量下载
-  async batchDownload(postIds: number[], siteId: number): Promise<void>
-  
-  // 获取下载进度
-  getProgress(queueId: number): DownloadProgress
-  
-  // 监听进度事件
-  onProgress(callback: (progress: DownloadProgress) => void): void
-  
-  // 监听完成事件
-  onComplete(callback: (queueId: number) => void): void
-  
-  // 监听错误事件
-  onError(callback: (queueId: number, error: Error) => void): void
-}
-
-interface DownloadProgress {
-  queueId: number;
-  postId: number;
-  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'paused';
-  progress: number; // 0-100
-  downloadedBytes: number;
-  totalBytes: number;
-  speed: number; // bytes/s
-  eta: number; // seconds
-}
-```
-
-**实现要点**:
-- 使用 `axios` 或 `node-fetch` 下载文件
-- 支持 `Range` 请求实现断点续传
-- 使用 `fs.createWriteStream` 写入文件
-- 实现并发控制队列
-- 错误处理和自动重试
-
----
-
-### 阶段 3: IPC 通信层
-
-#### 3.1 添加 IPC 通道
-
-**文件**: `src/main/ipc/channels.ts`
-
-添加以下通道定义:
+#### 1. 本地图库相关
 
 ```typescript
-export const IPC_CHANNELS = {
-  // ... 现有通道 ...
-  
-  // Booru 站点管理
-  BOORU_GET_SITES: 'booru:get-sites',
-  BOORU_ADD_SITE: 'booru:add-site',
-  BOORU_UPDATE_SITE: 'booru:update-site',
-  BOORU_DELETE_SITE: 'booru:delete-site',
-  BOORU_GET_ACTIVE_SITE: 'booru:get-active-site',
-  BOORU_SET_ACTIVE_SITE: 'booru:set-active-site',
-  
-  // Booru 图片获取
-  BOORU_GET_POSTS: 'booru:get-posts',
-  BOORU_GET_POST: 'booru:get-post',
-  BOORU_SEARCH_POSTS: 'booru:search-posts',
-  BOORU_GET_POPULAR: 'booru:get-popular',
-  
-  // Booru 标签
-  BOORU_GET_TAGS: 'booru:get-tags',
-  BOORU_SEARCH_TAGS: 'booru:search-tags',
-  BOORU_GET_TAG_AUTOCOMPLETE: 'booru:get-tag-autocomplete',
-  
-  // Booru 收藏
-  BOORU_ADD_FAVORITE: 'booru:add-favorite',
-  BOORU_REMOVE_FAVORITE: 'booru:remove-favorite',
-  BOORU_GET_FAVORITES: 'booru:get-favorites',
-  BOORU_IS_FAVORITED: 'booru:is-favorited',
-  BOORU_SYNC_FAVORITE_TO_SERVER: 'booru:sync-favorite-to-server',
-  
-  // Booru 下载
-  BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
-  BOORU_START_DOWNLOAD: 'booru:start-download',
-  BOORU_PAUSE_DOWNLOAD: 'booru:pause-download',
-  BOORU_RESUME_DOWNLOAD: 'booru:resume-download',
-  BOORU_CANCEL_DOWNLOAD: 'booru:cancel-download',
-  BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
-  BOORU_BATCH_DOWNLOAD: 'booru:batch-download',
-  
-  // Booru 搜索历史
-  BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',
-  BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history',
-  
-  // Booru 评论
-  BOORU_GET_COMMENTS: 'booru:get-comments',
-} as const;
-```
-
----
-
-#### 3.2 实现 IPC 处理器
-
-**文件**: `src/main/ipc/handlers.ts`
-
-在现有的 `setupIPC()` 函数中添加新的处理器:
-
-```typescript
-import { MoebooruClient } from '../services/moebooruClient.js';
-import * as booruService from '../services/booruService.js';
-import { DownloadManager } from '../services/downloadManager.js';
-
-export function setupIPC() {
-  // ... 现有处理器 ...
-  
-  // 获取 Booru 站点列表
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SITES, async () => {
-    try {
-      const sites = await booruService.getBooruSites();
-      return { success: true, data: sites };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  // 获取图片列表
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POSTS, async (_event, siteId: number, page: number, tags?: string[]) => {
-    try {
-      const site = await booruService.getBooruSiteById(siteId);
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
-      
-      const posts = await client.getPosts({ page, tags });
-      
-      // 保存到数据库
-      for (const post of posts) {
-        await booruService.saveBooruPost({ ...post, siteId });
-      }
-      
-      return { success: true, data: posts };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  // 添加收藏
-  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_FAVORITE, async (_event, postId: number, siteId: number, syncToServer: boolean) => {
-    try {
-      // 添加本地收藏
-      await booruService.addToFavorites(postId, siteId);
-      
-      // 可选：同步到服务器
-      if (syncToServer) {
-        const site = await booruService.getBooruSiteById(siteId);
-        const client = new MoebooruClient({
-          baseUrl: site.url,
-          login: site.username,
-          passwordHash: site.passwordHash
-        });
-        
-        const post = await booruService.getBooruPostById(postId);
-        await client.favoritePost({ postId: post.postId });
-      }
-      
-      return { success: true };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  // 添加到下载队列
-  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_TO_DOWNLOAD, async (_event, postId: number, siteId: number) => {
-    try {
-      const downloadManager = DownloadManager.getInstance();
-      const queueId = await downloadManager.addToQueue(postId, siteId);
-      return { success: true, data: queueId };
-    } catch (error) {
-      return { success: false, error: error.message };
-    }
-  });
-  
-  // ... 更多处理器 ...
+// 本地图片
+interface Image {
+  id: number;
+  filename: string;
+  filepath: string;
+  fileSize: number;
+  width: number;
+  height: number;
+  format: string;
+  createdAt: string;
+  updatedAt: string;
+  tags?: Tag[];
 }
-```
 
-**参考文件**:
-- `src/main/ipc/handlers.ts` (现有实现)
-- `example/Boorusama-master/lib/boorus/moebooru/**/providers.dart` (各功能的 provider 实现)
-
----
-
-#### 3.3 更新 Preload 脚本
-
-**文件**: `src/preload/index.ts`
-
-添加 Booru API 到 `electronAPI`:
-
-```typescript
-contextBridge.exposeInMainWorld('electronAPI', {
-  // ... 现有 API ...
-  
-  booru: {
-    // 站点管理
-    getSites: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SITES),
-    addSite: (site: any) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_SITE, site),
-    updateSite: (id: number, updates: any) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_SITE, id, updates),
-    deleteSite: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_SITE, id),
-    getActiveSite: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ACTIVE_SITE),
-    setActiveSite: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_SET_ACTIVE_SITE, id),
-    
-    // 图片
-    getPosts: (siteId: number, page: number, tags?: string[]) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POSTS, siteId, page, tags),
-    getPost: (siteId: number, postId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POST, siteId, postId),
-    searchPosts: (siteId: number, tags: string[], page: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page),
-    getPopular: (siteId: number, period: string) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POPULAR, siteId, period),
-    
-    // 标签
-    getTags: (siteId: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAGS, siteId),
-    searchTags: (siteId: number, query: string, limit?: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_TAGS, siteId, query, limit),
-    getTagAutocomplete: (siteId: number, query: string) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAG_AUTOCOMPLETE, siteId, query),
-    
-    // 收藏
-    addFavorite: (postId: number, siteId: number, syncToServer: boolean) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
-    removeFavorite: (postId: number, syncToServer: boolean) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, postId, syncToServer),
-    getFavorites: (siteId: number, page: number, limit: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit),
-    isFavorited: (postId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IS_FAVORITED, postId),
-    
-    // 下载
-    addToDownload: (postId: number, siteId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_TO_DOWNLOAD, postId, siteId),
-    startDownload: (queueId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_START_DOWNLOAD, queueId),
-    pauseDownload: (queueId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD, queueId),
-    resumeDownload: (queueId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD, queueId),
-    cancelDownload: (queueId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD, queueId),
-    getDownloadQueue: (status?: string) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
-    batchDownload: (postIds: number[], siteId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_BATCH_DOWNLOAD, postIds, siteId),
-    
-    // 下载进度监听
-    onDownloadProgress: (callback: (progress: any) => void) => 
-      ipcRenderer.on('booru:download-progress', (_event, progress) => callback(progress)),
-    onDownloadComplete: (callback: (queueId: number) => void) => 
-      ipcRenderer.on('booru:download-complete', (_event, queueId) => callback(queueId)),
-    onDownloadError: (callback: (error: any) => void) => 
-      ipcRenderer.on('booru:download-error', (_event, error) => callback(error)),
-    
-    // 搜索历史
-    getSearchHistory: (siteId: number, limit?: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SEARCH_HISTORY, siteId, limit),
-    clearSearchHistory: (siteId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_SEARCH_HISTORY, siteId),
-    
-    // 评论
-    getComments: (siteId: number, postId: number) => 
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_COMMENTS, siteId, postId),
-  }
-});
-```
-
----
-
-### 阶段 4: 前端界面
-
-#### 4.1 创建 Booru 页面组件
-
-**文件**: `src/renderer/pages/BooruPage.tsx`
-
-**功能**:
-- 显示 Booru 图片列表（瀑布流/网格布局）
-- 搜索功能（标签搜索、自动补全）
-- 分页/无限滚动
-- 图片详情查看
-- 收藏/取消收藏
-- 下载图片
-- 分级过滤
-- 站点切换
-
-**UI 布局**:
-```
-┌─────────────────────────────────────────┐
-│ [站点选择] [搜索框]           [分级筛选] │
-├─────────────────────────────────────────┤
-│                                         │
-│  ┌────┐  ┌────┐  ┌────┐  ┌────┐       │
-│  │图片│  │图片│  │图片│  │图片│       │
-│  │ 1  │  │ 2  │  │ 3  │  │ 4  │       │
-│  │❤️ 📥│  │❤️ 📥│  │❤️ 📥│  │❤️ 📥│       │
-│  └────┘  └────┘  └────┘  └────┘       │
-│                                         │
-│  ┌────┐  ┌────┐  ┌────┐  ┌────┐       │
-│  │图片│  │图片│  │图片│  │图片│       │
-│  │ 5  │  │ 6  │  │ 7  │  │ 8  │       │
-│  │❤️ 📥│  │❤️ 📥│  │❤️ 📥│  │❤️ 📥│       │
-│  └────┘  └────┘  └────┘  └────┘       │
-│                                         │
-│         [加载更多] / 分页导航           │
-└─────────────────────────────────────────┘
-```
-
-**参考文件**:
-- `src/renderer/pages/GalleryPage.tsx` (现有图片列表页面)
-- `example/Boorusama-master/lib/boorus/moebooru/popular/src/pages/popular_page.dart`
-- `example/Boorusama-master/lib/core/posts/` (图片列表组件)
-
----
-
-#### 4.2 创建 Booru 图片卡片组件
-
-**文件**: `src/renderer/components/BooruImageCard.tsx`
-
-**功能**:
-- 显示缩略图
-- 显示标签、评分、分级
-- 收藏按钮（心形图标）
-- 下载按钮
-- 点击查看详情
-- 懒加载
-
-**参考文件**:
-- `src/renderer/components/ImageCard.tsx` (现有图片卡片)
-- `example/Boorusama-master/lib/core/posts/` (图片卡片组件)
-
----
-
-#### 4.3 创建图片详情模态框
-
-**文件**: `src/renderer/components/BooruImageModal.tsx`
-
-**功能**:
-- 显示大图
-- 显示完整信息（标签、评分、来源、尺寸等）
-- 标签列表（可点击搜索）
-- 收藏按钮
-- 下载按钮
-- 在站点打开
-- 评论列表（可选）
-- 相关图片（可选）
-
-**参考文件**:
-- `example/Boorusama-master/lib/boorus/moebooru/post_details/src/details_page.dart` ⭐
-- `example/Boorusama-master/lib/boorus/moebooru/post_details/src/widgets/`
-
----
-
-#### 4.4 创建收藏页面
-
-**文件**: `src/renderer/pages/BooruFavoritesPage.tsx`
-
-**功能**:
-- 显示收藏的图片列表
-- 按站点筛选
-- 搜索收藏
-- 批量操作（取消收藏、下载）
-- 排序（按收藏时间、评分等）
-
-**参考文件**:
-- `example/Boorusama-master/lib/core/bookmarks/src/pages/bookmark_page.dart`
-
----
-
-#### 4.5 创建下载管理页面
-
-**文件**: `src/renderer/pages/BooruDownloadPage.tsx`
-
-**功能**:
-- 显示下载队列
-- 显示下载进度
-- 暂停/恢复/取消下载
-- 重试失败的下载
-- 查看下载历史
-- 批量操作
-
-**UI 布局**:
-```
-┌─────────────────────────────────────────┐
-│ 下载中 (3) │ 已完成 (15) │ 失败 (2)    │
-├─────────────────────────────────────────┤
-│ 图片 ID  │ 文件名  │ 进度  │ 速度 │ 操作│
-├─────────────────────────────────────────┤
-│ 123456  │ test.jpg│ ████░ │ 1.2M │暂停 │
-│ 123457  │ test2.jpg│█████ │ 0.8M │暂停 │
-│ 123458  │ test3.jpg│██░░░ │ 2.1M │暂停 │
-└─────────────────────────────────────────┘
-```
-
-**参考文件**:
-- `src/renderer/pages/DownloadPage.tsx` (现有下载页面)
-- `example/Boorusama-master/lib/core/bulk_downloads/`
-
----
-
-#### 4.6 创建站点设置页面
-
-**文件**: `src/renderer/pages/BooruSettingsPage.tsx`
-
-**功能**:
-- 站点列表管理（添加、编辑、删除）
-- 配置 API Key 和用户名
-- 默认站点设置
-- 下载设置（路径、文件名格式等）
-- 过滤设置（分级、黑名单标签等）
-
-**参考文件**:
-- `src/renderer/pages/SettingsPage.tsx` (现有设置页面)
-- `example/Boorusama-master/lib/boorus/moebooru/configs/widgets.dart`
-
----
-
-#### 4.7 创建标签搜索组件
-
-**文件**: `src/renderer/components/BooruTagSearch.tsx`
-
-**功能**:
-- 标签输入框
-- 自动补全
-- 标签建议
-- 已选标签展示
-- 标签分类显示（艺术家、角色、版权等）
-
-**参考文件**:
-- `example/Boorusama-master/lib/core/search/` ⭐
-- `example/Boorusama-master/lib/boorus/moebooru/autocompletes/`
-
----
-
-#### 4.8 更新主应用路由
-
-**文件**: `src/renderer/App.tsx`
-
-在主菜单中添加 Booru 相关页面:
-
-```typescript
-const mainMenuItems: MenuItem[] = [
-  { key: 'gallery', icon: <PictureOutlined />, label: '图库' },
-  { key: 'booru', icon: <CloudDownloadOutlined />, label: 'Booru' },  // 新增
-  { key: 'download', icon: <CloudDownloadOutlined />, label: 'Yande.re' },
-  { key: 'settings', icon: <SettingOutlined />, label: '设置' }
-];
-
-const booruSubMenuItems: MenuItem[] = [
-  { key: 'posts', icon: <AppstoreOutlined />, label: '图片' },
-  { key: 'favorites', icon: <HeartOutlined />, label: '收藏' },
-  { key: 'downloads', icon: <DownloadOutlined />, label: '下载' },
-  { key: 'settings', icon: <SettingOutlined />, label: '站点设置' }
-];
-```
-
----
-
-### 阶段 5: 类型定义
-
-#### 5.1 更新类型定义
-
-**文件**: `src/shared/types.ts`
-
-添加 Booru 相关类型:
-
-```typescript
-// Booru 站点
-export interface BooruSite {
+// 本地标签
+interface Tag {
   id: number;
   name: string;
-  url: string;
-  type: 'moebooru' | 'danbooru' | 'gelbooru';
-  salt?: string;
-  version?: string;
-  apiKey?: string;
-  username?: string;
-  passwordHash?: string;
-  favoriteSupport: boolean;
-  active: boolean;
+  category?: string;
+  createdAt: string;
+}
+```
+
+#### 2. Booru 站点相关
+
+```typescript
+// Booru 站点配置
+interface BooruSite {
+  id: number;
+  name: string;                                    // 站点名称
+  url: string;                                     // 站点 URL
+  type: 'moebooru' | 'danbooru' | 'gelbooru';     // 站点类型
+  salt?: string;                                   // 密码加密盐值
+  version?: string;                                // API 版本
+  apiKey?: string;                                 // API Key
+  username?: string;                               // 用户名
+  passwordHash?: string;                           // 密码哈希
+  favoriteSupport: boolean;                        // 是否支持收藏
+  active: boolean;                                 // 是否激活
   createdAt: string;
   updatedAt: string;
 }
 
 // Booru 图片
-export interface BooruPost {
+interface BooruPost {
   id: number;
-  siteId: number;
-  postId: number;
-  md5?: string;
-  fileUrl: string;
-  previewUrl?: string;
-  sampleUrl?: string;
+  siteId: number;                                  // 关联站点 ID
+  postId: number;                                  // 原始图片 ID
+  md5?: string;                                    // 文件 MD5
+  fileUrl: string;                                 // 原图 URL
+  previewUrl?: string;                             // 预览图 URL
+  sampleUrl?: string;                              // 样本图 URL
   width?: number;
   height?: number;
   fileSize?: number;
   fileExt?: string;
-  rating?: 'safe' | 'questionable' | 'explicit';
-  score?: number;
-  source?: string;
-  tags: string;
-  downloaded: boolean;
-  localPath?: string;
-  localImageId?: number;
-  isFavorited: boolean;
+  rating?: 'safe' | 'questionable' | 'explicit';  // 分级
+  score?: number;                                  // 评分
+  source?: string;                                 // 来源
+  tags: string;                                    // 标签字符串（空格分隔）
+  downloaded: boolean;                             // 是否已下载
+  localPath?: string;                              // 本地路径
+  localImageId?: number;                           // 本地图片 ID
+  isFavorited: boolean;                            // 是否收藏
   createdAt: string;
   updatedAt: string;
 }
 
 // Booru 标签
-export interface BooruTag {
+interface BooruTag {
   id: number;
   siteId: number;
   name: string;
@@ -1203,8 +85,8 @@ export interface BooruTag {
   createdAt: string;
 }
 
-// 收藏
-export interface BooruFavorite {
+// Booru 收藏
+interface BooruFavorite {
   id: number;
   postId: number;
   siteId: number;
@@ -1213,12 +95,12 @@ export interface BooruFavorite {
 }
 
 // 下载队列项
-export interface DownloadQueueItem {
+interface DownloadQueueItem {
   id: number;
   postId: number;
   siteId: number;
   status: 'pending' | 'downloading' | 'completed' | 'failed' | 'paused';
-  progress: number;
+  progress: number;                                // 0-100
   downloadedBytes: number;
   totalBytes: number;
   errorMessage?: string;
@@ -1231,7 +113,7 @@ export interface DownloadQueueItem {
 }
 
 // 搜索历史
-export interface SearchHistoryItem {
+interface SearchHistoryItem {
   id: number;
   siteId: number;
   query: string;
@@ -1240,915 +122,1564 @@ export interface SearchHistoryItem {
 }
 ```
 
----
+#### 3. 批量下载相关
 
-## 四、测试计划
+```typescript
+// 批量下载任务状态
+type BulkDownloadSessionStatus = 
+  | 'pending' | 'dryRun' | 'running' | 'completed' 
+  | 'allSkipped' | 'failed' | 'paused' | 'suspended' | 'cancelled';
 
-### 4.1 单元测试
+// 批量下载记录状态
+type BulkDownloadRecordStatus = 
+  | 'pending' | 'downloading' | 'paused' | 'completed' | 'failed' | 'cancelled';
 
-- [ ] 测试 Moebooru API 客户端各接口
-- [ ] 测试密码哈希算法
-- [ ] 测试文件名生成器
-- [ ] 测试数据库服务层各函数
-- [ ] 测试下载管理器
+// 批量下载任务
+interface BulkDownloadTask {
+  id: string;
+  siteId: number;
+  path: string;                   // 下载目录
+  tags: string;                   // 搜索标签
+  blacklistedTags?: string;       // 黑名单标签
+  notifications: boolean;
+  skipIfExists: boolean;
+  quality?: string;
+  perPage: number;
+  concurrency: number;
+  createdAt: string;
+  updatedAt: string;
+}
 
-### 4.2 集成测试
+// 批量下载会话
+interface BulkDownloadSession {
+  id: string;
+  taskId: string;
+  siteId: number;
+  status: BulkDownloadSessionStatus;
+  startedAt: string;
+  completedAt?: string;
+  currentPage: number;
+  totalPages?: number;
+  error?: string;
+  task?: BulkDownloadTask;
+  stats?: BulkDownloadSessionStats;
+}
 
-- [ ] 测试完整的图片浏览流程
-- [ ] 测试搜索功能
-- [ ] 测试收藏功能（本地+服务器）
-- [ ] 测试下载流程（包括断点续传）
-- [ ] 测试站点切换
+// 批量下载会话统计
+interface BulkDownloadSessionStats {
+  sessionId: string;
+  coverUrl?: string;
+  siteUrl?: string;
+  totalFiles: number;
+  totalSize?: number;
+  // ... 更多统计字段
+}
+```
 
-### 4.3 UI 测试
+#### 4. 通用类型
 
-- [ ] 测试图片列表渲染
-- [ ] 测试无限滚动/分页
-- [ ] 测试图片详情模态框
-- [ ] 测试下载进度显示
-- [ ] 测试响应式布局
-
----
-
-## 五、开发顺序建议
-
-### 阶段 1: 基础设施 (1-2 周)
-1. 数据库表创建和迁移
-2. 配置文件更新
-3. Moebooru API 客户端实现
-4. 数据库服务层实现
-5. 类型定义更新
-
-### 阶段 2: 核心功能 (2-3 周)
-1. 图片获取和显示
-2. 标签搜索和自动补全
-3. 收藏功能（本地）
-4. IPC 通信层实现
-5. 前端页面基础框架
-
-### 阶段 3: 下载功能 (1-2 周)
-1. 文件名生成器
-2. 下载管理器
-3. 下载队列 UI
-4. 批量下载
-
-### 阶段 4: 高级功能 (1-2 周)
-1. 服务器收藏同步
-2. 评论功能
-3. 热门图片
-4. 搜索历史
-5. 站点管理 UI
-
-### 阶段 5: 优化和完善 (1 周)
-1. 性能优化
-2. 错误处理完善
-3. 用户体验优化
-4. 文档编写
-5. 测试和 Bug 修复
-
-**总预计时间**: 6-10 周
+```typescript
+// API 响应格式
+interface ApiResponse<T> {
+  success: boolean;
+  data?: T;
+  error?: string;
+  message?: string;
+}
+```
 
 ---
 
-## 六、注意事项
+### 二、IPC 通道定义 (src/main/ipc/channels.ts)
 
-### 6.1 API 限流
+#### 已实现的通道分类
 
-Moebooru 站点通常有 API 限流：
-- Yande.re: 2 请求/秒
-- Konachan: 1 请求/秒
+| 分类 | 通道数量 | 说明 | 状态 |
+|------|---------|------|------|
+| 数据库操作 | 10 | DB_INIT, DB_GET_IMAGES, DB_SEARCH_IMAGES 等 | ✅ 正常工作 |
+| 图片操作 | 3 | IMAGE_SCAN_FOLDER, IMAGE_GENERATE_THUMBNAIL 等 | ✅ 正常工作 |
+| Yande.re API | 3 | YANDE_GET_IMAGES, YANDE_SEARCH_IMAGES 等 | ⚠️ **Mock 数据**（返回模拟数据，非真实 API） |
+| 下载管理 | 5 | DOWNLOAD_START, DOWNLOAD_PAUSE 等 | ⚠️ 简化版/未完整实现 |
+| 系统操作 | 3 | SYSTEM_SELECT_FOLDER, SYSTEM_OPEN_EXTERNAL 等 | ✅ 正常工作 |
+| Booru 站点管理 | 6 | BOORU_GET_SITES, BOORU_ADD_SITE 等 | ✅ 正常工作 |
+| Booru 图片 | 4 | BOORU_GET_POSTS, BOORU_SEARCH_POSTS 等 | ✅ 正常工作 |
+| Booru 标签 | 4 | BOORU_GET_TAGS, BOORU_SEARCH_TAGS 等 | ⚠️ 部分实现（仅 getTagsCategories） |
+| Booru 收藏 | 5 | BOORU_ADD_FAVORITE, BOORU_GET_FAVORITES 等 | ✅ **本地收藏**（非服务器收藏） |
+| Booru 下载 | 9 | BOORU_ADD_TO_DOWNLOAD, BOORU_GET_DOWNLOAD_QUEUE 等 | ✅ 正常工作 |
+| Booru 缓存 | 3 | BOORU_GET_CACHED_IMAGE_URL, BOORU_CACHE_IMAGE 等 | ✅ 正常工作 |
+| 批量下载 | 15 | BULK_DOWNLOAD_CREATE_TASK, BULK_DOWNLOAD_START_SESSION 等 | ✅ 正常工作 |
 
-**解决方案**:
-- 实现请求队列和延迟
-- 缓存请求结果
-- 尊重 `Retry-After` 响应头
-
-### 6.2 密码安全
-
-- 密码哈希使用 SHA1（Moebooru 标准）
-- 不同站点使用不同的 salt
-- API Key 和密码加密存储
-
-### 6.3 文件去重
-
-下载前检查:
-- MD5 哈希
-- 文件是否已存在
-- 避免重复下载
-
-### 6.4 数据迁移
-
-- 保留现有 `yande_images` 表作为备份
-- 提供迁移脚本将数据迁移到新表
-- 确保迁移过程可逆
-
-### 6.5 错误处理
-
-- 网络错误自动重试
-- API 错误友好提示
-- 下载失败保存状态，支持恢复
-
-### 6.6 性能优化
-
-- 图片懒加载
-- 虚拟滚动（大列表）
-- 缩略图缓存
-- 数据库查询优化（索引）
+**注意**：
+- ⚠️ **Yande.re API** 返回的是 mock 模拟数据，不是真实的 API 调用
+- ⚠️ **Booru 收藏** 是本地数据库收藏，不是服务器端收藏（服务器收藏需要登录）
 
 ---
 
-## 七、参考资源
+### 三、Preload API 结构 (src/preload/index.ts)
 
-### 7.1 官方文档
-
-- [Moebooru GitHub](https://github.com/moebooru/moebooru)
-- [Yande.re API](https://yande.re/help/api)
-- [Konachan API](https://konachan.com/help/api)
-
-### 7.2 参考项目
-
-- **Boorusama** (Flutter): `example/Boorusama-master/`
-  - 完整的 Moebooru 客户端实现
-  - 优秀的架构设计
-  - 丰富的功能参考
-
-### 7.3 关键参考文件
-
-**API 客户端**:
-- `example/Boorusama-master/packages/booru_clients/lib/src/moebooru/moebooru_client.dart`
-
-**文件名生成**:
-- `example/Boorusama-master/packages/filename_generator/lib/src/generator.dart`
-
-**收藏功能**:
-- `example/Boorusama-master/lib/boorus/moebooru/favorites/providers.dart`
-- `example/Boorusama-master/lib/core/bookmarks/`
-
-**下载功能**:
-- `example/Boorusama-master/lib/core/download_manager/`
-- `example/Boorusama-master/lib/core/bulk_downloads/`
-
-**UI 组件**:
-- `example/Boorusama-master/lib/boorus/moebooru/post_details/`
-- `example/Boorusama-master/lib/core/posts/`
+```typescript
+window.electronAPI = {
+  db: { init, getImages, addImage, searchImages },
+  gallery: { getRecentImages, getGalleries, getGallery, createGallery, ... },
+  config: { get, save, updateGalleryFolders, reload },
+  image: { scanFolder, generateThumbnail, getThumbnail, deleteThumbnail },
+  yande: { getImages, searchImages, downloadImage },
+  booru: { 
+    // 站点管理
+    getSites, addSite, updateSite, deleteSite, getActiveSite,
+    // 图片操作
+    getPosts, getPost, searchPosts,
+    // 收藏管理
+    getFavorites, addFavorite, removeFavorite,
+    // 下载管理
+    addToDownload, retryDownload, getDownloadQueue, clearDownloadRecords,
+    // 缓存
+    getCachedImageUrl, cacheImage, getCacheStats,
+    // 标签
+    getTagsCategories,
+    // 事件监听
+    onDownloadProgress, onDownloadStatus
+  },
+  bulkDownload: {
+    createTask, getTasks, getTask, updateTask, deleteTask,
+    createSession, getActiveSessions,
+    startSession, pauseSession, cancelSession, deleteSession,
+    getSessionStats, getRecords,
+    retryAllFailed, retryFailedRecord
+  },
+  system: { selectFolder, openExternal, showItem, testBaidu, testGoogle }
+}
+```
 
 ---
 
-## 八、里程碑
+### 四、主进程服务 (src/main/services/)
 
-- [ ] **里程碑 1**: 数据库和 API 客户端完成
-- [ ] **里程碑 2**: 基础图片浏览功能完成
-- [ ] **里程碑 3**: 搜索和收藏功能完成
-- [ ] **里程碑 4**: 下载功能完成
-- [ ] **里程碑 5**: 所有功能集成完成
-- [ ] **里程碑 6**: 测试和优化完成
+| 服务文件 | 功能说明 |
+|---------|---------|
+| `database.ts` | SQLite 数据库连接和表创建 |
+| `config.ts` | YAML 配置文件管理 |
+| `imageService.ts` | 本地图片服务 |
+| `galleryService.ts` | 图库/图集服务 |
+| `thumbnailService.ts` | 缩略图生成服务（WebP 格式） |
+| `moebooruClient.ts` | Moebooru API 客户端 |
+| `booruService.ts` | Booru 数据库操作服务 |
+| `downloadManager.ts` | 下载队列管理器 |
+| `bulkDownloadService.ts` | 批量下载服务 |
+| `filenameGenerator.ts` | 文件名生成器（Token 模板） |
+| `imageCacheService.ts` | 图片缓存服务 |
+| `init.ts` | 应用初始化服务 |
+
+---
+
+### 五、渲染进程页面 (src/renderer/pages/)
+
+| 页面文件 | 功能说明 |
+|---------|---------|
+| `GalleryPage.tsx` | 本地图库页面（最近/全部/图集） |
+| `BooruPage.tsx` | Booru 图片浏览页面 |
+| `BooruFavoritesPage.tsx` | Booru 收藏页面 |
+| `BooruPostDetailsPage.tsx` | 图片详情页 |
+| `BooruTagSearchPage.tsx` | 标签搜索页面 |
+| `BooruDownloadPage.tsx` | 下载管理页面 |
+| `BooruBulkDownloadPage.tsx` | 批量下载页面 |
+| `BooruSettingsPage.tsx` | 站点配置页面 |
+| `SettingsPage.tsx` | 应用设置页面 |
+| `DownloadPage.tsx` | Yande.re 下载页面（旧版） |
+
+---
+
+### 六、渲染进程组件 (src/renderer/components/)
+
+| 组件文件 | 功能说明 |
+|---------|---------|
+| `ImageGrid.tsx` | 图片网格/瀑布流布局 |
+| `ImageListWrapper.tsx` | 图片列表包装器 |
+| `ImageSearchBar.tsx` | 搜索栏组件 |
+| `LazyLoadFooter.tsx` | 懒加载底部组件 |
+| `BooruImageCard.tsx` | Booru 图片卡片 |
+| `GalleryCoverImage.tsx` | 图集封面组件 |
+| `BulkDownloadTaskForm.tsx` | 批量下载任务表单 |
+| `BulkDownloadSessionCard.tsx` | 批量下载会话卡片 |
+| `BulkDownloadSessionDetail.tsx` | 批量下载会话详情 |
+| `BooruPostDetails/` | 详情页子组件目录 |
+
+---
+
+### 七、开发规范
+
+#### 1. 日志输出规范
+```typescript
+// 模块前缀格式
+console.log('[模块名] 操作说明:', 数据);
+console.error('[模块名] 错误说明:', error);
+console.warn('[模块名] 警告说明:', data);
+
+// 示例
+console.log('[BooruService] 获取站点列表');
+console.error('[MoebooruClient] API 请求失败:', error);
+```
+
+#### 2. IPC 通信模式
+```typescript
+// 主进程处理器
+ipcMain.handle('channel-name', async (event, ...args) => {
+  try {
+    const result = await someOperation(args);
+    return { success: true, data: result };
+  } catch (error) {
+    console.error('[IPC] 操作失败:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// 渲染进程调用
+const result = await window.electronAPI.module.method(args);
+if (result.success) {
+  // 处理成功
+} else {
+  // 处理错误
+}
+```
+
+#### 3. React 组件规范
+- 使用函数式组件 + Hooks
+- 使用 `React.memo` 优化性能
+- 使用 `App.useApp()` 获取 message/modal 等 API
+- 使用 Ant Design 5.x 组件库
+
+---
+
+## 待开发功能规划
+
+### 参考项目：Boorusama
+
+**GitHub 仓库**：https://github.com/khoadng/Boorusama
+**本地路径**：`example/Boorusama-master/`
+
+#### 核心功能模块详细路径
+
+##### 1. 标签黑名单 (`lib/core/blacklists/`)
+
+| 文件 | 说明 |
+|------|------|
+| `src/types/blacklisted_tag.dart` | **BlacklistedTag 数据类型**：id, name, isActive, createdDate, updatedDate |
+| `src/types/blacklisted_tag_repository.dart` | **仓库接口**：addTag, addTags, removeTag, getBlacklist, updateTag |
+| `src/providers/global_blacklisted_tag_notifier.dart` | **状态管理**：增删改查黑名单标签，支持批量导入 |
+| `src/pages/blacklisted_tag_page.dart` | **UI 页面**：黑名单管理页面实现 |
+| `src/data/hive/tag_repository.dart` | **数据存储**：Hive 本地数据库实现 |
+
+##### 2. 收藏标签 (`lib/core/tags/favorites/`)
+
+| 文件 | 说明 |
+|------|------|
+| `src/types/favorite_tag.dart` | **FavoriteTag 数据类型**：name, createdAt, updatedAt, labels（分组）, queryType |
+| `src/providers/favorite_tags_notifier.dart` | **状态管理**：load, add, update, remove, import, export |
+| `src/pages/favorite_tags_page.dart` | **UI 页面**：收藏标签管理页面 |
+| `src/pages/favorite_tag_labels_page.dart` | **分组管理**：标签分组/标签页面 |
+| `src/data/favorite_tag_repository_hive.dart` | **数据存储**：Hive 本地数据库实现 |
+
+##### 3. 导入导出 (`lib/core/backups/sources/`)
+
+| 文件 | 说明 |
+|------|------|
+| `blacklisted_tags_source.dart` | **黑名单导入导出**：支持 JSON 和简单文本格式 |
+| `favorite_tags_source.dart` | **收藏标签导入导出**：支持 JSON 和简单文本格式 |
+| `json_source.dart` | **JSON 处理基类**：通用的 JSON 序列化/反序列化 |
+
+##### 4. Moebooru 客户端 (`packages/booru_clients/lib/src/moebooru/`)
+
+| 文件 | 说明 |
+|------|------|
+| `moebooru_client.dart` | **API 客户端**：完整的 Moebooru API 实现 |
+| `types/post_dto.dart` | **帖子数据传输对象** |
+| `types/comment_dto.dart` | **评论数据传输对象** |
+| `types/tag_summary_dto.dart` | **标签摘要数据传输对象** |
+
+##### 5. Moebooru 特定功能 (`lib/boorus/moebooru/`)
+
+| 文件 | 说明 |
+|------|------|
+| `favorites/providers.dart` | **收藏用户列表**：获取谁收藏了某张图片 |
+| `popular/providers.dart` | **热门图片**：按时间段获取热门图片 |
+| `comments/providers.dart` | **评论功能**：获取和显示评论 |
+| `post_details/src/widgets/toolbar.dart` | **详情页工具栏**：投票、收藏等操作 |
+
+##### 6. 本地书签 (`lib/core/bookmarks/`)
+
+| 文件 | 说明 |
+|------|------|
+| `src/types/bookmark.dart` | **Bookmark 数据类型**：完整保存帖子信息到本地 |
+| `src/types/bookmark_repository.dart` | **仓库接口**：增删改查书签 |
+| `src/providers/bookmark_provider.dart` | **状态管理**：书签状态管理 |
+| `src/pages/bookmark_page.dart` | **UI 页面**：书签浏览页面 |
+
+---
+
+### Moebooru API 实现状态
+
+#### moebooruClient.ts 中已实现的方法
+
+| API 方法 | 端点 | 客户端方法 | IPC Handler | Preload API | 状态 |
+|---------|------|-----------|-------------|-------------|------|
+| `getPosts()` | `/post.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getPost()` | `/post.json?tags=id:X` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getTags()` | `/tag.json` | ✅ | ⚠️ 未直接调用 | ⚠️ | 未使用 |
+| `getTagsByNames()` | `/tag.json` | ✅ | ✅ 在 getPosts 中调用 | ✅ | **已完成** |
+| `getTagSummary()` | `/tag/summary.json` | ✅ | ⚠️ 在 getTagsByNames 内部调用 | ❌ | 内部使用 |
+| `hashPasswordSHA1()` | - | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `testConnection()` | - | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `votePost()` | `/post/vote.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `favoritePost()` | `/post/vote.json?score=3` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `unfavoritePost()` | `/post/vote.json?score=0` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `getPopularRecent()` | `/post/popular_recent.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `getPopularByDay()` | `/post/popular_by_day.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `getComments()` | `/comment.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `getFavoriteUsers()` | `/favorite/list_users.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+
+**状态说明**：
+- **已完成**：客户端方法 + IPC Handler 调用 + Preload API 暴露，前端可调用
+- **仅示例代码**：只在 moebooruClient.ts 中实现了方法，但**没有被任何 IPC Handler 调用**，前端无法使用
+- **内部使用**：被其他方法内部调用，但没有单独暴露
+- **未使用**：方法存在但未被使用
+
+⚠️ **重要提示**：标记为"仅示例代码"的方法虽然代码已写好，但要让前端能用，还需要：
+1. 在 `handlers.ts` 添加 IPC Handler 调用这些方法
+2. 在 `channels.ts` 添加 IPC 通道定义
+3. 在 `preload/index.ts` 暴露 API
+
+#### 待实现的功能链路
+
+以下 API 虽然客户端方法已实现，但需要补充 IPC 通道和 Preload API：
+
+| 功能 | 需要添加的 IPC 通道 | 需要添加的 Preload API |
+|-----|-------------------|---------------------|
+| 投票 | `BOORU_VOTE_POST` | `booru.votePost()` |
+| 服务器收藏 | `BOORU_SERVER_FAVORITE` | `booru.serverFavorite()` |
+| 取消服务器收藏 | `BOORU_SERVER_UNFAVORITE` | `booru.serverUnfavorite()` |
+| 获取收藏用户 | `BOORU_GET_FAVORITE_USERS` | `booru.getFavoriteUsers()` |
+| 近期热门 | `BOORU_GET_POPULAR_RECENT` | `booru.getPopularRecent()` |
+| 指定日期热门 | `BOORU_GET_POPULAR_BY_DAY` | `booru.getPopularByDay()` |
+| 获取评论 | `BOORU_GET_COMMENTS` | `booru.getComments()` |
+| 密码哈希 | `BOORU_HASH_PASSWORD` | `booru.hashPassword()` |
+
+#### 完全未实现的 API
+
+| API | 端点 | 说明 |
+|-----|------|------|
+| `getUserFavorites()` | `/post.json?tags=fav:username` | 获取用户收藏列表 |
+| `getPopularByWeek()` | `/post/popular_by_week.json` | 按周热门 |
+| `getPopularByMonth()` | `/post/popular_by_month.json` | 按月热门 |
+| `getPools()` | `/pool.json` | 获取 Pool 列表 |
+| `getPool()` | `/pool/show.json?id=X` | 获取 Pool 详情 |
+| `createComment()` | `/comment/create.json` | 发表评论 |
+
+---
+
+### 第一阶段：标签管理增强 (优先级: 高)
+
+#### 1.1 标签收藏功能
+
+**需求描述**：
+- 用户可以收藏常用标签，方便快速搜索
+- 收藏的标签在搜索框中优先显示
+- 支持标签分组管理（labels）
+- 支持快速点击收藏标签进行搜索
+
+**Boorusama 参考**：
+```
+lib/core/tags/favorites/
+├── src/
+│   ├── types/
+│   │   └── favorite_tag.dart          # FavoriteTag 数据类型
+│   ├── providers/
+│   │   └── favorite_tags_notifier.dart # 状态管理：load/add/update/remove/import/export
+│   ├── pages/
+│   │   ├── favorite_tags_page.dart     # 收藏标签列表页面
+│   │   └── edit_favorite_tag_sheet.dart # 编辑标签弹窗
+│   └── data/
+│       └── favorite_tag_repository_hive.dart # 数据存储实现
+```
+
+**Boorusama FavoriteTag 数据结构**：
+```dart
+class FavoriteTag {
+  final String name;           // 标签名
+  final DateTime createdAt;    // 创建时间
+  final DateTime? updatedAt;   // 更新时间
+  final List<String>? labels;  // 分组标签（可多个）
+  final QueryType? queryType;  // 查询类型：null=单标签, simple=原始查询, list=标签列表
+}
+```
+
+**数据库设计**：
+```sql
+-- 收藏标签表
+CREATE TABLE booru_favorite_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  siteId INTEGER,                   -- NULL 表示全局收藏
+  tagName TEXT NOT NULL,
+  labels TEXT,                      -- JSON 数组，用户自定义分组
+  queryType TEXT DEFAULT 'tag',     -- 'tag' | 'raw' | 'list'
+  notes TEXT,                       -- 备注
+  sortOrder INTEGER DEFAULT 0,      -- 排序顺序
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT,
+  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+  UNIQUE(siteId, tagName)
+);
+
+-- 标签分组表（可选，用于管理分组本身）
+CREATE TABLE booru_favorite_tag_labels (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  color TEXT,                       -- 分组颜色
+  sortOrder INTEGER DEFAULT 0,
+  createdAt TEXT NOT NULL
+);
+
+CREATE INDEX idx_favorite_tags_siteId ON booru_favorite_tags(siteId);
+CREATE INDEX idx_favorite_tags_labels ON booru_favorite_tags(labels);
+```
+
+**类型定义** (src/shared/types.ts)：
+```typescript
+// 收藏标签
+interface FavoriteTag {
+  id: number;
+  siteId: number | null;      // null = 全局
+  tagName: string;
+  labels?: string[];          // 分组标签
+  queryType: 'tag' | 'raw' | 'list';  // 查询类型
+  notes?: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// 标签分组
+interface FavoriteTagLabel {
+  id: number;
+  name: string;
+  color?: string;
+  sortOrder: number;
+  createdAt: string;
+}
+```
+
+**IPC 通道** (src/main/ipc/channels.ts)：
+```typescript
+// 收藏标签管理
+BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
+BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
+BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
+BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
+
+// 分组管理
+BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
+BOORU_ADD_FAVORITE_TAG_LABEL: 'booru:add-favorite-tag-label',
+BOORU_REMOVE_FAVORITE_TAG_LABEL: 'booru:remove-favorite-tag-label',
+```
+
+**服务层实现** (src/main/services/booruService.ts)：
+```typescript
+// 添加收藏标签
+async addFavoriteTag(siteId: number | null, tagName: string, options?: {
+  labels?: string[];
+  queryType?: 'tag' | 'raw' | 'list';
+  notes?: string;
+}): Promise<FavoriteTag>
+
+// 获取收藏标签列表
+async getFavoriteTags(siteId?: number): Promise<FavoriteTag[]>
+
+// 更新收藏标签
+async updateFavoriteTag(id: number, updates: Partial<FavoriteTag>): Promise<FavoriteTag>
+
+// 删除收藏标签
+async removeFavoriteTag(id: number): Promise<void>
+
+// 检查标签是否已收藏
+async isFavoriteTag(siteId: number | null, tagName: string): Promise<boolean>
+```
+
+**UI 实现清单**：
+- [ ] 在 `TagsSection.tsx` 标签右键菜单添加"收藏标签"/"取消收藏"选项
+- [ ] 在 `BooruTagSearchPage.tsx` 搜索结果中显示收藏状态
+- [ ] 创建 `FavoriteTagsPage.tsx` 收藏标签管理页面
+- [ ] 在搜索框组件下方显示收藏标签快捷按钮
+- [ ] 支持标签分组筛选
+- [ ] 支持拖拽排序（使用 `@dnd-kit/core`）
+- [ ] 创建 `EditFavoriteTagModal.tsx` 编辑弹窗
+- [ ] 在 App.tsx 添加收藏标签页面路由
+
+---
+
+#### 1.2 标签黑名单功能
+
+**需求描述**：
+- 用户可以设置黑名单标签
+- 包含黑名单标签的图片在浏览时自动隐藏
+- 黑名单可在配置中管理
+- 支持临时禁用黑名单过滤
+- 支持 `isActive` 状态控制单个标签是否生效
+
+**Boorusama 参考**：
+```
+lib/core/blacklists/
+├── src/
+│   ├── types/
+│   │   ├── blacklisted_tag.dart           # BlacklistedTag: id, name, isActive, createdDate, updatedDate
+│   │   ├── blacklisted_tag_repository.dart # 仓库接口：addTag, removeTag, getBlacklist, updateTag
+│   │   └── utils.dart                      # 排序和过滤工具函数
+│   ├── providers/
+│   │   └── global_blacklisted_tag_notifier.dart # 状态管理：支持批量导入 addTagString()
+│   ├── pages/
+│   │   ├── blacklisted_tag_page.dart       # 黑名单管理页面
+│   │   └── blacklisted_tag_config_sheet.dart # 排序配置弹窗
+│   └── data/
+│       └── hive/tag_repository.dart        # Hive 本地存储实现
+```
+
+**Boorusama BlacklistedTag 数据结构**：
+```dart
+class BlacklistedTag {
+  final int id;
+  final String name;
+  final bool isActive;        // 是否激活（可临时禁用单个标签）
+  final DateTime createdDate;
+  final DateTime updatedDate;
+}
+```
+
+**数据库设计**：
+```sql
+CREATE TABLE booru_blacklisted_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  siteId INTEGER,                   -- NULL 表示全局黑名单
+  tagName TEXT NOT NULL,
+  isActive INTEGER DEFAULT 1,       -- 是否激活
+  reason TEXT,                      -- 黑名单原因（可选）
+  createdAt TEXT NOT NULL,
+  updatedAt TEXT,
+  FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+  UNIQUE(siteId, tagName)
+);
+
+CREATE INDEX idx_blacklisted_tags_siteId ON booru_blacklisted_tags(siteId);
+CREATE INDEX idx_blacklisted_tags_active ON booru_blacklisted_tags(isActive);
+```
+
+**类型定义** (src/shared/types.ts)：
+```typescript
+interface BlacklistedTag {
+  id: number;
+  siteId: number | null;  // null = 全局
+  tagName: string;
+  isActive: boolean;      // 是否激活
+  reason?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// 黑名单排序类型
+type BlacklistedTagsSortType = 'recentlyAdded' | 'nameAZ' | 'nameZA';
+```
+
+**IPC 通道** (src/main/ipc/channels.ts)：
+```typescript
+BOORU_ADD_BLACKLISTED_TAG: 'booru:add-blacklisted-tag',
+BOORU_ADD_BLACKLISTED_TAGS: 'booru:add-blacklisted-tags',  // 批量添加
+BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag',
+BOORU_GET_BLACKLISTED_TAGS: 'booru:get-blacklisted-tags',
+BOORU_UPDATE_BLACKLISTED_TAG: 'booru:update-blacklisted-tag',
+BOORU_TOGGLE_BLACKLISTED_TAG: 'booru:toggle-blacklisted-tag',  // 切换激活状态
+```
+
+**服务层实现** (src/main/services/booruService.ts)：
+```typescript
+// 添加黑名单标签
+async addBlacklistedTag(tagName: string, siteId?: number): Promise<BlacklistedTag>
+
+// 批量添加（支持换行分隔的字符串）
+async addBlacklistedTags(tagString: string, siteId?: number): Promise<BlacklistedTag[]>
+
+// 获取黑名单列表
+async getBlacklistedTags(siteId?: number): Promise<BlacklistedTag[]>
+
+// 获取激活的黑名单标签名列表（用于过滤）
+async getActiveBlacklistTagNames(siteId?: number): Promise<string[]>
+
+// 更新黑名单标签
+async updateBlacklistedTag(id: number, updates: Partial<BlacklistedTag>): Promise<BlacklistedTag>
+
+// 切换激活状态
+async toggleBlacklistedTag(id: number): Promise<BlacklistedTag>
+
+// 删除黑名单标签
+async removeBlacklistedTag(id: number): Promise<void>
+```
+
+**过滤逻辑实现**：
+```typescript
+// 方式1：前端过滤（推荐，灵活性高）
+function filterBlacklistedPosts(posts: BooruPost[], blacklist: string[]): {
+  filtered: BooruPost[];
+  hiddenCount: number;
+} {
+  const filtered = posts.filter(post => {
+    const postTags = post.tags.split(' ');
+    return !postTags.some(tag => blacklist.includes(tag));
+  });
+  return {
+    filtered,
+    hiddenCount: posts.length - filtered.length
+  };
+}
+
+// 方式2：API 请求时排除（Moebooru 支持 -tag 语法）
+function buildSearchTags(searchTags: string[], blacklist: string[]): string[] {
+  return [...searchTags, ...blacklist.map(tag => `-${tag}`)];
+}
+```
+
+**UI 实现清单**：
+- [ ] 创建 `BlacklistedTagsPage.tsx` 黑名单管理页面
+- [ ] 在 `TagsSection.tsx` 标签右键菜单添加"加入黑名单"选项
+- [ ] 在 `BooruPage.tsx` 添加黑名单过滤逻辑
+- [ ] 在图片列表顶部显示"已隐藏 X 张图片"提示
+- [ ] 添加全局黑名单开关（临时显示所有图片）
+- [ ] 支持单个标签的激活/禁用切换
+- [ ] 支持批量导入黑名单（每行一个标签）
+- [ ] 在 App.tsx 添加黑名单页面路由
+
+---
+
+#### 1.3 收藏/黑名单标签导入导出
+
+**需求描述**：
+- 支持将收藏标签和黑名单导出为 JSON/TXT 文件
+- 支持从文件导入标签
+- 支持合并导入（不覆盖现有数据）
+- 支持简单文本格式（每行一个标签）
+- 支持复制到剪贴板
+
+**Boorusama 参考**：
+```
+lib/core/backups/sources/
+├── blacklisted_tags_source.dart    # 黑名单导入导出
+├── favorite_tags_source.dart       # 收藏标签导入导出
+├── json_source.dart                # JSON 处理基类
+└── providers.dart                  # 备份数据提供者
+```
+
+**Boorusama 导出实现**：
+```dart
+// 简单文本导出（复制到剪贴板）
+final tagString = tags.map((e) => e.name).join('\n');
+await AppClipboard.copy(tagString);
+
+// 简单文本导入（每行一个标签）
+final tags = tagString.split('\n');
+for (final tag in tags) {
+  await repo.addTag(tag.trim());
+}
+
+// JSON 导出
+final data = tags.map((tag) => tag.toJson()).toList();
+final json = jsonEncode(data);
+```
+
+**导出格式**：
+
+**格式1：简单文本格式 (.txt)**
+```
+hatsune_miku
+landscape
+blue_eyes
+long_hair
+```
+
+**格式2：完整 JSON 格式 (.json)**
+```json
+{
+  "version": "1.0",
+  "appVersion": "2.0.0",
+  "exportedAt": "2025-12-22T10:00:00Z",
+  "data": {
+    "favoriteTags": [
+      {
+        "tagName": "hatsune_miku",
+        "labels": ["角色", "vocaloid"],
+        "queryType": "tag",
+        "createdAt": "2025-12-01T00:00:00Z"
+      }
+    ],
+    "blacklistedTags": [
+      {
+        "tagName": "ugly_tag",
+        "isActive": true,
+        "reason": "不喜欢",
+        "createdAt": "2025-12-01T00:00:00Z"
+      }
+    ]
+  }
+}
+```
+
+**IPC 通道** (src/main/ipc/channels.ts)：
+```typescript
+// 导出
+BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
+BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
+BOORU_EXPORT_ALL_TAGS: 'booru:export-all-tags',
+
+// 导入
+BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
+BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
+BOORU_IMPORT_ALL_TAGS: 'booru:import-all-tags',
+```
+
+**服务层实现** (src/main/services/tagExportService.ts)：
+```typescript
+interface ExportOptions {
+  format: 'json' | 'txt';
+  includeMetadata?: boolean;  // 是否包含创建时间等元数据
+}
+
+interface ImportOptions {
+  mode: 'merge' | 'replace';  // 合并或替换
+  siteId?: number;            // 指定站点
+}
+
+// 导出收藏标签
+async exportFavoriteTags(options: ExportOptions): Promise<string>
+
+// 导出黑名单标签
+async exportBlacklistedTags(options: ExportOptions): Promise<string>
+
+// 导出所有标签
+async exportAllTags(options: ExportOptions): Promise<string>
+
+// 导入收藏标签
+async importFavoriteTags(content: string, options: ImportOptions): Promise<{
+  added: number;
+  skipped: number;
+  errors: string[];
+}>
+
+// 导入黑名单标签
+async importBlacklistedTags(content: string, options: ImportOptions): Promise<{
+  added: number;
+  skipped: number;
+  errors: string[];
+}>
+
+// 解析导入内容（自动检测格式）
+async parseImportContent(content: string): Promise<{
+  format: 'json' | 'txt';
+  favoriteTags?: FavoriteTag[];
+  blacklistedTags?: BlacklistedTag[];
+}>
+```
+
+**UI 实现清单**：
+- [ ] 在设置页面添加"标签管理"区域
+- [ ] 添加"导出收藏标签"按钮（支持 JSON/TXT）
+- [ ] 添加"导出黑名单"按钮（支持 JSON/TXT）
+- [ ] 添加"导入标签"按钮
+- [ ] 创建 `ImportTagsModal.tsx` 导入预览弹窗
+- [ ] 支持拖拽文件导入
+- [ ] 支持从剪贴板粘贴导入
+- [ ] 显示导入结果统计（新增/跳过/错误）
+- [ ] 支持选择性导入（勾选要导入的标签）
+
+---
+
+### 第二阶段：用户认证功能 (优先级: 高)
+
+#### 2.1 Yande.re/Moebooru 登录配置
+
+**需求描述**：
+- 支持配置用户名和密码哈希
+- 自动生成密码哈希（使用站点 Salt）
+- 登录后支持：
+  - 同步服务器收藏
+  - 为图片投票（喜欢功能）
+  - 查看个人收藏
+  - 查看谁收藏了某张图片
+
+**Boorusama 参考**：
+```
+packages/booru_clients/lib/src/moebooru/
+├── moebooru_client.dart    # API 客户端实现
+│   ├── _authParams         # 认证参数：login + password_hash
+│   ├── votePost()          # 投票 API
+│   ├── favoritePost()      # 收藏 API（score=3）
+│   └── getFavoriteUsers()  # 获取收藏用户列表
+
+lib/boorus/moebooru/
+├── configs/
+│   └── types.dart          # MoebooruConfig 配置类型
+└── favorites/
+    └── providers.dart      # 收藏用户列表状态管理
+```
+
+**Moebooru 认证机制**：
+```typescript
+// 密码哈希算法（SHA1）
+function hashPassword(password: string, salt: string): string {
+  // salt 格式：xxx--{0}--xxx，{0} 会被替换为密码
+  const saltedPassword = salt.replace('{0}', password);
+  return crypto.createHash('sha1').update(saltedPassword).digest('hex');
+}
+
+// 各站点 Salt（从站点获取或硬编码）
+const SITE_SALTS: Record<string, string> = {
+  'yande.re': 'choujin-steiner--{0}--',
+  'konachan.com': 'So-I-Heard-You-Like-Mupkids-?--{0}--',
+  'konachan.net': 'So-I-Heard-You-Like-Mupkids-?--{0}--',
+  'lolibooru.moe': 'lolicondaise--{0}--',
+};
+
+// API 请求时附带认证参数
+const authParams = {
+  login: username,
+  password_hash: passwordHash
+};
+```
+
+**数据库变更**：
+- `booru_sites` 表已有 `username`、`passwordHash`、`salt` 字段
+- 新增 `isLoggedIn` 字段（可选，用于 UI 显示）
+
+**IPC 通道** (src/main/ipc/channels.ts)：
+```typescript
+BOORU_LOGIN: 'booru:login',                     // 登录（生成密码哈希）
+BOORU_LOGOUT: 'booru:logout',                   // 登出（清除认证信息）
+BOORU_TEST_AUTH: 'booru:test-auth',             // 测试认证是否有效
+BOORU_GET_SITE_SALT: 'booru:get-site-salt',     // 获取站点 salt
+```
+
+**服务层实现** (src/main/services/moebooruClient.ts)：
+```typescript
+// 已实现的方法
+hashPasswordSHA1(salt: string, password: string): string
+
+// 新增方法
+async login(username: string, password: string): Promise<{
+  success: boolean;
+  passwordHash?: string;
+  error?: string;
+}>
+
+async testAuth(): Promise<boolean>  // 通过尝试获取用户信息验证
+```
+
+**UI 实现清单**：
+- [ ] 在 `BooruSettingsPage.tsx` 添加登录表单
+  - [ ] 用户名输入框
+  - [ ] 密码输入框（输入后自动哈希，不存储明文）
+  - [ ] "登录"按钮
+  - [ ] "测试连接"按钮
+  - [ ] 登录状态显示（已登录/未登录）
+  - [ ] "退出登录"按钮
+- [ ] 添加站点 Salt 配置（高级选项，可手动输入）
+- [ ] 登录成功后刷新页面状态
+
+**安全考虑**：
+- ⚠️ 密码仅在本地哈希存储，不存储明文
+- ⚠️ 密码哈希存储在 SQLite 数据库中
+- ⚠️ 支持随时清除认证信息（退出登录）
+- ⚠️ 提示用户：密码哈希具有一定安全风险
+
+---
+
+#### 2.2 喜欢功能（Vote）
+
+**需求描述**：
+- 用户可以为图片投票（喜欢/不喜欢）
+- 与收藏是不同的功能：
+  - **本地收藏**：将图片保存到本地收藏列表（不需要登录）
+  - **服务器收藏**：在服务器上收藏图片（需要登录，score=3）
+  - **喜欢/投票**：在服务器上为图片投票，影响图片评分
+- 显示谁收藏了这张图片
+
+**Boorusama 参考**：
+```
+packages/booru_clients/lib/src/moebooru/moebooru_client.dart:
+
+// 投票 API
+Future<void> votePost({required int postId, required int score}) async {
+  // score: 3=喜欢, 2=一般, 1=不喜欢, 0=取消
+  await dio.post('/post/vote.json', queryParameters: {
+    'id': postId,
+    'score': score,
+    ..._authParams,
+  });
+}
+
+// 收藏 = 投票 score=3
+Future<void> favoritePost({required int postId}) => votePost(postId: postId, score: 3);
+Future<void> unfavoritePost({required int postId}) => votePost(postId: postId, score: 0);
+
+// 获取收藏用户列表
+Future<Set<String>?> getFavoriteUsers({required int postId}) async {
+  final response = await dio.get('/favorite/list_users.json', queryParameters: {'id': postId});
+  final userString = response.data['favorited_users'] as String?;
+  return userString?.split(',').toSet();
+}
+
+lib/boorus/moebooru/post_details/src/widgets/toolbar.dart:
+// 详情页工具栏：收藏按钮、投票按钮、下载按钮等
+```
+
+**Moebooru Vote API**：
+```typescript
+// POST /post/vote.json
+interface VoteRequest {
+  id: number;           // 图片 ID
+  score: 0 | 1 | 2 | 3; // 投票分数
+  login: string;
+  password_hash: string;
+}
+
+// 投票分数含义
+const VOTE_SCORES = {
+  CANCEL: 0,      // 取消投票/取消收藏
+  DISLIKE: 1,     // 不喜欢
+  NEUTRAL: 2,     // 一般
+  LIKE: 3,        // 喜欢（同时也是服务器收藏）
+};
+
+// 响应
+interface VoteResponse {
+  success: boolean;
+  score: number;     // 图片新的总分
+  post_id: number;
+}
+
+// GET /favorite/list_users.json
+interface FavoriteUsersResponse {
+  favorited_users: string;  // 逗号分隔的用户名列表
+}
+```
+
+**moebooruClient.ts 已实现**（但未暴露到前端）：
+- ⚠️ `votePost(id, score)` - 投票（仅客户端方法，无 IPC 通道）
+- ⚠️ `favoritePost(id)` - 服务器收藏（score=3）（仅客户端方法，无 IPC 通道）
+- ⚠️ `unfavoritePost(id)` - 取消服务器收藏（score=0）（仅客户端方法，无 IPC 通道）
+- ⚠️ `getFavoriteUsers(postId)` - 获取收藏用户列表（仅客户端方法，无 IPC 通道）
+
+**待添加 IPC 通道** (src/main/ipc/channels.ts)：
+```typescript
+// ❌ 以下通道尚未添加，需要实现
+BOORU_VOTE_POST: 'booru:vote-post',
+BOORU_SERVER_FAVORITE: 'booru:server-favorite',
+BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
+BOORU_GET_FAVORITE_USERS: 'booru:get-favorite-users',
+```
+
+**待添加 Preload API** (src/preload/index.ts)：
+```typescript
+// ❌ 以下 API 尚未暴露，需要实现
+booru: {
+  // ... 已有的 API
+  votePost: (siteId: number, postId: number, score: 0 | 1 | 2 | 3) => 
+    ipcRenderer.invoke(IPC_CHANNELS.BOORU_VOTE_POST, siteId, postId, score),
+  serverFavorite: (siteId: number, postId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_FAVORITE, siteId, postId),
+  serverUnfavorite: (siteId: number, postId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_UNFAVORITE, siteId, postId),
+  getFavoriteUsers: (siteId: number, postId: number) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_USERS, siteId, postId),
+}
+```
+
+**实现步骤**：
+1. [ ] 在 `channels.ts` 添加 IPC 通道定义
+2. [ ] 在 `handlers.ts` 添加 IPC 处理器
+3. [ ] 在 `preload/index.ts` 暴露 API
+4. [ ] 实现 UI 组件
+
+**UI 实现清单**：
+- [ ] 在 `BooruImageCard.tsx` 添加喜欢按钮（仅登录后显示）
+- [ ] 在 `Toolbar.tsx` (详情页) 添加投票按钮组
+  - [ ] 👍 喜欢按钮（score=3）
+  - [ ] 👎 不喜欢按钮（score=1）
+  - [ ] 取消投票选项
+- [ ] 在详情页显示"谁收藏了这张图片"
+- [ ] 投票后刷新图片评分显示
+- [ ] 未登录时显示"请先登录"提示
+
+**UI 设计**：
+```
+图片详情页工具栏:
+┌──────────────────────────────────────────────┐
+│ ⭐ 本地收藏  │  ❤️ 服务器收藏  │  👍 喜欢  │  👎 │
+├──────────────────────────────────────────────┤
+│ Score: 100  │  收藏: 50人                    │
+└──────────────────────────────────────────────┘
+
+收藏用户列表（可展开）:
+┌──────────────────────────────────────────────┐
+│ 收藏了这张图片的用户 (50):                    │
+│ user1, user2, user3, user4...                │
+└──────────────────────────────────────────────┘
+```
+
+**功能区分说明**：
+| 功能 | 说明 | 需要登录 | API |
+|------|------|---------|-----|
+| 本地收藏 | 保存到本地数据库，仅本地可见 | ❌ | 本地数据库操作 |
+| 服务器收藏 | 保存到服务器，其他用户可见 | ✅ | `/post/vote.json?score=3` |
+| 喜欢/投票 | 影响图片总评分 | ✅ | `/post/vote.json` |
+
+---
+
+### 第三阶段：功能增强 (优先级: 中)
+
+#### 3.1 服务器收藏同步
+
+**需求描述**：
+- 登录后可查看服务器上的收藏
+- 支持将本地收藏同步到服务器
+- 支持从服务器导入收藏到本地
+
+**Boorusama 参考**：
+```
+lib/boorus/moebooru/favorites/
+└── providers.dart              # 收藏用户列表状态管理
+
+packages/booru_clients/lib/src/moebooru/moebooru_client.dart:
+├── favoritePost()              # 服务器收藏（vote score=3）
+├── unfavoritePost()            # 取消服务器收藏（vote score=0）
+└── getFavoriteUsers()          # 获取谁收藏了某张图片
+```
+
+**Moebooru Favorite API**：
+```typescript
+// 添加服务器收藏（实际是投票 score=3）
+// POST /post/vote.json
+{ id: postId, score: 3, login, password_hash }
+
+// 取消服务器收藏（投票 score=0）
+// POST /post/vote.json
+{ id: postId, score: 0, login, password_hash }
+
+// 获取用户收藏列表（通过搜索实现）
+// GET /post.json?tags=vote:3:username
+// 或 GET /post.json?tags=fav:username
+
+// 获取某图片的收藏用户
+// GET /favorite/list_users.json?id=postId
+```
+
+**moebooruClient.ts 已实现**（但未暴露到前端）：
+- ⚠️ `favoritePost(id)` - 服务器收藏（仅客户端方法，无 IPC）
+- ⚠️ `unfavoritePost(id)` - 取消服务器收藏（仅客户端方法，无 IPC）
+- ⚠️ `getFavoriteUsers(postId)` - 获取收藏用户列表（仅客户端方法，无 IPC）
+
+**待实现**：
+```typescript
+// 获取用户的服务器收藏列表
+async getUserFavorites(username: string, params?: {
+  page?: number;
+  limit?: number;
+}): Promise<MoebooruPost[]> {
+  // 使用 fav:username 标签搜索
+  return this.getPosts({ tags: [`fav:${username}`], ...params });
+}
+```
+
+**IPC 通道**：
+```typescript
+BOORU_GET_USER_FAVORITES: 'booru:get-user-favorites',
+BOORU_SYNC_FAVORITES: 'booru:sync-favorites',
+```
+
+**UI 实现清单**：
+- [ ] 在 `BooruFavoritesPage.tsx` 添加"服务器收藏"选项卡
+- [ ] 显示当前登录用户的服务器收藏
+- [ ] 添加"同步到本地"按钮
+- [ ] 添加"上传到服务器"按钮
+- [ ] 显示同步状态和进度
+- [ ] 处理同步冲突（本地有/服务器没有 等情况）
+
+---
+
+#### 3.2 热门图片浏览
+
+**需求描述**：
+- 查看近期热门图片
+- 支持按日/周/月/年筛选
+- 支持选择具体日期查看历史热门
+
+**Boorusama 参考**：
+```
+lib/boorus/moebooru/popular/
+├── providers.dart              # MoebooruPopularRepository
+├── types.dart                  # MoebooruTimePeriod 枚举
+└── src/pages/
+    └── popular_page.dart       # 热门页面 UI
+
+// 时间周期类型
+enum MoebooruPopularType { recent, day, week, month }
+
+// 页面结构：
+// - 顶部：时间周期切换（日/周/月）
+// - 中间：图片网格
+// - 底部：日期选择器
+```
+
+**Moebooru Popular API**：
+```typescript
+// 近期热门（支持 1d/1w/1m 时间段）
+// GET /post/popular_recent.json?period=1d
+interface PopularRecentParams {
+  period: '1d' | '1w' | '1m' | '1y';
+}
+
+// 指定日期热门
+// GET /post/popular_by_day.json?day=1&month=12&year=2025
+// GET /post/popular_by_week.json?day=1&month=12&year=2025
+// GET /post/popular_by_month.json?month=12&year=2025
+interface PopularByDateParams {
+  day?: number;
+  month: number;
+  year: number;
+}
+```
+
+**moebooruClient.ts 已实现**（但未暴露到前端）：
+- ⚠️ `getPopularRecent(period)` - 近期热门（仅客户端方法，无 IPC 通道）
+- ⚠️ `getPopularByDay(date)` - 指定日期热门（仅客户端方法，无 IPC 通道）
+
+**待实现**：
+```typescript
+// 1. 补充按周、按月热门 (moebooruClient.ts)
+async getPopularByWeek(date: Date): Promise<MoebooruPost[]>
+async getPopularByMonth(date: Date): Promise<MoebooruPost[]>
+
+// 2. 添加 IPC 通道 (channels.ts)
+BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
+BOORU_GET_POPULAR_BY_DAY: 'booru:get-popular-by-day',
+BOORU_GET_POPULAR_BY_WEEK: 'booru:get-popular-by-week',
+BOORU_GET_POPULAR_BY_MONTH: 'booru:get-popular-by-month',
+
+// 3. 添加 Preload API (index.ts)
+booru.getPopularRecent(period)
+booru.getPopularByDay(date)
+```
+
+**IPC 通道**：
+```typescript
+BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
+BOORU_GET_POPULAR_BY_DAY: 'booru:get-popular-by-day',
+BOORU_GET_POPULAR_BY_WEEK: 'booru:get-popular-by-week',
+BOORU_GET_POPULAR_BY_MONTH: 'booru:get-popular-by-month',
+```
+
+**UI 实现清单**：
+- [ ] 创建 `BooruPopularPage.tsx` 热门图片页面
+- [ ] 添加时间周期切换按钮（日/周/月）
+- [ ] 添加日期选择器（DatePicker）
+- [ ] 图片网格展示（复用现有组件）
+- [ ] 在 App.tsx 添加路由
+- [ ] 在导航菜单添加"热门"入口
+
+**UI 设计**：
+```
+┌──────────────────────────────────────────────┐
+│  [日] [周] [月]              📅 2025-12-22   │
+├──────────────────────────────────────────────┤
+│                                              │
+│    📷    📷    📷    📷                      │
+│                                              │
+│    📷    📷    📷    📷                      │
+│                                              │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+#### 3.3 评论功能
+
+**需求描述**：
+- 在图片详情页查看评论
+- 显示评论者、时间、内容
+- 支持发表评论（需登录）
+
+**Boorusama 参考**：
+```
+lib/boorus/moebooru/comments/
+├── types.dart                  # MoebooruComment 数据类型
+├── parser.dart                 # 评论数据解析
+└── providers.dart              # 评论状态管理
+
+lib/boorus/moebooru/post_details/src/widgets/
+└── comment_section.dart        # 评论区 UI 组件
+
+// MoebooruComment 数据结构
+class MoebooruComment {
+  final int id;
+  final DateTime createdAt;
+  final int postId;
+  final String creator;         // 评论者用户名
+  final int creatorId;
+  final String body;            // 评论内容
+}
+```
+
+**Moebooru Comment API**：
+```typescript
+// 获取评论
+// GET /comment.json?post_id=123
+interface CommentResponse {
+  id: number;
+  created_at: string;
+  post_id: number;
+  creator: string;
+  creator_id: number;
+  body: string;
+}
+
+// 发表评论（需登录）
+// POST /comment/create.json
+interface CreateCommentRequest {
+  comment: {
+    post_id: number;
+    body: string;
+  };
+  login: string;
+  password_hash: string;
+}
+```
+
+**moebooruClient.ts 已实现**（但未暴露到前端）：
+- ⚠️ `getComments(postId)` - 获取评论列表（仅客户端方法，无 IPC 通道）
+
+**待实现**：
+```typescript
+// 1. 发表评论 (moebooruClient.ts)
+async createComment(postId: number, body: string): Promise<Comment>
+
+// 2. 添加 IPC 通道 (channels.ts)
+BOORU_GET_COMMENTS: 'booru:get-comments',
+BOORU_CREATE_COMMENT: 'booru:create-comment',
+
+// 3. 添加 Preload API (index.ts)
+booru.getComments(postId)
+booru.createComment(postId, body)
+```
+
+**类型定义** (src/shared/types.ts)：
+```typescript
+interface BooruComment {
+  id: number;
+  postId: number;
+  creator: string;
+  creatorId: number;
+  body: string;
+  createdAt: string;
+}
+```
+
+**IPC 通道**：
+```typescript
+BOORU_GET_COMMENTS: 'booru:get-comments',
+BOORU_CREATE_COMMENT: 'booru:create-comment',
+```
+
+**UI 实现清单**：
+- [ ] 在 `BooruPostDetailsPage.tsx` 添加评论区
+- [ ] 创建 `CommentSection.tsx` 评论区组件
+- [ ] 创建 `CommentItem.tsx` 单条评论组件
+- [ ] 添加评论输入框（仅登录后显示）
+- [ ] 支持评论内容的基本格式化显示
+- [ ] 显示评论数量
+
+**UI 设计**：
+```
+评论区:
+┌──────────────────────────────────────────────┐
+│ 💬 评论 (15)                                 │
+├──────────────────────────────────────────────┤
+│ user123 · 2025-12-22 10:30                   │
+│ 这张图太棒了！                               │
+├──────────────────────────────────────────────┤
+│ another_user · 2025-12-21 08:15              │
+│ 画师是谁？                                   │
+├──────────────────────────────────────────────┤
+│ [输入评论...]                    [发送]      │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+#### 3.4 Pool（图集）浏览
+
+**需求描述**：
+- 浏览 Booru 站点的 Pool（图集/合集）
+- 支持搜索 Pool
+- 按顺序浏览 Pool 中的图片
+- 显示 Pool 信息（名称、描述、图片数量）
+
+**Moebooru Pool API**：
+```typescript
+// 获取 Pool 列表
+// GET /pool.json?query=keyword&page=1
+interface PoolListResponse {
+  id: number;
+  name: string;
+  created_at: string;
+  updated_at: string;
+  user_id: number;
+  is_public: boolean;
+  post_count: number;
+  description: string;
+}
+
+// 获取 Pool 详情（包含图片列表）
+// GET /pool/show.json?id=123&page=1
+interface PoolDetailResponse {
+  id: number;
+  name: string;
+  description: string;
+  post_count: number;
+  posts: Post[];  // Pool 中的图片，按顺序排列
+}
+```
+
+**待实现** (moebooruClient.ts)：
+```typescript
+// 获取 Pool 列表
+async getPools(params?: {
+  query?: string;
+  page?: number;
+}): Promise<Pool[]>
+
+// 获取 Pool 详情
+async getPool(id: number, page?: number): Promise<PoolDetail>
+```
+
+**类型定义** (src/shared/types.ts)：
+```typescript
+interface BooruPool {
+  id: number;
+  name: string;
+  description?: string;
+  postCount: number;
+  isPublic: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BooruPoolDetail extends BooruPool {
+  posts: BooruPost[];
+}
+```
+
+**IPC 通道**：
+```typescript
+BOORU_GET_POOLS: 'booru:get-pools',
+BOORU_GET_POOL: 'booru:get-pool',
+BOORU_SEARCH_POOLS: 'booru:search-pools',
+```
+
+**UI 实现清单**：
+- [ ] 创建 `BooruPoolsPage.tsx` Pool 列表页面
+- [ ] 创建 `BooruPoolDetailPage.tsx` Pool 详情页面
+- [ ] 创建 `PoolCard.tsx` Pool 卡片组件
+- [ ] 支持 Pool 搜索
+- [ ] Pool 内图片按顺序浏览
+- [ ] 支持"上一张/下一张"导航
+- [ ] 在 App.tsx 添加路由
+- [ ] 在导航菜单添加"图集"入口
+
+**UI 设计**：
+```
+Pool 列表页:
+┌──────────────────────────────────────────────┐
+│ 🔍 [搜索 Pool...]                            │
+├──────────────────────────────────────────────┤
+│ ┌─────────────┐  ┌─────────────┐             │
+│ │  [封面图]   │  │  [封面图]   │             │
+│ │ Pool Name   │  │ Pool Name   │             │
+│ │ 25 张图片   │  │ 18 张图片   │             │
+│ └─────────────┘  └─────────────┘             │
+└──────────────────────────────────────────────┘
+
+Pool 详情页:
+┌──────────────────────────────────────────────┐
+│ ← Pool Name                    1/25          │
+├──────────────────────────────────────────────┤
+│                                              │
+│              [当前图片]                       │
+│                                              │
+├──────────────────────────────────────────────┤
+│     [◀ 上一张]           [下一张 ▶]          │
+└──────────────────────────────────────────────┘
+```
+
+---
+
+### 第四阶段：体验优化 (优先级: 低)
+
+#### 4.1 主题切换
+
+**需求描述**：
+- 支持明暗主题切换
+- 跟随系统主题
+
+**待实现**：
+- [ ] Ant Design 主题配置
+- [ ] 主题切换按钮
+- [ ] 持久化主题设置
+
+---
+
+#### 4.2 多语言支持
+
+**需求描述**：
+- 支持中文/英文切换
+
+**待实现**：
+- [ ] i18n 配置
+- [ ] 语言文件
+- [ ] 语言切换功能
+
+---
+
+#### 4.3 快捷键支持
+
+**需求描述**：
+- 图片浏览快捷键（上下左右）
+- 常用操作快捷键
+
+**待实现**：
+- [ ] 快捷键配置
+- [ ] 快捷键提示
+
+---
+
+## 开发优先级总结
+
+### 高优先级 (用户明确需求)
+
+| # | 功能 | 状态 | 主要工作 | 备注 |
+|---|------|------|---------|------|
+| 1 | 标签收藏功能 | ⏳ 未开始 | 数据库表 + 服务层 + IPC + UI页面 | 全新功能 |
+| 2 | 标签黑名单功能 | ⏳ 未开始 | 数据库表 + 服务层 + 过滤逻辑 + UI | 全新功能 |
+| 3 | 收藏/黑名单导入导出 | ⏳ 未开始 | 导出服务 + 导入解析 + UI弹窗 | 全新功能 |
+| 4 | Yande.re 登录配置 | ⚠️ 部分 | 登录表单 + 密码哈希 + 状态存储 | 客户端已有 hashPassword |
+| 5 | 喜欢功能（Vote） | ⚠️ 部分 | IPC通道 + Preload API + UI按钮 | 客户端已有 votePost，需补 IPC |
+
+### 中优先级 (功能增强)
+
+| # | 功能 | 状态 | 主要工作 | 备注 |
+|---|------|------|---------|------|
+| 6 | 服务器收藏同步 | ⚠️ 部分 | getUserFavorites API + 同步逻辑 + UI | 客户端已有 favoritePost |
+| 7 | 热门图片浏览 | ⚠️ 部分 | IPC + Preload + 新页面 + 日期选择器 | 客户端已有 getPopular* |
+| 8 | 评论功能 | ⚠️ 部分 | IPC + Preload + 评论组件 + createComment | 客户端已有 getComments |
+| 9 | Pool（图集）浏览 | ⏳ 未开始 | Pool API + 列表页 + 详情页 | 全新功能 |
+
+### 低优先级 (体验优化)
+
+| # | 功能 | 状态 | 主要工作 | 备注 |
+|---|------|------|---------|------|
+| 10 | 主题切换 | ⏳ 未开始 | Ant Design 主题配置 + 持久化 | |
+| 11 | 多语言支持 | ⏳ 未开始 | i18n 框架 + 语言文件 | |
+| 12 | 快捷键支持 | ⏳ 未开始 | 快捷键绑定 + 提示UI | |
+
+**状态说明**：
+- ⏳ **未开始**：完全没有实现
+- ⚠️ **部分**：moebooruClient.ts 中有基础方法，但没有 IPC 通道和 Preload API
+- ✅ **已完成**：前端到后端链路完整，UI 已实现
 
 ---
 
 ## 开发进度记录
 
-### 第一阶段: 数据库表创建 ✅ (2025-11-18)
+### 实现顺序建议
 
-#### 已完成
-1. ✅ 创建 `booru_sites` 表 - 存储Booru站点配置信息
-2. ✅ 创建 `booru_posts` 表 - 存储Booru图片信息
-3. ✅ 创建 `booru_tags` 表 - 存储Booru标签信息
-4. ✅ 创建 `booru_post_tags` 表 - Booru图片标签关联表
-5. ✅ 创建 `booru_favorites` 表 - 存储收藏的Booru图片
-6. ✅ 创建 `booru_download_queue` 表 - 存储下载队列信息
-7. ✅ 创建 `booru_search_history` 表 - 存储搜索历史记录
-8. ✅ 创建所有必要的索引（26个索引）
+**阶段 1：标签管理基础（建议先做）**
+```
+1.1 标签收藏功能
+    ├── 创建数据库表 booru_favorite_tags
+    ├── 添加类型定义到 types.ts
+    ├── 实现 booruService 方法
+    ├── 添加 IPC 通道和处理器
+    ├── 添加 Preload API
+    └── 创建 UI 页面和组件
 
-#### 文件变更
-- `src/main/services/database.ts` - 在 `initDatabase()` 函数中添加Booru表创建逻辑
+1.2 标签黑名单功能
+    ├── 创建数据库表 booru_blacklisted_tags
+    ├── 实现过滤逻辑
+    ├── 添加 IPC 通道
+    └── 创建 UI 页面
 
-#### 实现说明
-直接修改现有的 `initDatabase()` 函数,在原有表创建完成后,添加Booru相关表的创建逻辑。这样做的好处是:
-- 统一的初始化入口
-- 向后兼容
-- 简化维护
+1.3 导入导出功能
+    ├── 创建 tagExportService.ts
+    ├── 实现导出逻辑（JSON/TXT）
+    ├── 实现导入解析逻辑
+    └── 创建导入预览弹窗
+```
 
-下次启动应用时,会自动检测表是否存在并创建新表。
+**阶段 2：用户认证（依赖标签功能完成）**
+```
+2.1 登录配置
+    ├── 扩展站点配置表单
+    ├── 实现密码哈希逻辑
+    ├── 添加登录状态管理
+    └── 创建测试认证功能
 
----
+2.2 喜欢功能
+    ├── 添加 IPC 通道
+    ├── 添加 Preload API
+    ├── 修改详情页工具栏
+    └── 添加投票按钮
+```
 
-### 下一阶段: 类型定义更新
-
-#### 待开始
-1. ⏳ 更新 `src/shared/types.ts` - 添加Booru相关类型定义
-   - BooruSite 接口
-   - BooruPost 接口
-   - BooruTag 接口
-   - BooruFavorite 接口
-   - DownloadQueueItem 接口
-   - SearchHistoryItem 接口
-
----
-
-### 第二阶段: 类型定义更新 ✅ (2025-11-18)
-
-#### 已完成
-1. ✅ 更新 `src/shared/types.ts`
-   - ✅ BooruSite 接口 - Booru站点配置
-   - ✅ BooruPost 接口 - Booru图片
-   - ✅ BooruTag 接口 - Booru标签
-   - ✅ BooruFavorite 接口 - Booru收藏
-   - ✅ DownloadQueueItem 接口 - 下载队列项
-   - ✅ SearchHistoryItem 接口 - 搜索历史项
-
-#### 实现说明
-所有Booru相关类型定义已添加到 `src/shared/types.ts` 文件的末尾，作为共享类型供前后端使用。
-
----
-
-### 第三阶段: Moebooru API客户端实现
-
-#### 待开始
-1. ⏳ 创建 `src/main/services/moebooruClient.ts` - Moebooru API客户端类
-   - 实现所有Moebooru API接口
-   - 支持认证（用户名 + 密码哈希）
-   - 请求超时和重试机制
-   - 错误处理
-
-2. ⏳ 创建 `src/main/services/booruService.ts` - Booru数据库服务层
-   - 站点管理（增删改查）
-   - 图片记录管理
-   - 标签管理
-   - 收藏管理
-   - 下载队列管理
-   - 搜索历史管理
-
-3. ⏳ 创建 `src/main/services/filenameGenerator.ts` - 文件名生成器
-   - 根据模板生成文件名
-   - 支持多种标记（token）
-   - 处理非法字符
-
----
-
-### 第三阶段: Moebooru API客户端实现 ✅ (2025-11-18)
-
-#### 已完成
-1. ✅ 创建 `src/main/services/moebooruClient.ts` - Moebooru API客户端类
-   - ✅ 实现所有Moebooru API接口
-   - ✅ 支持认证（用户名 + 密码哈希）
-   - ✅ 请求超时和重试机制（通过axios配置）
-   - ✅ 完整的错误处理
-   - ✅ 详细的日志输出（符合CLAUDE.md规范）
-
-#### 实现的接口
-1. ✅ `getPosts()` - 获取图片列表
-2. ✅ `getPost()` - 获取单个图片详情
-3. ✅ `getTags()` - 搜索标签
-4. ✅ `getTagsByNames()` - 按名称获取标签详情
-5. ✅ `getTagSummary()` - 获取标签摘要
-6. ✅ `favoritePost()` - 收藏图片
-7. ✅ `unfavoritePost()` - 取消收藏
-8. ✅ `votePost()` - 为图片投票
-9. ✅ `getPopularRecent()` - 获取近期热门图片
-10. ✅ `getPopularByDay()` - 获取指定日期热门图片
-11. ✅ `getComments()` - 获取评论
-12. ✅ `getFavoriteUsers()` - 获取收藏用户列表
-13. ✅ `testConnection()` - 测试连接
-
-#### 辅助函数
-- ✅ `hashPasswordSHA1()` - SHA1密码哈希算法（Moebooru标准）
-- 日志输出：所有关键操作都输出console.log，错误使用console.error
-
-#### 实现说明
-完全符合CLAUDE.md中的日志输出规范：
-```typescript
-// 每个公共方法都有详细的日志输出
-console.log('[MoebooruClient] 获取图片列表:', queryParams);
-console.error('[MoebooruClient] 获取图片列表失败:', error);
+**阶段 3：功能增强（可并行开发）**
+```
+3.1 热门图片 → 新页面，独立功能
+3.2 评论功能 → 详情页扩展
+3.3 Pool 浏览 → 新页面，独立功能
+3.4 服务器收藏同步 → 收藏页扩展
 ```
 
 ---
 
-### 第四阶段: Booru数据库服务层
+### 待开始
 
-#### 待开始
-1. ⏳ 创建 `src/main/services/booruService.ts`
-   - 站点管理（增删改查）
-   - 图片记录管理
-   - 标签管理
-   - 收藏管理
-   - 下载队列管理
-   - 搜索历史管理
+#### 下一步任务
+- [ ] **1.1 标签收藏功能** - 创建数据库表和基础服务
 
 ---
 
-### 第四阶段: Booru数据库服务层 ✅ (2025-11-18)
+### 文件修改清单（预估）
 
-#### 已完成
-1. ✅ 创建 `src/main/services/booruService.ts` - Booru数据库服务层
-   - ✅ 站点管理（增删改查）- 包含完整的CRUD操作
-   - ✅ 图片记录管理（保存、查询、搜索、标记下载）
-   - ✅ 标签管理（基础功能）
-   - ✅ 收藏管理（添加、移除、查询、检查状态）
-   - ✅ 所有函数包含详细的日志输出（符合CLAUDE.md规范）
-
-#### 实现的功能函数
-
-**站点管理 (6个函数)**:
-- ✅ `getBooruSites()` - 获取所有站点
-- ✅ `getBooruSiteById()` - 根据ID获取站点
-- ✅ `getActiveBooruSite()` - 获取激活站点
-- ✅ `addBooruSite()` - 添加站点
-- ✅ `updateBooruSite()` - 更新站点
-- ✅ `deleteBooruSite()` - 删除站点
-- ✅ `setActiveBooruSite()` - 设置激活站点
-
-**图片记录管理 (5个函数)**:
-- ✅ `saveBooruPost()` - 保存图片记录（支持upsert）
-- ✅ `getBooruPosts()` - 获取图片列表（分页）
-- ✅ `getBooruPostById()` - 根据ID获取图片
-- ✅ `searchBooruPosts()` - 搜索图片（按标签）
-- ✅ `markPostAsDownloaded()` - 标记图片为已下载
-
-**收藏管理 (4个函数)**:
-- ✅ `addToFavorites()` - 添加到收藏
-- ✅ `removeFromFavorites()` - 从收藏中移除
-- ✅ `getFavorites()` - 获取收藏列表
-- ✅ `isFavorited()` - 检查是否已收藏
-
-#### 代码规范
-所有函数严格遵守CLAUDE.md的日志输出规范：
-```typescript
-console.log('[booruService] 获取Booru站点:', id);      // 关键操作日志
-console.error('[booruService] 获取Booru站点失败:', error); // 错误日志
-```
+| 文件 | 修改内容 |
+|------|---------|
+| `src/shared/types.ts` | 添加 FavoriteTag, BlacklistedTag, BooruComment, BooruPool 等类型 |
+| `src/main/ipc/channels.ts` | 添加新 IPC 通道定义 |
+| `src/main/ipc/handlers.ts` | 添加新 IPC 处理器 |
+| `src/preload/index.ts` | 暴露新 API |
+| `src/main/services/database.ts` | 创建新数据库表 |
+| `src/main/services/booruService.ts` | 添加收藏标签、黑名单服务方法 |
+| `src/main/services/tagExportService.ts` | 新建：导入导出服务 |
+| `src/main/services/moebooruClient.ts` | 添加 Pool、热门等 API |
+| `src/renderer/App.tsx` | 添加新页面路由 |
+| `src/renderer/pages/FavoriteTagsPage.tsx` | 新建：收藏标签页面 |
+| `src/renderer/pages/BlacklistedTagsPage.tsx` | 新建：黑名单页面 |
+| `src/renderer/pages/BooruPopularPage.tsx` | 新建：热门图片页面 |
+| `src/renderer/pages/BooruPoolsPage.tsx` | 新建：Pool 列表页面 |
+| `src/renderer/pages/BooruPoolDetailPage.tsx` | 新建：Pool 详情页面 |
+| `src/renderer/components/CommentSection.tsx` | 新建：评论区组件 |
+| `src/renderer/components/ImportTagsModal.tsx` | 新建：导入标签弹窗 |
 
 ---
 
----
-
-### 第五阶段: UI 集成 (图片展示) ✅ (2025-11-18)
-
-#### 已完成
-1. ✅ 创建 `src/renderer/components/BooruImageCard.tsx` - Booru图片卡片组件
-   - ✅ 显示缩略图（预览图）
-   - ✅ 显示站点名称、评分、分级标签
-   - ✅ 收藏按钮（心形图标，支持切换状态）
-   - ✅ 下载按钮
-   - ✅ 预览功能
-   - ✅ 标签显示（最多10个）
-   - ✅ 尺寸和ID信息
-   - ✅ 完整日志输出（所有操作）
-
-2. ✅ 创建 `src/renderer/pages/BooruPage.tsx` - Booru主页面
-   - ✅ 站点选择器（下拉菜单）
-   - ✅ 搜索栏（支持标签搜索）
-   - ✅ 分级筛选（全部/安全/存疑/限制级）
-   - ✅ 分页控制（上一页/下一页）
-   - ✅ 图片列表（瀑布流布局）
-   - ✅ 加载状态（Spin）
-   - ✅ 空状态处理（Empty组件）
-   - ✅ 已选标签显示（可移除）
-   - ✅ 收藏状态管理
-   - ✅ 下载功能集成
-   - ✅ 顶部控制栏固定（Affix）
-
-3. ✅ 更新 `src/main/ipc/channels.ts` - 添加Booru IPC通道
-   - ✅ 站点管理通道（6个）
-   - ✅ 图片获取通道（4个）
-   - ✅ 标签管理通道（3个）
-   - ✅ 收藏管理通道（5个）
-   - ✅ 下载管理通道（7个）
-   - ✅ 搜索历史通道（2个）
-   总计: 27个IPC通道
-
-4. ✅ 更新 `src/main/ipc/handlers.ts` - 实现Booru IPC处理器
-   - ✅ 站点管理处理器（6个）
-   - ✅ 图片获取处理器（3个）
-   - ✅ 收藏管理处理器（3个）
-   - ✅ 下载队列处理器（1个，基础）
-   - ✅ 完整日志输出（所有处理器）
-
-5. ✅ 更新 `src/preload/index.ts` - 添加Booru API到preload
-   - ✅ 站点管理API（5个函数）
-   - ✅ 图片获取API（3个函数）
-   - ✅ 收藏管理API（3个函数）
-   - ✅ 下载管理API（1个函数）
-   - ✅ TypeScript类型声明（完整类型）
-
-6. ✅ 更新 `src/renderer/App.tsx` - 添加Booru路由
-   - ✅ 添加Booru主菜单项
-   - ✅ 添加CloudOutlined图标
-   - ✅ 路由配置（切换到'booru'时渲染BooruPage）
-
-#### 实现的功能
-
-**BooruImageCard组件**:
-- 缩略图显示（支持预览图、样本图、原图URL回退）
-- 信息标签（站点、评分、分级）
-- 操作按钮（预览、收藏、下载）
-- 标签列表显示
-- 尺寸和ID信息
-
-**BooruPage页面**:
-- 站点选择（支持多个Booru站点）
-- 标签搜索（支持多个标签，空格分隔）
-- 分级过滤（all/safe/questionable/explicit）
-- 图片瀑布流展示
-- 分页导航
-- 收藏管理（添加/移除）
-- 下载功能（添加到队列）
-- 标签点击搜索（点击标签自动添加到搜索）
-
-**IPC通信**:
-- 完整的Booru数据流（前端→IPC→后端→API→数据库）
-- 所有关键操作都有日志输出
-
-#### 文件变更
-- `src/renderer/components/BooruImageCard.tsx` 新建 (230行)
-- `src/renderer/pages/BooruPage.tsx` 新建 (480行)
-- `src/main/ipc/channels.ts` 修改 (添加27个IPC通道)
-- `src/main/ipc/handlers.ts` 修改 (添加14个IPC处理器)
-- `src/preload/index.ts` 修改 (添加Booru API)
-- `src/renderer/App.tsx` 修改 (添加路由)
-
----
-
-### 第六阶段: Booru配置界面 ✅ (2025-11-18)
-
-#### 已完成
-1. ✅ 创建 `src/renderer/pages/BooruSettingsPage.tsx` - Booru站点配置页面
-   - ✅ 站点列表展示（Table）
-   - ✅ 添加站点功能（Modal + Form）
-   - ✅ 编辑站点功能
-   - ✅ 删除站点功能（带确认）
-   - ✅ 设置默认站点
-   - ✅ 测试站点连接
-   - ✅ 表单验证（URL格式、必填项）
-   - ✅ 完整的日志输出
-
-2. ✅ 更新 `src/renderer/App.tsx` - 添加Booru子菜单
-   - ✅ 添加 `booruSubMenuItems`（图片浏览、站点配置）
-   - ✅ 添加 `selectedBooruSubKey` 状态管理
-   - ✅ 添加Booru子菜单渲染逻辑
-   - ✅ 更新 `renderContent()` 支持Booru子页面
-   - ✅ 更新Header标题显示逻辑
-   - ✅ 导入 `BooruSettingsPage` 组件
-   - ✅ 添加 `AntApp` 组件包装（修复message静态函数警告）
-
-3. ✅ 修复编译错误
-   - ✅ 修复 `preload/index.ts` 缺少 `BOORU_GET_POST` 通道定义
-   - ✅ 所有TypeScript编译通过
-
-4. ✅ 修复Ant Design message警告 ⚠️ (新修复)
-   - ✅ 在 `App.tsx` 中添加 `AntApp` 组件提供context
-   - ✅ 在 `BooruSettingsPage` 中使用 `App.useApp()` hook
-   - ✅ 在 `BooruPage` 中使用 `App.useApp()` hook
-   - ✅ 移除静态message导入，改用hook方式
-
-#### 实现的功能
-
-**BooruSettingsPage 功能**:
-- 站点管理CRUD（创建、读取、更新、删除）
-- 站点配置表单（名称、URL、类型、认证信息）
-- 默认站点设置
-- 站点连接测试
-- 响应式表格布局
-- 完整的错误处理和用户反馈
-
-**UI 交互**:
-- 主菜单：Booru → 显示子菜单
-- 子菜单：图片浏览 / 站点配置
-- 站点配置页：
-  - 顶部：添加站点按钮
-  - 表格：站点列表（名称、URL、类型、收藏支持、操作）
-  - 操作：设为默认 / 测试 / 编辑 / 删除
-
-#### 文件变更
-- `src/renderer/pages/BooruSettingsPage.tsx` 新建 (380行)
-- `src/renderer/App.tsx` 修改 (添加Booru子菜单支持)
-
----
-
-### 后续优化建议
-
-#### 已实现并测试通过的功能 ✅
-1. ✅ 数据库架构（7个表 + 26个索引）
-2. ✅ API客户端（MoebooruClient，512行）
-3. ✅ 数据库服务层（BooruService，573行）
-4. ✅ UI组件（BooruImageCard + BooruPage，共710行）
-5. ✅ IPC通信层（完整实现，15个处理器）
-6. ✅ 路由集成（App.tsx，支持子菜单）
-7. ✅ 配置界面（BooruSettingsPage，380行）
-8. ✅ 站点管理（支持添加/编辑/删除站点）
-9. ✅ 连接测试功能（在站点配置页面）
-
-#### 需要测试的功能 ⚠️
-1. 🔄 **实际API连接（Yande.re/Konachan）** - 需要解决Electron代理问题
-2. 图片下载流程
-3. 收藏同步到服务器
-4. 标签自动补全
-5. 大图片列表性能
-
-#### 已知问题 🔍
-1. **Electron网络代理问题** - 浏览器能访问yande.re，但Electron应用不能访问
-   - 原因：Electron主进程默认不走系统代理
-   - 解决方案：配置Electron使用系统代理或手动设置代理
-   - 相关代码：`src/main/services/moebooruClient.ts`
-
-#### 可选的高级功能 ⏸️
-1. 批量下载
-2. 下载管理页面
-3. 收藏页面
-4. 热门图片展示
-5. 文件名生成器
-6. 下载管理器（断点续传）
-
----
-
-### 调试指南
-
-#### 解决Electron网络连接问题
-
-如果浏览器能访问Booru站点但Electron应用不能，请尝试以下方法：
-
-**方法1：启动Electron时指定代理**
-```bash
-npm run dev -- --proxy-server="http://your-proxy:port"
-```
-
-**方法2：在代码中配置Axios使用代理**
-修改 `src/main/services/moebooruClient.ts`：
-```typescript
-this.client = axios.create({
-  baseURL: config.baseUrl,
-  timeout: config.timeout || 30000,
-  headers: {
-    'User-Agent': 'YandeGalleryDesktop/1.0.0'
-  },
-  // 添加代理配置
-  proxy: {
-    protocol: 'http',
-    host: 'your-proxy-host',
-    port: your-proxy-port
-  }
-});
-```
-
-**方法3：配置系统环境变量**
-```bash
-set HTTP_PROXY=http://your-proxy:port
-set HTTPS_PROXY=http://your-proxy:port
-npm run dev
-```
-
-#### 测试站点连接
-1. 打开Booru → 站点配置
-2. 点击站点右侧的"测试"按钮
-3. 查看是否显示"连接成功"
-
-#### 查看网络请求日志
-在开发者工具中查看Network标签，或查看控制台输出的日志：
-- `[MoebooruClient] 请求: GET /post.json` - 显示发出的请求
-- `[IPC] 获取Booru图片成功` - 显示请求成功
-- `[MoebooruClient] 响应错误` - 显示请求失败
-
----
-
-### 代码统计
-
-**新增文件**:
-- BooruImageCard.tsx: 230行
-- BooruPage.tsx: 480行
-- BooruSettingsPage.tsx: 380行
-- moebooruClient.ts: 512行
-- booruService.ts: 573行
-- booru-feature-implementation.md: 完整文档
-
-**修改文件**:
-- database.ts: 添加Booru表（150行）
-- types.ts: 添加类型定义（89行）
-- channels.ts: 添加IPC通道（28个）
-- handlers.ts: 添加IPC处理器（15个）
-- preload/index.ts: 添加Booru API和TypeScript声明
-- App.tsx: 添加路由和子菜单支持
-
-**总计**: ~2,400行代码
-
----
-
-### 第七阶段: CORS 问题解决 ✅ (2025-11-19)
-
-#### 问题分析
-发现浏览器能访问网站，但 Electron 应用内无法访问（包括 Baidu、Google），错误信息：
-```
-Access to fetch at 'https://www.google.com/' from origin 'http://localhost:5173'
-has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header
-```
-
-**根本原因**：前端（渲染进程）直接发起跨域请求被浏览器的 CORS 安全策略阻止。
-
-#### 解决方案实施
-实施 **IPC 代理模式**：所有外部网络请求通过主进程发起，绕过 CORS 限制。
-
-**已完成的修改**：
-
-1. ✅ **主进程 IPC 处理器** (src/main/ipc/handlers.ts)
-   - 添加 `network:test-baidu` 处理器
-   - 添加 `network:test-google` 处理器
-   - 通过 Node.js fetch 发起请求（不受 CORS 限制）
-
-2. ✅ **Preload 脚本** (src/preload/index.ts)
-   - 向 `electronAPI.system` 添加 `testBaidu()` 方法
-   - 向 `electronAPI.system` 添加 `testGoogle()` 方法
-   - 完整的 TypeScript 类型声明
-
-3. ✅ **前端页面** (src/renderer/pages/BooruSettingsPage.tsx)
-   - 修改 `testBaidu()` 函数：改为调用 `window.electronAPI.system.testBaidu()`
-   - 修改 `testGoogle()` 函数：改为调用 `window.electronAPI.system.testGoogle()`
-   - 改进错误处理逻辑
-
-#### 架构优势
-- ✅ 绕过浏览器 CORS 限制
-- ✅ 统一网络请求管理（便于日志、错误处理、代理配置）
-- ✅ 更好的安全性
-- ✅ 便于实现请求缓存和限流
-
-#### 测试验证
-需要测试的功能：
-- [ ] Baidu 连接测试按钮（可能因网络环境而异）
-- [ ] Google 连接测试按钮（需要代理）
-- [ ] Booru API 连接测试按钮
-- [ ] Booru 图片获取功能
-
-#### 文档更新
-- ✅ 更新 CLAUDE.md：添加 "网络访问与CORS解决方案" 章节
-- ✅ 记录实现示例和最佳实践
-- ✅ 添加 "代理配置指南" 子章节（三种配置方法）
-
-#### 增强调试
-- ✅ 增强错误日志：显示详细错误对象和堆栈
-- ✅ 添加代理配置检测日志
-- ✅ 添加请求超时设置（10秒）
-
-#### 代理配置步骤
-
-**如果 Google 测试失败，请按以下步骤配置代理：**
-
-1. **停止应用**
-
-2. **设置代理环境变量**（CMD）：
-   ```cmd
-   set HTTPS_PROXY=http://127.0.0.1:7897
-   ```
-
-3. **重新启动应用**：
-   ```cmd
-   npm run dev
-   ```
-
-4. **查看控制台日志**：
-   - 应显示：`[IPC] 当前代理配置: http://127.0.0.1:7897`
-   - 如果显示`无`，说明代理未生效
-
-5. **点击"测试Google"按钮**
-
-**注意**：如果代理需要认证或不是标准HTTP代理，请检查代理配置是否正确。
-
----
-
-**最后更新**: 2025-11-19
-**作者**: Claude AI
-**状态**: ✅ CORS问题解决完成 - IPC代理模式已实施，增强调试日志
-
----
-
-### 第八阶段: 自定义下载文件名实现 ✅ (2025-11-20)
-
-#### 已完成
-1. ✅ 分析Boorusama文件名生成器实现
-   - ✅ 研究了`packages/filename_generator/`的完整架构
-   - ✅ 理解了Token、TokenOptions、Parser、Generator的设计模式
-   - ✅ 提取了支持的token列表和options
-
-2. ✅ 增强filenameGenerator.ts
-   - ✅ 添加TokenOptions接口（支持limit、maxlength、case、delimiter、unsafe等）
-   - ✅ 添加TokenDefaults接口
-   - ✅ 增强FileNameTokens接口（添加source字段）
-   - ✅ 实现processTokenValue函数（处理所有options）
-   - ✅ 增强generateFileName函数（支持tokenDefaults参数）
-   - ✅ 实现formatDate函数（支持日期格式化）
-   - ✅ 增强sanitizeFileName函数（支持unsafe选项）
-
-3. ✅ 更新配置文件
-   - ✅ 在config.yaml中添加booru.download配置节
-     - filenameTemplate: 文件名模板（支持{site}_{id}_{md5}.{extension}格式）
-     - tokenDefaults: Token默认选项配置
-   - ✅ 在config.ts中添加TokenOptions和TokenDefaultOptions类型定义
-   - ✅ 在DEFAULT_CONFIG中添加默认下载配置
-
-4. ✅ 更新下载管理器
-   - ✅ 在downloadManager.ts中添加generateDownloadFileName私有方法
-     - 从配置读取filenameTemplate和tokenDefaults
-     - 获取站点信息（名称而不是ID）
-     - 准备完整的文件元数据
-     - 调用generateFileName生成文件名
-   - ✅ 更新addToQueue方法，使用新的文件名生成逻辑
-
-5. ✅ 增强booruService.ts
-   - ✅ 添加extractTagsByCategory函数（提取特定类别标签）
-   - ✅ 添加saveBooruTags函数（保存标签到数据库）
-   - ✅ 添加searchBooruTags函数（搜索标签）
-   - ✅ 在export default中导出这些函数
-
-#### 支持的Token选项
-- **limit**: 限制标签数量
-- **maxlength**: 限制最大长度
-- **case**: 大小写转换（lower/upper/none）
-- **delimiter**: 分隔符
-- **unsafe**: 是否保留非法字符
-- **format**: 日期格式
-- **single_letter**: 评分单个字母表示（s/q/e）
-- **pad_left**: 左侧填充0
-
-#### 支持的Token
-{id}, {md5}, {extension}, {width}, {height}, {rating}, {score},
-{site}, {artist}, {character}, {copyright}, {date}, {tags}, {source}
-
-#### 使用示例
-1. 简单模板：`{id}_{md5}.{extension}` → `123456_abc123.jpg`
-2. 带标签：`{site}_{id}_{tags:limit=5}.{extension}` → `yande.re_123456_tag1_tag2_tag3_tag4_tag5.jpg`
-3. 带日期：`{date:format=yyyy-MM-dd}_{id}.{extension}` → `2025-11-20_123456.jpg`
-4. 带评分：`{rating:single_letter=true}_{id}.{extension}` → `s_123456.jpg`
-
-**最后更新**: 2025-11-20
-**作者**: Claude AI
-**状态**: ✅ 完整实现完成（后端+UI）
-
----
-
-### UI界面实现 ✅
-
-#### 已完成
-1. ✅ 在BooruSettingsPage.tsx添加"文件配置"选项卡
-   - ✅ 添加文件名模板输入框（带实时预览）
-   - ✅ 添加支持的变量列表（可点击插入）
-   - ✅ 添加使用示例展示
-   - ✅ 添加Token选项说明
-   - ✅ 添加保存/重置按钮
-   - ✅ 使用Ant Design组件美化界面
-
-#### 界面特性
-- **实时预览**: 输入模板时实时显示效果
-- **快速插入**: 点击变量按钮自动插入到模板
-- **示例展示**: 提供多种使用场景的示例
-- **详细说明**: Token选项的完整说明文档
-- **响应式布局**: 网格布局适配不同屏幕
-
-#### 支持的Token
-{id}, {md5}, {extension}, {width}, {height}, {rating}, {score},
-{site}, {artist}, {character}, {copyright}, {date}, {tags}, {source}
-
-#### Token选项
-- **limit**: 限制标签数量
-- **maxlength**: 限制最大长度
-- **case**: 大小写转换（lower/upper/none）
-- **delimiter**: 分隔符（默认: _）
-- **single_letter**: 评分单个字母（true/false）
-- **format**: 日期格式（如: yyyy-MM-dd）
-
-#### 配置示例
-```yaml
-booru:
-  download:
-    filenameTemplate: '{site}_{rating:single_letter=true}_{id}_{artist:limit=3}_{tags:limit=10}.{extension}'
-```
-
-#### 界面截图位置
-- 路径: Booru Settings → 文件配置选项卡
-- 功能: 文件名模板配置、变量选择、实时预览
-
----
-
-### Bug修复：Token选项解析 ✅ (2025-11-20)
-
-#### 问题描述
-用户配置的 `{id}_{md5:maxlength=8}.{extension}` 中 `maxlength` 选项失效。
-
-#### 根本原因
-原始实现没有解析模板中的选项部分（如 `{md5:maxlength=8}`），只是简单替换了 `{md5}`，忽略了冒号后面的选项。
-
-#### 解决方案
-在 `filenameGenerator.ts` 中添加完整的模板解析器：
-
-1. ✅ **添加 `parseToken()` 函数**
-   - 解析token字符串，提取token名称和选项
-   - 支持格式: `{token}`, `{token:option=value}`, `{token:option1=value1,option2=value2}`
-   - 使用冒号分隔token名称和选项字符串
-   - 使用逗号分隔多个选项
-   - 使用等号分隔键值对
-   - 解析不同类型的值：数字、布尔、字符串
-
-2. ✅ **添加 `findTokens()` 函数**
-   - 查找模板中的所有token（包括带选项的）
-   - 使用正则表达式 `\{[^}]+\}/g` 匹配所有花括号
-   - 返回完整的匹配字符串、token名称和选项
-
-3. ✅ **重构 `generateFileName()` 函数**
-   - 使用 `findTokens()` 查找所有token
-   - 合并模板选项和默认选项（模板选项优先）
-   - 对每个token应用选项并替换值
-   - 处理token没有值的情况（替换为空字符串）
-
-4. ✅ **测试验证**
-   ```typescript
-   // 测试1: maxlength选项
-   模板: '{id}_{md5:maxlength=8}.{extension}'
-   结果: '123456_abc123de.jpg' ✅
-
-   // 测试2: limit选项
-   模板: '{id}_{tags:limit=3}.{extension}'
-   结果: '123456_tag1_tag2_tag3.jpg' ✅
-
-   // 测试3: 多选项
-   模板: '{md5:maxlength=8}'
-   解析: Token=md5, 选项={maxlength: 8} ✅
-   ```
-
-#### 使用示例
-```yaml
-# config.yaml
-booru:
-  download:
-    # 限制MD5长度为8位
-    filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
-
-    # 限制标签数量为5个，并转为小写
-    filenameTemplate: '{id}_{tags:limit=5,case=lower}.{extension}'
-
-    # 评分用单个字母，限制艺术家标签3个
-    filenameTemplate: '{rating:single_letter=true}_{id}_{artist:limit=3}.{extension}'
-
-    # 组合多个选项
-    filenameTemplate: '{site}_{id}_{tags:limit=10,maxlength=50,case=lower}.{extension}'
-```
-
-#### 支持的选项格式
-- 单选项: `{token:option=value}`
-- 多选项: `{token:option1=value1,option2=value2}`
-- 支持选项: `limit`, `maxlength`, `case`, `delimiter`, `unsafe`, `format`, `single_letter`, `pad_left`
-
-**状态**: ✅ 已修复并测试通过
-
----
-
-### UI改进：实时预览支持Token选项 ✅ (2025-11-20)
-
-#### 改进内容
-在 `BooruSettingsPage.tsx` 中改进了 `updateFilenamePreview()` 函数，使其支持 Token 选项解析。
-
-#### 改进点
-1. ✅ **完整的选项解析逻辑**
-   - 使用正则表达式 `^\{([^:]+)(?::([^}]+))?\}$` 解析token（包括带选项的）
-   - 支持单选项: `{token:option=value}`
-   - 支持多选项: `{token:option1=value1,option2=value2}`
-   - 解析不同类型的值：数字（limit, maxlength, pad_left）、布尔（single_letter, unsafe）、字符串（case, delimiter, format）
-
-2. ✅ **完整的值处理逻辑**
-   - 应用大小写转换（case=lower/upper）
-   - 处理标签列表（tags, artist, character, copyright）
-   - 支持限制标签数量（limit）
-   - 支持自定义分隔符（delimiter）
-   - 限制最大长度（maxlength）
-   - MD5最大长度限制（32位）
-   - 评分单个字母（single_letter=true）
-   - ID左侧填充0（pad_left）
-   - 日期格式化（format）
-
-3. ✅ **增强的测试数据**
-   - 更完整的元数据（包括多个艺术家、角色、标签等）
-   - 模拟真实场景的数据
-
-#### 测试示例
-```typescript
-// 输入模板
-{id}_{md5:maxlength=8}.{extension}
-
-// 实时预览结果
-123456_abc123de.jpg ✅
-
-// 输入模板
-{id}_{tags:limit=3,case=upper}.{extension}
-
-// 实时预览结果
-123456_TAG1_TAG2_TAG3.jpg ✅
-
-// 输入模板
-{rating:single_letter=true}_{id}_{artist:limit=1}.{extension}
-
-// 实时预览结果
-s_123456_artist_name.jpg ✅
-```
-
-#### 优势
-- 实时预览现在与实际的文件名生成逻辑完全一致
-- 用户可以立即看到选项的效果
-- 不再需要猜测选项的作用
-- 提升用户体验
-
-**状态**: ✅ 已完成
+**最后更新**: 2025年12月22日
+**版本**: 2.1

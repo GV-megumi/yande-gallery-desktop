@@ -111,43 +111,6 @@ export function setupIPC() {
     }
   });
 
-  // 获取Yande.re图片
-  ipcMain.handle(IPC_CHANNELS.YANDE_GET_IMAGES, async (_, page: number = 1, tags?: string[]) => {
-    try {
-      // 模拟Yande.re API响应
-      const mockImages = Array.from({ length: 20 }, (_, i) => ({
-        id: i + 1,
-        yandeId: i + 1000 * page,
-        filename: `yande_${i + 1000 * page}.jpg`,
-        fileUrl: `https://yande.re/sample/sample_${i + 1000 * page}.jpg`,
-        previewUrl: `https://yande.re/preview/preview_${i + 1000 * page}.jpg`,
-        rating: ['safe', 'questionable', 'explicit'][Math.floor(Math.random() * 3)],
-        tags: ['tag1', 'tag2', 'tag3'],
-        downloaded: false,
-        createdAt: new Date().toISOString()
-      }));
-
-      return { success: true, data: mockImages };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // 下载图片
-  ipcMain.handle(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, async (_, imageData: any) => {
-    try {
-      // 模拟下载过程
-      console.log(`Downloading image: ${imageData.filename}`);
-
-      // 这里应该实现实际的下载逻辑
-      const downloadPath = path.join(__dirname, '../../../downloads', imageData.filename);
-
-      // 模拟下载完成
-      return { success: true, data: downloadPath };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
 
   // 选择文件夹
   ipcMain.handle(IPC_CHANNELS.SYSTEM_SELECT_FOLDER, async () => {

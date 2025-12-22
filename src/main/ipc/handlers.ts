@@ -14,8 +14,6 @@ import {
   updateImageTags,
   getAllTags,
   searchTags,
-  addYandeImage,
-  markYandeImageAsDownloaded,
   getRecentImages,
   getImagesByFolder,
   getAllFolders,
@@ -150,73 +148,6 @@ export function setupIPC() {
   ipcMain.handle('image:delete-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {
       return await deleteThumbnail(imagePath);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // 获取Yande.re图片（模拟数据）
-  ipcMain.handle(IPC_CHANNELS.YANDE_GET_IMAGES, async (_event: IpcMainInvokeEvent, page: number = 1, tags?: string[]) => {
-    try {
-      // 模拟Yande.re API响应
-      const mockImages = Array.from({ length: 20 }, (_, i) => ({
-        id: i + 1,
-        yandeId: i + 1000 * page,
-        filename: `yande_${i + 1000 * page}.jpg`,
-        fileUrl: `https://via.placeholder.com/800x600/1890ff/ffffff?text=Yande+${i + 1000 * page}`,
-        previewUrl: `https://via.placeholder.com/200x150/1890ff/ffffff?text=Preview+${i + 1000 * page}`,
-        rating: ['safe', 'questionable', 'explicit'][Math.floor(Math.random() * 3)],
-        tags: tags || ['anime', 'girl', 'cute'],
-        downloaded: false,
-        createdAt: new Date().toISOString()
-      }));
-
-      return { success: true, data: mockImages };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // 搜索图片
-  ipcMain.handle(IPC_CHANNELS.YANDE_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, tags: string[], page: number = 1) => {
-    try {
-      // 模拟搜索功能，使用相同的模拟数据但过滤标签
-      const mockImages = Array.from({ length: 20 }, (_, i) => ({
-        id: i + 1,
-        yandeId: i + 1000 * page,
-        filename: `yande_${i + 1000 * page}.jpg`,
-        fileUrl: `https://via.placeholder.com/800x600/1890ff/ffffff?text=Yande+${i + 1000 * page}`,
-        previewUrl: `https://via.placeholder.com/200x150/1890ff/ffffff?text=Preview+${i + 1000 * page}`,
-        rating: ['safe', 'questionable', 'explicit'][Math.floor(Math.random() * 3)],
-        tags: tags || ['anime', 'girl', 'cute'],
-        downloaded: false,
-        createdAt: new Date().toISOString()
-      }));
-
-      return { success: true, data: mockImages };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // 下载图片（简化版）
-  ipcMain.handle(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, async (_event: IpcMainInvokeEvent, imageData: any) => {
-    try {
-      // 模拟下载过程
-      console.log(`Downloading image: ${imageData.filename}`);
-
-      // 创建downloads目录
-      const downloadsDir = path.join(__dirname, '../../../downloads');
-      await fs.mkdir(downloadsDir, { recursive: true });
-
-      // 模拟下载路径
-      const downloadPath = path.join(downloadsDir, imageData.filename);
-
-      // 这里应该实现实际的下载逻辑
-      // 简化版本，直接返回路径
-      console.log(`Image would be downloaded to: ${downloadPath}`);
-
-      return { success: true, data: downloadPath };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

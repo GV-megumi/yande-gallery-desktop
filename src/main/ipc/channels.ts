@@ -18,11 +18,6 @@ export const IPC_CHANNELS = {
   IMAGE_GENERATE_THUMBNAIL: 'image:generate-thumbnail',
   IMAGE_GET_INFO: 'image:get-info',
 
-  // Yande.re API
-  YANDE_GET_IMAGES: 'yande:get-images',
-  YANDE_SEARCH_IMAGES: 'yande:search-images',
-  YANDE_DOWNLOAD_IMAGE: 'yande:download-image',
-
   // 下载管理
   DOWNLOAD_START: 'download:start',
   DOWNLOAD_PAUSE: 'download:pause',

@@ -143,7 +143,9 @@ yande-gallery-desktop/
 │   │   │   ├── moebooruClient.ts # Moebooru API 客户端
 │   │   │   ├── booruService.ts  # Booru 数据库操作
 │   │   │   ├── downloadManager.ts # 下载管理器
+│   │   │   ├── bulkDownloadService.ts # 批量下载服务
 │   │   │   ├── filenameGenerator.ts # 文件名生成器
+│   │   │   ├── imageCacheService.ts # 图片缓存服务
 │   │   │   ├── config.ts        # 配置管理
 │   │   │   └── init.ts          # 初始化服务
 │   │   └── utils/
@@ -157,12 +159,25 @@ yande-gallery-desktop/
 │   │   │   ├── ImageSearchBar.tsx # 搜索栏
 │   │   │   ├── LazyLoadFooter.tsx # 懒加载底部
 │   │   │   ├── BooruImageCard.tsx # Booru 图片卡片
+│   │   │   ├── BooruPostDetails/ # Booru 详情页组件
+│   │   │   │   ├── FileDetailsSection.tsx
+│   │   │   │   ├── InformationSection.tsx
+│   │   │   │   ├── RelatedPostsSection.tsx
+│   │   │   │   ├── TagsSection.tsx
+│   │   │   │   └── Toolbar.tsx
+│   │   │   ├── BulkDownloadSessionCard.tsx # 批量下载会话卡片
+│   │   │   ├── BulkDownloadSessionDetail.tsx # 批量下载会话详情
+│   │   │   ├── BulkDownloadTaskForm.tsx # 批量下载任务表单
 │   │   │   └── GalleryCoverImage.tsx # 图集封面
 │   │   ├── pages/               # 页面组件
 │   │   │   ├── GalleryPage.tsx  # 图库页面（最近/全部/图集）
 │   │   │   ├── BooruPage.tsx    # Booru 浏览页面
+│   │   │   ├── BooruBulkDownloadPage.tsx # Booru 批量下载页面
 │   │   │   ├── BooruDownloadPage.tsx # Booru 下载管理页面
+│   │   │   ├── BooruFavoritesPage.tsx # Booru 收藏页面
+│   │   │   ├── BooruPostDetailsPage.tsx # Booru 图片详情页
 │   │   │   ├── BooruSettingsPage.tsx # Booru 站点配置页面
+│   │   │   ├── BooruTagSearchPage.tsx # Booru 标签搜索页面
 │   │   │   ├── DownloadPage.tsx # Yande.re 下载页面（旧版）
 │   │   │   └── SettingsPage.tsx # 应用设置页面
 │   │   └── utils/
@@ -174,7 +189,8 @@ yande-gallery-desktop/
 ├── build/                       # 编译输出目录
 ├── data/                        # 数据目录
 │   ├── gallery.db               # SQLite 数据库
-│   └── thumbnails/              # 缩略图缓存
+│   ├── thumbnails/              # 缩略图缓存
+│   └── cache/                   # 图片缓存目录
 ├── downloads/                   # 默认下载目录
 ├── doc/                         # 项目文档
 │   ├── database-schema.md       # 数据库结构文档
@@ -226,6 +242,18 @@ yande-gallery-desktop/
 6. **`GalleryCoverImage`** - 图集封面组件
    - 自动获取和显示图集封面
    - 支持设置自定义封面
+
+7. **`BooruPostDetails/*`** - Booru 详情页组件集
+   - `FileDetailsSection` - 文件详情（尺寸、大小、格式）
+   - `InformationSection` - 基本信息（评分、来源）
+   - `TagsSection` - 标签分类展示（艺术家、角色、版权、一般）
+   - `RelatedPostsSection` - 相关图片推荐
+   - `Toolbar` - 工具栏（收藏、下载、外链操作）
+
+8. **`BulkDownload*`** - 批量下载组件集
+   - `BulkDownloadTaskForm` - 任务创建表单
+   - `BulkDownloadSessionCard` - 会话卡片组件
+   - `BulkDownloadSessionDetail` - 会话详情组件
 
 #### 抽象层的好处
 
@@ -1219,15 +1247,23 @@ npm run rebuild
 - [x] 批量下载功能
 - [x] 下载队列管理
 
-### 第二阶段 (进行中) 🚧
-- [ ] 收藏夹同步
+### 第二阶段 (已完成) ✅
+- [x] 收藏页面（本地收藏管理）
+- [x] 图片详情页（标签分类、文件信息）
+- [x] 标签搜索页面
+- [x] 批量下载（任务管理、会话控制）
+- [x] 图片缓存服务
+- [x] 下载管理页面增强
+- [x] 自定义文件名模板
+
+### 第三阶段 (进行中) 🚧
+- [ ] 收藏夹同步到服务器
 - [ ] 多站点支持完善（Danbooru、Gelbooru）
 - [ ] 标签自动完成优化
-- [ ] 图片详情页完善
-- [ ] 下载历史和统计
 - [ ] 相似图片推荐
+- [ ] 下载历史和统计
 
-### 第三阶段 (计划中) 📋
+### 第四阶段 (计划中) 📋
 - [ ] 智能标签推荐
 - [ ] 图片相似度检测（perceptual hash）
 - [ ] 导出和备份功能
@@ -1235,7 +1271,7 @@ npm run rebuild
 - [ ] 多语言支持（中英文）
 - [ ] 快捷键支持
 
-### 第四阶段 (未来) 🌟
+### 第五阶段 (未来) 🌟
 - [ ] 插件系统
 - [ ] 自定义脚本
 - [ ] 批量编辑标签
@@ -1264,6 +1300,6 @@ MIT License - 允许自由使用、修改和分发
 
 ---
 
-**最后更新**：2024 年 11 月 19 日  
+**最后更新**：2025 年 12 月 22 日  
 **作者**：Claude Code  
-**版本**：2.0.0
+**版本**：3.0.0（已完成批量下载、收藏管理、详情页、标签搜索等功能）

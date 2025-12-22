@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, theme, message, App as AntApp } from 'antd';
-import { PictureOutlined, CloudDownloadOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined } from '@ant-design/icons';
+import { PictureOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined, CloudDownloadOutlined } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
-import { DownloadPage } from './pages/DownloadPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BooruPage } from './pages/BooruPage';
 import { BooruSettingsPage } from './pages/BooruSettingsPage';
@@ -22,7 +21,6 @@ type MenuItem = {
 const mainMenuItems: MenuItem[] = [
   { key: 'gallery', icon: <PictureOutlined />, label: '图库' },
   { key: 'booru', icon: <CloudOutlined />, label: 'Booru' },
-  { key: 'download', icon: <CloudDownloadOutlined />, label: 'Yande.re' },
   { key: 'settings', icon: <SettingOutlined />, label: '设置' }
 ];
 
@@ -134,8 +132,6 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
         if (selectedBooruSubKey === 'settings') return <BooruSettingsPage />;
         return <BooruPage onTagClick={navigateToTagSearch} />;
-      case 'download':
-        return <DownloadPage />;
       case 'settings':
         return <SettingsPage />;
       // case 'downloads': return <BooruDownloadPage />; // Removed as it's now a sub-menu of booru

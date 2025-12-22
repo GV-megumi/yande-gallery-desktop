@@ -18,10 +18,6 @@ const IPC_CHANNELS = {
   IMAGE_SCAN_FOLDER: 'image:scan-folder',
   IMAGE_GENERATE_THUMBNAIL: 'image:generate-thumbnail',
   IMAGE_GET_INFO: 'image:get-info',
-  // Yande.re API
-  YANDE_GET_IMAGES: 'yande:get-images',
-  YANDE_SEARCH_IMAGES: 'yande:search-images',
-  YANDE_DOWNLOAD_IMAGE: 'yande:download-image',
   // 下载管理
   DOWNLOAD_START: 'download:start',
   DOWNLOAD_PAUSE: 'download:pause',
@@ -113,16 +109,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('image:get-thumbnail', imagePath),
     deleteThumbnail: (imagePath: string) =>
       ipcRenderer.invoke('image:delete-thumbnail', imagePath)
-  },
-
-  // Yande.re API
-  yande: {
-    getImages: (page: number, tags?: string[]) =>
-      ipcRenderer.invoke(IPC_CHANNELS.YANDE_GET_IMAGES, page, tags),
-    searchImages: (tags: string[], page?: number) =>
-      ipcRenderer.invoke(IPC_CHANNELS.YANDE_SEARCH_IMAGES, tags, page),
-    downloadImage: (imageData: any) =>
-      ipcRenderer.invoke(IPC_CHANNELS.YANDE_DOWNLOAD_IMAGE, imageData)
   },
 
   // Booru API (新增)
@@ -233,11 +219,6 @@ declare global {
         generateThumbnail: (imagePath: string, force?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>;
         getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
         deleteThumbnail: (imagePath: string) => Promise<{ success: boolean; error?: string }>;
-      };
-      yande: {
-        getImages: (page: number, tags?: string[]) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        searchImages: (tags: string[], page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        downloadImage: (imageData: any) => Promise<{ success: boolean; data?: any; error?: string }>;
       };
       // Booru API (新增)
       booru: {
