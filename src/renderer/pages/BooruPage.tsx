@@ -220,7 +220,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         return;
       }
 
-      const result = await window.electronAPI.booru.searchPosts(selectedSiteId, query.split(' ').filter(t => t.trim()), page, appearanceConfig.itemsPerPage);
+      // 图片浏览界面需要标签分类，所以传递 fetchTagCategories: true
+      const result = await window.electronAPI.booru.searchPosts(selectedSiteId, query.split(' ').filter(t => t.trim()), page, appearanceConfig.itemsPerPage, true);
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 搜索成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);

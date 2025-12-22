@@ -125,8 +125,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POSTS, siteId, page, tags, limit),
     getPost: (siteId: number, postId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POST, siteId, postId),
-    searchPosts: (siteId: number, tags: string[], page: number = 1, limit?: number) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page, limit),
+    searchPosts: (siteId: number, tags: string[], page: number = 1, limit?: number, fetchTagCategories: boolean = true) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page, limit, fetchTagCategories),
 
     // 收藏
     getFavorites: (siteId: number, page: number = 1, limit: number = 20) =>
@@ -184,8 +184,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     cancelSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:cancel-session', sessionId),
     deleteSession: (sessionId: string) => ipcRenderer.invoke('bulk-download:delete-session', sessionId),
     getSessionStats: (sessionId: string) => ipcRenderer.invoke('bulk-download:get-session-stats', sessionId),
-    getRecords: (sessionId: string, status?: string, page?: number) => 
-      ipcRenderer.invoke('bulk-download:get-records', sessionId, status, page),
+    getRecords: (sessionId: string, status?: string, page?: number, autoFix?: boolean) => 
+      ipcRenderer.invoke('bulk-download:get-records', sessionId, status, page, autoFix),
     retryAllFailed: (sessionId: string) => ipcRenderer.invoke('bulk-download:retry-all-failed', sessionId),
     retryFailedRecord: (sessionId: string, recordUrl: string) => 
       ipcRenderer.invoke('bulk-download:retry-failed-record', sessionId, recordUrl)
@@ -198,7 +198,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
     showItem: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_ITEM, path),
     // 网络测试（从主进程发起，绕过CORS限制）
     testBaidu: () => ipcRenderer.invoke('network:test-baidu'),
-    testGoogle: () => ipcRenderer.invoke('network:test-google')
+    testGoogle: () => ipcRenderer.invoke('network:test-google'),
+    // 批量下载进度监听
+    onBulkDownloadRecordProgress: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('bulk-download:record-progress', subscription);
+      return () => ipcRenderer.removeListener('bulk-download:record-progress', subscription);
+    },
+    // 批量下载状态变化监听
+    onBulkDownloadRecordStatus: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('bulk-download:record-status', subscription);
+      return () => ipcRenderer.removeListener('bulk-download:record-status', subscription);
+    }
   }
 });
 
@@ -257,7 +269,7 @@ declare global {
         cancelSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
         deleteSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
         getSessionStats: (sessionId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        getRecords: (sessionId: string, status?: string, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getRecords: (sessionId: string, status?: string, page?: number, autoFix?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         retryAllFailed: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
         retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; error?: string }>;
       };
@@ -267,6 +279,8 @@ declare global {
         showItem: (path: string) => Promise<{ success: boolean; error?: string }>;
         testBaidu: () => Promise<{ success: boolean; status?: number; error?: string }>;
         testGoogle: () => Promise<{ success: boolean; status?: number; error?: string }>;
+        onBulkDownloadRecordProgress: (callback: (data: any) => void) => () => void;
+        onBulkDownloadRecordStatus: (callback: (data: any) => void) => () => void;
       };
       gallery: {
         getRecentImages: (count?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;

@@ -38,8 +38,8 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
   const [loading, setLoading] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
 
-  // 判断是否可以查看详情（参考 Boorusama canViewInvidualProgresses）
-  const canViewDetails = session.status === 'running' || session.status === 'paused';
+  // 判断是否可以查看详情 - 所有状态都可以查看详情
+  const canViewDetails = true;
 
   // 加载统计信息
   const loadStats = async () => {
@@ -58,11 +58,11 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
   useEffect(() => {
     loadStats();
 
-    // 如果会话正在运行，定期刷新统计
+    // 如果会话正在运行，定期刷新统计（降低频率，减少 IPC 调用）
     if (session.status === 'running' || session.status === 'dryRun') {
       const interval = setInterval(() => {
         loadStats();
-      }, 2000);
+      }, 5000); // 从2秒改为5秒，减少 IPC 调用频率
       return () => clearInterval(interval);
     }
   }, [session.id, session.status]);

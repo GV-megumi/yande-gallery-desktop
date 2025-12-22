@@ -359,7 +359,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
         }}
         footer={null}
         width={800}
-        destroyOnClose
+        destroyOnHidden
         key={editingTask?.id || 'create'} // 确保编辑不同任务时组件重新创建
       >
         <BulkDownloadTaskForm

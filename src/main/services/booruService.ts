@@ -428,7 +428,8 @@ export async function getBooruPostById(postId: number): Promise<BooruPost | null
  * 根据站点ID和PostID获取Booru图片
  */
 export async function getBooruPostBySiteAndId(siteId: number, postId: number): Promise<BooruPost | null> {
-  console.log('[booruService] 根据站点和ID获取Booru图片:', { siteId, postId });
+  // 减少日志输出，避免在批量下载时产生大量日志
+  // console.log('[booruService] 根据站点和ID获取Booru图片:', { siteId, postId });
   try {
     const db = await getDatabase();
     const post = await get<BooruPost>(
@@ -438,7 +439,8 @@ export async function getBooruPostBySiteAndId(siteId: number, postId: number): P
     );
 
     if (!post) {
-      console.warn('[booruService] 图片不存在:', { siteId, postId });
+      // 减少日志输出
+      // console.warn('[booruService] 图片不存在:', { siteId, postId });
       return null;
     }
 

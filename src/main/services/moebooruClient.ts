@@ -295,7 +295,12 @@ export class MoebooruClient {
    */
   async getTagsByNames(names: string[]): Promise<MoebooruTagResponse[]> {
     try {
-      console.log('[MoebooruClient] 获取标签详情:', names);
+      // 只在标签数量较少时输出日志，避免批量查询时日志过多
+      if (names.length <= 10) {
+        console.log('[MoebooruClient] 获取标签详情:', names);
+      } else {
+        console.log(`[MoebooruClient] 获取标签详情: ${names.length} 个标签`);
+      }
 
       const results: MoebooruTagResponse[] = [];
       
@@ -331,7 +336,10 @@ export class MoebooruClient {
       // 方法2: 对于未找到的标签，使用 tag.json 逐个查询
       const notFound = names.filter(name => !results.find(r => r.name === name));
       if (notFound.length > 0) {
-        console.log(`[MoebooruClient] 需要查询 ${notFound.length} 个标签`);
+        // 只在需要查询的标签数量较多时才输出日志
+        if (notFound.length > 10) {
+          console.log(`[MoebooruClient] 需要查询 ${notFound.length} 个标签`);
+        }
         
         for (const tagName of notFound) {
           try {
@@ -361,24 +369,20 @@ export class MoebooruClient {
             const exactMatch = response.data.find((tag: MoebooruTagResponse) => tag.name === tagName);
             if (exactMatch) {
               results.push(exactMatch);
-              console.log(`[MoebooruClient] 找到标签 "${tagName}": type=${exactMatch.type} (${TAG_TYPE_MAP[exactMatch.type] || 'unknown'})`);
+              // 只在标签数量较少时输出详细日志（避免批量查询时日志过多）
+              if (notFound.length <= 5) {
+                console.log(`[MoebooruClient] 找到标签 "${tagName}": type=${exactMatch.type} (${TAG_TYPE_MAP[exactMatch.type] || 'unknown'})`);
+              }
             } else if (response.data.length > 0) {
-              // 如果没有精确匹配，但返回了结果，打印前几个结果用于调试
-              console.warn(`[MoebooruClient] 标签 "${tagName}" 未找到精确匹配，返回了 ${response.data.length} 个结果`);
-              const firstThree = response.data.slice(0, 3).map((t: MoebooruTagResponse) => `${t.name} (type=${t.type})`);
-              console.warn(`[MoebooruClient] 前3个结果:`, firstThree);
-              
+              // 如果没有精确匹配，但返回了结果，静默处理（不输出日志，减少干扰）
               // 尝试查找部分匹配（标签名包含在结果中）
               const partialMatch = response.data.find((tag: MoebooruTagResponse) => 
                 tag.name.toLowerCase().includes(tagName.toLowerCase()) || 
                 tagName.toLowerCase().includes(tag.name.toLowerCase())
               );
-              if (partialMatch) {
-                console.warn(`[MoebooruClient] 找到部分匹配: "${partialMatch.name}"，但跳过（需要精确匹配）`);
-              }
-            } else {
-              console.warn(`[MoebooruClient] 标签 "${tagName}" 查询返回空数组`);
+              // 部分匹配也不输出日志，减少日志噪音
             }
+            // 空数组也不输出警告，减少日志噪音
           }
           } catch (error) {
             console.warn(`[MoebooruClient] 获取标签 "${tagName}" 失败:`, error);
@@ -387,7 +391,10 @@ export class MoebooruClient {
         }
       }
 
-      console.log(`[MoebooruClient] 成功获取 ${results.length}/${names.length} 个标签信息`);
+      // 只在查询了大量标签时才输出完成日志
+      if (names.length > 10) {
+        console.log(`[MoebooruClient] 成功获取 ${results.length}/${names.length} 个标签信息`);
+      }
       return results;
     } catch (error) {
       console.error('[MoebooruClient] 获取标签详情失败:', error);

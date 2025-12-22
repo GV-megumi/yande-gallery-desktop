@@ -206,6 +206,9 @@ export interface BulkDownloadRecord {
   headers?: Record<string, string>;
   thumbnailUrl?: string;
   sourceUrl?: string;
+  progress?: number; // 下载进度（0-100）
+  downloadedBytes?: number; // 已下载字节数
+  totalBytes?: number; // 总字节数
 }
 
 // 批量下载会话统计

@@ -590,6 +590,57 @@ export const SettingsPage: React.FC = () => {
               </Button>
             </Space>
           </Form.Item>
+
+          <Form.Item label="网络连通性测试">
+            <Space>
+              <Button 
+                onClick={async () => {
+                  console.log('[SettingsPage] 开始测试百度连接');
+                  if (!window.electronAPI) {
+                    message.error('系统功能不可用');
+                    return;
+                  }
+                  
+                  try {
+                    const result = await window.electronAPI.system.testBaidu();
+                    if (result.success) {
+                      message.success(`百度连接成功！状态码: ${result.status}`);
+                    } else {
+                      message.error('百度连接失败: ' + result.error);
+                    }
+                  } catch (error) {
+                    console.error('[SettingsPage] 测试百度连接失败:', error);
+                    message.error('测试失败: ' + String(error));
+                  }
+                }}
+              >
+                测试百度
+              </Button>
+              <Button 
+                onClick={async () => {
+                  console.log('[SettingsPage] 开始测试Google连接');
+                  if (!window.electronAPI) {
+                    message.error('系统功能不可用');
+                    return;
+                  }
+                  
+                  try {
+                    const result = await window.electronAPI.system.testGoogle();
+                    if (result.success) {
+                      message.success(`Google连接成功！状态码: ${result.status}`);
+                    } else {
+                      message.error('Google连接失败: ' + result.error);
+                    }
+                  } catch (error) {
+                    console.error('[SettingsPage] 测试Google连接失败:', error);
+                    message.error('测试失败: ' + String(error));
+                  }
+                }}
+              >
+                测试Google
+              </Button>
+            </Space>
+          </Form.Item>
         </Form>
       </Card>
 

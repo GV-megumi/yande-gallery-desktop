@@ -370,6 +370,33 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
+    // 添加进度字段（如果不存在）- 数据库迁移
+    try {
+      await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN progress INTEGER DEFAULT 0');
+      console.log('[database] 已添加 progress 字段到 bulk_download_records');
+    } catch (error: any) {
+      // 字段可能已存在，忽略错误
+      if (!error.message.includes('duplicate column')) {
+        console.warn('[database] 添加 progress 字段失败（可能已存在）:', error.message);
+      }
+    }
+    try {
+      await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN downloadedBytes INTEGER DEFAULT 0');
+      console.log('[database] 已添加 downloadedBytes 字段到 bulk_download_records');
+    } catch (error: any) {
+      if (!error.message.includes('duplicate column')) {
+        console.warn('[database] 添加 downloadedBytes 字段失败（可能已存在）:', error.message);
+      }
+    }
+    try {
+      await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN totalBytes INTEGER DEFAULT 0');
+      console.log('[database] 已添加 totalBytes 字段到 bulk_download_records');
+    } catch (error: any) {
+      if (!error.message.includes('duplicate column')) {
+        console.warn('[database] 添加 totalBytes 字段失败（可能已存在）:', error.message);
+      }
+    }
+
     // 创建批量下载相关索引
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_siteId ON bulk_download_tasks(siteId)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_createdAt ON bulk_download_tasks(createdAt DESC)');

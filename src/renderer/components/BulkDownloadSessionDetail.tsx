@@ -10,7 +10,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Tabs, message, Empty, Spin, Popconfirm, Modal } from 'antd';
+import { Card, Table, Tag, Button, Space, Tabs, message, Empty, Spin, Popconfirm, Modal, Progress } from 'antd';
 import {
   ReloadOutlined,
   EyeOutlined
@@ -43,14 +43,14 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
   }, [records, activeTab]);
 
   // 加载记录（静默刷新）
-  const loadRecords = async (silent: boolean = false) => {
+  const loadRecords = async (silent: boolean = false, autoFix: boolean = false) => {
     if (!silent) {
       setLoading(true);
     }
     try {
       if (!window.electronAPI) return;
 
-      const result = await window.electronAPI.bulkDownload.getRecords(session.id);
+      const result = await window.electronAPI.bulkDownload.getRecords(session.id, undefined, undefined, autoFix);
       if (result.success && result.data) {
         // 使用函数式更新，确保状态更新是原子的
         setRecords(prevRecords => {
@@ -61,17 +61,20 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
             // 创建 URL 到记录的映射，用于快速查找
             const prevMap = new Map(prevRecords.map(r => [r.url, r]));
             
-            // 检查是否有任何记录的状态或文件大小发生变化
+            // 检查是否有任何记录的状态、文件大小或进度发生变化
             const hasChanged = newRecords.some((newRecord) => {
               const prevRecord = prevMap.get(newRecord.url);
               if (!prevRecord) return true; // 新记录，需要更新
               
-              // 比较关键字段
+              // 比较关键字段（包括进度）
               return (
                 prevRecord.status !== newRecord.status ||
                 prevRecord.fileSize !== newRecord.fileSize ||
                 prevRecord.error !== newRecord.error ||
-                prevRecord.fileName !== newRecord.fileName
+                prevRecord.fileName !== newRecord.fileName ||
+                prevRecord.progress !== newRecord.progress ||
+                prevRecord.downloadedBytes !== newRecord.downloadedBytes ||
+                prevRecord.totalBytes !== newRecord.totalBytes
               );
             });
             
@@ -105,13 +108,85 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
     // 首次加载显示 loading
     loadRecords(false);
 
-    // 如果会话正在运行，定期静默刷新
+    // 监听实时进度更新（通过 IPC 事件，不依赖轮询）
+    const removeProgressListener = window.electronAPI?.system?.onBulkDownloadRecordProgress?.((data: {
+      sessionId: string;
+      url: string;
+      progress: number;
+      downloadedBytes: number;
+      totalBytes: number;
+    }) => {
+      // 只处理当前会话的进度更新
+      if (data.sessionId === session.id) {
+        setRecords(prevRecords => {
+          return prevRecords.map(record => {
+            if (record.url === data.url) {
+              return {
+                ...record,
+                progress: data.progress,
+                downloadedBytes: data.downloadedBytes,
+                totalBytes: data.totalBytes,
+                status: 'downloading' as BulkDownloadRecordStatus
+              };
+            }
+            return record;
+          });
+        });
+      }
+    });
+
+    // 监听状态变化（完成、失败等）
+    const removeStatusListener = window.electronAPI?.system?.onBulkDownloadRecordStatus?.((data: {
+      sessionId: string;
+      url: string;
+      status: BulkDownloadRecordStatus;
+      fileSize?: number;
+      progress?: number;
+      downloadedBytes?: number;
+      totalBytes?: number;
+      error?: string;
+    }) => {
+      // 只处理当前会话的状态更新
+      if (data.sessionId === session.id) {
+        setRecords(prevRecords => {
+          return prevRecords.map(record => {
+            if (record.url === data.url) {
+              return {
+                ...record,
+                status: data.status,
+                fileSize: data.fileSize ?? record.fileSize,
+                progress: data.progress ?? record.progress,
+                downloadedBytes: data.downloadedBytes ?? record.downloadedBytes,
+                totalBytes: data.totalBytes ?? record.totalBytes,
+                error: data.error ?? record.error
+              };
+            }
+            return record;
+          });
+        });
+      }
+    });
+
+    // 如果会话正在运行，定期静默刷新（用于同步状态变化，如完成、失败等）
+    // 但进度更新和状态变化主要依赖实时事件，所以可以大幅降低轮询频率
+    let interval: NodeJS.Timeout | undefined;
     if (session.status === 'running' || session.status === 'paused') {
-      const interval = setInterval(() => {
-        loadRecords(true); // 静默刷新，不显示 loading
-      }, 2000);
-      return () => clearInterval(interval);
+      interval = setInterval(() => {
+        loadRecords(true); // 静默刷新，主要用于同步状态变化（作为备用机制）
+      }, 10000); // 降低到10秒刷新一次，因为进度和状态更新都通过实时事件
     }
+
+    return () => {
+      if (removeProgressListener) {
+        removeProgressListener();
+      }
+      if (removeStatusListener) {
+        removeStatusListener();
+      }
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [session.id, session.status]);
 
   // 获取状态标签
@@ -218,7 +293,38 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
       dataIndex: 'fileSize',
       key: 'fileSize',
       width: 120,
-      render: (size?: number) => formatBytes(size)
+      render: (size: number | undefined, record: BulkDownloadRecord) => {
+        if (record.status === 'downloading' && record.totalBytes) {
+          return formatBytes(record.totalBytes);
+        }
+        return formatBytes(size);
+      }
+    },
+    {
+      title: '下载进度',
+      key: 'progress',
+      width: 200,
+      render: (_: any, record: BulkDownloadRecord) => {
+        if (record.status === 'downloading') {
+          const progress = record.progress || 0;
+          const downloaded = record.downloadedBytes || 0;
+          const total = record.totalBytes || 0;
+          return (
+            <Space direction="vertical" style={{ width: '100%' }} size={0}>
+              <Progress 
+                percent={progress} 
+                size="small" 
+                status="active"
+                showInfo={false}
+              />
+              <span style={{ fontSize: '12px', color: '#888' }}>
+                {formatBytes(downloaded)} / {formatBytes(total)} ({progress}%)
+              </span>
+            </Space>
+          );
+        }
+        return '-';
+      }
     },
     {
       title: '错误信息',
@@ -256,7 +362,12 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
           </span>
         </Space>
         <Space>
-          <Button icon={<ReloadOutlined />} onClick={() => loadRecords(false)} loading={loading}>
+          <Button 
+            icon={<ReloadOutlined />} 
+            onClick={() => loadRecords(false, true)} 
+            loading={loading}
+            title="刷新并自动修复状态不一致的记录"
+          >
             刷新
           </Button>
           <Button onClick={onClose}>关闭</Button>

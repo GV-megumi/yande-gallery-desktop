@@ -585,8 +585,8 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_SEARCH_POSTS, async (_event: IpcMainInvokeEvent, siteId: number, tags: string[], page: number = 1, limit?: number) => {
-    console.log('[IPC] 搜索Booru图片，站点:', siteId, ', 标签:', tags.join(' '), ', 每页数量:', limit || 20);
+  ipcMain.handle(IPC_CHANNELS.BOORU_SEARCH_POSTS, async (_event: IpcMainInvokeEvent, siteId: number, tags: string[], page: number = 1, limit?: number, fetchTagCategories: boolean = true) => {
+    console.log('[IPC] 搜索Booru图片，站点:', siteId, ', 标签:', tags.join(' '), ', 每页数量:', limit || 20, ', 查询标签分类:', fetchTagCategories);
     try {
       const site = await booruService.getBooruSiteById(siteId);
       if (!site) {
@@ -646,16 +646,39 @@ export function setupIPC() {
       }
 
       // 异步获取并保存标签分类信息（不阻塞返回）
-      if (allTagNames.size > 0) {
+      // 只有在 fetchTagCategories 为 true 时才查询（图片浏览时需要，批量下载时不需要）
+      if (fetchTagCategories && allTagNames.size > 0) {
         (async () => {
           try {
-            console.log('[IPC] 开始获取标签分类信息，标签数量:', allTagNames.size);
             const tagNamesArray = Array.from(allTagNames);
+            
+            // 先检查数据库中已存在的标签，只查询不存在的标签
+            const { getDatabase, all } = await import('../services/database.js');
+            const db = await getDatabase();
+            const placeholders = tagNamesArray.map(() => '?').join(',');
+            const existingTagsQuery = `
+              SELECT DISTINCT name
+              FROM booru_tags
+              WHERE siteId = ? AND name IN (${placeholders})
+            `;
+            const existingTagsRows = await all<{ name: string }>(db, existingTagsQuery, [siteId, ...tagNamesArray]);
+            const existingTagSet = new Set(existingTagsRows.map(row => row.name));
+            const tagsToFetch = tagNamesArray.filter(tag => !existingTagSet.has(tag));
+            
+            if (tagsToFetch.length === 0) {
+              // 所有标签已存在，静默跳过（不输出日志，减少干扰）
+              return;
+            }
+            
+            // 只在需要查询的标签数量较多时才输出日志
+            if (tagsToFetch.length > 10) {
+              console.log('[IPC] 开始获取标签分类信息，需要查询:', tagsToFetch.length, '个标签 (总标签:', allTagNames.size, ', 已存在:', tagNamesArray.length - tagsToFetch.length, ')');
+            }
             
             // 分批获取（每次最多50个标签）
             const batchSize = 50;
-            for (let i = 0; i < tagNamesArray.length; i += batchSize) {
-              const batch = tagNamesArray.slice(i, i + batchSize);
+            for (let i = 0; i < tagsToFetch.length; i += batchSize) {
+              const batch = tagsToFetch.slice(i, i + batchSize);
               try {
                 const tagInfos = await client.getTagsByNames(batch);
                 const tagsToSave = tagInfos.map(tag => ({
@@ -666,12 +689,29 @@ export function setupIPC() {
                 
                 if (tagsToSave.length > 0) {
                   await booruService.saveBooruTags(siteId, tagsToSave);
-                  console.log('[IPC] 保存标签分类成功，批次:', Math.floor(i / batchSize) + 1, ', 标签数:', tagsToSave.length);
+                  // 只在批次较多时才输出详细日志
+                  if (tagsToFetch.length > 50) {
+                    console.log('[IPC] 保存标签分类成功，批次:', Math.floor(i / batchSize) + 1, ', 标签数:', tagsToSave.length);
+                  }
                 }
               } catch (error) {
-                console.warn('[IPC] 获取标签分类失败（批次）:', error);
+                // 只在错误严重时才输出警告（网络错误等）
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                if (!errorMessage.includes('aborted') && !errorMessage.includes('ECONNRESET')) {
+                  console.warn('[IPC] 获取标签分类失败（批次）:', error);
+                }
                 // 继续处理下一批
               }
+              
+              // 在批次之间添加小延迟，避免请求过于频繁
+              if (i + batchSize < tagsToFetch.length) {
+                await new Promise(resolve => setTimeout(resolve, 100));
+              }
+            }
+            
+            // 只在查询了大量标签时才输出完成日志
+            if (tagsToFetch.length > 10) {
+              console.log('[IPC] 标签分类信息获取完成，共查询:', tagsToFetch.length, '个标签');
             }
           } catch (error) {
             console.error('[IPC] 获取标签分类信息失败:', error);
@@ -1010,7 +1050,8 @@ export function setupIPC() {
   // 获取批量下载会话统计
   ipcMain.handle(IPC_CHANNELS.BULK_DOWNLOAD_GET_SESSION_STATS, async (_event: IpcMainInvokeEvent, sessionId: string) => {
     try {
-      console.log('[IPC] 获取批量下载会话统计:', sessionId);
+      // 减少日志输出，避免阻塞（只在调试时输出）
+      // console.log('[IPC] 获取批量下载会话统计:', sessionId);
       const stats = await bulkDownloadService.getBulkDownloadSessionStats(sessionId);
       return { success: true, data: stats };
     } catch (error) {
@@ -1021,10 +1062,13 @@ export function setupIPC() {
   });
 
   // 获取批量下载记录
-  ipcMain.handle(IPC_CHANNELS.BULK_DOWNLOAD_GET_RECORDS, async (_event: IpcMainInvokeEvent, sessionId: string, status?: string, page?: number) => {
+  ipcMain.handle(IPC_CHANNELS.BULK_DOWNLOAD_GET_RECORDS, async (_event: IpcMainInvokeEvent, sessionId: string, status?: string, page?: number, autoFix?: boolean) => {
     try {
-      console.log('[IPC] 获取批量下载记录:', sessionId, status, page);
-      const records = await bulkDownloadService.getBulkDownloadRecordsBySession(sessionId, status as any, page);
+      // 减少日志输出，避免阻塞（只在调试时输出）
+      // console.log('[IPC] 获取批量下载记录:', sessionId, status, page);
+      // 默认禁用自动修复，避免每次打开详情页都触发大量 HEAD 请求
+      // 只在明确需要时才启用（比如手动点击修复按钮）
+      const records = await bulkDownloadService.getBulkDownloadRecordsBySession(sessionId, status as any, page, autoFix === true);
       return { success: true, data: records };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
