@@ -36,6 +36,7 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
     pending: number;
   } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [detailVisible, setDetailVisible] = useState(false);
 
   // 判断是否可以查看详情 - 所有状态都可以查看详情
@@ -57,6 +58,11 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
   useEffect(() => {
     loadStats();
+
+    // 重置取消状态，当会话状态变为已取消或已完成时
+    if (session.status === 'cancelled' || session.status === 'completed' || session.status === 'failed') {
+      setCancelling(false);
+    }
 
     // 如果会话正在运行，定期刷新统计（降低频率，减少 IPC 调用）
     if (session.status === 'running' || session.status === 'dryRun') {
@@ -87,6 +93,8 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
   // 启动会话
   const handleStart = async () => {
+    if (cancelling) return; // 如果正在取消，不允许启动
+
     setLoading(true);
     try {
       if (!window.electronAPI) return;
@@ -108,6 +116,8 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
   // 暂停会话
   const handlePause = async () => {
+    if (cancelling) return; // 如果正在取消，不允许暂停
+
     setLoading(true);
     try {
       if (!window.electronAPI) return;
@@ -129,22 +139,23 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
   // 取消会话
   const handleCancel = async () => {
-    setLoading(true);
+    setCancelling(true);
     try {
       if (!window.electronAPI) return;
 
       const result = await window.electronAPI.bulkDownload.cancelSession(session.id);
       if (result.success) {
-        message.success('已取消');
+        message.success(session.status === 'dryRun' ? '已停止扫描' : '已取消');
+        // 刷新列表以获取最新状态
         onRefresh();
       } else {
         message.error('取消失败: ' + (result.error || '未知错误'));
+        setCancelling(false);
       }
     } catch (error) {
       console.error('取消失败:', error);
       message.error('取消失败');
-    } finally {
-      setLoading(false);
+      setCancelling(false);
     }
   };
 
@@ -217,15 +228,21 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
           )}
           {(session.status === 'running' || session.status === 'paused' || session.status === 'dryRun') && (
             <Popconfirm
-              title="确定要取消下载吗？"
+              title={
+                session.status === 'dryRun'
+                  ? '确定要停止扫描并取消吗？'
+                  : '确定要取消下载吗？'
+              }
               onConfirm={handleCancel}
+              disabled={cancelling}
             >
               <Button
                 danger
                 icon={<StopOutlined />}
-                loading={loading}
+                loading={cancelling}
+                disabled={cancelling}
               >
-                取消
+                {cancelling ? '取消中...' : (session.status === 'dryRun' ? '停止' : '取消')}
               </Button>
             </Popconfirm>
           )}
@@ -237,7 +254,8 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
               <Button
                 danger
                 icon={<DeleteOutlined />}
-                loading={loading}
+                loading={loading && !cancelling}
+                disabled={cancelling}
               >
                 删除
               </Button>

@@ -7,15 +7,17 @@
  * - 管理批量下载会话（启动、暂停、取消、删除）
  */
 
-import React, { useEffect, useState } from 'react';
-import { Card, Button, Space, message, Modal, Empty, Spin, List, Popconfirm, Tag, Divider } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { Card, Button, Space, message, Modal, Empty, Spin, List, Popconfirm, Tag, Divider, Tabs } from 'antd';
 import { 
   DownloadOutlined, 
   PlusOutlined,
   ReloadOutlined,
   EditOutlined,
   DeleteOutlined,
-  PlayCircleOutlined
+  PlayCircleOutlined,
+  HistoryOutlined,
+  ThunderboltOutlined
 } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask } from '../../shared/types';
 import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
@@ -28,6 +30,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [formVisible, setFormVisible] = useState(false);
   const [editingTask, setEditingTask] = useState<BulkDownloadTask | undefined>(undefined);
+  const [activeSessionTab, setActiveSessionTab] = useState('active');
 
   // 加载活跃会话
   const loadSessions = async () => {
@@ -85,10 +88,27 @@ export const BooruBulkDownloadPage: React.FC = () => {
     loadSites();
   }, []);
 
+  // 分离活跃会话和历史会话
+  const { activeSessions, historySessions } = useMemo(() => {
+    const active = sessions.filter(s => 
+      s.status === 'pending' || 
+      s.status === 'dryRun' || 
+      s.status === 'running' || 
+      s.status === 'paused'
+    );
+    const history = sessions.filter(s => 
+      s.status === 'completed' || 
+      s.status === 'failed' || 
+      s.status === 'cancelled' || 
+      s.status === 'allSkipped'
+    );
+    return { activeSessions: active, historySessions: history };
+  }, [sessions]);
+
   // 定期刷新会话状态（仅在存在活跃会话时刷新）
   useEffect(() => {
     // 如果没有活跃会话，不设置定时器
-    if (sessions.length === 0) {
+    if (activeSessions.length === 0) {
       return;
     }
 
@@ -98,7 +118,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
     }, 5000); // 每5秒刷新一次（降低频率，减少日志输出）
 
     return () => clearInterval(interval);
-  }, [sessions.length]); // 当会话数量变化时重新设置定时器
+  }, [activeSessions.length]); // 当活跃会话数量变化时重新设置定时器
 
   // 创建或更新任务
   const handleCreateOrUpdateTask = async (options: BulkDownloadOptions, taskId?: string) => {
@@ -118,6 +138,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
         loadTasks();
       } else {
         // 创建任务并启动会话
+        // 1. 创建任务（成功就可以关闭对话框了）
         const createResult = await window.electronAPI.bulkDownload.createTask(options);
         if (!createResult.success || !createResult.data) {
           message.error('创建任务失败: ' + (createResult.error || '未知错误'));
@@ -125,28 +146,42 @@ export const BooruBulkDownloadPage: React.FC = () => {
         }
 
         const newTaskId = createResult.data.id;
-        message.success('任务创建成功');
+        console.log('[BooruBulkDownloadPage] 任务创建成功，ID:', newTaskId);
 
-        // 创建会话
-        const sessionResult = await window.electronAPI.bulkDownload.createSession(newTaskId);
-        if (!sessionResult.success || !sessionResult.data) {
-          message.error('创建会话失败: ' + (sessionResult.error || '未知错误'));
-          return;
-        }
-
-        const sessionId = sessionResult.data.id;
-        message.success('会话创建成功，开始下载...');
-
-        // 启动会话
-        const startResult = await window.electronAPI.bulkDownload.startSession(sessionId);
-        if (!startResult.success) {
-          message.error('启动下载失败: ' + (startResult.error || '未知错误'));
-          return;
-        }
-
+        // 任务创建成功，立即关闭对话框
+        message.success('任务创建成功，正在开始下载...');
         setFormVisible(false);
-        loadSessions();
         loadTasks();
+
+        // 2. 后台创建会话并启动（不阻塞用户界面）
+        // 使用 try-catch 确保错误不会影响主流程
+        (async () => {
+          try {
+            // 创建会话
+            const sessionResult = await window.electronAPI.bulkDownload.createSession(newTaskId);
+            if (!sessionResult.success || !sessionResult.data) {
+              message.error('创建会话失败: ' + (sessionResult.error || '未知错误'));
+              return;
+            }
+
+            const sessionId = sessionResult.data.id;
+            console.log('[BooruBulkDownloadPage] 会话创建成功，ID:', sessionId);
+
+            // 启动会话
+            const startResult = await window.electronAPI.bulkDownload.startSession(sessionId);
+            if (!startResult.success) {
+              message.error('启动下载失败: ' + (startResult.error || '未知错误'));
+              return;
+            }
+
+            console.log('[BooruBulkDownloadPage] 下载已启动');
+            // 刷新会话列表
+            loadSessions();
+          } catch (error) {
+            console.error('[BooruBulkDownloadPage] 后台启动下载出错:', error);
+            message.error('启动下载失败: ' + (error instanceof Error ? error.message : '未知错误'));
+          }
+        })();
       }
     } catch (error) {
       console.error('操作失败:', error);
@@ -260,23 +295,66 @@ export const BooruBulkDownloadPage: React.FC = () => {
           </Empty>
         ) : (
           <>
-            {/* 活跃会话 */}
-            {sessions.length > 0 && (
-              <Space direction="vertical" style={{ width: '100%' }} size="large">
-                {sessions.map(session => (
-                  <BulkDownloadSessionCard
-                    key={session.id}
-                    session={session}
-                    onRefresh={loadSessions}
-                  />
-                ))}
-              </Space>
+            {/* 会话列表（使用标签页区分活跃会话和历史会话） */}
+            {(activeSessions.length > 0 || historySessions.length > 0) && (
+              <>
+                <Tabs
+                  activeKey={activeSessionTab}
+                  onChange={setActiveSessionTab}
+                  items={[
+                    {
+                      key: 'active',
+                      label: (
+                        <span>
+                          <ThunderboltOutlined />
+                          活跃会话 ({activeSessions.length})
+                        </span>
+                      ),
+                      children: activeSessions.length > 0 ? (
+                        <Space direction="vertical" style={{ width: '100%' }} size="large">
+                          {activeSessions.map(session => (
+                            <BulkDownloadSessionCard
+                              key={session.id}
+                              session={session}
+                              onRefresh={loadSessions}
+                            />
+                          ))}
+                        </Space>
+                      ) : (
+                        <Empty description="暂无活跃会话" />
+                      )
+                    },
+                    {
+                      key: 'history',
+                      label: (
+                        <span>
+                          <HistoryOutlined />
+                          历史会话 ({historySessions.length})
+                        </span>
+                      ),
+                      children: historySessions.length > 0 ? (
+                        <Space direction="vertical" style={{ width: '100%' }} size="large">
+                          {historySessions.map(session => (
+                            <BulkDownloadSessionCard
+                              key={session.id}
+                              session={session}
+                              onRefresh={loadSessions}
+                            />
+                          ))}
+                        </Space>
+                      ) : (
+                        <Empty description="暂无历史会话" />
+                      )
+                    }
+                  ]}
+                />
+                <Divider />
+              </>
             )}
 
             {/* 已保存的任务列表 */}
             {tasks.length > 0 && (
               <>
-                {sessions.length > 0 && <Divider />}
                 <div style={{ marginBottom: 16 }}>
                   <h3 style={{ margin: 0 }}>已保存的任务</h3>
                   <p style={{ color: '#999', marginTop: 8, marginBottom: 16 }}>

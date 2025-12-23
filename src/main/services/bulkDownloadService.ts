@@ -304,7 +304,8 @@ export async function createBulkDownloadSession(
 }
 
 /**
- * 获取活跃的批量下载会话
+ * 获取活跃的批量下载会话（包括已完成的会话）
+ * 返回所有未删除的会话，让前端自行过滤显示
  */
 export async function getActiveBulkDownloadSessions(): Promise<BulkDownloadSession[]> {
   // 减少日志输出频率，避免控制台刷屏
@@ -328,7 +329,7 @@ export async function getActiveBulkDownloadSessions(): Promise<BulkDownloadSessi
         t.updatedAt as task_updatedAt
       FROM bulk_download_sessions s
       INNER JOIN bulk_download_tasks t ON s.taskId = t.id
-      WHERE s.deletedAt IS NULL AND s.status != 'completed'
+      WHERE s.deletedAt IS NULL
       ORDER BY s.startedAt DESC
     `);
 
@@ -855,13 +856,13 @@ async function performDryRun(
         currentPage: currentPage
       });
 
-      // 检查会话是否被取消
+      // 检查会话是否被取消（支持 dryRun、cancelled、paused 等状态）
       const db = await getDatabase();
       const session = await get<any>(db, `
         SELECT status FROM bulk_download_sessions WHERE id = ?
       `, [sessionId]);
       if (session?.status !== 'dryRun') {
-        console.log('[bulkDownloadService] Dry Run 被中断');
+        console.log('[bulkDownloadService] Dry Run 被中断，当前状态:', session?.status);
         break;
       }
 
@@ -1770,17 +1771,18 @@ export async function retryAllFailedRecords(
 
     // 将所有失败的记录重置为 pending
     await run(db, `
-      UPDATE bulk_download_records 
-      SET status = ?, error = NULL 
+      UPDATE bulk_download_records
+      SET status = ?, error = NULL
       WHERE sessionId = ? AND status = ?
     `, ['pending', sessionId, 'failed']);
 
-    // 如果会话已完成或失败，重新启动下载
+    // 根据会话状态决定是否需要启动下载
     if (sessionRow.status === 'completed' || sessionRow.status === 'failed') {
+      // 会话已结束，重新启动下载
       await updateBulkDownloadSession(sessionId, {
         status: 'running'
       });
-      
+
       // 开始下载
       startDownloadingSession(sessionId, task).catch(error => {
         console.error('[bulkDownloadService] 重试下载过程出错:', error);
@@ -1789,17 +1791,15 @@ export async function retryAllFailedRecords(
           error: error.message
         });
       });
-    } else if (sessionRow.status === 'running' || sessionRow.status === 'paused') {
-      // 如果正在运行或暂停，直接继续下载（会处理新的 pending 记录）
-      if (sessionRow.status === 'paused') {
-        await updateBulkDownloadSession(sessionId, {
-          status: 'running'
-        });
-      }
-      // 继续下载会处理新的 pending 记录
-      startDownloadingSession(sessionId, task).catch(error => {
-        console.error('[bulkDownloadService] 继续下载过程出错:', error);
+    } else if (sessionRow.status === 'paused') {
+      // 会话已暂停，恢复为运行状态
+      await updateBulkDownloadSession(sessionId, {
+        status: 'running'
       });
+      // 下载循环会自动处理新的 pending 记录
+    } else if (sessionRow.status === 'running') {
+      // 会话正在运行，下载循环会自动获取并处理新的 pending 记录
+      console.log('[bulkDownloadService] 会话正在运行，记录已重置为 pending，等待下载循环处理');
     }
 
     console.log('[bulkDownloadService] 已重置', failedRecords.length, '个失败记录为待下载');
@@ -1905,10 +1905,9 @@ export async function retryFailedRecord(
         console.error('[bulkDownloadService] 启动下载会话失败:', error);
       });
     } else {
-      // 如果已经在运行，直接下载这个记录
-      downloadRecord(recordToDownload, task, sessionId).catch((error: Error) => {
-        console.error('[bulkDownloadService] 重试下载记录失败:', error);
-      });
+      // 如果已经在运行，只需要重置状态为 pending
+      // 下载循环会自动获取并处理这个 pending 记录，遵守并发限制
+      console.log('[bulkDownloadService] 会话正在运行，记录已重置为 pending，等待下载循环处理');
     }
 
     return { success: true };
