@@ -830,9 +830,9 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD, async (_event: IpcMainInvokeEvent, postId: number, siteId: number) => {
     console.log('[IPC] 重试下载，图片:', postId, ', 站点:', siteId);
     try {
-      // 调用 addToDownloadQueue，它会自动处理失败任务的重试逻辑
-      const queueId = await booruService.addToDownloadQueue(postId, siteId);
-      return { success: true, data: queueId };
+      // 使用 downloadManager.retryDownload 来真正触发下载
+      const success = await downloadManager.retryDownload(postId, siteId);
+      return { success };
     } catch (error) {
       console.error('[IPC] 重试下载失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -846,6 +846,77 @@ export function setupIPC() {
       return { success: true, data: deletedCount };
     } catch (error) {
       console.error('[IPC] 清空下载记录失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 暂停所有下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_PAUSE_ALL_DOWNLOADS, async () => {
+    console.log('[IPC] 暂停所有下载');
+    try {
+      const success = await downloadManager.pauseAll();
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 暂停所有下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 恢复所有下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_RESUME_ALL_DOWNLOADS, async () => {
+    console.log('[IPC] 恢复所有下载');
+    try {
+      const success = await downloadManager.resumeAll();
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 恢复所有下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 恢复未完成的下载（程序启动后首次进入下载管理界面时调用）
+  ipcMain.handle(IPC_CHANNELS.BOORU_RESUME_PENDING_DOWNLOADS, async () => {
+    console.log('[IPC] 恢复未完成的下载任务');
+    try {
+      const result = await downloadManager.resumePendingDownloads();
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 恢复未完成下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取队列状态
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_QUEUE_STATUS, async () => {
+    try {
+      const status = downloadManager.getQueueStatus();
+      return { success: true, data: status };
+    } catch (error) {
+      console.error('[IPC] 获取队列状态失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 暂停单个下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 暂停单个下载:', queueId);
+    try {
+      const success = await downloadManager.pauseDownload(queueId);
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 暂停下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 恢复单个下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 恢复单个下载:', queueId);
+    try {
+      const success = await downloadManager.resumeDownload(queueId);
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 恢复下载失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

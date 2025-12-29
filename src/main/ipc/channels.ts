@@ -68,6 +68,10 @@ export const IPC_CHANNELS = {
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
   BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
   BOORU_BATCH_DOWNLOAD: 'booru:batch-download',
+  BOORU_PAUSE_ALL_DOWNLOADS: 'booru:pause-all-downloads',
+  BOORU_RESUME_ALL_DOWNLOADS: 'booru:resume-all-downloads',
+  BOORU_RESUME_PENDING_DOWNLOADS: 'booru:resume-pending-downloads',
+  BOORU_GET_QUEUE_STATUS: 'booru:get-queue-status',
 
   // Booru 搜索历史
   BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',

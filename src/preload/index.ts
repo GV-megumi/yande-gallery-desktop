@@ -45,6 +45,12 @@ const IPC_CHANNELS = {
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
   BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
+  BOORU_PAUSE_ALL_DOWNLOADS: 'booru:pause-all-downloads',
+  BOORU_RESUME_ALL_DOWNLOADS: 'booru:resume-all-downloads',
+  BOORU_RESUME_PENDING_DOWNLOADS: 'booru:resume-pending-downloads',
+  BOORU_GET_QUEUE_STATUS: 'booru:get-queue-status',
+  BOORU_PAUSE_DOWNLOAD: 'booru:pause-download',
+  BOORU_RESUME_DOWNLOAD: 'booru:resume-download',
 
   // Booru 图片缓存
   BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
@@ -145,6 +151,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
     clearDownloadRecords: (status: 'completed' | 'failed') =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS, status),
+    pauseAllDownloads: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_PAUSE_ALL_DOWNLOADS),
+    resumeAllDownloads: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_RESUME_ALL_DOWNLOADS),
+    resumePendingDownloads: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_RESUME_PENDING_DOWNLOADS),
+    getQueueStatus: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_QUEUE_STATUS),
+    pauseDownload: (queueId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD, queueId),
+    resumeDownload: (queueId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD, queueId),
 
     // 图片缓存
     getCachedImageUrl: (md5: string, extension: string) =>
@@ -167,6 +185,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-status', subscription);
       return () => ipcRenderer.removeListener('booru:download-status', subscription);
+    },
+    onQueueStatus: (callback: (data: any) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('booru:download-queue-status', subscription);
+      return () => ipcRenderer.removeListener('booru:download-queue-status', subscription);
     }
   },
 
@@ -241,20 +264,27 @@ declare global {
         getActiveSite: () => Promise<{ success: boolean; data?: any; error?: string }>;
         getPosts: (siteId: number, page?: number, tags?: string[], limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPost: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
-        searchPosts: (siteId: number, tags: string[], page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        searchPosts: (siteId: number, tags: string[], page?: number, limit?: number, fetchTagCategories?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
         removeFavorite: (postId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
         addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
-        retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: number; error?: string }>;
+        retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; error?: string }>;
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         clearDownloadRecords: (status: 'completed' | 'failed') => Promise<{ success: boolean; data?: number; error?: string }>;
+        pauseAllDownloads: () => Promise<{ success: boolean; error?: string }>;
+        resumeAllDownloads: () => Promise<{ success: boolean; error?: string }>;
+        resumePendingDownloads: () => Promise<{ success: boolean; data?: { resumed: number; total: number }; error?: string }>;
+        getQueueStatus: () => Promise<{ success: boolean; data?: { isPaused: boolean; activeCount: number; maxConcurrent: number }; error?: string }>;
+        pauseDownload: (queueId: number) => Promise<{ success: boolean; error?: string }>;
+        resumeDownload: (queueId: number) => Promise<{ success: boolean; error?: string }>;
         getCachedImageUrl: (md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
+        onQueueStatus: (callback: (data: any) => void) => () => void;
       };
       bulkDownload: {
         createTask: (options: any) => Promise<{ success: boolean; data?: any; error?: string }>;

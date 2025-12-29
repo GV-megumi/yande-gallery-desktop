@@ -16,6 +16,8 @@ class DownloadManager {
   private activeDownloads: Map<number, ActiveDownload> = new Map();
   private isProcessing: boolean = false;
   private maxConcurrent: number = 3;
+  private isPaused: boolean = false;
+  private hasResumedOnStartup: boolean = false; // 标记是否已经在启动时恢复过
 
   constructor() {
     // 从配置加载最大并发数
@@ -24,6 +26,187 @@ class DownloadManager {
       this.maxConcurrent = config.yande?.maxConcurrentDownloads || 3;
     } catch (e) {
       console.warn('[DownloadManager] 无法加载配置，使用默认并发数:', this.maxConcurrent);
+    }
+  }
+
+  /**
+   * 恢复未完成的下载任务（程序启动时调用）
+   * 只在首次调用时执行，后续调用会被忽略
+   */
+  async resumePendingDownloads(): Promise<{ resumed: number; total: number }> {
+    if (this.hasResumedOnStartup) {
+      console.log('[DownloadManager] 已经恢复过，跳过');
+      return { resumed: 0, total: 0 };
+    }
+
+    this.hasResumedOnStartup = true;
+    console.log('[DownloadManager] 开始恢复未完成的下载任务...');
+
+    try {
+      // 获取所有进行中和等待中的任务
+      const downloadingQueue = await booruService.getDownloadQueue('downloading');
+      const pendingQueue = await booruService.getDownloadQueue('pending');
+      
+      // 将 downloading 状态的任务重置为 pending（因为程序重启后需要重新下载）
+      for (const item of downloadingQueue) {
+        await booruService.updateDownloadStatus(item.id, 'pending');
+        console.log(`[DownloadManager] 重置任务 #${item.id} 状态为 pending`);
+      }
+
+      const totalTasks = downloadingQueue.length + pendingQueue.length;
+      
+      if (totalTasks > 0) {
+        console.log(`[DownloadManager] 发现 ${totalTasks} 个未完成任务，开始恢复...`);
+        this.isPaused = false;
+        this.processQueue();
+      } else {
+        console.log('[DownloadManager] 没有未完成的下载任务');
+      }
+
+      return { resumed: totalTasks, total: totalTasks };
+    } catch (error) {
+      console.error('[DownloadManager] 恢复未完成任务失败:', error);
+      return { resumed: 0, total: 0 };
+    }
+  }
+
+  /**
+   * 暂停所有下载
+   */
+  async pauseAll(): Promise<boolean> {
+    console.log('[DownloadManager] 暂停所有下载任务');
+    this.isPaused = true;
+
+    // 取消所有活跃的下载
+    for (const [queueId, download] of this.activeDownloads) {
+      try {
+        download.cancelToken.abort();
+        await booruService.updateDownloadStatus(queueId, 'pending'); // 重置为 pending 而不是 paused
+        this.broadcastStatus(queueId, 'pending');
+      } catch (error) {
+        console.error(`[DownloadManager] 暂停任务 #${queueId} 失败:`, error);
+      }
+    }
+    
+    this.activeDownloads.clear();
+    this.broadcastQueueStatus();
+    return true;
+  }
+
+  /**
+   * 恢复所有下载
+   */
+  async resumeAll(): Promise<boolean> {
+    console.log('[DownloadManager] 恢复所有下载任务');
+    this.isPaused = false;
+    this.processQueue();
+    this.broadcastQueueStatus();
+    return true;
+  }
+
+  /**
+   * 暂停单个下载任务
+   */
+  async pauseDownload(queueId: number): Promise<boolean> {
+    console.log(`[DownloadManager] 暂停下载任务 #${queueId}`);
+    
+    try {
+      const activeDownload = this.activeDownloads.get(queueId);
+      if (activeDownload) {
+        // 取消正在进行的下载
+        activeDownload.cancelToken.abort();
+        this.activeDownloads.delete(queueId);
+      }
+
+      // 更新数据库状态为 paused
+      await booruService.updateDownloadStatus(queueId, 'paused');
+      this.broadcastStatus(queueId, 'paused');
+
+      // 继续处理队列中的其他任务
+      this.processQueue();
+
+      return true;
+    } catch (error) {
+      console.error(`[DownloadManager] 暂停任务 #${queueId} 失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 恢复单个下载任务
+   */
+  async resumeDownload(queueId: number): Promise<boolean> {
+    console.log(`[DownloadManager] 恢复下载任务 #${queueId}`);
+    
+    try {
+      // 更新数据库状态为 pending
+      await booruService.updateDownloadStatus(queueId, 'pending');
+      this.broadcastStatus(queueId, 'pending');
+
+      // 触发队列处理
+      if (!this.isPaused) {
+        this.processQueue();
+      }
+
+      return true;
+    } catch (error) {
+      console.error(`[DownloadManager] 恢复任务 #${queueId} 失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 重试单个失败的下载任务
+   */
+  async retryDownload(postId: number, siteId: number): Promise<boolean> {
+    console.log(`[DownloadManager] 重试下载任务: postId=${postId}, siteId=${siteId}`);
+    
+    try {
+      // 获取图片信息
+      const post = await booruService.getBooruPostBySiteAndId(siteId, postId);
+      if (!post) {
+        console.error('[DownloadManager] 找不到图片信息:', postId);
+        return false;
+      }
+
+      // 重新生成文件路径
+      const downloadPath = getDownloadsPath();
+      const targetPath = await this.generateDownloadFileName(post, siteId, downloadPath);
+
+      // 更新数据库中的任务状态为 pending
+      await booruService.addToDownloadQueue(postId, siteId, 0, targetPath);
+      
+      // 触发队列处理（如果没有暂停）
+      if (!this.isPaused) {
+        this.processQueue();
+      }
+
+      return true;
+    } catch (error) {
+      console.error('[DownloadManager] 重试下载失败:', error);
+      return false;
+    }
+  }
+
+  /**
+   * 获取队列状态
+   */
+  getQueueStatus(): { isPaused: boolean; activeCount: number; maxConcurrent: number } {
+    return {
+      isPaused: this.isPaused,
+      activeCount: this.activeDownloads.size,
+      maxConcurrent: this.maxConcurrent
+    };
+  }
+
+  /**
+   * 广播队列状态变更
+   */
+  private broadcastQueueStatus() {
+    const status = this.getQueueStatus();
+    const windows = BrowserWindow.getAllWindows();
+    for (const win of windows) {
+      win.webContents.send('booru:download-queue-status', status);
     }
   }
 
@@ -112,6 +295,12 @@ class DownloadManager {
    * 处理下载队列
    */
   private async processQueue() {
+    // 如果队列已暂停，不处理新任务
+    if (this.isPaused) {
+      console.log('[DownloadManager] 队列已暂停，跳过处理');
+      return;
+    }
+
     if (this.activeDownloads.size >= this.maxConcurrent) {
       return;
     }
