@@ -659,8 +659,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const getImageUrl = (filePath: string): string => {
     if (!filePath) return '';
     if (filePath.startsWith('app://')) return filePath;
+    
+    // Windows 路径处理: M:\path\to\file.png -> app://m/path/to/file.png
+    if (filePath.match(/^[A-Z]:\\/i)) {
+      const driveLetter = filePath[0].toLowerCase();
+      const pathPart = filePath.substring(3).replace(/\\/g, '/');
+      // 对路径中的每个部分单独编码，保留路径分隔符
+      const encodedPath = pathPart.split('/').map(part => encodeURIComponent(part)).join('/');
+      return `app://${driveLetter}/${encodedPath}`;
+    }
+    
+    // Unix 路径或其他格式
     const normalized = filePath.replace(/\\/g, '/');
-    return `app://${normalized}`;
+    const encodedPath = normalized.split('/').map(part => encodeURIComponent(part)).join('/');
+    return `app://${encodedPath}`;
   };
 
 
@@ -815,82 +827,106 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
 
           {selectedGallery ? (
             <>
-              <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
-                  <Button onClick={() => {
-                    console.log('[GalleryPage] 返回图集列表');
-                    setSelectedGallery(null);
-                    setGalleryImages([]);
-                  }}>
-                    返回图集列表
-                  </Button>
-                  <span style={{ fontWeight: 'bold' }}>
-                    当前图集：{selectedGallery.name}
-                  </span>
-                  <span>
-                    排序：
-                    <Segmented
-                      size="small"
-                      style={{ marginLeft: 8 }}
-                      value={gallerySort}
-                      onChange={(val) => setGallerySort(val as 'time' | 'name')}
-                      options={[
-                        { label: '按时间', value: 'time' },
-                        { label: '按文件名', value: 'name' }
-                      ]}
-                    />
-                  </span>
-                </div>
-                <Space>
-                  <Button
-                    type="text"
-                    icon={<ReloadOutlined />}
-                    onClick={() => {
-                      if (selectedGallery) {
-                        loadGalleryImages(selectedGallery.id);
-                      }
-                    }}
-                    loading={loading}
-                    style={{ fontSize: 16 }}
-                  />
-                  <Popover
-                    content={
-                      <Descriptions bordered column={1} size="small" style={{ maxWidth: 400 }}>
-                        <Descriptions.Item label="图集名称">{selectedGallery.name}</Descriptions.Item>
-                        <Descriptions.Item label="文件夹路径">{selectedGallery.folderPath}</Descriptions.Item>
-                        <Descriptions.Item label="图片数量">{selectedGallery.imageCount}</Descriptions.Item>
-                        {selectedGallery.lastScannedAt && (
-                          <Descriptions.Item label="最后扫描">
-                            {new Date(selectedGallery.lastScannedAt).toLocaleString()}
-                          </Descriptions.Item>
-                        )}
-                        <Descriptions.Item label="创建时间">
-                          {new Date(selectedGallery.createdAt).toLocaleString()}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="更新时间">
-                          {new Date(selectedGallery.updatedAt).toLocaleString()}
-                        </Descriptions.Item>
-                        <Descriptions.Item label="递归扫描">{selectedGallery.recursive ? '是' : '否'}</Descriptions.Item>
-                        <Descriptions.Item label="监视目录">{selectedGallery.isWatching ? '是' : '否'}</Descriptions.Item>
-                        {selectedGallery.extensions && selectedGallery.extensions.length > 0 && (
-                          <Descriptions.Item label="支持格式">
-                            {selectedGallery.extensions.join(', ')}
-                          </Descriptions.Item>
-                        )}
-                      </Descriptions>
-                    }
-                    title="图集详细信息"
-                    trigger="click"
-                    placement="bottomRight"
-                  >
+              <div style={{ 
+                  position: 'sticky',
+                  top: 0,
+                  zIndex: 100,
+                  marginBottom: '16px', 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  background: '#fff',
+                  padding: '12px 16px',
+                  borderRadius: '8px',
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                    <Button onClick={() => {
+                      console.log('[GalleryPage] 返回图集列表');
+                      setSelectedGallery(null);
+                      setGalleryImages([]);
+                    }}>
+                      返回图集列表
+                    </Button>
+                    <span style={{ fontWeight: 'bold' }}>
+                      当前图集：{selectedGallery.name}
+                    </span>
+                    <span>
+                      排序：
+                      <Segmented
+                        size="small"
+                        style={{ marginLeft: 8 }}
+                        value={gallerySort}
+                        onChange={(val) => setGallerySort(val as 'time' | 'name')}
+                        options={[
+                          { label: '按时间', value: 'time' },
+                          { label: '按文件名', value: 'name' }
+                        ]}
+                      />
+                    </span>
+                  </div>
+                  <Space>
                     <Button
                       type="text"
-                      icon={<QuestionCircleOutlined />}
+                      icon={<ReloadOutlined />}
+                      onClick={() => {
+                        if (selectedGallery) {
+                          loadGalleryImages(selectedGallery.id);
+                        }
+                      }}
+                      loading={loading}
                       style={{ fontSize: 16 }}
                     />
-                  </Popover>
-                </Space>
-              </div>
+                    <Popover
+                      content={
+                        <Descriptions bordered column={1} size="small" style={{ maxWidth: 400 }}>
+                          <Descriptions.Item label="图集名称">{selectedGallery.name}</Descriptions.Item>
+                          <Descriptions.Item label="文件夹路径">
+                            <span 
+                              style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+                              onClick={() => {
+                                if (selectedGallery.folderPath && window.electronAPI) {
+                                  window.electronAPI.system.showItem(selectedGallery.folderPath);
+                                }
+                              }}
+                              title="点击在资源管理器中打开"
+                            >
+                              {selectedGallery.folderPath}
+                            </span>
+                          </Descriptions.Item>
+                          <Descriptions.Item label="图片数量">{selectedGallery.imageCount}</Descriptions.Item>
+                          {selectedGallery.lastScannedAt && (
+                            <Descriptions.Item label="最后扫描">
+                              {new Date(selectedGallery.lastScannedAt).toLocaleString()}
+                            </Descriptions.Item>
+                          )}
+                          <Descriptions.Item label="创建时间">
+                            {new Date(selectedGallery.createdAt).toLocaleString()}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="更新时间">
+                            {new Date(selectedGallery.updatedAt).toLocaleString()}
+                          </Descriptions.Item>
+                          <Descriptions.Item label="递归扫描">{selectedGallery.recursive ? '是' : '否'}</Descriptions.Item>
+                          <Descriptions.Item label="监视目录">{selectedGallery.isWatching ? '是' : '否'}</Descriptions.Item>
+                          {selectedGallery.extensions && selectedGallery.extensions.length > 0 && (
+                            <Descriptions.Item label="支持格式">
+                              {selectedGallery.extensions.join(', ')}
+                            </Descriptions.Item>
+                          )}
+                        </Descriptions>
+                      }
+                      title="图集详细信息"
+                      trigger="click"
+                      placement="bottomRight"
+                    >
+                      <Button
+                        type="text"
+                        icon={<QuestionCircleOutlined />}
+                        style={{ fontSize: 16 }}
+                      />
+                    </Popover>
+                  </Space>
+                </div>
               <ImageListWrapper
                 images={galleryImages.slice(0, galleryVisibleCount)}
                 loading={loading}
@@ -1005,7 +1041,19 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
         {selectedGalleryInfo && (
           <Descriptions bordered column={1}>
             <Descriptions.Item label="图集名称">{selectedGalleryInfo.name}</Descriptions.Item>
-            <Descriptions.Item label="文件夹路径">{selectedGalleryInfo.folderPath}</Descriptions.Item>
+            <Descriptions.Item label="文件夹路径">
+              <span 
+                style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+                onClick={() => {
+                  if (selectedGalleryInfo.folderPath && window.electronAPI) {
+                    window.electronAPI.system.showItem(selectedGalleryInfo.folderPath);
+                  }
+                }}
+                title="点击在资源管理器中打开"
+              >
+                {selectedGalleryInfo.folderPath}
+              </span>
+            </Descriptions.Item>
             <Descriptions.Item label="图片数量">{selectedGalleryInfo.imageCount}</Descriptions.Item>
             {selectedGalleryInfo.lastScannedAt && (
               <Descriptions.Item label="最后扫描">

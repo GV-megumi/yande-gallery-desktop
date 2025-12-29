@@ -26,10 +26,20 @@ const getImageUrl = (filePath: string): string => {
   if (!filePath) return '';
   // 如果已经是 app:// 协议，直接返回
   if (filePath.startsWith('app://')) return filePath;
-  // 将 Windows 路径中的反斜杠替换为斜杠，不再整体做 URL 编码
+  
+  // Windows 路径处理: M:\path\to\file.png -> app://m/path/to/file.png
+  if (filePath.match(/^[A-Z]:\\/i)) {
+    const driveLetter = filePath[0].toLowerCase();
+    const pathPart = filePath.substring(3).replace(/\\/g, '/');
+    // 对路径中的每个部分单独编码，保留路径分隔符
+    const encodedPath = pathPart.split('/').map(part => encodeURIComponent(part)).join('/');
+    return `app://${driveLetter}/${encodedPath}`;
+  }
+  
+  // Unix 路径或其他格式
   const normalized = filePath.replace(/\\/g, '/');
-  // 形成形如 app://M:/booru/xxx.png 的路径，由主进程协议处理器转换为本地文件路径
-  return `app://${normalized}`;
+  const encodedPath = normalized.split('/').map(part => encodeURIComponent(part)).join('/');
+  return `app://${encodedPath}`;
 };
 
 // 按修改时间分组 key
@@ -379,7 +389,24 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
           <>
             <Descriptions bordered column={1}>
               <Descriptions.Item label="文件名">{selectedImage.filename}</Descriptions.Item>
-              <Descriptions.Item label="路径">{selectedImage.filepath}</Descriptions.Item>
+              <Descriptions.Item label="路径">
+                <span 
+                  style={{ 
+                    color: '#1890ff', 
+                    cursor: 'pointer',
+                    textDecoration: 'underline'
+                  }}
+                  onClick={() => {
+                    if (selectedImage.filepath && window.electronAPI) {
+                      console.log('[ImageGrid] 在资源管理器中显示:', selectedImage.filepath);
+                      window.electronAPI.system.showItem(selectedImage.filepath);
+                    }
+                  }}
+                  title="点击在资源管理器中显示"
+                >
+                  {selectedImage.filepath}
+                </span>
+              </Descriptions.Item>
               <Descriptions.Item label="尺寸">{selectedImage.width} × {selectedImage.height}</Descriptions.Item>
               <Descriptions.Item label="文件大小">{formatFileSize(selectedImage.fileSize)}</Descriptions.Item>
               <Descriptions.Item label="格式">{selectedImage.format?.toUpperCase()}</Descriptions.Item>
