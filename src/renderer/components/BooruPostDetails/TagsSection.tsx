@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Collapse, Tag, Space, Typography, message } from 'antd';
-import { StarOutlined, StarFilled } from '@ant-design/icons';
+import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
+import { ContextMenu } from '../ContextMenu';
 
 const { Panel } = Collapse;
 const { Text } = Typography;
@@ -149,26 +150,35 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
   const categorized = categorizeTags(allTags);
   const totalCount = allTags.length;
 
-  // 渲染单个标签（带收藏星标）
+  // 渲染单个标签（带收藏星标 + 右键菜单）
   const renderTag = (tag: string, category: string, index: number) => {
     const isFav = favoritedTags.has(tag);
+    const tagContextItems = [
+      { key: 'copy', label: '复制标签', icon: <CopyOutlined />, onClick: () => {
+        navigator.clipboard.writeText(tag);
+        message.success('已复制: ' + tag.replace(/_/g, ' '));
+      }},
+      ...(onTagClick ? [{ key: 'search', label: '按该标签搜索', icon: <SearchOutlined />, onClick: () => onTagClick(tag) }] : []),
+      { key: 'favorite', label: isFav ? '取消收藏标签' : '收藏标签', icon: isFav ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />, onClick: () => toggleFavoriteTag(tag) },
+    ];
     return (
-      <Tag
-        key={`${category}-${index}`}
-        color={getTagColor(category)}
-        style={{ cursor: 'pointer', marginBottom: '4px' }}
-        onClick={() => handleTagClick(tag)}
-      >
-        <span
-          onClick={(e) => { e.stopPropagation(); toggleFavoriteTag(tag); }}
-          style={{ cursor: 'pointer', marginRight: 4 }}
+      <ContextMenu key={`${category}-${index}`} items={tagContextItems}>
+        <Tag
+          color={getTagColor(category)}
+          style={{ cursor: 'pointer', marginBottom: '4px' }}
+          onClick={() => handleTagClick(tag)}
         >
-          {isFav
-            ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
-            : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
-        </span>
-        {tag.replace(/_/g, ' ')}
-      </Tag>
+          <span
+            onClick={(e) => { e.stopPropagation(); toggleFavoriteTag(tag); }}
+            style={{ cursor: 'pointer', marginRight: 4 }}
+          >
+            {isFav
+              ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
+              : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
+          </span>
+          {tag.replace(/_/g, ' ')}
+        </Tag>
+      </ContextMenu>
     );
   };
 

@@ -1,8 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { Card, Image, Tag, Space, Button, message } from 'antd';
-import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined } from '@ant-design/icons';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
 import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
+import { ContextMenu } from './ContextMenu';
 
 interface BooruImageCardProps {
   post: BooruPost;
@@ -13,6 +14,8 @@ interface BooruImageCardProps {
   isFavorited?: boolean;
   previewUrl?: string; // 可选的预览图URL，如果不提供则使用默认逻辑
   onImageLoad?: (postId: number, height: number) => void; // 图片加载完成回调
+  siteUrl?: string; // 站点URL，用于在浏览器中打开原始页面
+  onTagClick?: (tag: string) => void; // 标签点击回调
 }
 
 // 格式化标签
@@ -29,7 +32,9 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   onToggleFavorite,
   isFavorited = false,
   previewUrl,
-  onImageLoad
+  onImageLoad,
+  siteUrl,
+  onTagClick
 }) => {
   // 获取预览图URL：优先使用外部传入的 previewUrl，否则按优先级选择
   const getPreviewUrl = (): string => {
@@ -70,6 +75,42 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     onPreview(post);
   };
 
+  // 构造原始页面URL（Moebooru 格式）
+  const postPageUrl = siteUrl ? `${siteUrl.replace(/\/$/, '')}/post/show/${post.postId}` : '';
+
+  // 获取完整的图片文件URL
+  const getFullFileUrl = (): string => {
+    let url = (post.fileUrl || '').trim();
+    if (!url) return '';
+    if (url.startsWith('//')) url = 'https:' + url;
+    else if (!url.startsWith('http://') && !url.startsWith('https://')) url = 'https://' + url;
+    return url;
+  };
+
+  // 右键菜单项
+  const cardContextItems = useMemo(() => {
+    const items: any[] = [
+      { key: 'preview', label: '预览', icon: <EyeOutlined />, onClick: handlePreview },
+      { key: 'favorite', label: isFavorited ? '取消收藏' : '收藏', icon: isFavorited ? <BookFilled /> : <BookOutlined />, onClick: handleToggleFavorite },
+      { key: 'download', label: '下载', icon: <DownloadOutlined />, onClick: handleDownload },
+      { type: 'divider' },
+      { key: 'copyImageUrl', label: '复制图片链接', icon: <CopyOutlined />, onClick: () => {
+        const url = getFullFileUrl();
+        if (url) {
+          navigator.clipboard.writeText(url);
+          message.success('已复制图片链接');
+        }
+      }},
+    ];
+    if (postPageUrl) {
+      items.push({ key: 'openInBrowser', label: '在浏览器中打开', icon: <GlobalOutlined />, onClick: () => {
+        console.log('[BooruImageCard] 在浏览器中打开:', postPageUrl);
+        window.electronAPI?.system.openExternal(postPageUrl);
+      }});
+    }
+    return items;
+  }, [isFavorited, postPageUrl, post.fileUrl]);
+
   const ratingColor = post.rating === 'safe'
     ? 'green'
     : post.rating === 'questionable'
@@ -83,6 +124,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     : '限制级';
 
   return (
+    <ContextMenu items={cardContextItems}>
     <Card
       hoverable
       styles={{ body: { padding: spacing.sm, height: '100%', display: 'flex', flexDirection: 'column' } }}
@@ -256,16 +298,28 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           <div style={{ marginTop: spacing.xs }}>
             <Space size={2} wrap>
               {formatTags(post.tags).map((tag, index) => (
-                <Tag
+                <ContextMenu
                   key={index}
-                  style={{
-                    fontSize: fontSize.xs,
-                    padding: `0 ${spacing.xs}px`,
-                    marginBottom: 2
-                  }}
+                  items={[
+                    { key: 'copy', label: '复制标签', icon: <CopyOutlined />, onClick: () => {
+                      navigator.clipboard.writeText(tag);
+                      message.success('已复制标签');
+                    }},
+                    ...(onTagClick ? [{ key: 'search', label: '按该标签搜索', icon: <SearchOutlined />, onClick: () => onTagClick(tag) }] : []),
+                  ]}
                 >
-                  {tag}
-                </Tag>
+                  <Tag
+                    style={{
+                      fontSize: fontSize.xs,
+                      padding: `0 ${spacing.xs}px`,
+                      marginBottom: 2,
+                      cursor: onTagClick ? 'pointer' : 'default'
+                    }}
+                    onClick={() => onTagClick?.(tag)}
+                  >
+                    {tag}
+                  </Tag>
+                </ContextMenu>
               ))}
             </Space>
           </div>
@@ -284,6 +338,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
         </Space>
       </div>
     </Card>
+    </ContextMenu>
   );
 });
 

@@ -1,9 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Card, Image, Tag, Button, Modal, Descriptions, Space } from 'antd';
-import { TagsOutlined } from '@ant-design/icons';
+import { Card, Image, Tag, Button, Modal, Descriptions, Space, message } from 'antd';
+import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
+import { ContextMenu } from './ContextMenu';
 
 export interface ImageGridProps {
   images: any[];
@@ -177,7 +178,36 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     // 预览时始终使用原图
     const previewSrc = getImageUrl(image.filepath);
 
+    // 构建右键菜单项
+    const imageContextItems: any[] = [
+      { key: 'info', label: '查看信息', icon: <TagsOutlined />, onClick: () => handleImageInfo(image) },
+      { key: 'showInFolder', label: '打开文件所在目录', icon: <FolderOpenOutlined />, onClick: () => {
+        if (image.filepath && window.electronAPI) {
+          console.log('[ImageGrid] 打开文件所在目录:', image.filepath);
+          window.electronAPI.system.showItem(image.filepath);
+        }
+      }},
+      { key: 'copyPath', label: '复制文件路径', icon: <CopyOutlined />, onClick: () => {
+        if (image.filepath) {
+          navigator.clipboard.writeText(image.filepath);
+          message.success('已复制文件路径');
+        }
+      }},
+    ];
+    // 图集模式下添加「设为封面」
+    if (onSetCover && currentGallery) {
+      const isCurrent = currentGallery.coverImageId === image.id;
+      imageContextItems.push(
+        { type: 'divider' },
+        { key: 'setCover', label: isCurrent ? '当前封面' : '设为封面', icon: <PicOutlined />, disabled: isCurrent, onClick: () => {
+          console.log(`[ImageGrid] 右键设置封面: 图片ID ${image.id}`);
+          onSetCover(image.id);
+        }}
+      );
+    }
+
     return (
+      <ContextMenu items={imageContextItems}>
       <Card
         key={image.id}
         hoverable
@@ -277,6 +307,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
           </div>
         }
       />
+      </ContextMenu>
     );
   };
 

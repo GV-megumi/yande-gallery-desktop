@@ -1,18 +1,20 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
 import { Card, Table, Progress, Button, Space, Tag, Tabs, Popconfirm, App, Tooltip, Image, Select } from 'antd';
 import { StatusTag } from '../components/StatusTag';
-import { 
-  DownloadOutlined, 
-  PauseCircleOutlined, 
-  PlayCircleOutlined, 
-  DeleteOutlined, 
+import { useContextMenu, ContextMenuPortal } from '../components/ContextMenu';
+import {
+  DownloadOutlined,
+  PauseCircleOutlined,
+  PlayCircleOutlined,
+  DeleteOutlined,
   SyncOutlined,
   ClearOutlined,
   ReloadOutlined,
   EyeOutlined,
   FolderOpenOutlined,
   SortAscendingOutlined,
-  SortDescendingOutlined
+  SortDescendingOutlined,
+  CopyOutlined
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
@@ -50,6 +52,9 @@ export const BooruDownloadPage: React.FC = () => {
   // 用于查看原图的状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
   const [previewVisible, setPreviewVisible] = useState(false);
+
+  // 右键菜单
+  const rowMenu = useContextMenu<DownloadQueueItem & { _tab?: string }>();
 
   // 已完成列表排序状态
   const [sortField, setSortField] = useState<SortField>('completedAt');
@@ -331,6 +336,73 @@ export const BooruDownloadPage: React.FC = () => {
     }
   };
 
+  // 获取右键菜单项
+  const getRowContextItems = useCallback(() => {
+    if (!rowMenu.data) return [];
+    const record = rowMenu.data;
+    const tab = record._tab;
+
+    if (tab === 'active') {
+      const items: any[] = [];
+      if (record.status === 'paused') {
+        items.push({ key: 'resume', label: '恢复下载', icon: <PlayCircleOutlined />, onClick: () => handleResumeDownload(record.id) });
+      } else if (record.status === 'downloading') {
+        items.push({ key: 'pause', label: '暂停下载', icon: <PauseCircleOutlined />, onClick: () => handlePauseDownload(record.id) });
+      }
+      return items;
+    }
+
+    if (tab === 'completed') {
+      return [
+        { key: 'preview', label: '查看原图', icon: <EyeOutlined />, disabled: !record.targetPath, onClick: () => {
+          if (record.targetPath) {
+            setPreviewImage(getImageUrl(record.targetPath));
+            setPreviewVisible(true);
+          }
+        }},
+        { key: 'showInFolder', label: '打开文件所在目录', icon: <FolderOpenOutlined />, disabled: !record.targetPath, onClick: () => handleViewFile(record) },
+        { key: 'copyPath', label: '复制文件路径', icon: <CopyOutlined />, disabled: !record.targetPath, onClick: () => {
+          if (record.targetPath) {
+            navigator.clipboard.writeText(record.targetPath);
+            message.success('已复制文件路径');
+          }
+        }},
+      ];
+    }
+
+    if (tab === 'failed') {
+      return [
+        { key: 'retry', label: '重试下载', icon: <ReloadOutlined />, onClick: async () => {
+          try {
+            const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
+            if (result.success) {
+              message.success('已重新加入下载队列');
+              loadQueue();
+            } else {
+              message.error(result.error || '重试失败');
+            }
+          } catch (error) {
+            console.error('重试下载失败:', error);
+            message.error('重试下载失败');
+          }
+        }},
+        ...(record.errorMessage ? [{ key: 'copyError', label: '复制错误信息', icon: <CopyOutlined />, onClick: () => {
+          navigator.clipboard.writeText(record.errorMessage || '');
+          message.success('已复制错误信息');
+        }}] : []),
+      ];
+    }
+
+    return [];
+  }, [rowMenu.data]);
+
+  // 构造 onRow handler（附加 _tab 标识）
+  const makeOnRow = useCallback((tab: string) => (record: DownloadQueueItem) => ({
+    onContextMenu: (e: React.MouseEvent) => {
+      rowMenu.show(e, { ...record, _tab: tab } as any);
+    }
+  }), [rowMenu.show]);
+
   // 查看文件（在文件管理器中显示）
   const handleViewFile = async (record: DownloadQueueItem) => {
     console.log('[BooruDownloadPage] 查看文件:', record.targetPath);
@@ -543,12 +615,13 @@ export const BooruDownloadPage: React.FC = () => {
                 )}
               </Space>
             </div>
-            <Table 
-              dataSource={activeDownloads} 
-              columns={activeColumns} 
+            <Table
+              dataSource={activeDownloads}
+              columns={activeColumns}
               rowKey="id"
               pagination={false}
               locale={{ emptyText: '没有进行中的下载' }}
+              onRow={makeOnRow('active')}
             />
           </TabPane>
           <TabPane 
@@ -594,10 +667,11 @@ export const BooruDownloadPage: React.FC = () => {
                 </Button>
               </Popconfirm>
             </div>
-            <Table 
-              dataSource={sortedCompletedDownloads} 
-              columns={completedColumns} 
+            <Table
+              dataSource={sortedCompletedDownloads}
+              columns={completedColumns}
               rowKey="id"
+              onRow={makeOnRow('completed')}
             />
           </TabPane>
           <TabPane tab={`失败 (${failedDownloads.length})`} key="failed">
@@ -635,9 +709,10 @@ export const BooruDownloadPage: React.FC = () => {
                 </Popconfirm>
               </Space>
             </div>
-            <Table 
-              dataSource={failedDownloads} 
+            <Table
+              dataSource={failedDownloads}
               rowKey="id"
+              onRow={makeOnRow('failed')}
               columns={[
                 ...activeColumns.slice(0, 2),
                 {
@@ -703,6 +778,15 @@ export const BooruDownloadPage: React.FC = () => {
             }
           }
         }}
+      />
+
+      {/* 表格行右键菜单 */}
+      <ContextMenuPortal
+        open={rowMenu.open}
+        x={rowMenu.x}
+        y={rowMenu.y}
+        items={getRowContextItems()}
+        onClose={rowMenu.close}
       />
     </div>
   );

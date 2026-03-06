@@ -303,6 +303,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
+              onTagClick={handleTagClick}
             />
 
             <PaginationControl

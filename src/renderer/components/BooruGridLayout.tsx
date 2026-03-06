@@ -19,6 +19,7 @@ export interface BooruGridLayoutProps {
   onToggleFavorite: (post: BooruPost) => void;
   favorites: Set<number>;
   getPreviewUrl: (post: BooruPost) => string;
+  onTagClick?: (tag: string) => void;
 }
 
 export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
@@ -31,7 +32,8 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   onDownload,
   onToggleFavorite,
   favorites,
-  getPreviewUrl
+  getPreviewUrl,
+  onTagClick
 }) => {
   // 按 ID 倒序排序（最新的在前）
   const sortedPosts = useMemo(() => {
@@ -107,12 +109,14 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
                 <BooruImageCard
                   post={post}
                   siteName={selectedSite?.name || ''}
+                  siteUrl={selectedSite?.url}
                   onPreview={onPreview}
                   onDownload={onDownload}
                   onToggleFavorite={onToggleFavorite}
                   isFavorited={favorites.has(post.id) || post.isFavorited}
                   previewUrl={getPreviewUrl(post)}
                   onImageLoad={handleImageLoad}
+                  onTagClick={onTagClick}
                 />
               </div>
             ))}

@@ -399,6 +399,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
+              onTagClick={handleTagClick}
             />
 
             <PaginationControl

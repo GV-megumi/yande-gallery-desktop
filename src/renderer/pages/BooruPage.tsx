@@ -492,6 +492,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
+              onTagClick={handleTagClick}
             />
 
             <PaginationControl
