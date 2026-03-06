@@ -3,6 +3,7 @@ import { Card, Image, Tag, Button, Modal, Descriptions, Space } from 'antd';
 import { TagsOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
+import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
 
 export interface ImageGridProps {
   images: any[];
@@ -41,7 +42,7 @@ const getDateGroupKey = (image: any, mode: 'day' | 'month' | 'year'): string => 
   return `${y}年${m}月${d}日`;
 };
 
-export const ImageGrid: React.FC<ImageGridProps> = ({
+export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   images,
   onReload,
   groupBy = 'none',
@@ -181,7 +182,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
         key={image.id}
         hoverable
         styles={{ body: { padding: 0 } }}
-        style={{ borderRadius: 8, overflow: 'hidden' }}
+        style={{ borderRadius: radius.md, overflow: 'hidden' }}
         cover={
           <div
             style={{
@@ -197,7 +198,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 style={{
                   width: '100%',
                   paddingBottom: `${aspectRatio}%`,
-                  backgroundColor: '#f0f0f0',
+                  backgroundColor: colors.bgDark,
                   display: 'block',
                   position: 'relative'
                 }}
@@ -208,8 +209,8 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    color: '#999',
-                    fontSize: '12px'
+                    color: colors.textTertiary,
+                    fontSize: fontSize.sm
                   }}
                 >
                   加载中...
@@ -225,7 +226,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 // 使用 Ant Design 的 preview 属性，支持上一张、下一张导航
                 preview={{
                   src: previewSrc,
-                  mask: <div style={{ color: '#fff', fontSize: '14px' }}>点击查看原图</div>
+                  mask: <div style={{ color: colors.bgBase, fontSize: fontSize.base }}>点击查看原图</div>
                 }}
               />
             ) : (
@@ -234,7 +235,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 style={{
                   width: '100%',
                   paddingBottom: `${aspectRatio}%`,
-                  backgroundColor: '#f0f0f0',
+                  backgroundColor: colors.bgDark,
                   display: 'block',
                   position: 'relative'
                 }}
@@ -245,8 +246,8 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                     top: '50%',
                     left: '50%',
                     transform: 'translate(-50%, -50%)',
-                    color: '#999',
-                    fontSize: '12px'
+                    color: colors.textTertiary,
+                    fontSize: fontSize.sm
                   }}
                 >
                   加载失败
@@ -266,9 +267,9 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 position: 'absolute',
                 top: 4,
                 right: 4,
-                background: 'rgba(0,0,0,0.45)',
-                color: '#fff',
-                zIndex: 10,
+                background: colors.overlayDark,
+                color: colors.bgBase,
+                zIndex: zIndex.sticky,
                 // 加载中时隐藏按钮
                 display: isThumbnailLoading ? 'none' : 'block'
               }}
@@ -295,14 +296,14 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
               const displayTitle = key.includes('_') ? key.split('_').slice(1).join('_') : key;
               
               return (
-                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : 32 }} id={key}>
+                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={key}>
                   {groupBy !== 'none' && (
                     <div
                       style={{
-                        margin: '8px 0 12px',
+                        margin: `${spacing.sm}px 0 ${spacing.md}px`,
                         fontWeight: 600,
-                        fontSize: groupBy === 'year' ? 20 : groupBy === 'month' ? 18 : 16,
-                        color: '#666'
+                        fontSize: groupBy === 'year' ? fontSize.xl : groupBy === 'month' ? fontSize.lg : fontSize.base,
+                        color: colors.textSecondary
                       }}
                     >
                       {displayTitle}
@@ -311,11 +312,11 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
                 <div
                   style={{
                     columnWidth: 220,
-                    columnGap: 16
+                    columnGap: spacing.lg
                   }}
                 >
                   {group.map((image: any) => (
-                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: 16 }}>
+                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: spacing.lg }}>
                       {renderCard(image)}
                     </div>
                   ))}
@@ -333,10 +334,10 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
               position: 'absolute',
               top: 0,
               right: 0,
-              paddingLeft: 8,
-              paddingRight: 4,
-              fontSize: 12,
-              color: '#999',
+              paddingLeft: spacing.sm,
+              paddingRight: spacing.xs,
+              fontSize: fontSize.sm,
+              color: colors.textTertiary,
               display: 'flex',
               flexDirection: 'column',
               alignItems: 'flex-end',
@@ -346,7 +347,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
             {Object.keys(groupedImages).map((key) => (
               <div
                 key={`timeline-${key}`}
-                style={{ marginBottom: 16, cursor: 'pointer', pointerEvents: 'auto' }}
+                style={{ marginBottom: spacing.lg, cursor: 'pointer', pointerEvents: 'auto' }}
                 onClick={() => {
                   const el = document.getElementById(key);
                   if (el) {
@@ -379,7 +380,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
               <Descriptions.Item label="路径">
                 <span 
                   style={{ 
-                    color: '#1890ff', 
+                    color: colors.primary,
                     cursor: 'pointer',
                     textDecoration: 'underline'
                   }}
@@ -410,7 +411,7 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
               )}
             </Descriptions>
             {onSetCover && currentGallery && (
-              <div style={{ marginTop: 16, textAlign: 'right' }}>
+              <div style={{ marginTop: spacing.lg, textAlign: 'right' }}>
                 <Button
                   type={currentGallery.coverImageId === selectedImage.id ? 'primary' : 'default'}
                   onClick={() => {
@@ -430,4 +431,6 @@ export const ImageGrid: React.FC<ImageGridProps> = ({
       </Modal>
     </>
   );
-};
+});
+
+ImageGrid.displayName = 'ImageGrid';

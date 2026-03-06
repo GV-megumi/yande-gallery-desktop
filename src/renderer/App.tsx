@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, theme, message, App as AntApp } from 'antd';
+import { useTheme } from './hooks/useTheme';
 import { PictureOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined, CloudDownloadOutlined, StarOutlined } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -50,6 +51,7 @@ export const AppContent: React.FC = () => {
   const {
     token: { colorBgContainer },
   } = theme.useToken();
+  const { isDark } = useTheme();
 
   // 初始化数据库
   useEffect(() => {
@@ -145,7 +147,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden' }}>
-      <Sider width={200} theme="light" style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
+      <Sider width={200} theme={isDark ? 'dark' : 'light'} style={{ display: 'flex', flexDirection: 'column', height: '100vh', overflow: 'hidden' }}>
         {/* 主菜单 - 顶部固定 */}
         <Menu
           mode="inline"
@@ -158,7 +160,7 @@ export const AppContent: React.FC = () => {
               setSelectedSubKey('recent');
             }
           }}
-          style={{ borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}
+          style={{ borderBottom: `1px solid ${isDark ? '#303030' : '#f0f0f0'}`, flexShrink: 0 }}
         />
         
         {/* 子菜单 - 只在图库和Booru模式下显示，独立滚动 */}

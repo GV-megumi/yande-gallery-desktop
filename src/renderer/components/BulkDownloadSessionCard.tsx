@@ -19,6 +19,7 @@ import {
 } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadSessionStatus } from '../../shared/types';
 import { BulkDownloadSessionDetail } from './BulkDownloadSessionDetail';
+import { StatusTag } from './StatusTag';
 
 interface BulkDownloadSessionCardProps {
   session: BulkDownloadSession;
@@ -73,23 +74,10 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
     }
   }, [session.id, session.status]);
 
-  // 获取状态标签
-  const getStatusTag = (status: BulkDownloadSessionStatus) => {
-    const statusMap: Record<BulkDownloadSessionStatus, { color: string; text: string }> = {
-      pending: { color: 'default', text: '等待中' },
-      dryRun: { color: 'processing', text: '扫描中' },
-      running: { color: 'processing', text: '下载中' },
-      paused: { color: 'warning', text: '已暂停' },
-      suspended: { color: 'warning', text: '已暂停' },
-      completed: { color: 'success', text: '已完成' },
-      allSkipped: { color: 'default', text: '全部跳过' },
-      failed: { color: 'error', text: '失败' },
-      cancelled: { color: 'default', text: '已取消' }
-    };
-
-    const statusInfo = statusMap[status] || { color: 'default', text: status };
-    return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
-  };
+  // 获取状态标签（使用统一 StatusTag 组件）
+  const getStatusTag = (status: BulkDownloadSessionStatus) => (
+    <StatusTag status={status} />
+  );
 
   // 启动会话
   const handleStart = async () => {

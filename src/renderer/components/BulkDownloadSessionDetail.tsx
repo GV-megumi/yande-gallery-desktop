@@ -16,6 +16,7 @@ import {
   EyeOutlined
 } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadRecord, BulkDownloadRecordStatus } from '../../shared/types';
+import { StatusTag } from './StatusTag';
 
 interface BulkDownloadSessionDetailProps {
   session: BulkDownloadSession;
@@ -189,20 +190,10 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
     };
   }, [session.id, session.status]);
 
-  // 获取状态标签
-  const getStatusTag = (status: BulkDownloadRecordStatus) => {
-    const statusMap: Record<BulkDownloadRecordStatus, { color: string; text: string }> = {
-      pending: { color: 'default', text: '等待中' },
-      downloading: { color: 'processing', text: '下载中' },
-      paused: { color: 'warning', text: '已暂停' },
-      completed: { color: 'success', text: '已完成' },
-      failed: { color: 'error', text: '失败' },
-      cancelled: { color: 'default', text: '已取消' }
-    };
-
-    const statusInfo = statusMap[status] || { color: 'default', text: status };
-    return <Tag color={statusInfo.color}>{statusInfo.text}</Tag>;
-  };
+  // 获取状态标签（使用统一 StatusTag 组件）
+  const getStatusTag = (status: BulkDownloadRecordStatus) => (
+    <StatusTag status={status} />
+  );
 
   // 重试单个失败记录
   const handleRetryRecord = async (record: BulkDownloadRecord) => {

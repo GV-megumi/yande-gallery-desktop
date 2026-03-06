@@ -1,14 +1,17 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Button, Empty, message as antdMessage, Spin, Select, Space, Segmented, Affix, App, Typography } from 'antd';
-import { ReloadOutlined, LeftOutlined, DownloadOutlined } from '@ant-design/icons';
-import { BooruImageCard } from '../components/BooruImageCard';
+import React, { useState, useEffect, useRef } from 'react';
+import { Button, Empty, App, Typography } from 'antd';
+import { LeftOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
+import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
+import { PaginationControl } from '../components/PaginationControl';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
+import { spacing } from '../styles/tokens';
+import { useFavorite } from '../hooks/useFavorite';
 
 const { Title } = Typography;
-const { Option } = Select;
 
 interface BooruTagSearchPageProps {
   initialTag: string;
@@ -32,14 +35,27 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   const [posts, setPosts] = useState<BooruPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchTag, setSearchTag] = useState(initialTag);
-  const [ratingFilter, setRatingFilter] = useState<'all' | 'safe' | 'questionable' | 'explicit'>('all');
+  const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
   const hasSearchedRef = useRef(false); // 标记是否已经搜索过
+
+  // 收藏状态管理
+  const { favorites, toggleFavorite, setFavorites } = useFavorite({
+    siteId: selectedSiteId,
+    onSuccess: (postId, isFavorited) => {
+      setPosts(prevPosts =>
+        prevPosts.map(p =>
+          p.id === postId ? { ...p, isFavorited } : p
+        )
+      );
+      message[isFavorited ? 'success' : 'success'](isFavorited ? '已添加收藏' : '已取消收藏');
+    },
+    logPrefix: '[BooruTagSearchPage]'
+  });
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
@@ -178,7 +194,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态
-        await loadFavorites(data);
+        await loadFavoritesFromServer();
       } else {
         console.error('[BooruTagSearchPage] 搜索失败:', result.error);
         message.error('搜索失败: ' + result.error);
@@ -191,8 +207,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
-  // 加载收藏状态
-  const loadFavorites = async (postsToCheck: BooruPost[]) => {
+  // 加载收藏状态（从服务端获取完整收藏列表）
+  const loadFavoritesFromServer = async () => {
     if (!selectedSiteId || !window.electronAPI) return;
 
     try {
@@ -200,9 +216,9 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
       if (result.success && result.data) {
         const favoriteIds = new Set(result.data.map((f: any) => f.postId));
         setFavorites(favoriteIds);
-        
+
         // 更新图片数据中的收藏状态
-        setPosts(prevPosts => 
+        setPosts(prevPosts =>
           prevPosts.map(p => ({
             ...p,
             isFavorited: favoriteIds.has(p.id)
@@ -227,50 +243,10 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
-  // 处理收藏切换
+  // 处理收藏切换（委托给 useFavorite Hook）
   const handleToggleFavorite = async (post: BooruPost) => {
-    const isCurrentlyFavorited = favorites.has(post.id) || post.isFavorited;
-    console.log('[BooruTagSearchPage] 切换收藏状态:', post.id, '当前:', isCurrentlyFavorited);
-    try {
-      if (!window.electronAPI || !selectedSiteId) return;
-
-      if (isCurrentlyFavorited) {
-        const result = await window.electronAPI.booru.removeFavorite(post.id);
-        if (result.success) {
-          setFavorites(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(post.id);
-            return newSet;
-          });
-          setPosts(prevPosts => 
-            prevPosts.map(p => 
-              p.id === post.id ? { ...p, isFavorited: false } : p
-            )
-          );
-          message.success('已取消收藏');
-        } else {
-          message.error('取消收藏失败: ' + result.error);
-        }
-      } else {
-        const result = await window.electronAPI.booru.addFavorite(post.id, selectedSiteId, false);
-        if (result.success) {
-          setFavorites(prev => {
-            const newSet = new Set(prev);
-            newSet.add(post.id);
-            return newSet;
-          });
-          setPosts(prevPosts => 
-            prevPosts.map(p => 
-              p.id === post.id ? { ...p, isFavorited: true } : p
-            )
-          );
-          message.success('已添加收藏');
-        } else {
-          message.error('添加收藏失败: ' + result.error);
-        }
-      }
-    } catch (error) {
-      console.error('[BooruTagSearchPage] 切换收藏失败:', error);
+    const result = await toggleFavorite(post);
+    if (!result.success) {
       message.error('操作失败');
     }
   };
@@ -351,17 +327,11 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   }, [initialTag, selectedSiteId]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
-  const ratingOptions = [
-    { label: '全部', value: 'all' },
-    { label: '安全', value: 'safe' },
-    { label: '可疑', value: 'questionable' },
-    { label: '明确', value: 'explicit' }
-  ];
 
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
       {/* 页面标题和返回按钮 */}
-      <div style={{ marginBottom: 24, display: 'flex', alignItems: 'center', gap: 16 }}>
+      <div style={{ marginBottom: spacing.xl, display: 'flex', alignItems: 'center', gap: spacing.lg }}>
         {onBack && (
           <Button icon={<LeftOutlined />} onClick={onBack}>
             返回
@@ -373,70 +343,22 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
       </div>
 
       {/* 工具栏 */}
-      <Affix offsetTop={0}>
-        <div style={{ 
-          background: '#fff', 
-          padding: '16px', 
-          borderRadius: '8px',
-          marginBottom: 16,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }}>
-          <Space wrap>
-            {/* 站点选择 */}
-            <Space>
-              <span>站点:</span>
-              <Select
-                value={selectedSiteId}
-                onChange={handleSiteChange}
-                style={{ width: 200 }}
-                disabled={loading}
-              >
-                {sites.map(site => (
-                  <Option key={site.id} value={site.id}>
-                    {site.name}
-                  </Option>
-                ))}
-              </Select>
-            </Space>
-
-            {/* 分级筛选 */}
-            <Space wrap>
-              <span>分级:</span>
-              <Segmented
-                value={ratingFilter}
-                onChange={(value) => {
-                  setRatingFilter(value as any);
-                }}
-                options={ratingOptions}
-                disabled={loading}
-              />
-            </Space>
-
-            {/* 操作按钮 */}
-            <Space wrap>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => {
-                  if (searchTag) {
-                    searchTagPosts(searchTag, currentPage);
-                  }
-                }}
-                loading={loading}
-                disabled={!selectedSiteId}
-              >
-                刷新
-              </Button>
-            </Space>
-          </Space>
-        </div>
-      </Affix>
+      <BooruPageToolbar
+        sites={sites}
+        selectedSiteId={selectedSiteId}
+        loading={loading}
+        ratingFilter={ratingFilter}
+        onSiteChange={handleSiteChange}
+        onRatingChange={setRatingFilter}
+        onRefresh={() => {
+          if (searchTag) searchTagPosts(searchTag, currentPage);
+        }}
+      />
 
       {/* 图片列表 */}
       <div>
         {loading && (
-          <div style={{ textAlign: 'center', padding: '50px' }}>
-            <Spin size="large" />
-          </div>
+          <SkeletonGrid count={12} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
         )}
 
         {!loading && posts.length === 0 && (
@@ -456,32 +378,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
 
         {!loading && posts.length > 0 && (
           <>
-            {/* 顶部分页 */}
-            {(appearanceConfig.paginationPosition === 'top' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginBottom: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, currentPage - 1);
-                      searchTagPosts(searchTag, next);
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => {
-                      const next = currentPage + 1;
-                      searchTagPosts(searchTag, next);
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="top"
+              onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
+              onNext={() => searchTagPosts(searchTag, currentPage + 1)}
+            />
 
             <BooruGridLayout
               posts={posts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
@@ -496,32 +401,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               getPreviewUrl={getPreviewUrl}
             />
 
-            {/* 底部分页 */}
-            {(appearanceConfig.paginationPosition === 'bottom' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginTop: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, currentPage - 1);
-                      searchTagPosts(searchTag, next);
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => {
-                      const next = currentPage + 1;
-                      searchTagPosts(searchTag, next);
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="bottom"
+              onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
+              onNext={() => searchTagPosts(searchTag, currentPage + 1)}
+            />
           </>
         )}
       </div>

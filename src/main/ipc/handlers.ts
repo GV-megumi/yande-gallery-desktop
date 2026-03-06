@@ -1,4 +1,4 @@
-import { ipcMain, dialog, IpcMainInvokeEvent } from 'electron';
+import { ipcMain, dialog, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from './channels.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -287,7 +287,16 @@ export function setupIPC() {
 
   ipcMain.handle('config:save', async (_event: IpcMainInvokeEvent, newConfig: any) => {
     try {
-      return await saveConfig(newConfig);
+      const result = await saveConfig(newConfig);
+      // 配置保存成功后，广播配置变更事件到所有窗口
+      if (result.success) {
+        const windows = BrowserWindow.getAllWindows();
+        for (const win of windows) {
+          win.webContents.send('config:changed', newConfig);
+        }
+        console.log('[IPC] 配置变更事件已广播到', windows.length, '个窗口');
+      }
+      return result;
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -1353,6 +1362,47 @@ export function setupIPC() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取标签分类失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // ========= 搜索历史 =========
+
+  // 添加搜索历史
+  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_SEARCH_HISTORY, async (_event: IpcMainInvokeEvent, siteId: number, query: string, resultCount: number = 0) => {
+    try {
+      console.log('[IPC] 添加搜索历史:', { siteId, query, resultCount });
+      await booruService.addSearchHistory(siteId, query, resultCount);
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 添加搜索历史失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取搜索历史
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SEARCH_HISTORY, async (_event: IpcMainInvokeEvent, siteId?: number, limit: number = 20) => {
+    try {
+      console.log('[IPC] 获取搜索历史:', { siteId, limit });
+      const history = await booruService.getSearchHistory(siteId, limit);
+      return { success: true, data: history };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取搜索历史失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 清除搜索历史
+  ipcMain.handle(IPC_CHANNELS.BOORU_CLEAR_SEARCH_HISTORY, async (_event: IpcMainInvokeEvent, siteId?: number) => {
+    try {
+      console.log('[IPC] 清除搜索历史:', { siteId });
+      await booruService.clearSearchHistory(siteId);
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 清除搜索历史失败:', errorMessage);
       return { success: false, error: errorMessage };
     }
   });

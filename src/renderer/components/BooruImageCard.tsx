@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Card, Image, Tag, Space, Button, message } from 'antd';
 import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
-import { colors, radius, shadows, transitions } from '../styles/tokens';
+import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
 
 interface BooruImageCardProps {
   post: BooruPost;
@@ -21,7 +21,7 @@ const formatTags = (tags: string): string[] => {
   return tags.split(' ').slice(0, 10); // 最多显示10个标签
 };
 
-export const BooruImageCard: React.FC<BooruImageCardProps> = ({
+export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   post,
   siteName,
   onPreview,
@@ -85,7 +85,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
   return (
     <Card
       hoverable
-      styles={{ body: { padding: 8, height: '100%', display: 'flex', flexDirection: 'column' } }}
+      styles={{ body: { padding: spacing.sm, height: '100%', display: 'flex', flexDirection: 'column' } }}
       style={{
         height: '100%',
         borderRadius: radius.md,
@@ -131,10 +131,10 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: spacing.sm,
             }}>
               <PictureOutlined style={{ fontSize: 32, color: colors.borderGray }} />
-              <span style={{ fontSize: 12, color: colors.textTertiary }}>加载失败</span>
+              <span style={{ fontSize: fontSize.sm, color: colors.textTertiary }}>加载失败</span>
               <Button
                 size="small"
                 icon={<ReloadOutlined />}
@@ -178,9 +178,9 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
           <Space
             style={{
               position: 'absolute',
-              top: 4,
-              right: 4,
-              gap: 4
+              top: spacing.xs,
+              right: spacing.xs,
+              gap: spacing.xs
             }}
           >
             <Button
@@ -235,32 +235,32 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
       }
     >
       {/* 底部信息 */}
-      <div style={{ padding: '4px 0' }}>
+      <div style={{ padding: `${spacing.xs}px 0` }}>
         {/* 顶部标签行：站点、评分、分级 */}
-        <Space size={4} style={{ marginBottom: 4 }} wrap>
-          <Tag color="blue" style={{ fontSize: '12px' }}>
+        <Space size={spacing.xs} style={{ marginBottom: spacing.xs }} wrap>
+          <Tag color="blue" style={{ fontSize: fontSize.sm }}>
             {siteName}
           </Tag>
           {post.score !== undefined && post.score !== null && (
-            <Tag color="geekblue" style={{ fontSize: '12px' }}>
+            <Tag color="geekblue" style={{ fontSize: fontSize.sm }}>
               评分: {post.score}
             </Tag>
           )}
-          <Tag color={ratingColor} style={{ fontSize: '12px' }}>
+          <Tag color={ratingColor} style={{ fontSize: fontSize.sm }}>
             {ratingText}
           </Tag>
         </Space>
 
         {/* 标签显示 */}
         {post.tags && (
-          <div style={{ marginTop: 4 }}>
+          <div style={{ marginTop: spacing.xs }}>
             <Space size={2} wrap>
               {formatTags(post.tags).map((tag, index) => (
                 <Tag
                   key={index}
                   style={{
-                    fontSize: 10,
-                    padding: '0 4px',
+                    fontSize: fontSize.xs,
+                    padding: `0 ${spacing.xs}px`,
                     marginBottom: 2
                   }}
                 >
@@ -272,19 +272,21 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
         )}
 
         {/* 尺寸和ID信息 */}
-        <Space size={4} style={{ marginTop: 4 }}>
+        <Space size={spacing.xs} style={{ marginTop: spacing.xs }}>
           {post.width && post.height && (
-            <span style={{ fontSize: 11, color: colors.textSecondary }}>
+            <span style={{ fontSize: fontSize.xs, color: colors.textSecondary }}>
               {post.width}×{post.height}
             </span>
           )}
-          <span style={{ fontSize: 11, color: colors.textTertiary }}>
+          <span style={{ fontSize: fontSize.xs, color: colors.textTertiary }}>
             ID: {post.postId}
           </span>
         </Space>
       </div>
     </Card>
   );
-};
+});
+
+BooruImageCard.displayName = 'BooruImageCard';
 
 export default BooruImageCard;

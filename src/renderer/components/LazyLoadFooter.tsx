@@ -1,5 +1,6 @@
 import React from 'react';
 import { Button } from 'antd';
+import { spacing } from '../styles/tokens';
 
 interface LazyLoadFooterProps {
   current: number;
@@ -22,7 +23,7 @@ export const LazyLoadFooter: React.FC<LazyLoadFooterProps> = ({
   }
 
   return (
-    <div style={{ marginTop: 24, textAlign: 'center' }}>
+    <div style={{ marginTop: spacing.xl, textAlign: 'center' }}>
       <Button onClick={onLoadMore}>
         加载更多（{current}/{total}）
       </Button>

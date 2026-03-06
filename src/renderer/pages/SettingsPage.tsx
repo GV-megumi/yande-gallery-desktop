@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Form, Input, Button, Switch, Select, message, Space, List, Modal, Spin } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined } from '@ant-design/icons';
+import { Card, Form, Input, Button, Switch, Select, message, Space, List, Modal, Spin, Segmented } from 'antd';
+import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined } from '@ant-design/icons';
+import { useTheme, ThemeMode } from '../hooks/useTheme';
 
 const { Option } = Select;
 
@@ -19,6 +20,7 @@ export const SettingsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState<string | null>(null);
   const [proxyForm] = Form.useForm();
+  const { themeMode, setThemeMode } = useTheme();
 
   // 加载配置
   useEffect(() => {
@@ -435,15 +437,17 @@ export const SettingsPage: React.FC = () => {
           </Form.Item>
 
           <Form.Item
-            label="主题"
-            name="theme"
-            rules={[{ required: true, message: '请选择主题' }]}
+            label={<span><BulbOutlined style={{ marginRight: 4 }} />主题外观</span>}
           >
-            <Select>
-              <Option value="light">浅色主题</Option>
-              <Option value="dark">深色主题</Option>
-              <Option value="auto">跟随系统</Option>
-            </Select>
+            <Segmented
+              value={themeMode}
+              onChange={(value) => setThemeMode(value as ThemeMode)}
+              options={[
+                { label: '浅色', value: 'light' },
+                { label: '深色', value: 'dark' },
+                { label: '跟随系统', value: 'system' }
+              ]}
+            />
           </Form.Item>
 
           <Form.Item

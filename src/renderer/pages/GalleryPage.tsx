@@ -8,6 +8,7 @@ import { LazyLoadFooter } from '../components/LazyLoadFooter';
 import { GalleryCoverImage } from '../components/GalleryCoverImage';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
+import { colors, spacing, radius, shadows, fontSize, zIndex } from '../styles/tokens';
 
 const { Search } = Input;
 
@@ -89,8 +90,8 @@ const GalleryCardList: React.FC<{
                   />
                 </div>
               ) : (
-                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#f0f0f0' }}>
-                  <AppstoreOutlined style={{ fontSize: '48px', color: '#ccc' }} />
+                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgDark }}>
+                  <AppstoreOutlined style={{ fontSize: 48, color: colors.borderLight }} />
                 </div>
               )
             }
@@ -707,7 +708,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
           />
 
           {isSearchMode && !loading && allImages.length > 0 && (
-            <div style={{ marginBottom: '16px', color: '#666' }}>
+            <div style={{ marginBottom: spacing.lg, color: colors.textSecondary }}>
               找到 {searchTotal} 张匹配的图片
             </div>
           )}
@@ -720,7 +721,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             layout="waterfall"
             groupBy="none"
           >
-            <div style={{ marginTop: 24, textAlign: 'center' }}>
+            <div style={{ marginTop: spacing.xl, textAlign: 'center' }}>
               <Space>
                 <Button
                   disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
@@ -767,7 +768,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return (
         <>
           {!selectedGallery && (
-            <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <div style={{ marginBottom: spacing.xl, display: 'flex', gap: spacing.md, alignItems: 'center' }}>
               <Button
                 type="primary"
                 icon={<FolderOpenOutlined />}
@@ -785,7 +786,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                 onSearch={handleGallerySearch}
               />
               {/* 排序控件 */}
-              <span style={{ marginLeft: 'auto', fontSize: '13px', color: '#666' }}>排序:</span>
+              <span style={{ marginLeft: 'auto', fontSize: fontSize.md, color: colors.textSecondary }}>排序:</span>
               <Segmented
                 size="small"
                 value={gallerySortKey}
@@ -816,20 +817,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
 
           {selectedGallery ? (
             <>
-              <div style={{ 
+              <div style={{
                   position: 'sticky',
                   top: 0,
-                  zIndex: 100,
-                  marginBottom: '16px', 
-                  display: 'flex', 
-                  justifyContent: 'space-between', 
+                  zIndex: zIndex.toolbar,
+                  marginBottom: spacing.lg,
+                  display: 'flex',
+                  justifyContent: 'space-between',
                   alignItems: 'center',
-                  background: '#fff',
-                  padding: '12px 16px',
-                  borderRadius: '8px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                  background: colors.bgBase,
+                  padding: `${spacing.md}px ${spacing.lg}px`,
+                  borderRadius: radius.md,
+                  boxShadow: shadows.toolbar
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 16 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: spacing.lg }}>
                     <Button onClick={() => {
                       console.log('[GalleryPage] 返回图集列表');
                       setSelectedGallery(null);
@@ -844,7 +845,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                       排序：
                       <Segmented
                         size="small"
-                        style={{ marginLeft: 8 }}
+                        style={{ marginLeft: spacing.sm }}
                         value={gallerySort}
                         onChange={(val) => setGallerySort(val as 'time' | 'name')}
                         options={[
@@ -872,7 +873,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                           <Descriptions.Item label="图集名称">{selectedGallery.name}</Descriptions.Item>
                           <Descriptions.Item label="文件夹路径">
                             <span 
-                              style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+                              style={{ color: colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
                               onClick={() => {
                                 if (selectedGallery.folderPath && window.electronAPI) {
                                   window.electronAPI.system.showItem(selectedGallery.folderPath);
@@ -985,14 +986,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                     {/* 文字区域 */}
                     <div
                       style={{
-                        fontSize: gallery.name.length > 20 ? '12px' : '13px',
+                        fontSize: gallery.name.length > 20 ? fontSize.sm : fontSize.md,
                         overflow: 'hidden',
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         fontWeight: 500,
                         lineHeight: '1.2',
                         textAlign: 'center',
-                        padding: '0 4px',
+                        padding: `0 ${spacing.xs}px`,
                         background: 'transparent'
                       }}
                       title={gallery.name}
@@ -1011,7 +1012,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   };
 
   return (
-    <div ref={contentRef} style={{ padding: '24px' }}>
+    <div ref={contentRef} style={{ padding: spacing.xl }}>
       {renderContent()}
       
       {/* 图集信息模态框 */}
@@ -1030,7 +1031,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             <Descriptions.Item label="图集名称">{selectedGalleryInfo.name}</Descriptions.Item>
             <Descriptions.Item label="文件夹路径">
               <span 
-                style={{ color: '#1890ff', cursor: 'pointer', textDecoration: 'underline' }}
+                style={{ color: colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
                 onClick={() => {
                   if (selectedGalleryInfo.folderPath && window.electronAPI) {
                     window.electronAPI.system.showItem(selectedGalleryInfo.folderPath);

@@ -1,15 +1,16 @@
 /**
  * 设计 Token 体系
  * 集中管理所有样式常量，替代散落各文件的硬编码值
+ * 支持亮色/暗色主题切换
  */
 
 import React from 'react';
 
 // ============================================================
-// 颜色 Token
+// 亮色主题颜色
 // ============================================================
 
-export const colors = {
+const lightColors = {
   // 品牌色
   primary: '#1890ff',
   primaryHover: '#40a9ff',
@@ -52,7 +53,85 @@ export const colors = {
   ratingSafe: '#52c41a',
   ratingQuestionable: '#faad14',
   ratingExplicit: '#ff4d4f',
-} as const;
+};
+
+/** 颜色 Token 类型 */
+export type ColorTokens = typeof lightColors;
+
+// ============================================================
+// 暗色主题颜色
+// ============================================================
+
+const darkColors: ColorTokens = {
+  // 品牌色
+  primary: '#177ddc',
+  primaryHover: '#3c9ae8',
+  primaryActive: '#095cb5',
+  primaryBg: '#111d2c',
+
+  // 功能色
+  success: '#49aa19',
+  successBg: '#162312',
+  warning: '#d89614',
+  warningBg: '#2b2111',
+  danger: '#d32029',
+  dangerBg: '#2a1215',
+  info: '#177ddc',
+
+  // 文本色
+  textPrimary: 'rgba(255, 255, 255, 0.85)',
+  textSecondary: 'rgba(255, 255, 255, 0.65)',
+  textTertiary: 'rgba(255, 255, 255, 0.45)',
+  textDisabled: 'rgba(255, 255, 255, 0.25)',
+  textDark: 'rgba(255, 255, 255, 0.85)',
+
+  // 背景色
+  bgBase: '#141414',
+  bgLight: '#1f1f1f',
+  bgGray: '#1a1a1a',
+  bgDark: '#262626',
+
+  // 边框色
+  border: '#303030',
+  borderLight: '#3a3a3a',
+  borderGray: '#434343',
+
+  // 叠加层
+  overlayLight: 'rgba(0, 0, 0, 0.6)',
+  overlayDark: 'rgba(0, 0, 0, 0.7)',
+  overlayDarker: 'rgba(0, 0, 0, 0.85)',
+
+  // Booru 评分色（暗色模式下略微调整）
+  ratingSafe: '#6abe39',
+  ratingQuestionable: '#d89614',
+  ratingExplicit: '#d32029',
+};
+
+// ============================================================
+// 主题状态管理
+// ============================================================
+
+let _isDark = false;
+
+/** 设置暗色模式（由 ThemeProvider 调用） */
+export function setDarkMode(isDark: boolean): void {
+  _isDark = isDark;
+}
+
+/** 获取当前是否为暗色模式 */
+export function isDarkMode(): boolean {
+  return _isDark;
+}
+
+// ============================================================
+// 颜色 Token（使用 Proxy 实现动态主题切换）
+// ============================================================
+
+export const colors: ColorTokens = new Proxy(lightColors, {
+  get(_target, prop: string) {
+    return _isDark ? (darkColors as any)[prop] : (lightColors as any)[prop];
+  }
+}) as ColorTokens;
 
 // ============================================================
 // 间距 Token（基于 4px 栅格）
@@ -71,7 +150,7 @@ export const spacing = {
 // 阴影 Token
 // ============================================================
 
-export const shadows = {
+const lightShadows = {
   /** 卡片默认阴影 */
   card: '0 2px 8px rgba(0, 0, 0, 0.08)',
   /** 卡片悬浮阴影 */
@@ -86,7 +165,25 @@ export const shadows = {
   subtle: '0 1px 3px rgba(0, 0, 0, 0.1)',
   /** 无阴影 */
   none: 'none',
-} as const;
+};
+
+type ShadowTokens = typeof lightShadows;
+
+const darkShadows: ShadowTokens = {
+  card: '0 2px 8px rgba(0, 0, 0, 0.3)',
+  cardHover: '0 4px 16px rgba(0, 0, 0, 0.4)',
+  toolbar: '0 2px 8px rgba(0, 0, 0, 0.35)',
+  dropdown: '0 4px 12px rgba(0, 0, 0, 0.35)',
+  modal: '0 8px 24px rgba(0, 0, 0, 0.45)',
+  subtle: '0 1px 3px rgba(0, 0, 0, 0.3)',
+  none: 'none',
+};
+
+export const shadows: ShadowTokens = new Proxy(lightShadows, {
+  get(_target, prop: string) {
+    return _isDark ? (darkShadows as any)[prop] : (lightShadows as any)[prop];
+  }
+}) as ShadowTokens;
 
 // ============================================================
 // 圆角 Token

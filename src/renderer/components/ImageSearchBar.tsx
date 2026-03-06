@@ -1,6 +1,7 @@
 import React from 'react';
 import { Input } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
+import { spacing } from '../styles/tokens';
 
 const { Search } = Input;
 
@@ -23,7 +24,7 @@ export const ImageSearchBar: React.FC<ImageSearchBarProps> = ({
   style = { width: 300 }
 }) => {
   return (
-    <div style={{ marginBottom: '24px', display: 'flex', gap: '12px', alignItems: 'center' }}>
+    <div style={{ marginBottom: spacing.xl, display: 'flex', gap: spacing.md, alignItems: 'center' }}>
       <Search
         placeholder={placeholder}
         allowClear

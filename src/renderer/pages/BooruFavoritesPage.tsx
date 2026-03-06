@@ -1,15 +1,17 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Button, Empty, message as antdMessage, Spin, Select, Space, Segmented, Affix, App, Typography } from 'antd';
-import { ReloadOutlined, BookOutlined, DownloadOutlined, DeleteOutlined } from '@ant-design/icons';
-import { BooruImageCard } from '../components/BooruImageCard';
+import { Button, Empty, App, Typography } from 'antd';
+import { BookOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
+import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
+import { PaginationControl } from '../components/PaginationControl';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
+import { spacing } from '../styles/tokens';
+import { useFavorite } from '../hooks/useFavorite';
 
 const { Title } = Typography;
-const { Option } = Select;
 
 interface BooruFavoritesPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -27,13 +29,30 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const [posts, setPosts] = useState<BooruPost[]>([]);
   const [loading, setLoading] = useState(false);
-  const [ratingFilter, setRatingFilter] = useState<'all' | 'safe' | 'questionable' | 'explicit'>('all');
+  const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // 收藏状态管理（在收藏页面中，取消收藏会从列表移除）
+  const { favorites, setFavorites, toggleFavorite } = useFavorite({
+    siteId: selectedSiteId,
+    onSuccess: (postId, isFavorited) => {
+      if (!isFavorited) {
+        // 取消收藏：从列表中移除
+        setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
+        message.success('已取消收藏');
+        // 如果当前页没有图片了，加载上一页
+        if (posts.length === 1 && currentPage > 1) {
+          loadFavorites(currentPage - 1);
+        }
+      }
+    },
+    logPrefix: '[BooruFavoritesPage]'
+  });
+
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
@@ -151,30 +170,10 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     loadFavorites(1);
   };
 
-  // 处理收藏切换（在收藏页面中，点击就是取消收藏）
+  // 处理收藏切换（委托给 useFavorite Hook）
   const handleToggleFavorite = async (post: BooruPost) => {
-    console.log('[BooruFavoritesPage] 取消收藏:', post.id);
-    try {
-      if (!window.electronAPI || !selectedSiteId) return;
-
-      const result = await window.electronAPI.booru.removeFavorite(post.id);
-      if (result.success) {
-        setFavorites(prev => {
-          const newSet = new Set(prev);
-          newSet.delete(post.id);
-          return newSet;
-        });
-        setPosts(prevPosts => prevPosts.filter(p => p.id !== post.id));
-        message.success('已取消收藏');
-        // 如果当前页没有图片了，加载上一页
-        if (posts.length === 1 && currentPage > 1) {
-          loadFavorites(currentPage - 1);
-        }
-      } else {
-        message.error('取消收藏失败: ' + result.error);
-      }
-    } catch (error) {
-      console.error('[BooruFavoritesPage] 取消收藏失败:', error);
+    const result = await toggleFavorite(post);
+    if (!result.success) {
       message.error('操作失败');
     }
   };
@@ -234,12 +233,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   }, [selectedSiteId]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
-  const ratingOptions = [
-    { label: '全部', value: 'all' },
-    { label: '安全', value: 'safe' },
-    { label: '可疑', value: 'questionable' },
-    { label: '明确', value: 'explicit' }
-  ];
 
   // 按 ID 倒序排序（最新的在前）
   const sortedPosts = useMemo(() => {
@@ -249,66 +242,22 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
       {/* 页面标题 */}
-      <div style={{ marginBottom: 24 }}>
+      <div style={{ marginBottom: spacing.xl }}>
         <Title level={3} style={{ margin: 0 }}>
           <BookOutlined /> 我的收藏
         </Title>
       </div>
 
       {/* 工具栏 */}
-      <Affix offsetTop={0}>
-        <div style={{ 
-          background: '#fff', 
-          padding: '16px', 
-          borderRadius: '8px',
-          marginBottom: 16,
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }}>
-          <Space wrap>
-            {/* 站点选择 */}
-            <Space>
-              <span>站点:</span>
-              <Select
-                value={selectedSiteId}
-                onChange={handleSiteChange}
-                style={{ width: 200 }}
-                disabled={loading}
-              >
-                {sites.map(site => (
-                  <Option key={site.id} value={site.id}>
-                    {site.name}
-                  </Option>
-                ))}
-              </Select>
-            </Space>
-
-            {/* 分级筛选 */}
-            <Space wrap>
-              <span>分级:</span>
-              <Segmented
-                value={ratingFilter}
-                onChange={(value) => {
-                  setRatingFilter(value as any);
-                }}
-                options={ratingOptions}
-                disabled={loading}
-              />
-            </Space>
-
-            {/* 操作按钮 */}
-            <Space wrap>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => loadFavorites(currentPage)}
-                loading={loading}
-                disabled={!selectedSiteId}
-              >
-                刷新
-              </Button>
-            </Space>
-          </Space>
-        </div>
-      </Affix>
+      <BooruPageToolbar
+        sites={sites}
+        selectedSiteId={selectedSiteId}
+        loading={loading}
+        ratingFilter={ratingFilter}
+        onSiteChange={handleSiteChange}
+        onRatingChange={setRatingFilter}
+        onRefresh={() => loadFavorites(currentPage)}
+      />
 
       {/* 图片列表 */}
       <div>
@@ -333,26 +282,15 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
 
         {!loading && posts.length > 0 && (
           <>
-            {/* 顶部分页 */}
-            {(appearanceConfig.paginationPosition === 'top' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginBottom: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => loadFavorites(Math.max(1, currentPage - 1))}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => loadFavorites(currentPage + 1)}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="top"
+              onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
+              onNext={() => loadFavorites(currentPage + 1)}
+            />
 
             <BooruGridLayout
               posts={sortedPosts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
@@ -367,26 +305,15 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               getPreviewUrl={getPreviewUrl}
             />
 
-            {/* 底部分页 */}
-            {(appearanceConfig.paginationPosition === 'bottom' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginTop: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => loadFavorites(Math.max(1, currentPage - 1))}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => loadFavorites(currentPage + 1)}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="bottom"
+              onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
+              onNext={() => loadFavorites(currentPage + 1)}
+            />
           </>
         )}
       </div>

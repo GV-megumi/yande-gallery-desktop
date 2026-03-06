@@ -1,15 +1,13 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { Button, Empty, message as antdMessage, Spin, Select, Input, Tag, Space, Segmented, Affix, App } from 'antd';
-import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
-import { BooruImageCard } from '../components/BooruImageCard';
+import { Button, Empty, App } from 'antd';
 import { BooruGridLayout } from '../components/BooruGridLayout';
+import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
+import { PaginationControl } from '../components/PaginationControl';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
-
-const { Search } = Input;
-const { Option } = Select;
+import { useFavorite } from '../hooks/useFavorite';
 
 interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -23,14 +21,28 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
-  const [ratingFilter, setRatingFilter] = useState<'all' | 'safe' | 'questionable' | 'explicit'>('all');
+  const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isSearchMode, setIsSearchMode] = useState(false);
-  const [favorites, setFavorites] = useState<Set<number>>(new Set());
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  // 收藏状态管理
+  const { favorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
+    siteId: selectedSiteId,
+    onSuccess: (postId, isFavorited) => {
+      // 更新图片数据中的收藏状态
+      setPosts(prevPosts =>
+        prevPosts.map(p =>
+          p.id === postId ? { ...p, isFavorited } : p
+        )
+      );
+      message[isFavorited ? 'success' : 'success'](isFavorited ? '已添加收藏' : '已取消收藏');
+    },
+    logPrefix: '[BooruPage]'
+  });
+
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
@@ -111,30 +123,6 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     }
   };
 
-  // 加载当前页面图片的收藏状态
-  const loadFavorites = async (currentPosts: BooruPost[]) => {
-    console.log('[BooruPage] 加载收藏状态，图片数量:', currentPosts.length);
-    try {
-      if (!window.electronAPI || currentPosts.length === 0) {
-        setFavorites(new Set());
-        return;
-      }
-
-      // 从当前图片列表中提取已收藏的图片ID
-      const favoriteIds = new Set<number>();
-      currentPosts.forEach(post => {
-        if (post.isFavorited) {
-          favoriteIds.add(post.id);
-        }
-      });
-      
-      console.log('[BooruPage] 收藏状态加载成功:', favoriteIds.size, '个收藏, IDs:', Array.from(favoriteIds));
-      setFavorites(favoriteIds);
-    } catch (error) {
-      console.error('[BooruPage] 加载收藏状态失败:', error);
-      setFavorites(new Set());
-    }
-  };
 
   // 从Booru站点加载图片
   const loadPosts = async (page: number = 1) => {
@@ -184,7 +172,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态（从当前图片数据中提取）
-        await loadFavorites(data);
+        loadFavoritesFromPosts(data);
       } else {
         console.error('[BooruPage] 加载图片失败:', result.error);
         message.error('加载图片失败: ' + result.error);
@@ -251,7 +239,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态（从当前图片数据中提取）
-        await loadFavorites(data);
+        loadFavoritesFromPosts(data);
+
+        // 保存搜索历史（仅首页搜索时保存）
+        if (page === 1 && selectedSiteId) {
+          window.electronAPI.booru.addSearchHistory?.(selectedSiteId, query, data.length);
+        }
       } else {
         console.error('[BooruPage] 搜索失败:', result.error);
         message.error('搜索失败: ' + result.error);
@@ -290,60 +283,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     searchPosts(query, 1);
   };
 
-  // 处理收藏切换
+  // 处理收藏切换（委托给 useFavorite Hook）
   const handleToggleFavorite = async (post: BooruPost) => {
-    const isCurrentlyFavorited = favorites.has(post.id) || post.isFavorited;
-    console.log('[BooruPage] 切换收藏状态:', post.id, '当前:', isCurrentlyFavorited);
-    try {
-      if (!window.electronAPI || !selectedSiteId) return;
-
-      if (isCurrentlyFavorited) {
-        // 取消收藏
-        const result = await window.electronAPI.booru.removeFavorite(post.id);
-        if (result.success) {
-          console.log('[BooruPage] 取消收藏成功:', post.id);
-          // 更新本地状态
-          setFavorites(prev => {
-            const newSet = new Set(prev);
-            newSet.delete(post.id);
-            return newSet;
-          });
-          // 更新图片数据中的收藏状态
-          setPosts(prevPosts => 
-            prevPosts.map(p => 
-              p.id === post.id ? { ...p, isFavorited: false } : p
-            )
-          );
-          message.success('已取消收藏');
-        } else {
-          console.error('[BooruPage] 取消收藏失败:', result.error);
-          message.error('取消收藏失败: ' + result.error);
-        }
-      } else {
-        // 添加收藏
-        const result = await window.electronAPI.booru.addFavorite(post.id, selectedSiteId, false);
-        if (result.success) {
-          console.log('[BooruPage] 添加收藏成功:', post.id);
-          // 更新本地状态
-          setFavorites(prev => {
-            const newSet = new Set(prev);
-            newSet.add(post.id);
-            return newSet;
-          });
-          // 更新图片数据中的收藏状态
-          setPosts(prevPosts => 
-            prevPosts.map(p => 
-              p.id === post.id ? { ...p, isFavorited: true } : p
-            )
-          );
-          message.success('已添加收藏');
-        } else {
-          console.error('[BooruPage] 添加收藏失败:', result.error);
-          message.error('添加收藏失败: ' + result.error);
-        }
-      }
-    } catch (error) {
-      console.error('[BooruPage] 切换收藏失败:', error);
+    const result = await toggleFavorite(post);
+    if (!result.success) {
       message.error('操作失败');
     }
   };
@@ -419,13 +362,20 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     loadSites();
   }, []);
 
-  // 监听配置变化，重新加载配置
+  // 监听配置变更事件（事件驱动，替代轮询）
   useEffect(() => {
-    const interval = setInterval(async () => {
-      await loadAppearanceConfig();
-    }, 2000); // 每2秒检查一次配置更新
-
-    return () => clearInterval(interval);
+    if (!window.electronAPI?.config?.onConfigChanged) return;
+    const unsubscribe = window.electronAPI.config.onConfigChanged((config: any) => {
+      console.log('[BooruPage] 收到配置变更事件');
+      const booruConfig = config?.booru?.appearance;
+      if (booruConfig) {
+        setAppearanceConfig(booruConfig);
+      } else {
+        // 配置结构不包含 booru.appearance 时重新加载完整配置
+        loadAppearanceConfig();
+      }
+    });
+    return () => unsubscribe();
   }, []);
 
   // 监听配置变化，重新加载图片
@@ -451,12 +401,6 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   }, [selectedSiteId]);
 
   const selectedSite = selectedSiteId ? sites.find(s => s.id === selectedSiteId) : null;
-  const ratingOptions = [
-    { label: '全部', value: 'all' },
-    { label: '安全', value: 'safe' },
-    { label: '存疑', value: 'questionable' },
-    { label: '限制级', value: 'explicit' }
-  ];
 
   // 根据预览质量获取图片URL（委托给统一的 url 工具函数）
   const getPreviewUrl = (post: BooruPost): string => {
@@ -465,107 +409,38 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
 
   return (
     <div ref={contentRef} style={{ padding: `${appearanceConfig.margin}px` }}>
-      {/* 顶部控制栏 - 使用 Affix 固定在顶部 */}
-      <Affix offsetTop={24}>
-        <div style={{
-          background: '#fff',
-          padding: '16px',
-          borderRadius: '8px',
-          marginBottom: '24px',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
-          zIndex: 10
-        }}>
-          <Space wrap style={{ width: '100%', justifyContent: 'space-between' }}>
-            {/* 站点选择 */}
-            <Space wrap>
-              <span>站点:</span>
-              <Select
-                value={selectedSiteId || undefined}
-                onChange={handleSiteChange}
-                style={{ width: 180 }}
-                placeholder="选择Booru站点"
-                disabled={loading}
-              >
-                {sites.map(site => (
-                  <Option key={site.id} value={site.id}>
-                    {site.name}
-                  </Option>
-                ))}
-              </Select>
-            </Space>
-
-            {/* 搜索框 */}
-            <Search
-              placeholder="输入标签搜索 (使用空格分隔多个标签)"
-              allowClear
-              enterButton={<SearchOutlined />}
-              style={{ width: 400 }}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onSearch={handleSearch}
-              disabled={!selectedSiteId || loading}
-            />
-
-            {/* 分级筛选 */}
-            <Space wrap>
-              <span>分级:</span>
-              <Segmented
-                value={ratingFilter}
-                onChange={(value) => {
-                  console.log('[BooruPage] 分级筛选改变:', value);
-                  setRatingFilter(value as any);
-                  // 重新加载当前内容
-                  if (isSearchMode) {
-                    searchPosts(searchQuery, 1);
-                  } else {
-                    loadPosts(1);
-                  }
-                }}
-                options={ratingOptions}
-                disabled={loading}
-              />
-            </Space>
-
-            {/* 操作按钮 */}
-            <Space wrap>
-              <Button
-                icon={<ReloadOutlined />}
-                onClick={() => {
-                  console.log('[BooruPage] 刷新页面');
-                  if (isSearchMode) {
-                    searchPosts(searchQuery, 1);
-                  } else {
-                    loadPosts(1);
-                  }
-                }}
-                loading={loading}
-                disabled={!selectedSiteId}
-              >
-                刷新
-              </Button>
-            </Space>
-          </Space>
-
-          {/* 已选标签显示 */}
-          {selectedTags.length > 0 && (
-            <div style={{ marginTop: 8, paddingTop: 8, borderTop: '1px solid #f0f0f0' }}>
-              <Space wrap>
-                <span style={{ fontSize: 12, color: '#666' }}>已选标签:</span>
-                {selectedTags.map(tag => (
-                  <Tag
-                    key={tag}
-                    closable
-                    onClose={() => handleRemoveTag(tag)}
-                    style={{ fontSize: 12 }}
-                  >
-                    {tag}
-                  </Tag>
-                ))}
-              </Space>
-            </div>
-          )}
-        </div>
-      </Affix>
+      {/* 顶部控制栏 */}
+      <BooruPageToolbar
+        sites={sites}
+        selectedSiteId={selectedSiteId}
+        loading={loading}
+        ratingFilter={ratingFilter}
+        offsetTop={24}
+        onSiteChange={handleSiteChange}
+        onRatingChange={(rating) => {
+          console.log('[BooruPage] 分级筛选改变:', rating);
+          setRatingFilter(rating);
+          if (isSearchMode) {
+            searchPosts(searchQuery, 1);
+          } else {
+            loadPosts(1);
+          }
+        }}
+        onRefresh={() => {
+          console.log('[BooruPage] 刷新页面');
+          if (isSearchMode) {
+            searchPosts(searchQuery, 1);
+          } else {
+            loadPosts(1);
+          }
+        }}
+        showSearch
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        onSearch={handleSearch}
+        selectedTags={selectedTags}
+        onRemoveTag={handleRemoveTag}
+      />
 
       {/* 图片列表 */}
       <div>
@@ -590,40 +465,21 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
 
         {!loading && posts.length > 0 && (
           <>
-            {/* 顶部分页（如果配置为 top 或 both） */}
-            {(appearanceConfig.paginationPosition === 'top' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginBottom: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, currentPage - 1);
-                      if (isSearchMode) {
-                        searchPosts(searchQuery, next);
-                      } else {
-                        loadPosts(next);
-                      }
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => {
-                      const next = currentPage + 1;
-                      if (isSearchMode) {
-                        searchPosts(searchQuery, next);
-                      } else {
-                        loadPosts(next);
-                      }
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="top"
+              onPrevious={() => {
+                const next = Math.max(1, currentPage - 1);
+                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
+              }}
+              onNext={() => {
+                const next = currentPage + 1;
+                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
+              }}
+            />
 
             <BooruGridLayout
               posts={posts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
@@ -638,40 +494,21 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
               getPreviewUrl={getPreviewUrl}
             />
 
-            {/* 底部分页（如果配置为 bottom 或 both） */}
-            {(appearanceConfig.paginationPosition === 'bottom' || appearanceConfig.paginationPosition === 'both') && (
-              <div style={{ marginTop: 24, textAlign: 'center' }}>
-                <Space>
-                  <Button
-                    disabled={currentPage <= 1}
-                    onClick={() => {
-                      const next = Math.max(1, currentPage - 1);
-                      if (isSearchMode) {
-                        searchPosts(searchQuery, next);
-                      } else {
-                        loadPosts(next);
-                      }
-                    }}
-                  >
-                    上一页
-                  </Button>
-                  <span>第 {currentPage} 页</span>
-                  <Button
-                    disabled={posts.length < appearanceConfig.itemsPerPage}
-                    onClick={() => {
-                      const next = currentPage + 1;
-                      if (isSearchMode) {
-                        searchPosts(searchQuery, next);
-                      } else {
-                        loadPosts(next);
-                      }
-                    }}
-                  >
-                    下一页
-                  </Button>
-                </Space>
-              </div>
-            )}
+            <PaginationControl
+              currentPage={currentPage}
+              currentCount={posts.length}
+              itemsPerPage={appearanceConfig.itemsPerPage}
+              paginationPosition={appearanceConfig.paginationPosition}
+              position="bottom"
+              onPrevious={() => {
+                const next = Math.max(1, currentPage - 1);
+                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
+              }}
+              onNext={() => {
+                const next = currentPage + 1;
+                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
+              }}
+            />
           </>
         )}
       </div>

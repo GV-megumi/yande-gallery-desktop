@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { Card, Table, Progress, Button, Space, Tag, Tabs, Popconfirm, App, Tooltip, Image, Select } from 'antd';
+import { StatusTag } from '../components/StatusTag';
 import { 
   DownloadOutlined, 
   PauseCircleOutlined, 
@@ -374,19 +375,7 @@ export const BooruDownloadPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       width: 120,
-      render: (status: string) => {
-        const colors: Record<string, string> = {
-          pending: 'default',
-          downloading: 'processing',
-          paused: 'warning',
-        };
-        const texts: Record<string, string> = {
-          pending: '等待中',
-          downloading: '下载中',
-          paused: '已暂停',
-        };
-        return <Tag color={colors[status]}>{texts[status] || status}</Tag>;
-      }
+      render: (status: string) => <StatusTag status={status} />
     },
     {
       title: '进度',

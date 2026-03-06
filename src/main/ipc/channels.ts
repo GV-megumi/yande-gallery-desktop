@@ -74,6 +74,7 @@ export const IPC_CHANNELS = {
   BOORU_GET_QUEUE_STATUS: 'booru:get-queue-status',
 
   // Booru 搜索历史
+  BOORU_ADD_SEARCH_HISTORY: 'booru:add-search-history',
   BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',
   BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history',
 

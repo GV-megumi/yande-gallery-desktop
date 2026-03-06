@@ -1208,6 +1208,91 @@ export async function removeFavoriteTagLabel(id: number): Promise<void> {
   }
 }
 
+// ========= 搜索历史 =========
+
+/**
+ * 添加搜索历史记录
+ * 如果相同站点+查询已存在，更新时间和结果数
+ */
+export async function addSearchHistory(siteId: number, query: string, resultCount: number = 0): Promise<void> {
+  console.log('[booruService] 添加搜索历史:', { siteId, query, resultCount });
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    // 如果已存在相同查询，更新时间和结果数
+    const existing = await get<any>(db,
+      'SELECT id FROM booru_search_history WHERE siteId = ? AND query = ?',
+      [siteId, query]
+    );
+
+    if (existing) {
+      await run(db,
+        'UPDATE booru_search_history SET resultCount = ?, createdAt = ? WHERE id = ?',
+        [resultCount, now, existing.id]
+      );
+    } else {
+      await run(db,
+        'INSERT INTO booru_search_history (siteId, query, resultCount, createdAt) VALUES (?, ?, ?, ?)',
+        [siteId, query, resultCount, now]
+      );
+    }
+    console.log('[booruService] 搜索历史已保存');
+  } catch (error) {
+    console.error('[booruService] 添加搜索历史失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取搜索历史记录
+ * @param siteId 站点 ID（可选，不传则获取全部）
+ * @param limit 最大返回数量，默认 20
+ */
+export async function getSearchHistory(siteId?: number, limit: number = 20): Promise<SearchHistoryItem[]> {
+  console.log('[booruService] 获取搜索历史:', { siteId, limit });
+  try {
+    const db = await getDatabase();
+    let sql = 'SELECT * FROM booru_search_history';
+    const params: any[] = [];
+
+    if (siteId) {
+      sql += ' WHERE siteId = ?';
+      params.push(siteId);
+    }
+
+    sql += ' ORDER BY createdAt DESC LIMIT ?';
+    params.push(limit);
+
+    const history = await all<SearchHistoryItem>(db, sql, params);
+    console.log('[booruService] 获取到', history.length, '条搜索历史');
+    return history;
+  } catch (error) {
+    console.error('[booruService] 获取搜索历史失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 清除搜索历史记录
+ * @param siteId 站点 ID（可选，不传则清除全部）
+ */
+export async function clearSearchHistory(siteId?: number): Promise<void> {
+  console.log('[booruService] 清除搜索历史:', { siteId });
+  try {
+    const db = await getDatabase();
+    if (siteId) {
+      await run(db, 'DELETE FROM booru_search_history WHERE siteId = ?', [siteId]);
+    } else {
+      await run(db, 'DELETE FROM booru_search_history');
+    }
+    console.log('[booruService] 搜索历史已清除');
+  } catch (error) {
+    console.error('[booruService] 清除搜索历史失败:', error);
+    throw error;
+  }
+}
+
 // ========= 批量导出 =========
 
 export default {
@@ -1256,6 +1341,11 @@ export default {
   // 收藏标签分组
   getFavoriteTagLabels,
   addFavoriteTagLabel,
-  removeFavoriteTagLabel
+  removeFavoriteTagLabel,
+
+  // 搜索历史
+  addSearchHistory,
+  getSearchHistory,
+  clearSearchHistory
 };
 

@@ -21,7 +21,7 @@ export interface BooruGridLayoutProps {
   getPreviewUrl: (post: BooruPost) => string;
 }
 
-export const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
+export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   posts,
   gridSize,
   spacing,
@@ -121,4 +121,6 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
       })}
     </div>
   );
-};
+});
+
+BooruGridLayout.displayName = 'BooruGridLayout';
