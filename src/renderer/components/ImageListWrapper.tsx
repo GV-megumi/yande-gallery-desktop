@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { Spin, Empty } from 'antd';
 import { ImageGrid, ImageGridProps } from './ImageGrid';
+import { SkeletonWaterfall } from './SkeletonGrid';
 
 interface ImageListWrapperProps extends Omit<ImageGridProps, 'images'> {
   images: any[];
@@ -48,11 +49,7 @@ export const ImageListWrapper: React.FC<ImageListWrapperProps> = ({
 
   // 早期返回必须在所有 hooks 之后
   if (loading) {
-    return (
-      <div style={{ textAlign: 'center', padding: '50px' }}>
-        <Spin size="large" />
-      </div>
-    );
+    return <SkeletonWaterfall count={12} />;
   }
 
   if (images.length === 0) {

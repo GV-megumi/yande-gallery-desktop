@@ -6,6 +6,7 @@ import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
 import { LazyLoadFooter } from '../components/LazyLoadFooter';
 import { GalleryCoverImage } from '../components/GalleryCoverImage';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
 
 const { Search } = Input;
@@ -938,9 +939,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
               </ImageListWrapper>
             </>
           ) : loading ? (
-            <div style={{ textAlign: 'center', padding: '50px' }}>
-              <Spin size="large" />
-            </div>
+            <SkeletonGrid count={8} cardWidth={250} gap={16} />
           ) : galleries.length === 0 ? (
             <Empty
               description={gallerySearchQuery ? '未找到匹配的图集' : '暂无图集'}

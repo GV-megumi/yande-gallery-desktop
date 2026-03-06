@@ -12,8 +12,8 @@
 
 ## P1 - 交互与视觉优化
 
-- [ ] 2.1 骨架屏替代 Spin（GalleryPage, BooruPage, BooruFavoritesPage, BooruDownloadPage）
-- [ ] 2.2 图片加载状态优化（fade-in + 错误降级 + 重试）
+- [x] 2.1 骨架屏替代 Spin（GalleryPage, BooruPage, BooruFavoritesPage, ImageListWrapper）
+- [x] 2.2 图片加载状态优化（fade-in 渐显 + 占位背景 + 错误降级 + 重试按钮）
 - [ ] 2.3 配置更新改为事件驱动（消除 BooruPage 2秒轮询）
 - [ ] 2.4 搜索体验增强（防抖 + 搜索历史 + 统一宽度）
 - [ ] 3.1 全局 inline style 替换为 Token 引用

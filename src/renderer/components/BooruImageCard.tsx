@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Card, Image, Tag, Space, Button, message } from 'antd';
-import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined } from '@ant-design/icons';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
+import { colors, radius, shadows, transitions } from '../styles/tokens';
 
 interface BooruImageCardProps {
   post: BooruPost;
@@ -46,6 +47,8 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
     return url;
   };
   const [loading, setLoading] = useState(false);
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageError, setImageError] = useState(false);
 
   const handleDownload = () => {
     console.log('[BooruImageCard] 点击下载按钮:', post.postId);
@@ -85,7 +88,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
       styles={{ body: { padding: 8, height: '100%', display: 'flex', flexDirection: 'column' } }}
       style={{
         height: '100%',
-        borderRadius: 8,
+        borderRadius: radius.md,
         overflow: 'hidden',
         display: 'flex',
         flexDirection: 'column'
@@ -104,30 +107,67 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
           }}
           onClick={handlePreview}
         >
+          {/* 图片加载占位背景 */}
+          {!imageLoaded && !imageError && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: colors.bgLight,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <PictureOutlined style={{ fontSize: 32, color: colors.borderGray }} />
+            </div>
+          )}
+
+          {/* 图片加载失败状态 */}
+          {imageError && (
+            <div style={{
+              position: 'absolute',
+              inset: 0,
+              background: colors.bgLight,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: 8,
+            }}>
+              <PictureOutlined style={{ fontSize: 32, color: colors.borderGray }} />
+              <span style={{ fontSize: 12, color: colors.textTertiary }}>加载失败</span>
+              <Button
+                size="small"
+                icon={<ReloadOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setImageError(false);
+                  setImageLoaded(false);
+                }}
+              >
+                重试
+              </Button>
+            </div>
+          )}
+
           <img
-            src={getPreviewUrl()}
+            src={imageError ? undefined : getPreviewUrl()}
             alt={`Post ${post.postId}`}
             style={{
               width: '100%',
               height: '100%',
-              display: 'block',
-              objectFit: 'contain'
+              display: imageError ? 'none' : 'block',
+              objectFit: 'contain',
+              opacity: imageLoaded ? 1 : 0,
+              transition: 'opacity 0.3s ease',
             }}
             loading="lazy"
-            onError={(e) => {
-              console.error('[BooruImageCard] 图片加载失败:', {
-                postId: post.postId,
-                src: getPreviewUrl(),
-                error: e,
-                target: e.target
-              });
-              // 尝试使用 fallback
-              if (e.target && e.target instanceof HTMLImageElement) {
-                e.target.src = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
-              }
+            onError={() => {
+              setImageError(true);
+              setImageLoaded(false);
             }}
             onLoad={(e) => {
-              console.log('[BooruImageCard] 图片加载成功:', post.postId);
+              setImageLoaded(true);
+              setImageError(false);
               if (onImageLoad && e.target && e.target instanceof HTMLImageElement) {
                 const height = e.target.offsetHeight || e.target.naturalHeight;
                 onImageLoad(post.postId, height);
@@ -152,7 +192,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
                 handlePreview();
               }}
               style={{
-                background: 'rgba(0,0,0,0.6)',
+                background: colors.overlayDark,
                 color: '#fff',
                 border: 'none'
               }}
@@ -167,8 +207,8 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
                 handleToggleFavorite();
               }}
               style={{
-                background: 'rgba(0,0,0,0.6)',
-                color: isFavorited ? '#ff4d4f' : '#fff',
+                background: colors.overlayDark,
+                color: isFavorited ? colors.danger : '#fff',
                 border: 'none'
               }}
               title={isFavorited ? '取消收藏' : '收藏'}
@@ -183,7 +223,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
                 handleDownload();
               }}
               style={{
-                background: 'rgba(0,0,0,0.6)',
+                background: colors.overlayDark,
                 color: '#fff',
                 border: 'none'
               }}
@@ -234,11 +274,11 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
         {/* 尺寸和ID信息 */}
         <Space size={4} style={{ marginTop: 4 }}>
           {post.width && post.height && (
-            <span style={{ fontSize: 11, color: '#666' }}>
+            <span style={{ fontSize: 11, color: colors.textSecondary }}>
               {post.width}×{post.height}
             </span>
           )}
-          <span style={{ fontSize: 11, color: '#999' }}>
+          <span style={{ fontSize: 11, color: colors.textTertiary }}>
             ID: {post.postId}
           </span>
         </Space>

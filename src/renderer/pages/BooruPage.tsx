@@ -3,6 +3,7 @@ import { Button, Empty, message as antdMessage, Spin, Select, Input, Tag, Space,
 import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import { BooruImageCard } from '../components/BooruImageCard';
 import { BooruGridLayout } from '../components/BooruGridLayout';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
@@ -569,9 +570,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
       {/* 图片列表 */}
       <div>
         {loading && (
-          <div style={{ textAlign: 'center', padding: '50px' }}>
-            <Spin size="large" />
-          </div>
+          <SkeletonGrid count={12} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
         )}
 
         {!loading && posts.length === 0 && (
