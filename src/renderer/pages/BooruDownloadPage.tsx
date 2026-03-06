@@ -87,8 +87,8 @@ export const BooruDownloadPage: React.FC = () => {
     return sorted;
   }, [completedDownloads, sortField, sortOrder]);
 
-  // 加载下载队列
-  const loadQueue = async () => {
+  // 加载下载队列（使用 useCallback 避免闭包过期）
+  const loadQueue = useCallback(async () => {
     setLoading(true);
     try {
       if (!window.electronAPI) return;
@@ -129,7 +129,7 @@ export const BooruDownloadPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [message]);
 
   // 恢复未完成的下载任务（首次进入时调用）
   const resumePendingDownloads = async () => {
@@ -305,7 +305,7 @@ export const BooruDownloadPage: React.FC = () => {
       if (removeStatusListener) removeStatusListener();
       if (removeQueueStatusListener) removeQueueStatusListener();
     };
-  }, []);
+  }, [loadQueue]);
 
   // 格式化字节数
   const formatBytes = (bytes: number) => {

@@ -46,30 +46,44 @@ const GalleryCardList: React.FC<{
 }> = ({ galleries, onSelect, getImageUrl }) => {
   const [coverThumbnails, setCoverThumbnails] = React.useState<Record<number, string | null>>({});
 
-  // 加载所有封面的缩略图
+  // 加载所有封面的缩略图（并发 + 取消支持）
   React.useEffect(() => {
     if (!window.electronAPI || galleries.length === 0) return;
 
+    let cancelled = false;
     const loadThumbnails = async () => {
-      const thumbnails: Record<number, string | null> = {};
-      
-      for (const gallery of galleries) {
-        if (gallery.coverImage?.filepath) {
+      const galleriesWithCover = galleries.filter(g => g.coverImage?.filepath);
+      const concurrency = 4;
+
+      for (let i = 0; i < galleriesWithCover.length; i += concurrency) {
+        if (cancelled) return;
+        const batch = galleriesWithCover.slice(i, i + concurrency);
+        const results = await Promise.all(batch.map(async (gallery) => {
+          if (cancelled) return null;
           try {
             const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
             if (result.success && result.data) {
-              thumbnails[gallery.id] = result.data;
+              return { id: gallery.id, path: result.data };
             }
           } catch (error) {
             console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
           }
+          return null;
+        }));
+
+        if (cancelled) return;
+        const batchUpdate: Record<number, string | null> = {};
+        for (const r of results) {
+          if (r) batchUpdate[r.id] = r.path;
+        }
+        if (Object.keys(batchUpdate).length > 0) {
+          setCoverThumbnails(prev => ({ ...prev, ...batchUpdate }));
         }
       }
-      
-      setCoverThumbnails(thumbnails);
     };
 
     loadThumbnails();
+    return () => { cancelled = true; };
   }, [galleries]);
 
   return (
@@ -625,37 +639,57 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       scrollContainer.removeEventListener('scroll', handleScroll);
     };
     // 依赖于 recentImages.length，保证新数据加载后滚动逻辑仍然生效
-  }, [subTab, recentImages.length, recentImages]);
+    // 注意：不依赖 recentImages 引用本身，只依赖 .length，避免每次 setState 都重新注册事件
+  }, [subTab, recentImages.length]);
 
   // 图集封面缩略图状态
   const [coverThumbnails, setCoverThumbnails] = useState<Record<number, string | null>>({});
 
-  // 加载图集封面缩略图
+  // 加载图集封面缩略图（并发加载 + 取消支持）
   useEffect(() => {
     if (!window.electronAPI || galleries.length === 0) return;
 
+    let cancelled = false;
     console.log(`[GalleryPage] 开始加载图集封面缩略图，图集数量: ${galleries.length}`);
-    const loadThumbnails = async () => {
-      const thumbnails: Record<number, string | null> = {};
 
-      for (const gallery of galleries) {
-        if (gallery.coverImage?.filepath) {
+    const loadThumbnails = async () => {
+      // 筛选需要加载缩略图的图集
+      const galleriesWithCover = galleries.filter(g => g.coverImage?.filepath);
+      const concurrency = 4;
+
+      for (let i = 0; i < galleriesWithCover.length; i += concurrency) {
+        if (cancelled) return;
+        const batch = galleriesWithCover.slice(i, i + concurrency);
+
+        const results = await Promise.all(batch.map(async (gallery) => {
+          if (cancelled) return null;
           try {
             const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
             if (result.success && result.data) {
-              thumbnails[gallery.id] = result.data;
+              return { id: gallery.id, path: result.data };
             }
           } catch (error) {
             console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
           }
+          return null;
+        }));
+
+        if (cancelled) return;
+        // 批量更新状态，减少渲染次数
+        const batchUpdate: Record<number, string | null> = {};
+        for (const r of results) {
+          if (r) batchUpdate[r.id] = r.path;
+        }
+        if (Object.keys(batchUpdate).length > 0) {
+          setCoverThumbnails(prev => ({ ...prev, ...batchUpdate }));
         }
       }
 
-      console.log(`[GalleryPage] 图集封面缩略图加载完成，成功数量: ${Object.keys(thumbnails).length}`);
-      setCoverThumbnails(thumbnails);
+      console.log(`[GalleryPage] 图集封面缩略图加载完成`);
     };
 
     loadThumbnails();
+    return () => { cancelled = true; };
   }, [galleries]);
 
   // 将本地文件路径转换为 app:// 协议 URL（用于图集封面）

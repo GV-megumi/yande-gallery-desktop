@@ -154,61 +154,79 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     loadOriginalImage();
   }, [open, currentPost]);
 
-  // 预加载前后3张图片
+  // 预加载前后3张图片（带并发控制和取消机制）
   useEffect(() => {
     if (!open || !posts.length || currentIndex < 0) {
       return;
     }
+
+    let cancelled = false;
 
     const preloadImages = async () => {
       // 计算需要预加载的图片索引范围（前后各3张）
       const preloadRange = 3;
       const startIndex = Math.max(0, currentIndex - preloadRange);
       const endIndex = Math.min(posts.length - 1, currentIndex + preloadRange);
-      
+
       console.log(`[BooruPostDetailsPage] 开始预加载图片: 索引 ${startIndex} 到 ${endIndex} (当前: ${currentIndex})`);
 
-      // 收集需要预加载的图片（排除当前图片）
+      // 收集需要预加载的图片（排除当前图片），优先加载相邻的
       const postsToPreload: BooruPost[] = [];
-      for (let i = startIndex; i <= endIndex; i++) {
-        if (i !== currentIndex && posts[i]) {
-          const post = posts[i];
-          // 只预加载有 fileUrl、md5 和 fileExt 的图片
-          if (post.fileUrl && post.md5 && post.fileExt && !post.localPath) {
-            postsToPreload.push(post);
-          }
+      // 先添加下一张和上一张（距离近的优先）
+      for (let distance = 1; distance <= preloadRange; distance++) {
+        if (currentIndex + distance <= endIndex && posts[currentIndex + distance]) {
+          const p = posts[currentIndex + distance];
+          if (p.fileUrl && p.md5 && p.fileExt && !p.localPath) postsToPreload.push(p);
+        }
+        if (currentIndex - distance >= startIndex && posts[currentIndex - distance]) {
+          const p = posts[currentIndex - distance];
+          if (p.fileUrl && p.md5 && p.fileExt && !p.localPath) postsToPreload.push(p);
         }
       }
 
       console.log(`[BooruPostDetailsPage] 需要预加载 ${postsToPreload.length} 张图片`);
 
-      // 后台静默预加载（不阻塞UI）
-      postsToPreload.forEach(async (post) => {
-        try {
-          // 先检查缓存
-          const cachedUrlResult = await window.electronAPI.booru.getCachedImageUrl(post.md5!, post.fileExt!);
-          if (cachedUrlResult.success && cachedUrlResult.data) {
-            console.log(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 已在缓存中`);
-            return;
-          }
-
-          // 缓存不存在，后台下载
-          console.log(`[BooruPostDetailsPage] 预加载: 开始下载图片 ${post.postId}...`);
-          const cacheResult = await window.electronAPI.booru.cacheImage(
-            post.fileUrl!,
-            post.md5!,
-            post.fileExt!
-          );
-
-          if (cacheResult.success) {
-            console.log(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 缓存成功`);
-          } else {
-            console.warn(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 缓存失败:`, cacheResult.error);
-          }
-        } catch (error) {
-          console.error(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 失败:`, error);
+      // 限制并发数为 2，逐批预加载
+      const concurrency = 2;
+      for (let i = 0; i < postsToPreload.length; i += concurrency) {
+        if (cancelled) {
+          console.log('[BooruPostDetailsPage] 预加载已取消（翻页）');
+          return;
         }
-      });
+
+        const batch = postsToPreload.slice(i, i + concurrency);
+        await Promise.all(batch.map(async (post) => {
+          if (cancelled) return;
+          try {
+            // 先检查缓存
+            const cachedUrlResult = await window.electronAPI.booru.getCachedImageUrl(post.md5!, post.fileExt!);
+            if (cancelled) return;
+            if (cachedUrlResult.success && cachedUrlResult.data) {
+              console.log(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 已在缓存中`);
+              return;
+            }
+
+            // 缓存不存在，后台下载
+            console.log(`[BooruPostDetailsPage] 预加载: 开始下载图片 ${post.postId}...`);
+            const cacheResult = await window.electronAPI.booru.cacheImage(
+              post.fileUrl!,
+              post.md5!,
+              post.fileExt!
+            );
+
+            if (cancelled) return;
+            if (cacheResult.success) {
+              console.log(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 缓存成功`);
+            } else {
+              console.warn(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 缓存失败:`, cacheResult.error);
+            }
+          } catch (error) {
+            if (!cancelled) {
+              console.error(`[BooruPostDetailsPage] 预加载: 图片 ${post.postId} 失败:`, error);
+            }
+          }
+        }));
+      }
     };
 
     // 延迟一下，让当前图片先加载
@@ -217,6 +235,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     }, 1000);
 
     return () => {
+      // 翻页或关闭时取消旧的预加载任务
+      cancelled = true;
       clearTimeout(timer);
     };
   }, [open, currentIndex, posts]);

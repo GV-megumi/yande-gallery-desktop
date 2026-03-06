@@ -36,6 +36,10 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
+  // 用 ref 持有最新的 posts 长度，避免 onSuccess 回调中的闭包过期
+  const postsLengthRef = useRef(posts.length);
+  postsLengthRef.current = posts.length;
+
   // 收藏状态管理（在收藏页面中，取消收藏会从列表移除）
   const { favorites, setFavorites, toggleFavorite } = useFavorite({
     siteId: selectedSiteId,
@@ -44,8 +48,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         // 取消收藏：从列表中移除
         setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
         message.success('已取消收藏');
-        // 如果当前页没有图片了，加载上一页
-        if (posts.length === 1 && currentPage > 1) {
+        // 如果当前页没有图片了，加载上一页（使用 ref 避免闭包过期）
+        if (postsLengthRef.current === 1 && currentPage > 1) {
           loadFavorites(currentPage - 1);
         }
       }
@@ -239,6 +243,12 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
 
+  // 排序后再按评级筛选
+  const filteredSortedPosts = useMemo(() => {
+    if (ratingFilter === 'all') return sortedPosts;
+    return sortedPosts.filter(post => post.rating === ratingFilter);
+  }, [sortedPosts, ratingFilter]);
+
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
       {/* 页面标题 */}
@@ -293,7 +303,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
             />
 
             <BooruGridLayout
-              posts={sortedPosts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
+              posts={filteredSortedPosts}
               gridSize={appearanceConfig.gridSize}
               spacing={appearanceConfig.spacing}
               borderRadius={appearanceConfig.borderRadius}

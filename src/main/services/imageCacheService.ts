@@ -6,9 +6,13 @@
 import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 import axios from 'axios';
 import { getConfig, getProxyConfig } from './config.js';
 import crypto from 'crypto';
+
+// 正在进行中的缓存请求映射（防止同一图片并发下载）
+const inFlightRequests = new Map<string, Promise<string>>();
 
 /**
  * 获取缓存文件路径
@@ -51,16 +55,25 @@ async function getCacheSize(): Promise<number> {
   return totalSize / (1024 * 1024); // 转换为 MB
 }
 
+// 单个缓存文件的最大尺寸限制（默认 200MB）
+const MAX_SINGLE_FILE_SIZE_MB = 200;
+
 /**
- * 清理缓存（删除最旧的一半文件）
+ * 清理缓存（LRU 逐个删除最旧文件，直到缓存低于目标大小）
+ * @param targetSizeMB 目标缓存大小（MB），驱逐到此值以下
  */
-async function cleanCache(): Promise<void> {
+async function cleanCache(targetSizeMB?: number): Promise<void> {
   const cacheDir = path.join(process.cwd(), 'data', 'cache');
   try {
     await fs.access(cacheDir);
   } catch {
     return; // 目录不存在，无需清理
   }
+
+  const config = getConfig();
+  const maxCacheSizeMB = config.booru?.appearance?.maxCacheSizeMB || 500;
+  // 驱逐目标：配置限制的 80%，留出缓冲空间
+  const target = targetSizeMB ?? (maxCacheSizeMB * 0.8);
 
   // 收集所有缓存文件及其修改时间
   interface CacheFile {
@@ -70,6 +83,7 @@ async function cleanCache(): Promise<void> {
   }
 
   const files: CacheFile[] = [];
+  let totalSize = 0;
 
   async function collectFiles(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
@@ -84,6 +98,7 @@ async function cleanCache(): Promise<void> {
           mtime: stats.mtimeMs,
           size: stats.size
         });
+        totalSize += stats.size;
       }
     }
   }
@@ -94,15 +109,24 @@ async function cleanCache(): Promise<void> {
     return;
   }
 
-  // 按修改时间排序（最旧的在前）
+  const targetBytes = target * 1024 * 1024;
+
+  // 如果已经在目标以下，无需驱逐
+  if (totalSize <= targetBytes) {
+    return;
+  }
+
+  // 按修改时间排序（最旧的在前 — LRU）
   files.sort((a, b) => a.mtime - b.mtime);
 
-  // 删除最旧的一半文件
-  const filesToDelete = files.slice(0, Math.ceil(files.length / 2));
+  // 逐个删除最旧的文件，直到缓存低于目标大小
   let deletedCount = 0;
   let deletedSize = 0;
 
-  for (const file of filesToDelete) {
+  for (const file of files) {
+    if (totalSize - deletedSize <= targetBytes) {
+      break; // 已经低于目标，停止驱逐
+    }
     try {
       await fs.unlink(file.path);
       deletedCount++;
@@ -112,7 +136,7 @@ async function cleanCache(): Promise<void> {
     }
   }
 
-  console.log(`[imageCacheService] 清理缓存完成: 删除了 ${deletedCount} 个文件，释放 ${(deletedSize / (1024 * 1024)).toFixed(2)} MB`);
+  console.log(`[imageCacheService] LRU 缓存清理完成: 删除了 ${deletedCount} 个文件，释放 ${(deletedSize / (1024 * 1024)).toFixed(2)} MB，剩余 ${((totalSize - deletedSize) / (1024 * 1024)).toFixed(2)} MB`);
 }
 
 /**
@@ -159,6 +183,29 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     return existingPath;
   }
 
+  // 防止同一图片并发下载：如果已有进行中的请求，直接复用
+  const cacheKey = `${md5}.${extension}`;
+  const existing = inFlightRequests.get(cacheKey);
+  if (existing) {
+    console.log(`[imageCacheService] 复用进行中的缓存请求: ${cacheKey}`);
+    return existing;
+  }
+
+  // 创建下载 Promise 并注册到 in-flight map
+  const downloadPromise = doCacheImage(url, md5, extension);
+  inFlightRequests.set(cacheKey, downloadPromise);
+
+  try {
+    return await downloadPromise;
+  } finally {
+    inFlightRequests.delete(cacheKey);
+  }
+}
+
+/**
+ * 实际执行图片缓存下载（内部方法）
+ */
+async function doCacheImage(url: string, md5: string, extension: string): Promise<string> {
   // 检查并清理缓存
   await checkAndCleanCache();
 
@@ -173,6 +220,28 @@ export async function cacheImage(url: string, md5: string, extension: string): P
 
   try {
     const proxyConfig = getProxyConfig();
+
+    // 先用 HEAD 请求检查文件大小，拒绝超大文件
+    try {
+      const headResponse = await axios({
+        method: 'HEAD',
+        url: url,
+        proxy: proxyConfig,
+        timeout: 10000,
+        headers: { 'User-Agent': 'YandeGalleryDesktop/1.0.0' }
+      });
+      const contentLength = parseInt(headResponse.headers['content-length'] || '0', 10);
+      const maxSizeBytes = MAX_SINGLE_FILE_SIZE_MB * 1024 * 1024;
+      if (contentLength > maxSizeBytes) {
+        console.warn(`[imageCacheService] 文件过大 (${(contentLength / (1024 * 1024)).toFixed(1)} MB > ${MAX_SINGLE_FILE_SIZE_MB} MB)，跳过缓存: ${md5}.${extension}`);
+        throw new Error(`File too large: ${(contentLength / (1024 * 1024)).toFixed(1)} MB exceeds ${MAX_SINGLE_FILE_SIZE_MB} MB limit`);
+      }
+    } catch (headError: any) {
+      // HEAD 请求失败时（如服务端不支持 HEAD），继续下载但不中断
+      if (headError.message?.startsWith('File too large')) throw headError;
+      console.warn('[imageCacheService] HEAD 请求失败，跳过大小检查:', headError.message);
+    }
+
     const response = await axios({
       method: 'GET',
       url: url,
@@ -185,18 +254,10 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     });
 
     const writer = fsSync.createWriteStream(cachePath);
-    response.data.pipe(writer);
 
-    await new Promise<void>((resolve, reject) => {
-      writer.on('finish', () => {
-        console.log(`[imageCacheService] 图片缓存成功: ${cachePath}`);
-        resolve();
-      });
-      writer.on('error', (error: Error) => {
-        console.error(`[imageCacheService] 图片缓存失败:`, error);
-        reject(error);
-      });
-    });
+    // 使用 pipeline 自动处理背压和错误传播（替代 .pipe()）
+    await pipeline(response.data, writer);
+    console.log(`[imageCacheService] 图片缓存成功: ${cachePath}`);
 
     return cachePath;
   } catch (error) {

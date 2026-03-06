@@ -37,6 +37,7 @@ import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../ser
 import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
 import * as imageCacheService from '../services/imageCacheService.js';
+import { runInTransaction, getDatabase } from '../services/database.js';
 
 
 export function setupIPC() {
@@ -411,60 +412,63 @@ export function setupIPC() {
         console.log('[IPC] sample_url:', posts[0].sample_url);
       }
 
-      // 保存到数据库（注意：API返回的是snake_case格式，需要转换为camelCase）
+      // 保存到数据库（事务批量插入，避免逐个提交的性能开销）
       const savedPostIds: number[] = [];
       const allTagNames = new Set<string>(); // 收集所有标签名
-      
-      for (const post of posts) {
-        // 确保 URL 是字符串且有效
-        const fileUrl = post.file_url ? String(post.file_url).trim() : '';
-        const previewUrl = post.preview_url ? String(post.preview_url).trim() : '';
-        const sampleUrl = post.sample_url ? String(post.sample_url).trim() : '';
-        
-        // 收集标签名
-        if (post.tags) {
-          const tags = post.tags.split(/\s+/).filter(t => t.trim());
-          tags.forEach(tag => allTagNames.add(tag.trim()));
-        }
-        
-        // 调试：检查第一个 post 的 URL 长度
-        if (post.id === posts[0]?.id) {
-          console.log('[IPC] 保存前的 URL 长度:', {
+      const db = await getDatabase();
+
+      await runInTransaction(db, async () => {
+        for (const post of posts) {
+          // 确保 URL 是字符串且有效
+          const fileUrl = post.file_url ? String(post.file_url).trim() : '';
+          const previewUrl = post.preview_url ? String(post.preview_url).trim() : '';
+          const sampleUrl = post.sample_url ? String(post.sample_url).trim() : '';
+
+          // 收集标签名
+          if (post.tags) {
+            const tags = post.tags.split(/\s+/).filter(t => t.trim());
+            tags.forEach(tag => allTagNames.add(tag.trim()));
+          }
+
+          // 调试：检查第一个 post 的 URL 长度
+          if (post.id === posts[0]?.id) {
+            console.log('[IPC] 保存前的 URL 长度:', {
+              postId: post.id,
+              fileUrlLength: fileUrl.length,
+              previewUrlLength: previewUrl.length,
+              sampleUrlLength: sampleUrl.length,
+              fileUrl: fileUrl.substring(0, 150),
+              previewUrl: previewUrl.substring(0, 150),
+              sampleUrl: sampleUrl.substring(0, 150)
+            });
+          }
+
+          // 验证 URL 格式
+          if (fileUrl && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://') && !fileUrl.startsWith('//')) {
+            console.warn('[IPC] file_url 格式异常:', fileUrl);
+          }
+
+          const dbId = await booruService.saveBooruPost({
+            siteId,
             postId: post.id,
-            fileUrlLength: fileUrl.length,
-            previewUrlLength: previewUrl.length,
-            sampleUrlLength: sampleUrl.length,
-            fileUrl: fileUrl.substring(0, 150),
-            previewUrl: previewUrl.substring(0, 150),
-            sampleUrl: sampleUrl.substring(0, 150)
+            md5: post.md5,
+            fileUrl: fileUrl,
+            previewUrl: previewUrl,
+            sampleUrl: sampleUrl,
+            width: post.width,
+            height: post.height,
+            fileSize: post.file_size,
+            fileExt: post.file_url.split('.').pop(),
+            rating: RATING_MAP[post.rating] || 'safe',
+            score: post.score,
+            source: post.source,
+            tags: post.tags,
+            downloaded: false,
+            isFavorited: false
           });
+          savedPostIds.push(dbId);
         }
-        
-        // 验证 URL 格式
-        if (fileUrl && !fileUrl.startsWith('http://') && !fileUrl.startsWith('https://') && !fileUrl.startsWith('//')) {
-          console.warn('[IPC] file_url 格式异常:', fileUrl);
-        }
-        
-        const dbId = await booruService.saveBooruPost({
-          siteId,
-          postId: post.id,
-          md5: post.md5,
-          fileUrl: fileUrl,
-          previewUrl: previewUrl,
-          sampleUrl: sampleUrl,
-          width: post.width,
-          height: post.height,
-          fileSize: post.file_size,
-          fileExt: post.file_url.split('.').pop(),
-          rating: RATING_MAP[post.rating] || 'safe',
-          score: post.score,
-          source: post.source,
-          tags: post.tags,
-          downloaded: false,
-          isFavorited: false
-        });
-        savedPostIds.push(dbId);
-      }
+      });
 
       // 异步获取并保存标签分类信息（不阻塞返回）
       if (allTagNames.size > 0) {

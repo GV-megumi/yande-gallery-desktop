@@ -9,6 +9,7 @@ import { BooruImageCard } from './BooruImageCard';
 import { BooruPost, BooruSite } from '../../shared/types';
 
 export interface BooruGridLayoutProps {
+  /** posts 应由调用方预先排序好，本组件不再内部排序 */
   posts: BooruPost[];
   gridSize: number;
   spacing: number;
@@ -35,11 +36,6 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   getPreviewUrl,
   onTagClick
 }) => {
-  // 按 ID 倒序排序（最新的在前）
-  const sortedPosts = useMemo(() => {
-    return [...posts].sort((a, b) => b.postId - a.postId);
-  }, [posts]);
-
   // 计算每行能放多少张图片（根据容器宽度和 gridSize）
   const containerRef = useRef<HTMLDivElement>(null);
   const [itemsPerRow, setItemsPerRow] = useState(5);
@@ -68,11 +64,11 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   // 将图片分组为行
   const rows = useMemo(() => {
     const result: BooruPost[][] = [];
-    for (let i = 0; i < sortedPosts.length; i += itemsPerRow) {
-      result.push(sortedPosts.slice(i, i + itemsPerRow));
+    for (let i = 0; i < posts.length; i += itemsPerRow) {
+      result.push(posts.slice(i, i + itemsPerRow));
     }
     return result;
-  }, [sortedPosts, itemsPerRow]);
+  }, [posts, itemsPerRow]);
 
   return (
     <div ref={containerRef} style={{ width: '100%' }}>

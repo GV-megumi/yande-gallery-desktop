@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button, Empty, App } from 'antd';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
@@ -28,6 +28,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  // 请求计数器：用于丢弃快速切换站点时的过期响应
+  const loadRequestIdRef = useRef(0);
   // 收藏状态管理
   const { favorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
     siteId: selectedSiteId,
@@ -131,6 +133,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     const site = sites.find(s => s.id === selectedSiteId);
     if (!site) return;
 
+    // 递增请求 ID，丢弃快速切换站点时的过期响应
+    const requestId = ++loadRequestIdRef.current;
+
     console.log(`[BooruPage] 加载Booru图片，站点: ${site.name}, 页码: ${page}`);
     setLoading(true);
 
@@ -146,6 +151,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
       setSelectedTags([]);
 
       const result = await window.electronAPI.booru.getPosts(selectedSiteId, page, [], appearanceConfig.itemsPerPage);
+
+      // 丢弃过期响应（用户可能已切换到其他站点）
+      if (requestId !== loadRequestIdRef.current) {
+        console.log('[BooruPage] 丢弃过期响应，requestId:', requestId, 'current:', loadRequestIdRef.current);
+        return;
+      }
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 图片加载成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
@@ -284,15 +295,15 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   };
 
   // 处理收藏切换（委托给 useFavorite Hook）
-  const handleToggleFavorite = async (post: BooruPost) => {
+  const handleToggleFavorite = useCallback(async (post: BooruPost) => {
     const result = await toggleFavorite(post);
     if (!result.success) {
       message.error('操作失败');
     }
-  };
+  }, [toggleFavorite, message]);
 
   // 处理下载
-  const handleDownload = async (post: BooruPost) => {
+  const handleDownload = useCallback(async (post: BooruPost) => {
     console.log('[BooruPage] 下载图片:', post.postId);
     try {
       if (!window.electronAPI || !selectedSiteId) return;
@@ -309,7 +320,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
       console.error('[BooruPage] 下载失败:', error);
       message.error('下载失败');
     }
-  };
+  }, [selectedSiteId, message]);
 
   // 处理标签点击
   const handleTagClick = (tag: string) => {
@@ -343,17 +354,22 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   };
 
   // 处理图片预览
-  const handlePreview = (post: BooruPost) => {
+  const handlePreview = useCallback((post: BooruPost) => {
     console.log('[BooruPage] 预览图片:', post.postId);
     setSelectedPost(post);
     setDetailsPageOpen(true);
-  };
+  }, []);
 
-  // 计算排序后的 posts 数组（与 BooruGridLayout 中的排序保持一致）
-  // 按 ID 倒序排序（最新的在前）
+  // 按 ID 倒序排序（最新的在前），用于 BooruGridLayout 和 BooruPostDetailsPage
   const sortedPosts = useMemo(() => {
     return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
+
+  // 排序后再按评级筛选，避免重复排序
+  const filteredSortedPosts = useMemo(() => {
+    if (ratingFilter === 'all') return sortedPosts;
+    return sortedPosts.filter(post => post.rating === ratingFilter);
+  }, [sortedPosts, ratingFilter]);
 
   // 初始化
   useEffect(() => {
@@ -390,7 +406,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         loadPosts(1);
       }
     }
-  }, [appearanceConfig.itemsPerPage, selectedSiteId]);
+  }, [appearanceConfig.itemsPerPage, selectedSiteId, isSearchMode, searchQuery]);
 
   // 站点切换时重新加载图片
   useEffect(() => {
@@ -403,9 +419,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   const selectedSite = selectedSiteId ? sites.find(s => s.id === selectedSiteId) : null;
 
   // 根据预览质量获取图片URL（委托给统一的 url 工具函数）
-  const getPreviewUrl = (post: BooruPost): string => {
+  const getPreviewUrl = useCallback((post: BooruPost): string => {
     return getBooruPreviewUrl(post, appearanceConfig.previewQuality);
-  };
+  }, [appearanceConfig.previewQuality]);
 
   return (
     <div ref={contentRef} style={{ padding: `${appearanceConfig.margin}px` }}>
@@ -482,7 +498,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
             />
 
             <BooruGridLayout
-              posts={posts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
+              posts={filteredSortedPosts}
               gridSize={appearanceConfig.gridSize}
               spacing={appearanceConfig.spacing}
               borderRadius={appearanceConfig.borderRadius}

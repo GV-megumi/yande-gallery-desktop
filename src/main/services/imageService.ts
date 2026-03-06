@@ -1,5 +1,5 @@
 import { Image, Tag } from '../../shared/types.js';
-import { getDatabase, run, get, all } from './database.js';
+import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { generateThumbnail } from './thumbnailService.js';
@@ -135,7 +135,8 @@ export async function searchImages(
 ): Promise<{ success: boolean; data?: Image[]; total?: number; error?: string }> {
   try {
     const db = await getDatabase();
-    const searchTerm = `%${query.toLowerCase()}%`;
+    // SQLite LIKE 默认对 ASCII 字符大小写不敏感，无需 toLowerCase()
+    const searchTerm = `%${query}%`;
     const offset = (page - 1) * pageSize;
 
     // 定义SQL查询结果的临时类型
@@ -143,30 +144,40 @@ export async function searchImages(
       tags?: string;
     }
 
-    // 查询总数
+    // 使用 EXISTS 子查询代替 JOIN + WHERE，避免 GROUP_CONCAT 在 WHERE 阶段参与
+    // SQLite LIKE 默认对 ASCII 字符大小写不敏感，无需 LOWER()
     const countResult = await get<{ count: number }>(
       db,
       `
-        SELECT COUNT(DISTINCT i.id) as count
+        SELECT COUNT(*) as count
         FROM images i
-        LEFT JOIN image_tags it ON i.id = it.imageId
-        LEFT JOIN tags t ON it.tagId = t.id
-        WHERE LOWER(i.filename) LIKE ? OR LOWER(t.name) LIKE ?
+        WHERE i.filename LIKE ?
+          OR EXISTS (
+            SELECT 1 FROM image_tags it
+            JOIN tags t ON it.tagId = t.id
+            WHERE it.imageId = i.id AND t.name LIKE ?
+          )
       `,
       [searchTerm, searchTerm]
     );
     const total = countResult?.count || 0;
 
+    // 先筛选匹配的图片 ID，再 JOIN 获取标签（避免 WHERE 中的 JOIN 扩大扫描范围）
     const images = await all<ImageQueryResult>(
       db,
       `
         SELECT
           i.*,
-          GROUP_CONCAT(t.name) as tags
+          GROUP_CONCAT(t2.name) as tags
         FROM images i
-        LEFT JOIN image_tags it ON i.id = it.imageId
-        LEFT JOIN tags t ON it.tagId = t.id
-        WHERE LOWER(i.filename) LIKE ? OR LOWER(t.name) LIKE ?
+        LEFT JOIN image_tags it2 ON i.id = it2.imageId
+        LEFT JOIN tags t2 ON it2.tagId = t2.id
+        WHERE i.filename LIKE ?
+          OR EXISTS (
+            SELECT 1 FROM image_tags it
+            JOIN tags t ON it.tagId = t.id
+            WHERE it.imageId = i.id AND t.name LIKE ?
+          )
         GROUP BY i.id
         ORDER BY i.updatedAt DESC
         LIMIT ? OFFSET ?
@@ -292,28 +303,31 @@ export async function updateImageTags(imageId: number, tags: string[]): Promise<
 async function addTagsToImage(imageId: number, tagNames: string[]): Promise<void> {
   const db = await getDatabase();
 
-  for (const tagName of tagNames) {
-    // 检查标签是否存在
-    let tag = await get<{ id: number }>(
-      db,
-      'SELECT id FROM tags WHERE LOWER(name) = LOWER(?)',
-      [tagName]
-    );
+  // 使用事务批量处理标签，避免每个标签 3-4 次独立数据库操作
+  await runInTransaction(db, async () => {
+    for (const tagName of tagNames) {
+      // 检查标签是否存在
+      let tag = await get<{ id: number }>(
+        db,
+        'SELECT id FROM tags WHERE LOWER(name) = LOWER(?)',
+        [tagName]
+      );
 
-    // 如果不存在，创建新标签
-    if (!tag) {
-      await run(db, 'INSERT INTO tags (name, createdAt) VALUES (?, ?)', [tagName, new Date().toISOString()]);
-      const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
-      if (result) {
-        tag = result;
+      // 如果不存在，创建新标签
+      if (!tag) {
+        await run(db, 'INSERT INTO tags (name, createdAt) VALUES (?, ?)', [tagName, new Date().toISOString()]);
+        const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+        if (result) {
+          tag = result;
+        }
+      }
+
+      // 添加关联
+      if (tag) {
+        await run(db, 'INSERT OR IGNORE INTO image_tags (imageId, tagId) VALUES (?, ?)', [imageId, tag.id]);
       }
     }
-
-    // 添加关联
-    if (tag) {
-      await run(db, 'INSERT OR IGNORE INTO image_tags (imageId, tagId) VALUES (?, ?)', [imageId, tag.id]);
-    }
-  }
+  });
 }
 
 /**
@@ -340,10 +354,11 @@ export async function getAllTags(): Promise<{ success: boolean; data?: Tag[]; er
 export async function searchTags(query: string): Promise<{ success: boolean; data?: Tag[]; error?: string }> {
   try {
     const db = await getDatabase();
-    const searchTerm = `%${query.toLowerCase()}%`;
+    // SQLite LIKE 默认对 ASCII 字符大小写不敏感，无需 LOWER()
+    const searchTerm = `%${query}%`;
     const tags = await all<Tag>(
       db,
-      'SELECT * FROM tags WHERE LOWER(name) LIKE ? ORDER BY name ASC',
+      'SELECT * FROM tags WHERE name LIKE ? ORDER BY name ASC',
       [searchTerm]
     );
     return { success: true, data: tags };
@@ -509,50 +524,58 @@ export async function scanAndImportFolder(
 ): Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }> {
   try {
     const files = await scanDirectory(folderPath, recursive);
-    const imported: any[] = [];
-    let skipped = 0;
+    const db = await getDatabase();
 
-    for (const file of files) {
+    // 只保留符合扩展名的文件
+    const imageFiles = files.filter(file => {
       const ext = path.extname(file).toLowerCase();
-      if (extensions.includes(ext)) {
-        try {
-          // 检查是否已存在（避免重复导入）
-          const db = await getDatabase();
-          const existing = await get<{ id: number }>(
-            db,
-            'SELECT id FROM images WHERE filepath = ?',
-            [file]
-          );
+      return extensions.includes(ext);
+    });
 
-          if (!existing) {
-            // 导入新图片
-            const imageInfo = await getImageInfo(file);
-            if (imageInfo) {
-              const result = await addImage(imageInfo);
-              if (result.success && result.data) {
-                imported.push({ ...imageInfo, id: result.data });
-                
-                // 自动生成缩略图（如果配置启用了自动生成）
-                try {
-                  const config = getConfig();
-                  if (config.app.autoScan) {
-                    // 异步生成缩略图，不阻塞导入流程
-                    generateThumbnail(file).catch(error => {
-                      console.error(`自动生成缩略图失败 ${file}:`, error);
-                    });
-                  }
-                } catch (error) {
-                  // 缩略图生成失败不影响导入
-                  console.error(`自动生成缩略图失败 ${file}:`, error);
-                }
-              }
+    console.log(`[scanAndImportFolder] 扫描到 ${imageFiles.length} 个图片文件`);
+
+    // 批量检查已存在的文件路径（每批 500 个，避免 SQL 参数过多）
+    const existingPaths = new Set<string>();
+    const batchSize = 500;
+    for (let i = 0; i < imageFiles.length; i += batchSize) {
+      const batch = imageFiles.slice(i, i + batchSize);
+      const placeholders = batch.map(() => '?').join(',');
+      const rows = await all<{ filepath: string }>(
+        db,
+        `SELECT filepath FROM images WHERE filepath IN (${placeholders})`,
+        batch
+      );
+      for (const row of rows) {
+        existingPaths.add(row.filepath);
+      }
+    }
+
+    const skipped = existingPaths.size;
+    const newFiles = imageFiles.filter(f => !existingPaths.has(f));
+    console.log(`[scanAndImportFolder] 已存在 ${skipped} 个，需导入 ${newFiles.length} 个`);
+
+    const imported: any[] = [];
+    const config = getConfig();
+    const autoThumbnail = config.app.autoScan;
+
+    for (const file of newFiles) {
+      try {
+        const imageInfo = await getImageInfo(file);
+        if (imageInfo) {
+          const result = await addImage(imageInfo);
+          if (result.success && result.data) {
+            imported.push({ ...imageInfo, id: result.data });
+
+            // 自动生成缩略图（如果配置启用了自动生成）
+            if (autoThumbnail) {
+              generateThumbnail(file).catch(error => {
+                console.error(`自动生成缩略图失败 ${file}:`, error);
+              });
             }
-          } else {
-            skipped++;
           }
-        } catch (error) {
-          console.error(`Failed to process image ${file}:`, error);
         }
+      } catch (error) {
+        console.error(`Failed to process image ${file}:`, error);
       }
     }
 

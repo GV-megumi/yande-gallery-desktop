@@ -452,6 +452,22 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     console.log('[database] 收藏标签相关表创建成功');
     // === 收藏标签相关表结束 ===
 
+    // === 性能优化索引 ===
+    console.log('[database] 创建性能优化索引...');
+    // 复合索引：分页浏览和排序场景
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_created ON booru_posts(siteId, createdAt DESC)');
+    // 收藏状态查询
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_postId ON booru_favorites(postId)');
+    // 批量下载进度统计（覆盖索引）
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_records_session_status ON bulk_download_records(sessionId, status)');
+    // 收藏标签复合查询
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_site_tag ON booru_favorite_tags(siteId, tagName)');
+    // booru_posts JOIN images 表
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_localImageId ON booru_posts(localImageId)');
+    // image_tags 反向查询优化
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_image_tags_tagId ON image_tags(tagId)');
+    console.log('[database] 性能优化索引创建成功');
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [
@@ -589,6 +605,24 @@ export function all<T = any>(db: sqlite3.Database, sql: string, params: any[] = 
       }
     });
   });
+}
+
+/**
+ * 在事务中执行一组数据库操作
+ * 所有操作成功则提交，任一操作失败则回滚
+ * @param db 数据库连接
+ * @param fn 包含数据库操作的异步函数
+ */
+export async function runInTransaction<T>(db: sqlite3.Database, fn: () => Promise<T>): Promise<T> {
+  await run(db, 'BEGIN TRANSACTION');
+  try {
+    const result = await fn();
+    await run(db, 'COMMIT');
+    return result;
+  } catch (error) {
+    await run(db, 'ROLLBACK');
+    throw error;
+  }
 }
 
 /**

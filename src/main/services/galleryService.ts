@@ -368,6 +368,14 @@ export async function scanSubfoldersAndCreateGalleries(
     let totalImported = 0;
     let totalImageSkipped = 0;
 
+    // 预先获取所有已存在的图集路径，避免递归中逐个查询
+    const db = await getDatabase();
+    const existingGalleries = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM galleries');
+    const existingPaths = new Set(existingGalleries.map(g => g.folderPath));
+    // 预先获取所有已存在的图集名称，用于快速检查重名
+    const existingNames = await all<{ name: string }>(db, 'SELECT name FROM galleries');
+    const usedNames = new Set(existingNames.map(g => g.name));
+
     // 递归扫描所有子文件夹
     async function scanSubfolders(dirPath: string): Promise<void> {
       try {
@@ -381,19 +389,18 @@ export async function scanSubfoldersAndCreateGalleries(
             const hasImages = await checkFolderHasImages(fullPath, extensions);
 
             if (hasImages) {
-              // 生成图集名称（处理重名）
-              const folderName = item.name;
-              const galleryName = await generateUniqueGalleryName(folderName);
+              const normalizedFullPath = normalizePath(fullPath);
 
-              // 检查是否已存在该路径的图集
-              const db = await getDatabase();
-              const existing = await get<{ id: number }>(
-                db,
-                'SELECT id FROM galleries WHERE folderPath = ?',
-                [normalizePath(fullPath)]
-              );
+              // 使用预加载的 Set 检查是否已存在（O(1) 而非 DB 查询）
+              if (!existingPaths.has(normalizedFullPath)) {
+                // 生成唯一名称（使用内存中的 Set 而非查 DB）
+                let galleryName = item.name;
+                let suffix = 1;
+                while (usedNames.has(galleryName)) {
+                  galleryName = `${item.name} (${suffix})`;
+                  suffix++;
+                }
 
-              if (!existing) {
                 // 创建图集
                 const result = await createGallery({
                   folderPath: fullPath,
@@ -406,6 +413,9 @@ export async function scanSubfoldersAndCreateGalleries(
                 if (result.success && result.data) {
                   const galleryId = result.data;
                   created++;
+                  // 更新内存中的 Set，避免后续重复
+                  existingPaths.add(normalizedFullPath);
+                  usedNames.add(galleryName);
                   console.log(`Gallery created: name=${galleryName}, folder=${fullPath}`);
 
                   // 同步导入该文件夹下的图片到数据库

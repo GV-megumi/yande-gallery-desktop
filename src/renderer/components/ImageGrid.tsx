@@ -57,30 +57,45 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   const [selectedImage, setSelectedImage] = useState<any>(null);
   // 存储每个图片的缩略图路径，key 是 image.id
   const [thumbnailPaths, setThumbnailPaths] = useState<Record<number, string | null>>({});
+  // 单图预览状态（替代 Image.PreviewGroup，避免 2000+ 图片创建隐藏预览节点）
+  const [previewVisible, setPreviewVisible] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string>('');
 
   // 加载所有图片的缩略图（异步批量加载）
   useEffect(() => {
-    if (!window.electronAPI || images.length === 0) return;
+    if (!window.electronAPI || images.length === 0) {
+      // 图片列表为空时清空缩略图缓存，释放内存
+      setThumbnailPaths({});
+      return;
+    }
 
     console.log(`[ImageGrid] 开始加载 ${images.length} 张图片的缩略图`);
-    
+
+    // 重置缩略图状态，避免旧数据无界累积
+    setThumbnailPaths({});
+
+    // 用于取消已过时的加载任务
+    let cancelled = false;
+
     const loadThumbnails = async () => {
       const thumbnails: Record<number, string | null> = {};
-      
+
       // 批量加载缩略图，但限制并发数量以避免过载
       const batchSize = 10; // 每次处理10张图片
       for (let i = 0; i < images.length; i += batchSize) {
+        if (cancelled) return; // 检查是否已取消
+
         const batch = images.slice(i, i + batchSize);
-        
+
         await Promise.all(
           batch.map(async (image) => {
-            if (!image.filepath) return;
-            
+            if (!image.filepath || cancelled) return;
+
             try {
               const result = await window.electronAPI.image.getThumbnail(image.filepath);
+              if (cancelled) return;
               if (result.success && result.data) {
                 thumbnails[image.id] = result.data;
-                console.log(`[ImageGrid] 缩略图加载成功: ${image.filename} (ID: ${image.id})`);
               } else {
                 console.warn(`[ImageGrid] 缩略图加载失败: ${image.filename} (ID: ${image.id}), 错误: ${result.error}`);
                 thumbnails[image.id] = null;
@@ -91,15 +106,24 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
             }
           })
         );
-        
+
         // 每批处理完后更新状态，让用户看到渐进式加载
-        setThumbnailPaths((prev) => ({ ...prev, ...thumbnails }));
+        if (!cancelled) {
+          setThumbnailPaths((prev) => ({ ...prev, ...thumbnails }));
+        }
       }
-      
-      console.log(`[ImageGrid] 缩略图加载完成，成功: ${Object.values(thumbnails).filter(t => t !== null).length}/${images.length}`);
+
+      if (!cancelled) {
+        console.log(`[ImageGrid] 缩略图加载完成，成功: ${Object.values(thumbnails).filter(t => t !== null).length}/${images.length}`);
+      }
     };
 
     loadThumbnails();
+
+    // 清理函数：images 变化时取消旧的加载任务
+    return () => {
+      cancelled = true;
+    };
   }, [images]);
 
   const handleImageInfo = (image: any) => {
@@ -247,16 +271,14 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                 </div>
               </div>
             ) : displaySrc ? (
-              // 有图片源（缩略图或原图），显示图片
-              <Image
+              // 有图片源（缩略图或原图），点击打开单图预览（避免 PreviewGroup 内存开销）
+              <img
                 src={displaySrc}
                 alt={image.filename}
-                // 宽度自适应列宽，高度按图片实际比例缩放
-                style={{ width: '100%', height: 'auto', display: 'block' }}
-                // 使用 Ant Design 的 preview 属性，支持上一张、下一张导航
-                preview={{
-                  src: previewSrc,
-                  mask: <div style={{ color: colors.bgBase, fontSize: fontSize.base }}>点击查看原图</div>
+                style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer' }}
+                onClick={() => {
+                  setPreviewImage(previewSrc);
+                  setPreviewVisible(true);
                 }}
               />
             ) : (
@@ -314,18 +336,24 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   return (
     <>
       <div style={{ position: 'relative' }}>
-        {/* 使用 Image.PreviewGroup 包裹所有图片，支持上一张、下一张导航 */}
-        <Image.PreviewGroup preview={{ 
-          onChange: (current, prev) => {
-            console.log(`[ImageGrid] 预览切换: ${prev} -> ${current}`);
-          }
-        }}>
-          {/* 主内容：按时间分段 + 瀑布流排版 */}
+        {/* 单图预览组件（替代 Image.PreviewGroup，避免 2000+ 隐藏预览节点的内存开销） */}
+        <Image
+          style={{ display: 'none' }}
+          preview={{
+            visible: previewVisible,
+            src: previewImage,
+            onVisibleChange: (visible) => {
+              setPreviewVisible(visible);
+              if (!visible) setPreviewImage('');
+            }
+          }}
+        />
+        {/* 主内容：按时间分段 + 瀑布流排版 */}
           <div>
             {Object.entries(groupedImages).map(([key, group]) => {
               // 解析分组键：如果是批次格式 "批次1_2024年11月17日"，提取时间部分
               const displayTitle = key.includes('_') ? key.split('_').slice(1).join('_') : key;
-              
+
               return (
                 <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={key}>
                   {groupBy !== 'none' && (
@@ -356,7 +384,6 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
             );
             })}
           </div>
-        </Image.PreviewGroup>
 
         {/* 右侧时间刻度，仅在按时间分组时显示 */}
         {showTimeline && groupBy !== 'none' && (

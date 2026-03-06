@@ -288,6 +288,15 @@ export function generateFileName(
   // 清理非法字符（如果unsafe为false或undefined）
   result = sanitizeFileName(result);
 
+  // 验证文件名长度不超过 Windows MAX_PATH（260 字符，减去目录预留空间）
+  const MAX_FILENAME_LENGTH = 200;
+  if (result.length > MAX_FILENAME_LENGTH) {
+    const ext = path.extname(result);
+    const nameWithoutExt = result.slice(0, result.length - ext.length);
+    result = nameWithoutExt.slice(0, MAX_FILENAME_LENGTH - ext.length) + ext;
+    console.warn(`[filenameGenerator] 文件名过长，已截断至 ${result.length} 字符: ${result}`);
+  }
+
   return result;
 }
 

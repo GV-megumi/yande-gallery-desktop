@@ -92,7 +92,7 @@ export const AppContent: React.FC = () => {
       console.log('[App] 默认选择Booru的"图片浏览"子菜单');
       setSelectedBooruSubKey('posts');
     }
-  }, [selectedKey]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey]);
 
   // 导航到标签搜索页面
   const navigateToTagSearch = (tag: string, siteId?: number | null) => {

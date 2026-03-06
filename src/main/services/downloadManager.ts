@@ -1,5 +1,7 @@
 import fs from 'fs';
+import fsPromises from 'fs/promises';
 import path from 'path';
+import { pipeline } from 'stream/promises';
 import axios from 'axios';
 import { BrowserWindow } from 'electron';
 import * as booruService from './booruService.js';
@@ -176,12 +178,14 @@ class DownloadManager {
 
       // 重试前清除可能存在的损坏文件
       try {
-        if (fs.existsSync(targetPath)) {
-          console.log(`[DownloadManager] 重试前清除损坏文件: ${targetPath}`);
-          fs.unlinkSync(targetPath);
+        await fsPromises.access(targetPath);
+        console.log(`[DownloadManager] 重试前清除损坏文件: ${targetPath}`);
+        await fsPromises.unlink(targetPath);
+      } catch (unlinkError: any) {
+        // ENOENT 表示文件不存在，忽略；其他错误警告
+        if (unlinkError?.code !== 'ENOENT') {
+          console.warn(`[DownloadManager] 清除文件失败:`, unlinkError);
         }
-      } catch (unlinkError) {
-        console.warn(`[DownloadManager] 清除文件失败:`, unlinkError);
       }
 
       // 更新数据库中的任务状态为 pending
@@ -304,6 +308,7 @@ class DownloadManager {
 
   /**
    * 处理下载队列
+   * 使用互斥锁防止并发调用导致下载数超过 maxConcurrent
    */
   private async processQueue() {
     // 如果队列已暂停，不处理新任务
@@ -312,27 +317,25 @@ class DownloadManager {
       return;
     }
 
-    if (this.activeDownloads.size >= this.maxConcurrent) {
-      return;
-    }
-
+    // 互斥锁：防止多次快速调用导致竞态条件
     if (this.isProcessing) {
       return;
     }
-
     this.isProcessing = true;
 
     try {
-      // 获取待下载项目
-      const queue = await booruService.getDownloadQueue('pending');
-      
-      for (const item of queue) {
-        if (this.activeDownloads.size >= this.maxConcurrent) {
-          break;
+      // 循环填充空闲槽位，直到达到并发上限或没有更多待下载任务
+      while (this.activeDownloads.size < this.maxConcurrent && !this.isPaused) {
+        const queue = await booruService.getDownloadQueue('pending');
+
+        // 过滤掉已经在活跃下载中的任务
+        const nextItem = queue.find(item => !this.activeDownloads.has(item.id));
+        if (!nextItem) {
+          break; // 没有更多待下载任务
         }
 
-        // 开始下载
-        this.startDownload(item);
+        // 同步注册到 activeDownloads 后再启动异步下载，确保不会超发
+        this.startDownload(nextItem);
       }
     } catch (error) {
       console.error('[DownloadManager] 处理队列失败:', error);
@@ -369,9 +372,7 @@ class DownloadManager {
 
       // 确保目标目录存在
       const targetDir = path.dirname(item.targetPath!);
-      if (!fs.existsSync(targetDir)) {
-        fs.mkdirSync(targetDir, { recursive: true });
-      }
+      await fsPromises.mkdir(targetDir, { recursive: true });
 
       // 配置请求
       const proxyConfig = getProxyConfig();
@@ -391,68 +392,59 @@ class DownloadManager {
       let downloadedLength = 0;
       let lastUpdate = Date.now();
 
+      // 使用 Transform 流监控进度
+      const { Transform } = await import('stream');
+      const progressStream = new Transform({
+        transform: (chunk: Buffer, _encoding: string, callback: Function) => {
+          downloadedLength += chunk.length;
+
+          // 限制更新频率 (每500ms)
+          const now = Date.now();
+          if (now - lastUpdate > 500) {
+            const progress = totalLength > 0 ? Math.round((downloadedLength / totalLength) * 100) : 0;
+
+            // 进度仅发送到前端，不写数据库（减少 I/O）
+            this.broadcastProgress(queueId, progress, downloadedLength, totalLength);
+
+            lastUpdate = now;
+          }
+          callback(null, chunk);
+        }
+      });
+
       const writer = fs.createWriteStream(item.targetPath!);
 
-      response.data.on('data', (chunk: Buffer) => {
-        downloadedLength += chunk.length;
-        
-        // 限制更新频率 (每500ms)
-        const now = Date.now();
-        if (now - lastUpdate > 500) {
-          const progress = totalLength > 0 ? Math.round((downloadedLength / totalLength) * 100) : 0;
-          
-          // 更新数据库 (可选，为了性能可以减少数据库写入)
-          booruService.updateDownloadProgress(queueId, progress, downloadedLength, totalLength).catch(console.error);
-          
-          // 发送进度到前端
-          this.broadcastProgress(queueId, progress, downloadedLength, totalLength);
-          
-          lastUpdate = now;
-        }
-      });
+      // 使用 pipeline 自动处理背压和错误传播
+      await pipeline(response.data, progressStream, writer);
 
-      writer.on('finish', async () => {
-        console.log(`[DownloadManager] 下载完成 #${queueId}`);
-        this.activeDownloads.delete(queueId);
-        
-        // 更新数据库状态
-        await booruService.updateDownloadStatus(queueId, 'completed');
-        await booruService.markPostAsDownloaded(item.postId, item.targetPath!);
-        
-        // 通知前端
-        this.broadcastStatus(queueId, 'completed');
-        
-        // 继续处理队列
-        this.processQueue();
-      });
+      // pipeline 成功完成
+      console.log(`[DownloadManager] 下载完成 #${queueId}`);
+      this.activeDownloads.delete(queueId);
 
-      writer.on('error', async (err) => {
-        console.error(`[DownloadManager] 写入文件失败 #${queueId}:`, err);
-        // 写入失败时立即清除损坏文件
-        try {
-          if (item.targetPath && fs.existsSync(item.targetPath)) {
-            console.log(`[DownloadManager] 写入失败，清除损坏文件: ${item.targetPath}`);
-            fs.unlinkSync(item.targetPath);
-          }
-        } catch (unlinkError) {
-          console.warn(`[DownloadManager] 清除损坏文件失败:`, unlinkError);
-        }
-        this.handleDownloadError(queueId, err.message);
-      });
+      // 更新数据库状态（完成时写一次）
+      await booruService.updateDownloadStatus(queueId, 'completed');
+      await booruService.updateDownloadProgress(queueId, 100, downloadedLength, totalLength).catch(console.error);
+      await booruService.markPostAsDownloaded(item.postId, item.targetPath!);
 
-      response.data.pipe(writer);
+      // 通知前端
+      this.broadcastStatus(queueId, 'completed');
+
+      // 继续处理队列
+      this.processQueue();
 
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[DownloadManager] 下载失败 #${queueId}:`, errorMessage);
-      // 下载失败时清除可能存在的损坏文件
+      // 下载失败时清除可能存在的损坏文件（异步）
       try {
-        if (item.targetPath && fs.existsSync(item.targetPath)) {
-          console.log(`[DownloadManager] 下载失败，清除损坏文件: ${item.targetPath}`);
-          fs.unlinkSync(item.targetPath);
+        if (item.targetPath) {
+          await fsPromises.unlink(item.targetPath);
+          console.log(`[DownloadManager] 下载失败，已清除损坏文件: ${item.targetPath}`);
         }
-      } catch (unlinkError) {
-        console.warn(`[DownloadManager] 清除损坏文件失败:`, unlinkError);
+      } catch (unlinkError: any) {
+        if (unlinkError?.code !== 'ENOENT') {
+          console.warn(`[DownloadManager] 清除损坏文件失败:`, unlinkError);
+        }
       }
       this.handleDownloadError(queueId, errorMessage);
     }

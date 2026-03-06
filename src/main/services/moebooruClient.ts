@@ -95,12 +95,62 @@ export function hashPasswordSHA1(salt: string, password: string): string {
 }
 
 /**
+ * 简单令牌桶限流器
+ * 控制单位时间内的最大请求数，防止触发服务端 429
+ */
+class RateLimiter {
+  private tokens: number;
+  private readonly maxTokens: number;
+  private readonly refillIntervalMs: number;
+  private lastRefill: number;
+
+  /**
+   * @param maxRequests 最大突发请求数
+   * @param perMs 令牌补充周期（毫秒）
+   */
+  constructor(maxRequests: number = 5, perMs: number = 1000) {
+    this.maxTokens = maxRequests;
+    this.tokens = maxRequests;
+    this.refillIntervalMs = perMs;
+    this.lastRefill = Date.now();
+  }
+
+  /** 等待一个可用令牌 */
+  async acquire(): Promise<void> {
+    this.refill();
+    if (this.tokens > 0) {
+      this.tokens--;
+      return;
+    }
+    // 等待下一个令牌补充
+    const waitMs = this.refillIntervalMs - (Date.now() - this.lastRefill);
+    if (waitMs > 0) {
+      await new Promise(resolve => setTimeout(resolve, waitMs));
+    }
+    this.refill();
+    this.tokens = Math.max(0, this.tokens - 1);
+  }
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = now - this.lastRefill;
+    if (elapsed >= this.refillIntervalMs) {
+      const periods = Math.floor(elapsed / this.refillIntervalMs);
+      this.tokens = Math.min(this.maxTokens, this.tokens + periods);
+      this.lastRefill += periods * this.refillIntervalMs;
+    }
+  }
+}
+
+/**
  * Moebooru API客户端
  * 参考: example/Boorusama-master/packages/booru_clients/lib/src/moebooru/moebooru_client.dart
  */
 export class MoebooruClient {
   private client: AxiosInstance;
   private config: MoebooruConfig;
+  // 请求限流器：最多 2 请求/秒（Yande.re 限制 2 req/s，Konachan 限制 1 req/s）
+  private rateLimiter = new RateLimiter(2, 1000);
 
   constructor(config: MoebooruConfig) {
     this.config = config;
@@ -193,6 +243,7 @@ export class MoebooruClient {
       console.log('[MoebooruClient] 请求参数:', queryParams);
       console.log('[MoebooruClient] =================================');
 
+      await this.rateLimiter.acquire();
       const response = await this.client.get('/post.json', {
         params: queryParams
       });
@@ -241,6 +292,7 @@ export class MoebooruClient {
 
       console.log('[MoebooruClient] 获取图片详情:', id);
 
+      await this.rateLimiter.acquire();
       const response = await this.client.get(`/post.json`, {
         params: { tags: `id:${id}`, ...params }
       });
@@ -276,6 +328,7 @@ export class MoebooruClient {
 
       console.log('[MoebooruClient] 搜索标签:', queryParams);
 
+      await this.rateLimiter.acquire();
       const response = await this.client.get('/tag.json', {
         params: queryParams
       });
@@ -343,6 +396,8 @@ export class MoebooruClient {
         
         for (const tagName of notFound) {
           try {
+          // 限流：防止批量查询时触发 429
+          await this.rateLimiter.acquire();
           // 尝试使用 name 参数（精确匹配）
           let response;
           try {
@@ -354,6 +409,7 @@ export class MoebooruClient {
               }
             });
           } catch (error) {
+            await this.rateLimiter.acquire();
             // 如果 name 参数失败，尝试 name_pattern
             response = await this.client.get('/tag.json', {
               params: {
@@ -418,6 +474,7 @@ export class MoebooruClient {
 
       console.log('[MoebooruClient] 获取标签摘要');
 
+      await this.rateLimiter.acquire();
       const response = await this.client.get('/tag/summary.json', {
         params: queryParams
       });

@@ -1,5 +1,5 @@
 import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem, FavoriteTag, FavoriteTagLabel } from '../../shared/types.js';
-import { getDatabase, run, runWithChanges, get, all } from './database.js';
+import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 
 // ========= 站点管理 =========
 
@@ -228,8 +228,16 @@ export async function setActiveBooruSite(id: number): Promise<void> {
   try {
     const db = await getDatabase();
 
-    await run(db, 'UPDATE booru_sites SET active = 0');
-    await run(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
+    // 使用事务确保两步操作的原子性
+    await run(db, 'BEGIN TRANSACTION');
+    try {
+      await run(db, 'UPDATE booru_sites SET active = 0');
+      await run(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
+      await run(db, 'COMMIT');
+    } catch (txError) {
+      await run(db, 'ROLLBACK');
+      throw txError;
+    }
 
     console.log('[booruService] 设置激活站点成功:', id);
   } catch (error) {
@@ -540,13 +548,22 @@ export async function addToFavorites(postId: number, siteId: number, notes?: str
       return existing.id;
     }
 
-    await run(db, `
-      INSERT OR IGNORE INTO booru_favorites (postId, siteId, notes, createdAt)
-      VALUES (?, ?, ?, ?)
-    `, [postId, siteId, notes || null, now]);
+    // 使用事务确保 INSERT + UPDATE 的原子性
+    await run(db, 'BEGIN TRANSACTION');
+    try {
+      await run(db, `
+        INSERT OR IGNORE INTO booru_favorites (postId, siteId, notes, createdAt)
+        VALUES (?, ?, ?, ?)
+      `, [postId, siteId, notes || null, now]);
 
-    // 更新图片的收藏状态
-    await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE id = ?', [postId]);
+      // 更新图片的收藏状态
+      await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE id = ?', [postId]);
+
+      await run(db, 'COMMIT');
+    } catch (txError) {
+      await run(db, 'ROLLBACK');
+      throw txError;
+    }
 
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
     const favoriteId = result!.id;
@@ -842,12 +859,15 @@ export async function saveBooruTags(siteId: number, tags: Array<{ name: string; 
     const db = await getDatabase();
     const now = new Date().toISOString();
 
-    for (const tag of tags) {
-      await run(db, `
-        INSERT OR REPLACE INTO booru_tags (siteId, name, category, postCount, createdAt)
-        VALUES (?, ?, ?, ?, ?)
-      `, [siteId, tag.name, tag.category || null, tag.postCount || 0, now]);
-    }
+    // 使用事务批量插入，避免每个标签单独一次数据库操作
+    await runInTransaction(db, async () => {
+      for (const tag of tags) {
+        await run(db, `
+          INSERT OR REPLACE INTO booru_tags (siteId, name, category, postCount, createdAt)
+          VALUES (?, ?, ?, ?, ?)
+        `, [siteId, tag.name, tag.category || null, tag.postCount || 0, now]);
+      }
+    });
 
     console.log('[booruService] 保存标签成功');
   } catch (error) {

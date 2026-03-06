@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button, Empty, App, Typography } from 'antd';
 import { LeftOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
@@ -328,6 +328,17 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
 
+  // 按 ID 倒序排序（最新的在前）
+  const sortedPosts = useMemo(() => {
+    return [...posts].sort((a, b) => b.postId - a.postId);
+  }, [posts]);
+
+  // 排序后再按评级筛选
+  const filteredSortedPosts = useMemo(() => {
+    if (ratingFilter === 'all') return sortedPosts;
+    return sortedPosts.filter(post => post.rating === ratingFilter);
+  }, [sortedPosts, ratingFilter]);
+
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
       {/* 页面标题和返回按钮 */}
@@ -389,7 +400,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
             />
 
             <BooruGridLayout
-              posts={posts.filter(post => ratingFilter === 'all' || post.rating === ratingFilter)}
+              posts={filteredSortedPosts}
               gridSize={appearanceConfig.gridSize}
               spacing={appearanceConfig.spacing}
               borderRadius={appearanceConfig.borderRadius}
@@ -420,8 +431,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         open={detailsPageOpen}
         post={selectedPost}
         site={selectedSite || null}
-        posts={posts}
-        initialIndex={selectedPost ? posts.findIndex(p => p.id === selectedPost.id) : 0}
+        posts={sortedPosts}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
         onClose={() => {
           setDetailsPageOpen(false);
           setSelectedPost(null);
