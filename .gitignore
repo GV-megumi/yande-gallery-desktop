@@ -126,3 +126,9 @@ celerybeat-schedule
 
 # SageMath parsed files
 *.sage.py
+
+# AI agent files
+.agent/
+.agents/
+.trae/
+skills-lock.json
