@@ -122,7 +122,7 @@
 9. **booru_favorites** - 收藏夹
 10. **search_history** - 搜索历史
 
-详细表结构见：`doc/database-schema.md`
+详细表结构见：`doc/数据库结构文档.md`
 
 ## 项目结构
 
@@ -193,10 +193,20 @@ yande-gallery-desktop/
 │   └── cache/                   # 图片缓存目录
 ├── downloads/                   # 默认下载目录
 ├── doc/                         # 项目文档
-│   ├── database-schema.md       # 数据库结构文档
-│   ├── booru-feature-implementation.md # Booru 功能文档
-│   ├── gallery-feature.md       # 图库功能文档
-│   └── DONE1.md                 # 已完成任务记录
+│   ├── 数据库结构文档.md          # 数据库表结构
+│   ├── Booru功能实现文档.md       # Booru 功能文档
+│   ├── 图库功能文档.md            # 图库功能文档
+│   ├── 性能审计报告.md            # 性能审计报告
+│   ├── 性能优化任务规划.md        # 性能优化任务
+│   ├── UI优化方案.md              # UI 优化方案
+│   ├── 安装指南.md                # 安装指南
+│   ├── Electron开发指南.md        # Electron 开发指南
+│   ├── 个人版本说明.md            # 个人版本说明
+│   ├── 项目提示文档.md            # 项目提示文档
+│   └── done/                    # 已完成任务记录
+│       ├── Moebooru功能实现记录.md
+│       ├── Bug修复任务记录.md
+│       └── UI优化任务清单.md
 ├── Boorusama-master-official/    # 参考项目（git submodule）
 ├── config.yaml                  # 应用配置文件
 ├── todo.md                      # 任务清单
@@ -204,10 +214,6 @@ yande-gallery-desktop/
 ├── tsconfig.json                # TypeScript 配置
 ├── vite.config.ts               # Vite 配置
 ├── README.md                    # 项目说明
-├── INSTALL.md                   # 安装指南
-├── ELECTRON_GUIDE.md            # Electron 开发指南
-├── PERSONAL_VERSION.md          # 个人版本说明
-├── PROJECT_PROMPTS.md           # 项目提示文档
 └── CLAUDE.md                    # 本文档（AI 参考文档）
 ```
 
@@ -1300,11 +1306,11 @@ npm run rebuild
 
 ## 相关文档
 
-- **[database-schema.md](doc/database-schema.md)** - 数据库表结构详细说明
-- **[booru-feature-implementation.md](doc/booru-feature-implementation.md)** - Booru 功能实现文档
-- **[gallery-feature.md](doc/gallery-feature.md)** - 图库功能实现文档
+- **[数据库结构文档.md](doc/数据库结构文档.md)** - 数据库表结构详细说明
+- **[Booru功能实现文档.md](doc/Booru功能实现文档.md)** - Booru 功能实现文档
+- **[图库功能文档.md](doc/图库功能文档.md)** - 图库功能实现文档
 - **[README.md](README.md)** - 项目说明和快速开始
-- **[ELECTRON_GUIDE.md](ELECTRON_GUIDE.md)** - Electron 开发指南
+- **[Electron开发指南.md](doc/Electron开发指南.md)** - Electron 开发指南
 
 ## 许可证
 
