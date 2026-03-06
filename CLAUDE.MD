@@ -4,7 +4,7 @@
 
 本项目是一个基于 **Electron + React + TypeScript** 的桌面应用程序，提供**本地图库管理**和 **Booru 站点（Yande.re、Konachan 等）对接**功能。程序支持本地图片的浏览、管理和组织，同时可以对接多个 Booru 站点的 API，实现图片的搜索、浏览和批量下载。
 
-**参考项目**：在 `example/Boorusama-master` 文件夹中有 Flutter 实现的示例 Booru 客户端，可以提供参考。
+**参考项目**：在 `Boorusama-master-official` 文件夹中有 Flutter 实现的示例 Booru 客户端，可以提供参考。
 
 ## 核心功能
 
@@ -197,8 +197,7 @@ yande-gallery-desktop/
 │   ├── booru-feature-implementation.md # Booru 功能文档
 │   ├── gallery-feature.md       # 图库功能文档
 │   └── DONE1.md                 # 已完成任务记录
-├── example/                     # 参考项目
-│   └── Boorusama-master/        # Flutter Booru 客户端示例
+├── Boorusama-master-official/    # 参考项目（git submodule）
 ├── config.yaml                  # 应用配置文件
 ├── todo.md                      # 任务清单
 ├── package.json                 # NPM 配置
@@ -920,13 +919,13 @@ const images = await getImages(100);
 
 ### Moebooru 开发规范
 
-**重要**：在开发 Moebooru 相关功能前，必须先参考 `example/Boorusama-master` 项目的实现。
+**重要**：在开发 Moebooru 相关功能前，必须先参考 `Boorusama-master-official` 项目的实现。
 
 #### 开发流程
 
 1. **查看 Boorusama 实现**
    - 大部分 Booru 功能在 Boorusama 项目中都有参考实现
-   - Boorusama 位置：`example/Boorusama-master/`
+   - Boorusama 位置：`Boorusama-master-official/`
    - 重点关注 Moebooru 相关的代码
 
 2. **确认 API 接口**
@@ -948,7 +947,7 @@ const images = await getImages(100);
 
 **主要参考文件**：
 ```
-example/Boorusama-master/
+Boorusama-master-official/
 ├── lib/
 │   ├── boorus/moebooru/          # Moebooru 实现
 │   │   ├── moebooru_client.dart  # API 客户端
@@ -962,7 +961,7 @@ example/Boorusama-master/
 
 **步骤1：查看 Boorusama 实现**
 ```dart
-// example/Boorusama-master/lib/boorus/moebooru/moebooru_client.dart
+// Boorusama-master-official/lib/boorus/moebooru/moebooru_client.dart
 class MoebooruClient {
   Future<List<Post>> getPosts({
     String? tags,
@@ -1294,7 +1293,7 @@ npm run rebuild
 
 ## 参考项目
 
-- **[Boorusama](https://github.com/khoadng/Boorusama)** - Flutter 实现的 Booru 客户端（位于 `example/Boorusama-master/`）
+- **[Boorusama](https://github.com/khoadng/Boorusama)** - Flutter 实现的 Booru 客户端（位于 `Boorusama-master-official/`）
 - **[Yande.re](https://yande.re)** - Moebooru 站点示例
 - **[Konachan](https://konachan.com)** - Moebooru 站点示例
 - **[Hydrus Network](https://github.com/hydrusnetwork/hydrus)** - 功能强大的图片管理工具

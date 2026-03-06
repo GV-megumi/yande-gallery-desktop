@@ -355,7 +355,7 @@ if (result.success) {
 ### 参考项目：Boorusama
 
 **GitHub 仓库**：https://github.com/khoadng/Boorusama
-**本地路径**：`example/Boorusama-master/`
+**本地路径**：`Boorusama-master-official/`（git submodule）
 
 #### 核心功能模块详细路径
 
