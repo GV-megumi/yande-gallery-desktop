@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button, Empty, message as antdMessage, Spin, Select, Space, Segmented, Affix, App, Typography } from 'antd';
 import { ReloadOutlined, BookOutlined, DownloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { BooruImageCard } from '../components/BooruImageCard';
+import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
+import { getBooruPreviewUrl } from '../utils/url';
 
 const { Title } = Typography;
 const { Option } = Select;
@@ -211,59 +213,9 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     setDetailsPageOpen(true);
   };
 
-  // 获取预览URL（复用 BooruPage 的逻辑）
+  // 获取预览URL（委托给统一的 url 工具函数）
   const getPreviewUrl = (post: BooruPost): string => {
-    if (!post) return '';
-    
-    // 优先检查是否有本地路径（已下载的图片）
-    if (post.localPath) {
-      try {
-        let appUrl = post.localPath;
-        if (appUrl.match(/^[A-Z]:\\/)) {
-          const driveLetter = appUrl[0].toLowerCase();
-          const pathPart = appUrl.substring(3).replace(/\\/g, '/');
-          appUrl = `app://${driveLetter}/${pathPart}`;
-        } else if (appUrl.startsWith('/')) {
-          appUrl = `app://${appUrl}`;
-        } else if (appUrl.startsWith('app://')) {
-          // 已经是 app:// 协议，直接使用
-        } else {
-          appUrl = `app://${appUrl.replace(/\\/g, '/')}`;
-        }
-        console.log('[BooruFavoritesPage] 使用本地图片路径:', appUrl);
-        return appUrl;
-      } catch (e) {
-        console.warn('[BooruFavoritesPage] 本地路径转换失败，使用远程URL:', e);
-      }
-    }
-    
-    const quality = appearanceConfig.previewQuality;
-    let url = '';
-    
-    if (quality === 'original') {
-      url = post.fileUrl || post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'high') {
-      url = post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'medium') {
-      url = post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'low') {
-      url = post.previewUrl || '';
-    } else {
-      url = post.sampleUrl || post.previewUrl || '';
-    }
-    
-    // 如果 URL 包含标签（可能返回 307），自动回退到 previewUrl
-    if (url && (url.includes('%20') || url.includes('yande.re%20'))) {
-      console.warn('[BooruFavoritesPage] URL 包含标签，可能返回 307 重定向，回退到 previewUrl');
-      url = post.previewUrl || '';
-    }
-    
-    if (!url && post.fileUrl) {
-      console.warn('[BooruFavoritesPage] 使用 fileUrl 作为后备');
-      url = post.fileUrl;
-    }
-    
-    return url;
+    return getBooruPreviewUrl(post, appearanceConfig.previewQuality);
   };
 
   // 初始化
@@ -459,122 +411,5 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   );
 };
 
-/**
- * Booru 动态网格布局组件（复用自 BooruPage）
- */
-interface BooruGridLayoutProps {
-  posts: BooruPost[];
-  gridSize: number;
-  spacing: number;
-  borderRadius: number;
-  selectedSite: BooruSite | null;
-  onPreview: (post: BooruPost) => void;
-  onDownload: (post: BooruPost) => void;
-  onToggleFavorite: (post: BooruPost) => void;
-  favorites: Set<number>;
-  getPreviewUrl: (post: BooruPost) => string;
-}
-
-const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
-  posts,
-  gridSize,
-  spacing,
-  borderRadius,
-  selectedSite,
-  onPreview,
-  onDownload,
-  onToggleFavorite,
-  favorites,
-  getPreviewUrl
-}) => {
-  // 按 ID 倒序排序（最新的在前）
-  const sortedPosts = useMemo(() => {
-    return [...posts].sort((a, b) => b.postId - a.postId);
-  }, [posts]);
-
-  // 计算每行能放多少张图片
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [itemsPerRow, setItemsPerRow] = useState(5);
-  const [imageHeights, setImageHeights] = useState<Record<number, number>>({});
-
-  useEffect(() => {
-    const updateItemsPerRow = () => {
-      if (containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth;
-        const calculated = Math.floor((containerWidth + spacing) / (gridSize + spacing));
-        setItemsPerRow(Math.max(1, calculated));
-      }
-    };
-
-    updateItemsPerRow();
-    window.addEventListener('resize', updateItemsPerRow);
-    return () => window.removeEventListener('resize', updateItemsPerRow);
-  }, [gridSize, spacing]);
-
-  // 处理图片加载完成，记录高度
-  const handleImageLoad = (postId: number, height: number) => {
-    setImageHeights(prev => ({
-      ...prev,
-      [postId]: height
-    }));
-  };
-
-  // 将图片分组为行
-  const rows = useMemo(() => {
-    const result: BooruPost[][] = [];
-    for (let i = 0; i < sortedPosts.length; i += itemsPerRow) {
-      result.push(sortedPosts.slice(i, i + itemsPerRow));
-    }
-    return result;
-  }, [sortedPosts, itemsPerRow]);
-
-  return (
-    <div ref={containerRef} style={{ width: '100%' }}>
-      {rows.map((row, rowIndex) => {
-        // 计算该行的最大高度
-        const rowHeights = row.map(post => {
-          const height = imageHeights[post.postId];
-          return height || (gridSize * 1.5);
-        });
-        const maxHeight = Math.max(...rowHeights);
-
-        return (
-          <div
-            key={rowIndex}
-            style={{
-              display: 'flex',
-              gap: `${spacing}px`,
-              marginBottom: `${spacing}px`,
-              minHeight: `${maxHeight}px`
-            }}
-          >
-            {row.map(post => (
-              <div
-                key={post.id}
-                style={{
-                  width: `${gridSize}px`,
-                  flexShrink: 0,
-                  borderRadius: `${borderRadius}px`,
-                  overflow: 'hidden',
-                  height: '100%'
-                }}
-              >
-                <BooruImageCard
-                  post={post}
-                  siteName={selectedSite?.name || ''}
-                  onPreview={onPreview}
-                  onDownload={onDownload}
-                  onToggleFavorite={onToggleFavorite}
-                  isFavorited={favorites.has(post.id) || post.isFavorited}
-                  previewUrl={getPreviewUrl(post)}
-                  onImageLoad={handleImageLoad}
-                />
-              </div>
-            ))}
-          </div>
-        );
-      })}
-    </div>
-  );
-};
+// BooruGridLayout 已提取到 src/renderer/components/BooruGridLayout.tsx
 

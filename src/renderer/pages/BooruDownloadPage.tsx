@@ -14,6 +14,7 @@ import {
   SortDescendingOutlined
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
+import { localPathToAppUrl } from '../utils/url';
 
 const { TabPane } = Tabs;
 const { Option } = Select;
@@ -25,22 +26,8 @@ type SortOrder = 'asc' | 'desc';
 // 将本地文件路径转换为 app:// 协议 URL
 const getImageUrl = (filePath: string): string => {
   if (!filePath) return '';
-  // 如果已经是 app:// 协议，直接返回
   if (filePath.startsWith('app://')) return filePath;
-  
-  // Windows 路径处理: M:\path\to\file.png -> app://m/path/to/file.png
-  if (filePath.match(/^[A-Z]:\\/i)) {
-    const driveLetter = filePath[0].toLowerCase();
-    const pathPart = filePath.substring(3).replace(/\\/g, '/');
-    // 对路径中的每个部分单独编码，保留路径分隔符
-    const encodedPath = pathPart.split('/').map(part => encodeURIComponent(part)).join('/');
-    return `app://${driveLetter}/${encodedPath}`;
-  }
-  
-  // Unix 路径或其他格式
-  const normalized = filePath.replace(/\\/g, '/');
-  const encodedPath = normalized.split('/').map(part => encodeURIComponent(part)).join('/');
-  return `app://${encodedPath}`;
+  return localPathToAppUrl(filePath);
 };
 
 interface QueueStatus {

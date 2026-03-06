@@ -2,8 +2,10 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { Button, Empty, message as antdMessage, Spin, Select, Input, Tag, Space, Segmented, Affix, App } from 'antd';
 import { ReloadOutlined, SearchOutlined, DownloadOutlined } from '@ant-design/icons';
 import { BooruImageCard } from '../components/BooruImageCard';
+import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
+import { getBooruPreviewUrl } from '../utils/url';
 
 const { Search } = Input;
 const { Option } = Select;
@@ -455,128 +457,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     { label: '限制级', value: 'explicit' }
   ];
 
-  // 根据预览质量获取图片URL
+  // 根据预览质量获取图片URL（委托给统一的 url 工具函数）
   const getPreviewUrl = (post: BooruPost): string => {
-    // 优先检查是否有本地路径（已下载的图片）
-    if (post.localPath) {
-      // 将本地路径转换为 app:// 协议
-      // localPath 格式可能是: M:\booru\mignon2\1237041_9d03c2a8.png
-      // 需要转换为: app://m/booru/mignon2/1237041_9d03c2a8.png
-      try {
-        let appUrl = post.localPath;
-        // Windows 路径处理: M:\path\to\file.png -> app://m/path/to/file.png
-        if (appUrl.match(/^[A-Z]:\\/)) {
-          // Windows 路径格式
-          const driveLetter = appUrl[0].toLowerCase();
-          const pathPart = appUrl.substring(3).replace(/\\/g, '/');
-          appUrl = `app://${driveLetter}/${pathPart}`;
-        } else if (appUrl.startsWith('/')) {
-          // Unix 路径: /path/to/file.png -> app:///path/to/file.png
-          appUrl = `app://${appUrl}`;
-        } else if (appUrl.startsWith('app://')) {
-          // 已经是 app:// 协议，直接使用
-          // 不需要转换
-        } else {
-          // 其他格式，尝试直接添加 app://
-          appUrl = `app://${appUrl.replace(/\\/g, '/')}`;
-        }
-        console.log('[BooruPage] 使用本地图片路径:', appUrl);
-        return appUrl;
-      } catch (e) {
-        console.warn('[BooruPage] 本地路径转换失败，使用远程URL:', e);
-      }
-    }
-    
-    // 确保总是返回有效的URL
-    const quality = appearanceConfig.previewQuality;
-    let url = '';
-    
-    // 优先使用 preview_url，因为它使用基于 MD5 的简单路径格式，更可靠
-    // preview_url 格式: https://assets.yande.re/data/preview/40/59/40591ededcfa8326ea31afc563bb0e72.jpg
-    // 这种格式不包含标签，更稳定
-    
-    // URL 选择策略（参考 Boorusama）：
-    // Boorusama 使用：
-    // - thumbnailImageUrl = previewUrl（缩略图，最可靠）
-    // - largeImageUrl = jpegUrl（JPEG 大图）
-    // - sampleImageUrl = sampleUrl（样本图）
-    // - originalImageUrl = fileUrl（原图）
-    // 
-    // 但 yande.re 的 file_url 和 jpeg_url 可能返回 307 重定向（包含标签的文件名格式已失效）
-    // 所以优先使用 preview_url 和 sample_url（它们使用基于 MD5 的简单路径，不包含标签）
-    
-    // 参考 Boorusama 的 DefaultMediaUrlResolver 逻辑：
-    // - preview -> thumbnailImageUrl (previewUrl)
-    // - sample -> sampleImageUrl (sampleUrl)
-    // - original -> originalImageUrl (fileUrl)
-    //
-    // 但由于 yande.re 的 file_url、sample_url、jpeg_url 都包含标签且可能返回 307 重定向
-    // 而 preview_url 使用基于 MD5 的简单路径格式，不包含标签，最可靠
-    // 因此，我们需要在检测到 URL 包含标签时，自动回退到 previewUrl
-    
-    if (quality === 'original') {
-      // 最高质量：使用 originalImageUrl (fileUrl)
-      url = post.fileUrl || post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'high') {
-      // 高质量：使用 sampleImageUrl (sampleUrl)
-      url = post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'medium') {
-      // 中等质量：使用 sampleImageUrl (sampleUrl)
-      url = post.sampleUrl || post.previewUrl || '';
-    } else if (quality === 'low') {
-      // 低质量：使用 thumbnailImageUrl (previewUrl)
-      url = post.previewUrl || '';
-    } else {
-      // auto: 使用 sampleImageUrl (sampleUrl)，如果没有则使用 previewUrl
-      url = post.sampleUrl || post.previewUrl || '';
-    }
-    
-    // 如果 URL 包含标签（可能返回 307），自动回退到 previewUrl
-    // previewUrl 使用基于 MD5 的简单路径格式，不包含标签，最可靠
-    if (url && (url.includes('%20') || url.includes('yande.re%20'))) {
-      console.warn('[BooruPage] URL 包含标签，可能返回 307 重定向，回退到 previewUrl:', url.substring(0, 100));
-      if (post.previewUrl) {
-        console.log('[BooruPage] 使用 previewUrl:', post.previewUrl.substring(0, 100));
-        url = post.previewUrl;
-      } else {
-        console.error('[BooruPage] 没有可用的 previewUrl，URL 可能无法加载');
-      }
-    }
-    
-    if (!url || !url.trim()) {
-      console.error('[BooruPage] 无法获取图片URL:', {
-        postId: post.postId,
-        quality,
-        fileUrl: post.fileUrl,
-        sampleUrl: post.sampleUrl,
-        previewUrl: post.previewUrl,
-        localPath: post.localPath
-      });
-    } else {
-      // 调试：检查 URL 是否完整
-      const urlLength = url.length;
-      const expectedMinLength = 100; // 正常 URL 应该至少有 100 个字符
-      if (urlLength < expectedMinLength) {
-        console.warn('[BooruPage] URL 可能被截断:', {
-          postId: post.postId,
-          quality,
-          urlLength,
-          url: url,
-          fileUrlLength: post.fileUrl?.length || 0,
-          previewUrlLength: post.previewUrl?.length || 0,
-          sampleUrlLength: post.sampleUrl?.length || 0
-        });
-      }
-      console.log('[BooruPage] 获取图片URL成功:', {
-        postId: post.postId,
-        quality,
-        urlLength,
-        url: url.substring(0, 150) + (url.length > 150 ? '...' : ''),
-        hasLocalPath: !!post.localPath
-      });
-    }
-    
-    return url;
+    return getBooruPreviewUrl(post, appearanceConfig.previewQuality);
   };
 
   return (
@@ -818,127 +701,6 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
           }
         }}
       />
-    </div>
-  );
-};
-
-/**
- * Booru 动态网格布局组件
- * 按 ID 排序，每行显示多张图片，每行高度取该行图片的最大高度
- */
-interface BooruGridLayoutProps {
-  posts: BooruPost[];
-  gridSize: number;
-  spacing: number;
-  borderRadius: number;
-  selectedSite: BooruSite | null;
-  onPreview: (post: BooruPost) => void;
-  onDownload: (post: BooruPost) => void;
-  onToggleFavorite: (post: BooruPost) => void;
-  favorites: Set<number>;
-  getPreviewUrl: (post: BooruPost) => string;
-}
-
-const BooruGridLayout: React.FC<BooruGridLayoutProps> = ({
-  posts,
-  gridSize,
-  spacing,
-  borderRadius,
-  selectedSite,
-  onPreview,
-  onDownload,
-  onToggleFavorite,
-  favorites,
-  getPreviewUrl
-}) => {
-  // 按 ID 倒序排序（最新的在前）
-  const sortedPosts = useMemo(() => {
-    return [...posts].sort((a, b) => b.postId - a.postId);
-  }, [posts]);
-
-  // 计算每行能放多少张图片（根据容器宽度和 gridSize）
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [itemsPerRow, setItemsPerRow] = useState(5);
-
-  useEffect(() => {
-    const updateItemsPerRow = () => {
-      if (containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth;
-        // 计算每行能放多少张：容器宽度 / (gridSize + spacing)
-        const calculated = Math.floor((containerWidth + spacing) / (gridSize + spacing));
-        setItemsPerRow(Math.max(1, calculated));
-      }
-    };
-
-    updateItemsPerRow();
-    window.addEventListener('resize', updateItemsPerRow);
-    return () => window.removeEventListener('resize', updateItemsPerRow);
-  }, [gridSize, spacing]);
-
-  // 将图片分组为行
-  const rows = useMemo(() => {
-    const result: BooruPost[][] = [];
-    for (let i = 0; i < sortedPosts.length; i += itemsPerRow) {
-      result.push(sortedPosts.slice(i, i + itemsPerRow));
-    }
-    return result;
-  }, [sortedPosts, itemsPerRow]);
-
-  // 存储每张图片的实际高度
-  const [imageHeights, setImageHeights] = useState<Record<number, number>>({});
-
-  const handleImageLoad = (postId: number, height: number) => {
-    setImageHeights(prev => ({ ...prev, [postId]: height }));
-  };
-
-  return (
-    <div ref={containerRef} style={{ width: '100%' }}>
-      {rows.map((row, rowIndex) => {
-        // 计算该行的最大高度
-        // 如果该行的所有图片都已加载，使用实际高度；否则使用默认高度
-        const rowHeights = row.map(post => {
-          const height = imageHeights[post.postId];
-          // 如果高度已记录，使用实际高度；否则使用默认高度（gridSize 的 1.5 倍，适应大多数图片比例）
-          return height || (gridSize * 1.5);
-        });
-        const maxHeight = Math.max(...rowHeights);
-
-        return (
-          <div
-            key={rowIndex}
-            style={{
-              display: 'flex',
-              gap: `${spacing}px`,
-              marginBottom: `${spacing}px`,
-              minHeight: `${maxHeight}px`
-            }}
-          >
-            {row.map(post => (
-              <div
-                key={post.id}
-                style={{
-                  width: `${gridSize}px`,
-                  flexShrink: 0,
-                  borderRadius: `${borderRadius}px`,
-                  overflow: 'hidden',
-                  height: '100%'
-                }}
-              >
-                <BooruImageCard
-                  post={post}
-                  siteName={selectedSite?.name || ''}
-                  onPreview={onPreview}
-                  onDownload={onDownload}
-                  onToggleFavorite={onToggleFavorite}
-                  isFavorited={favorites.has(post.id) || post.isFavorited}
-                  previewUrl={getPreviewUrl(post)}
-                  onImageLoad={handleImageLoad}
-                />
-              </div>
-            ))}
-          </div>
-        );
-      })}
     </div>
   );
 };

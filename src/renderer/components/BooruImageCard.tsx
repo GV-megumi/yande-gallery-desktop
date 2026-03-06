@@ -30,63 +30,19 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = ({
   previewUrl,
   onImageLoad
 }) => {
-  // 获取预览图URL
+  // 获取预览图URL：优先使用外部传入的 previewUrl，否则按优先级选择
   const getPreviewUrl = (): string => {
-    let url = '';
-    
-    // 如果外部传入了 previewUrl，优先使用
-    if (previewUrl && previewUrl.trim()) {
-      url = previewUrl.trim();
-      console.log('[BooruImageCard] 使用外部传入的 previewUrl:', url.substring(0, 80) + '...');
-    } else {
-      // 否则按优先级选择：previewUrl -> sampleUrl -> fileUrl
-      url = (post.previewUrl || post.sampleUrl || post.fileUrl || '').trim();
-    }
-    
-    if (!url) {
-      console.error('[BooruImageCard] 图片没有有效的URL:', {
-        postId: post.postId,
-        previewUrl: post.previewUrl,
-        sampleUrl: post.sampleUrl,
-        fileUrl: post.fileUrl,
-        externalPreviewUrl: previewUrl
-      });
-      return ''; // 返回空字符串，让 Image 组件处理错误
-    }
-    
-    // 确保 URL 是完整的（包含协议）
-    // 支持 app:// 协议（本地图片）和 http/https 协议（远程图片）
-    if (url.startsWith('app://')) {
-      // 本地图片，直接使用
-      // 不需要修改
-    } else if (url.startsWith('//')) {
+    let url = (previewUrl || post.previewUrl || post.sampleUrl || post.fileUrl || '').trim();
+
+    if (!url) return '';
+
+    // 确保 URL 包含协议
+    if (url.startsWith('//')) {
       url = 'https:' + url;
     } else if (!url.startsWith('http://') && !url.startsWith('https://') && !url.startsWith('app://')) {
-      // 如果是相对路径，尝试添加协议
-      console.warn('[BooruImageCard] URL 缺少协议，尝试修复:', url);
       url = 'https://' + url;
     }
-    
-    // 注意：不要解码 URL，因为 yande.re 的 URL 中的 %20 等编码是必需的
-    // 浏览器会自动处理 URL 编码
-    
-    // 调试：检查 URL 是否完整
-    if (url.length < 50) {
-      console.warn('[BooruImageCard] URL 可能被截断:', {
-        postId: post.postId,
-        urlLength: url.length,
-        url: url,
-        fileUrlLength: post.fileUrl?.length || 0,
-        previewUrlLength: post.previewUrl?.length || 0,
-        sampleUrlLength: post.sampleUrl?.length || 0
-      });
-    }
-    
-    console.log('[BooruImageCard] 最终图片URL:', {
-      postId: post.postId,
-      urlLength: url.length,
-      url: url.substring(0, 150) + (url.length > 150 ? '...' : '')
-    });
+
     return url;
   };
   const [loading, setLoading] = useState(false);

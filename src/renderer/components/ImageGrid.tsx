@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { Card, Image, Tag, Button, Modal, Descriptions, Space } from 'antd';
 import { TagsOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
+import { localPathToAppUrl } from '../utils/url';
 
 export interface ImageGridProps {
   images: any[];
@@ -24,22 +25,8 @@ export interface ImageGridProps {
 // 将本地文件路径转换为 app:// 协议 URL
 const getImageUrl = (filePath: string): string => {
   if (!filePath) return '';
-  // 如果已经是 app:// 协议，直接返回
   if (filePath.startsWith('app://')) return filePath;
-  
-  // Windows 路径处理: M:\path\to\file.png -> app://m/path/to/file.png
-  if (filePath.match(/^[A-Z]:\\/i)) {
-    const driveLetter = filePath[0].toLowerCase();
-    const pathPart = filePath.substring(3).replace(/\\/g, '/');
-    // 对路径中的每个部分单独编码，保留路径分隔符
-    const encodedPath = pathPart.split('/').map(part => encodeURIComponent(part)).join('/');
-    return `app://${driveLetter}/${encodedPath}`;
-  }
-  
-  // Unix 路径或其他格式
-  const normalized = filePath.replace(/\\/g, '/');
-  const encodedPath = normalized.split('/').map(part => encodeURIComponent(part)).join('/');
-  return `app://${encodedPath}`;
+  return localPathToAppUrl(filePath);
 };
 
 // 按修改时间分组 key
