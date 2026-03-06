@@ -157,10 +157,11 @@ class DownloadManager {
 
   /**
    * 重试单个失败的下载任务
+   * 重试前清除可能存在的损坏文件
    */
   async retryDownload(postId: number, siteId: number): Promise<boolean> {
     console.log(`[DownloadManager] 重试下载任务: postId=${postId}, siteId=${siteId}`);
-    
+
     try {
       // 获取图片信息
       const post = await booruService.getBooruPostBySiteAndId(siteId, postId);
@@ -173,9 +174,19 @@ class DownloadManager {
       const downloadPath = getDownloadsPath();
       const targetPath = await this.generateDownloadFileName(post, siteId, downloadPath);
 
+      // 重试前清除可能存在的损坏文件
+      try {
+        if (fs.existsSync(targetPath)) {
+          console.log(`[DownloadManager] 重试前清除损坏文件: ${targetPath}`);
+          fs.unlinkSync(targetPath);
+        }
+      } catch (unlinkError) {
+        console.warn(`[DownloadManager] 清除文件失败:`, unlinkError);
+      }
+
       // 更新数据库中的任务状态为 pending
       await booruService.addToDownloadQueue(postId, siteId, 0, targetPath);
-      
+
       // 触发队列处理（如果没有暂停）
       if (!this.isPaused) {
         this.processQueue();
@@ -417,6 +428,15 @@ class DownloadManager {
 
       writer.on('error', async (err) => {
         console.error(`[DownloadManager] 写入文件失败 #${queueId}:`, err);
+        // 写入失败时立即清除损坏文件
+        try {
+          if (item.targetPath && fs.existsSync(item.targetPath)) {
+            console.log(`[DownloadManager] 写入失败，清除损坏文件: ${item.targetPath}`);
+            fs.unlinkSync(item.targetPath);
+          }
+        } catch (unlinkError) {
+          console.warn(`[DownloadManager] 清除损坏文件失败:`, unlinkError);
+        }
         this.handleDownloadError(queueId, err.message);
       });
 
@@ -425,12 +445,22 @@ class DownloadManager {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[DownloadManager] 下载失败 #${queueId}:`, errorMessage);
+      // 下载失败时清除可能存在的损坏文件
+      try {
+        if (item.targetPath && fs.existsSync(item.targetPath)) {
+          console.log(`[DownloadManager] 下载失败，清除损坏文件: ${item.targetPath}`);
+          fs.unlinkSync(item.targetPath);
+        }
+      } catch (unlinkError) {
+        console.warn(`[DownloadManager] 清除损坏文件失败:`, unlinkError);
+      }
       this.handleDownloadError(queueId, errorMessage);
     }
   }
 
   /**
    * 处理下载错误
+   * 注意：调用方应在调用此方法前清除损坏文件
    */
   private async handleDownloadError(queueId: number, errorMessage: string) {
     this.activeDownloads.delete(queueId);

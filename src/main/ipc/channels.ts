@@ -100,5 +100,19 @@ export const IPC_CHANNELS = {
   BULK_DOWNLOAD_GET_SESSION_STATS: 'bulk-download:get-session-stats',
   BULK_DOWNLOAD_GET_RECORDS: 'bulk-download:get-records',
   BULK_DOWNLOAD_RETRY_ALL_FAILED: 'bulk-download:retry-all-failed',
-  BULK_DOWNLOAD_RETRY_FAILED_RECORD: 'bulk-download:retry-failed-record'
+  BULK_DOWNLOAD_RETRY_FAILED_RECORD: 'bulk-download:retry-failed-record',
+  BULK_DOWNLOAD_RESUME_RUNNING_SESSIONS: 'bulk-download:resume-running-sessions',
+
+  // === 收藏标签管理 ===
+  BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
+  BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
+  BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
+  BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
+  BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
+  BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
+
+  // 收藏标签分组管理
+  BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
+  BOORU_ADD_FAVORITE_TAG_LABEL: 'booru:add-favorite-tag-label',
+  BOORU_REMOVE_FAVORITE_TAG_LABEL: 'booru:remove-favorite-tag-label'
 } as const;

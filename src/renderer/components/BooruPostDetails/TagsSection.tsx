@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Collapse, Tag, Space, Typography } from 'antd';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Collapse, Tag, Space, Typography, message } from 'antd';
+import { StarOutlined, StarFilled } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 
 const { Panel } = Collapse;
@@ -23,6 +24,8 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
 }) => {
   const [expanded, setExpanded] = useState(false);
   const [tagCategories, setTagCategories] = useState<Record<string, string>>({});
+  // 收藏标签状态：记录哪些标签已被收藏
+  const [favoritedTags, setFavoritedTags] = useState<Set<string>>(new Set());
 
   // 解析标签字符串
   const parseTags = (tags: string): string[] => {
@@ -67,6 +70,47 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
     loadTagCategories();
   }, [site, post.tags]);
 
+  // 加载收藏标签状态
+  useEffect(() => {
+    if (!site) return;
+    const loadFavoriteStatus = async () => {
+      try {
+        const result = await window.electronAPI.booru.getFavoriteTags(site.id);
+        if (result.success && result.data) {
+          const favSet = new Set(result.data.map((t: any) => t.tagName));
+          setFavoritedTags(favSet);
+        }
+      } catch (error) {
+        console.error('[TagsSection] 加载收藏标签状态失败:', error);
+      }
+    };
+    loadFavoriteStatus();
+  }, [site]);
+
+  // 切换标签收藏状态
+  const toggleFavoriteTag = useCallback(async (tagName: string) => {
+    if (!site) return;
+    const isFav = favoritedTags.has(tagName);
+    try {
+      if (isFav) {
+        const result = await window.electronAPI.booru.removeFavoriteTagByName(site.id, tagName);
+        if (result.success) {
+          setFavoritedTags(prev => { const next = new Set(prev); next.delete(tagName); return next; });
+          message.success(`已取消收藏: ${tagName.replace(/_/g, ' ')}`);
+        }
+      } else {
+        const result = await window.electronAPI.booru.addFavoriteTag(site.id, tagName);
+        if (result.success) {
+          setFavoritedTags(prev => new Set(prev).add(tagName));
+          message.success(`已收藏: ${tagName.replace(/_/g, ' ')}`);
+        }
+      }
+    } catch (error) {
+      console.error('[TagsSection] 切换标签收藏失败:', error);
+      message.error('操作失败');
+    }
+  }, [site, favoritedTags]);
+
   // 分类标签（根据数据库查询的分类信息）
   const categorizeTags = (tags: string[]): {
     artist: string[];
@@ -104,6 +148,29 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
   const allTags = parseTags(post.tags);
   const categorized = categorizeTags(allTags);
   const totalCount = allTags.length;
+
+  // 渲染单个标签（带收藏星标）
+  const renderTag = (tag: string, category: string, index: number) => {
+    const isFav = favoritedTags.has(tag);
+    return (
+      <Tag
+        key={`${category}-${index}`}
+        color={getTagColor(category)}
+        style={{ cursor: 'pointer', marginBottom: '4px' }}
+        onClick={() => handleTagClick(tag)}
+      >
+        <span
+          onClick={(e) => { e.stopPropagation(); toggleFavoriteTag(tag); }}
+          style={{ cursor: 'pointer', marginRight: 4 }}
+        >
+          {isFav
+            ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
+            : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
+        </span>
+        {tag.replace(/_/g, ' ')}
+      </Tag>
+    );
+  };
 
   const handleTagClick = (tag: string) => {
     console.log('[TagsSection] 点击标签:', tag);
@@ -152,16 +219,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
                 艺术家
               </Text>
               <Space wrap size={[4, 4]}>
-                {categorized.artist.map((tag, index) => (
-                  <Tag
-                    key={`artist-${index}`}
-                    color={getTagColor('artist')}
-                    style={{ cursor: 'pointer', marginBottom: '4px' }}
-                    onClick={() => handleTagClick(tag)}
-                  >
-                    {tag.replace(/_/g, ' ')}
-                  </Tag>
-                ))}
+                {categorized.artist.map((tag, index) => renderTag(tag, 'artist', index))}
               </Space>
             </div>
           )}
@@ -173,16 +231,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
                 角色
               </Text>
               <Space wrap size={[4, 4]}>
-                {categorized.character.map((tag, index) => (
-                  <Tag
-                    key={`character-${index}`}
-                    color={getTagColor('character')}
-                    style={{ cursor: 'pointer', marginBottom: '4px' }}
-                    onClick={() => handleTagClick(tag)}
-                  >
-                    {tag.replace(/_/g, ' ')}
-                  </Tag>
-                ))}
+                {categorized.character.map((tag, index) => renderTag(tag, 'character', index))}
               </Space>
             </div>
           )}
@@ -194,16 +243,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
                 版权
               </Text>
               <Space wrap size={[4, 4]}>
-                {categorized.copyright.map((tag, index) => (
-                  <Tag
-                    key={`copyright-${index}`}
-                    color={getTagColor('copyright')}
-                    style={{ cursor: 'pointer', marginBottom: '4px' }}
-                    onClick={() => handleTagClick(tag)}
-                  >
-                    {tag.replace(/_/g, ' ')}
-                  </Tag>
-                ))}
+                {categorized.copyright.map((tag, index) => renderTag(tag, 'copyright', index))}
               </Space>
             </div>
           )}
@@ -215,16 +255,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
                 通用
               </Text>
               <Space wrap size={[4, 4]}>
-                {categorized.general.map((tag, index) => (
-                  <Tag
-                    key={`general-${index}`}
-                    color={getTagColor('general')}
-                    style={{ cursor: 'pointer', marginBottom: '4px' }}
-                    onClick={() => handleTagClick(tag)}
-                  >
-                    {tag.replace(/_/g, ' ')}
-                  </Tag>
-                ))}
+                {categorized.general.map((tag, index) => renderTag(tag, 'general', index))}
               </Space>
             </div>
           )}
@@ -236,16 +267,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
                 元数据
               </Text>
               <Space wrap size={[4, 4]}>
-                {categorized.meta.map((tag, index) => (
-                  <Tag
-                    key={`meta-${index}`}
-                    color={getTagColor('meta')}
-                    style={{ cursor: 'pointer', marginBottom: '4px' }}
-                    onClick={() => handleTagClick(tag)}
-                  >
-                    {tag.replace(/_/g, ' ')}
-                  </Tag>
-                ))}
+                {categorized.meta.map((tag, index) => renderTag(tag, 'meta', index))}
               </Space>
             </div>
           )}

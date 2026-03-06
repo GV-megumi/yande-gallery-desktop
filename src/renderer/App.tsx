@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Layout, Menu, theme, message, App as AntApp } from 'antd';
-import { PictureOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined, CloudDownloadOutlined } from '@ant-design/icons';
+import { PictureOutlined, SettingOutlined, ClockCircleOutlined, AppstoreOutlined, CloudOutlined, SettingOutlined as BooruSettingOutlined, BookOutlined, CloudDownloadOutlined, StarOutlined } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { BooruPage } from './pages/BooruPage';
@@ -9,6 +9,7 @@ import BooruDownloadPage from './pages/BooruDownloadPage';
 import { BooruBulkDownloadPage } from './pages/BooruBulkDownloadPage';
 import { BooruTagSearchPage } from './pages/BooruTagSearchPage';
 import { BooruFavoritesPage } from './pages/BooruFavoritesPage';
+import { FavoriteTagsPage } from './pages/FavoriteTagsPage';
 
 const { Header, Content, Sider } = Layout;
 
@@ -33,6 +34,7 @@ const gallerySubMenuItems: MenuItem[] = [
 const booruSubMenuItems: MenuItem[] = [
   { key: 'posts', icon: <CloudOutlined />, label: '图片浏览' },
   { key: 'favorites', icon: <BookOutlined />, label: '我的收藏' },
+  { key: 'favorite-tags', icon: <StarOutlined />, label: '收藏标签' },
   { key: 'downloads', icon: <CloudDownloadOutlined />, label: '下载管理' },
   { key: 'bulk-download', icon: <CloudDownloadOutlined />, label: '批量下载' },
   { key: 'settings', icon: <BooruSettingOutlined />, label: '站点配置' }
@@ -128,6 +130,7 @@ export const AppContent: React.FC = () => {
       case 'booru':
         if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
         if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
         if (selectedBooruSubKey === 'settings') return <BooruSettingsPage />;

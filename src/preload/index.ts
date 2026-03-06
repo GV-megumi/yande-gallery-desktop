@@ -58,7 +58,20 @@ const IPC_CHANNELS = {
   BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
 
   // Booru 标签分类
-  BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories'
+  BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
+
+  // 收藏标签管理
+  BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
+  BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
+  BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
+  BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
+  BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
+  BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
+
+  // 收藏标签分组
+  BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
+  BOORU_ADD_FAVORITE_TAG_LABEL: 'booru:add-favorite-tag-label',
+  BOORU_REMOVE_FAVORITE_TAG_LABEL: 'booru:remove-favorite-tag-label'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -176,6 +189,28 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getTagsCategories: (siteId: number, tagNames: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAGS_CATEGORIES, siteId, tagNames),
 
+    // 收藏标签管理
+    addFavoriteTag: (siteId: number | null, tagName: string, options?: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE_TAG, siteId, tagName, options),
+    removeFavoriteTag: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG, id),
+    removeFavoriteTagByName: (siteId: number | null, tagName: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_BY_NAME, siteId, tagName),
+    getFavoriteTags: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, siteId),
+    updateFavoriteTag: (id: number, updates: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_TAG, id, updates),
+    isFavoriteTag: (siteId: number | null, tagName: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IS_FAVORITE_TAG, siteId, tagName),
+
+    // 收藏标签分组
+    getFavoriteTagLabels: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_LABELS),
+    addFavoriteTagLabel: (name: string, color?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE_TAG_LABEL, name, color),
+    removeFavoriteTagLabel: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_LABEL, id),
+
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-progress', subscription);
@@ -210,8 +245,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getRecords: (sessionId: string, status?: string, page?: number, autoFix?: boolean) => 
       ipcRenderer.invoke('bulk-download:get-records', sessionId, status, page, autoFix),
     retryAllFailed: (sessionId: string) => ipcRenderer.invoke('bulk-download:retry-all-failed', sessionId),
-    retryFailedRecord: (sessionId: string, recordUrl: string) => 
-      ipcRenderer.invoke('bulk-download:retry-failed-record', sessionId, recordUrl)
+    retryFailedRecord: (sessionId: string, recordUrl: string) =>
+      ipcRenderer.invoke('bulk-download:retry-failed-record', sessionId, recordUrl),
+    resumeRunningSessions: () =>
+      ipcRenderer.invoke('bulk-download:resume-running-sessions')
   },
 
   // 系统操作
@@ -282,6 +319,15 @@ declare global {
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
+        addFavoriteTag: (siteId: number | null, tagName: string, options?: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+        removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
+        removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;
+        getFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        updateFavoriteTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
+        isFavoriteTag: (siteId: number | null, tagName: string) => Promise<{ success: boolean; data?: boolean; error?: string }>;
+        getFavoriteTagLabels: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        addFavoriteTagLabel: (name: string, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        removeFavoriteTagLabel: (id: number) => Promise<{ success: boolean; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
         onQueueStatus: (callback: (data: any) => void) => () => void;
@@ -302,6 +348,7 @@ declare global {
         getRecords: (sessionId: string, status?: string, page?: number, autoFix?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         retryAllFailed: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
         retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; error?: string }>;
+        resumeRunningSessions: () => Promise<{ success: boolean; data?: { resumed: number }; error?: string }>;
       };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;

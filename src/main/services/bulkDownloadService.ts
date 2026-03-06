@@ -1712,6 +1712,107 @@ export async function deleteBulkDownloadSession(
 }
 
 /**
+ * 恢复程序重启前正在运行的批量下载会话
+ * 程序启动后调用，将 running/dryRun 状态的会话中 downloading 的记录重置为 pending，然后重启下载
+ */
+export async function resumeRunningSessions(): Promise<{ success: boolean; data?: { resumed: number }; error?: string }> {
+  console.log('[bulkDownloadService] 恢复运行中的批量下载会话...');
+  try {
+    const db = await getDatabase();
+
+    // 查找所有 running 或 paused 状态且未删除的会话（dryRun 不恢复，因为扫描状态无法续接）
+    const runningSessions = await all<any>(db, `
+      SELECT
+        s.*,
+        t.id as task_id,
+        t.siteId as task_siteId,
+        t.path as task_path,
+        t.tags as task_tags,
+        t.blacklistedTags as task_blacklistedTags,
+        t.notifications as task_notifications,
+        t.skipIfExists as task_skipIfExists,
+        t.quality as task_quality,
+        t.perPage as task_perPage,
+        t.concurrency as task_concurrency,
+        t.createdAt as task_createdAt,
+        t.updatedAt as task_updatedAt
+      FROM bulk_download_sessions s
+      INNER JOIN bulk_download_tasks t ON s.taskId = t.id
+      WHERE s.deletedAt IS NULL AND s.status IN ('running', 'paused')
+    `);
+
+    if (runningSessions.length === 0) {
+      console.log('[bulkDownloadService] 没有需要恢复的批量下载会话');
+      return { success: true, data: { resumed: 0 } };
+    }
+
+    console.log(`[bulkDownloadService] 发现 ${runningSessions.length} 个需要恢复的批量下载会话`);
+
+    let resumedCount = 0;
+
+    for (const row of runningSessions) {
+      const sessionId = row.id;
+
+      // 将 downloading 状态的记录重置为 pending（因为程序重启后内存中的下载已丢失）
+      await run(db, `
+        UPDATE bulk_download_records
+        SET status = 'pending'
+        WHERE sessionId = ? AND status = 'downloading'
+      `, [sessionId]);
+
+      // 检查是否还有待下载的记录
+      const stats = await getBulkDownloadSessionStats(sessionId);
+      if (stats.pending === 0 && stats.completed + stats.failed === stats.total) {
+        // 没有待下载的记录，标记为已完成
+        console.log(`[bulkDownloadService] 会话 ${sessionId} 没有待下载记录，标记为已完成`);
+        await updateBulkDownloadSession(sessionId, {
+          status: 'completed',
+          completedAt: new Date().toISOString()
+        });
+        continue;
+      }
+
+      const task: BulkDownloadTask = {
+        id: row.task_id,
+        siteId: row.task_siteId,
+        path: row.task_path,
+        tags: row.task_tags,
+        blacklistedTags: row.task_blacklistedTags,
+        notifications: Boolean(row.task_notifications),
+        skipIfExists: Boolean(row.task_skipIfExists),
+        quality: row.task_quality,
+        perPage: row.task_perPage,
+        concurrency: row.task_concurrency,
+        createdAt: row.task_createdAt,
+        updatedAt: row.task_updatedAt
+      };
+
+      // 确保会话状态为 running
+      await updateBulkDownloadSession(sessionId, { status: 'running' });
+
+      // 启动下载
+      console.log(`[bulkDownloadService] 恢复批量下载会话: ${sessionId}, 待下载: ${stats.pending}`);
+      startDownloadingSession(sessionId, task).catch(error => {
+        console.error(`[bulkDownloadService] 恢复会话 ${sessionId} 下载失败:`, error);
+        updateBulkDownloadSession(sessionId, {
+          status: 'failed',
+          error: error.message
+        });
+      });
+
+      resumedCount++;
+    }
+
+    console.log(`[bulkDownloadService] 已恢复 ${resumedCount} 个批量下载会话`);
+    return { success: true, data: { resumed: resumedCount } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[bulkDownloadService] 恢复运行中会话失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * 重试所有失败的记录
  */
 export async function retryAllFailedRecords(

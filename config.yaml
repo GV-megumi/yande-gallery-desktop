@@ -60,7 +60,7 @@ network:
     enabled: true
     protocol: http
     host: 127.0.0.1
-    port: '7897'
+    port: '7078'
     username: ''
     password: ''
 booru:

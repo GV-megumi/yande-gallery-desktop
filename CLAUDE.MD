@@ -28,7 +28,7 @@
 - **多站点支持**：支持配置多个 Booru 站点（Moebooru、Danbooru、Gelbooru）
 - **图片浏览**：支持按标签搜索、浏览 Booru 站点图片
 - **批量下载**：支持按标签、评分、作者等条件批量下载
-- **下载队列**：支持并发下载（可配置并发数）、断点续传、下载状态管理
+- **下载队列**：支持并发下载（可配置并发数）、断点续传、暂停/恢复、下载状态管理
 - **智能去重**：基于 MD5 检测重复图片，避免重复下载
 - **文件名自定义**：支持灵活的文件名模板系统（见下文详细说明）
 
@@ -134,7 +134,8 @@ yande-gallery-desktop/
 │   │   ├── window.ts            # 窗口管理
 │   │   ├── ipc/                 # IPC 通信
 │   │   │   ├── channels.ts      # IPC 频道定义
-│   │   │   └── handlers.ts      # IPC 处理器
+│   │   │   ├── handlers.ts      # IPC 处理器（主入口）
+│   │   │   └── handlers-full.ts # IPC 处理器（完整版/备份）
 │   │   ├── services/            # 核心服务
 │   │   │   ├── database.ts      # 数据库连接
 │   │   │   ├── imageService.ts  # 图片服务
@@ -173,12 +174,11 @@ yande-gallery-desktop/
 │   │   │   ├── GalleryPage.tsx  # 图库页面（最近/全部/图集）
 │   │   │   ├── BooruPage.tsx    # Booru 浏览页面
 │   │   │   ├── BooruBulkDownloadPage.tsx # Booru 批量下载页面
-│   │   │   ├── BooruDownloadPage.tsx # Booru 下载管理页面
+│   │   │   │   ├── BooruDownloadPage.tsx # Booru 下载管理页面
 │   │   │   ├── BooruFavoritesPage.tsx # Booru 收藏页面
 │   │   │   ├── BooruPostDetailsPage.tsx # Booru 图片详情页
 │   │   │   ├── BooruSettingsPage.tsx # Booru 站点配置页面
 │   │   │   ├── BooruTagSearchPage.tsx # Booru 标签搜索页面
-│   │   │   ├── DownloadPage.tsx # Yande.re 下载页面（旧版）
 │   │   │   └── SettingsPage.tsx # 应用设置页面
 │   │   └── utils/
 │   │       └── format.ts        # 格式化工具
@@ -195,14 +195,20 @@ yande-gallery-desktop/
 ├── doc/                         # 项目文档
 │   ├── database-schema.md       # 数据库结构文档
 │   ├── booru-feature-implementation.md # Booru 功能文档
-│   └── gallery-feature.md       # 图库功能文档
+│   ├── gallery-feature.md       # 图库功能文档
+│   └── DONE1.md                 # 已完成任务记录
 ├── example/                     # 参考项目
 │   └── Boorusama-master/        # Flutter Booru 客户端示例
 ├── config.yaml                  # 应用配置文件
+├── todo.md                      # 任务清单
 ├── package.json                 # NPM 配置
 ├── tsconfig.json                # TypeScript 配置
 ├── vite.config.ts               # Vite 配置
 ├── README.md                    # 项目说明
+├── INSTALL.md                   # 安装指南
+├── ELECTRON_GUIDE.md            # Electron 开发指南
+├── PERSONAL_VERSION.md          # 个人版本说明
+├── PROJECT_PROMPTS.md           # 项目提示文档
 └── CLAUDE.md                    # 本文档（AI 参考文档）
 ```
 
@@ -330,7 +336,9 @@ await sharp(imagePath)
 - **队列管理**：自动从数据库读取待下载任务
 - **断点续传**：支持下载失败后重试
 - **进度跟踪**：实时更新下载进度（0-100%）
+- **暂停/恢复**：支持暂停和恢复所有下载或单个下载任务
 - **取消下载**：支持取消正在进行的下载
+- **队列状态**：支持获取下载队列实时状态
 - **智能去重**：下载前检查文件是否已存在
 
 #### 下载流程
@@ -514,14 +522,15 @@ network:
 ```yaml
 booru:
   appearance:
-    gridSize: 220               # 网格大小
+    gridSize: 400               # 网格大小
     previewQuality: original    # 预览质量（original/sample/preview）
-    itemsPerPage: 10            # 每页项目数
+    itemsPerPage: 20            # 每页项目数
     paginationPosition: both    # 分页器位置（top/bottom/both）
     pageMode: pagination        # 页面模式（pagination/infinite）
     spacing: 16                 # 间距
     borderRadius: 8             # 圆角
     margin: 24                  # 边距
+    maxCacheSizeMB: 3000        # 最大缓存大小（MB）
   download:
     filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
 ```
@@ -1255,6 +1264,10 @@ npm run rebuild
 - [x] 图片缓存服务
 - [x] 下载管理页面增强
 - [x] 自定义文件名模板
+- [x] 下载暂停/恢复功能（支持全部和单个下载控制）
+- [x] 下载队列状态查询
+- [x] 清除下载记录功能
+- [x] 图片 URL 处理重构
 
 ### 第三阶段 (进行中) 🚧
 - [ ] 收藏夹同步到服务器
@@ -1300,6 +1313,6 @@ MIT License - 允许自由使用、修改和分发
 
 ---
 
-**最后更新**：2025 年 12 月 22 日  
-**作者**：Claude Code  
-**版本**：3.0.0（已完成批量下载、收藏管理、详情页、标签搜索等功能）
+**最后更新**：2026 年 3 月 6 日
+**作者**：Claude Code
+**版本**：1.0.0（已完成批量下载、收藏管理、详情页、标签搜索、下载管理增强等功能）

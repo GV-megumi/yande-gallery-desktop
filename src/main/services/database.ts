@@ -412,6 +412,46 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     console.log('[database] 批量下载相关表创建成功');
     // === 批量下载相关表结束 ===
 
+    // === 收藏标签相关表开始 ===
+    console.log('[database] 开始创建收藏标签相关表...');
+
+    // 创建 booru_favorite_tags 表 - 收藏的标签
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_favorite_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER,
+        tagName TEXT NOT NULL,
+        labels TEXT,
+        queryType TEXT DEFAULT 'tag',
+        notes TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+        UNIQUE(siteId, tagName)
+      )
+    `);
+
+    // 创建 booru_favorite_tag_labels 表 - 标签分组
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_favorite_tag_labels (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL UNIQUE,
+        color TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL
+      )
+    `);
+
+    // 创建收藏标签相关索引
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_siteId ON booru_favorite_tags(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_tagName ON booru_favorite_tags(tagName)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_sortOrder ON booru_favorite_tags(sortOrder)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tag_labels_sortOrder ON booru_favorite_tag_labels(sortOrder)');
+
+    console.log('[database] 收藏标签相关表创建成功');
+    // === 收藏标签相关表结束 ===
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [

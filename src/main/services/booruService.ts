@@ -1,4 +1,4 @@
-import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem } from '../../shared/types.js';
+import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem, FavoriteTag, FavoriteTagLabel } from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all } from './database.js';
 
 // ========= 站点管理 =========
@@ -943,6 +943,271 @@ export async function getTagsCategories(siteId: number, tagNames: string[]): Pro
   }
 }
 
+// ========= 收藏标签管理 =========
+
+/**
+ * 添加收藏标签
+ * @param siteId 站点ID（null=全局）
+ * @param tagName 标签名
+ * @param options 可选参数（分组、查询类型、备注）
+ */
+export async function addFavoriteTag(
+  siteId: number | null,
+  tagName: string,
+  options?: { labels?: string[]; queryType?: 'tag' | 'raw' | 'list'; notes?: string }
+): Promise<FavoriteTag> {
+  console.log('[booruService] 添加收藏标签:', { siteId, tagName });
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    // 获取当前最大 sortOrder
+    const maxSort = await get<{ maxSort: number }>(
+      db,
+      'SELECT COALESCE(MAX(sortOrder), 0) as maxSort FROM booru_favorite_tags WHERE siteId IS ?',
+      [siteId]
+    );
+    const sortOrder = (maxSort?.maxSort || 0) + 1;
+
+    const labelsJson = options?.labels ? JSON.stringify(options.labels) : null;
+
+    await run(db, `
+      INSERT INTO booru_favorite_tags (siteId, tagName, labels, queryType, notes, sortOrder, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [
+      siteId,
+      tagName,
+      labelsJson,
+      options?.queryType || 'tag',
+      options?.notes || null,
+      sortOrder,
+      now,
+      now
+    ]);
+
+    const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+    const id = result!.id;
+
+    console.log('[booruService] 添加收藏标签成功:', tagName, 'ID:', id);
+    return {
+      id,
+      siteId,
+      tagName,
+      labels: options?.labels,
+      queryType: options?.queryType || 'tag',
+      notes: options?.notes,
+      sortOrder,
+      createdAt: now,
+      updatedAt: now
+    };
+  } catch (error) {
+    console.error('[booruService] 添加收藏标签失败:', tagName, error);
+    throw error;
+  }
+}
+
+/**
+ * 获取收藏标签列表
+ * @param siteId 站点ID（不传则获取全部）
+ */
+export async function getFavoriteTags(siteId?: number | null): Promise<FavoriteTag[]> {
+  console.log('[booruService] 获取收藏标签列表, siteId:', siteId);
+  try {
+    const db = await getDatabase();
+    let sql = 'SELECT * FROM booru_favorite_tags';
+    const params: any[] = [];
+
+    if (siteId !== undefined) {
+      if (siteId === null) {
+        sql += ' WHERE siteId IS NULL';
+      } else {
+        sql += ' WHERE siteId = ? OR siteId IS NULL';
+        params.push(siteId);
+      }
+    }
+
+    sql += ' ORDER BY sortOrder ASC, createdAt DESC';
+
+    const rows = await all<any>(db, sql, params);
+
+    // 解析 labels JSON
+    const tags: FavoriteTag[] = rows.map(row => ({
+      ...row,
+      labels: row.labels ? JSON.parse(row.labels) : undefined
+    }));
+
+    console.log('[booruService] 获取到', tags.length, '个收藏标签');
+    return tags;
+  } catch (error) {
+    console.error('[booruService] 获取收藏标签列表失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 更新收藏标签
+ */
+export async function updateFavoriteTag(id: number, updates: Partial<Pick<FavoriteTag, 'tagName' | 'labels' | 'queryType' | 'notes' | 'sortOrder'>>): Promise<void> {
+  console.log('[booruService] 更新收藏标签:', id, updates);
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    const fields: string[] = [];
+    const values: any[] = [];
+
+    if (updates.tagName !== undefined) {
+      fields.push('tagName = ?');
+      values.push(updates.tagName);
+    }
+    if (updates.labels !== undefined) {
+      fields.push('labels = ?');
+      values.push(JSON.stringify(updates.labels));
+    }
+    if (updates.queryType !== undefined) {
+      fields.push('queryType = ?');
+      values.push(updates.queryType);
+    }
+    if (updates.notes !== undefined) {
+      fields.push('notes = ?');
+      values.push(updates.notes);
+    }
+    if (updates.sortOrder !== undefined) {
+      fields.push('sortOrder = ?');
+      values.push(updates.sortOrder);
+    }
+
+    if (fields.length === 0) {
+      console.warn('[booruService] 没有需要更新的字段');
+      return;
+    }
+
+    fields.push('updatedAt = ?');
+    values.push(now);
+    values.push(id);
+
+    await run(db, `UPDATE booru_favorite_tags SET ${fields.join(', ')} WHERE id = ?`, values);
+    console.log('[booruService] 更新收藏标签成功:', id);
+  } catch (error) {
+    console.error('[booruService] 更新收藏标签失败:', id, error);
+    throw error;
+  }
+}
+
+/**
+ * 删除收藏标签
+ */
+export async function removeFavoriteTag(id: number): Promise<void> {
+  console.log('[booruService] 删除收藏标签:', id);
+  try {
+    const db = await getDatabase();
+    await run(db, 'DELETE FROM booru_favorite_tags WHERE id = ?', [id]);
+    console.log('[booruService] 删除收藏标签成功:', id);
+  } catch (error) {
+    console.error('[booruService] 删除收藏标签失败:', id, error);
+    throw error;
+  }
+}
+
+/**
+ * 检查标签是否已收藏
+ */
+export async function isFavoriteTag(siteId: number | null, tagName: string): Promise<boolean> {
+  try {
+    const db = await getDatabase();
+    const result = await get<{ count: number }>(
+      db,
+      'SELECT COUNT(*) as count FROM booru_favorite_tags WHERE siteId IS ? AND tagName = ?',
+      [siteId, tagName]
+    );
+    return result ? result.count > 0 : false;
+  } catch (error) {
+    console.error('[booruService] 检查标签收藏状态失败:', tagName, error);
+    return false;
+  }
+}
+
+/**
+ * 根据标签名删除收藏标签（用于从 UI 上快速取消收藏）
+ */
+export async function removeFavoriteTagByName(siteId: number | null, tagName: string): Promise<void> {
+  console.log('[booruService] 根据名称删除收藏标签:', { siteId, tagName });
+  try {
+    const db = await getDatabase();
+    await run(db, 'DELETE FROM booru_favorite_tags WHERE siteId IS ? AND tagName = ?', [siteId, tagName]);
+    console.log('[booruService] 删除收藏标签成功:', tagName);
+  } catch (error) {
+    console.error('[booruService] 删除收藏标签失败:', tagName, error);
+    throw error;
+  }
+}
+
+// ========= 收藏标签分组管理 =========
+
+/**
+ * 获取所有标签分组
+ */
+export async function getFavoriteTagLabels(): Promise<FavoriteTagLabel[]> {
+  console.log('[booruService] 获取标签分组列表');
+  try {
+    const db = await getDatabase();
+    const labels = await all<FavoriteTagLabel>(
+      db,
+      'SELECT * FROM booru_favorite_tag_labels ORDER BY sortOrder ASC, createdAt DESC'
+    );
+    console.log('[booruService] 获取到', labels.length, '个标签分组');
+    return labels;
+  } catch (error) {
+    console.error('[booruService] 获取标签分组列表失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 添加标签分组
+ */
+export async function addFavoriteTagLabel(name: string, color?: string): Promise<FavoriteTagLabel> {
+  console.log('[booruService] 添加标签分组:', name);
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    const maxSort = await get<{ maxSort: number }>(
+      db,
+      'SELECT COALESCE(MAX(sortOrder), 0) as maxSort FROM booru_favorite_tag_labels'
+    );
+    const sortOrder = (maxSort?.maxSort || 0) + 1;
+
+    await run(db, `
+      INSERT INTO booru_favorite_tag_labels (name, color, sortOrder, createdAt)
+      VALUES (?, ?, ?, ?)
+    `, [name, color || null, sortOrder, now]);
+
+    const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+    const id = result!.id;
+
+    console.log('[booruService] 添加标签分组成功:', name, 'ID:', id);
+    return { id, name, color, sortOrder, createdAt: now };
+  } catch (error) {
+    console.error('[booruService] 添加标签分组失败:', name, error);
+    throw error;
+  }
+}
+
+/**
+ * 删除标签分组
+ */
+export async function removeFavoriteTagLabel(id: number): Promise<void> {
+  console.log('[booruService] 删除标签分组:', id);
+  try {
+    const db = await getDatabase();
+    await run(db, 'DELETE FROM booru_favorite_tag_labels WHERE id = ?', [id]);
+    console.log('[booruService] 删除标签分组成功:', id);
+  } catch (error) {
+    console.error('[booruService] 删除标签分组失败:', id, error);
+    throw error;
+  }
+}
+
 // ========= 批量导出 =========
 
 export default {
@@ -978,6 +1243,19 @@ export default {
   // 标签管理
   extractTagsByCategory,
   saveBooruTags,
-  searchBooruTags
+  searchBooruTags,
+
+  // 收藏标签管理
+  addFavoriteTag,
+  getFavoriteTags,
+  updateFavoriteTag,
+  removeFavoriteTag,
+  isFavoriteTag,
+  removeFavoriteTagByName,
+
+  // 收藏标签分组
+  getFavoriteTagLabels,
+  addFavoriteTagLabel,
+  removeFavoriteTagLabel
 };
 

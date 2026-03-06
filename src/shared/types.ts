@@ -230,6 +230,30 @@ export interface BulkDownloadSessionStats {
   extensionCounts?: Record<string, number>;
 }
 
+// ========= 收藏标签相关类型定义 =========
+
+// 收藏标签
+export interface FavoriteTag {
+  id: number;
+  siteId: number | null;      // null = 全局
+  tagName: string;
+  labels?: string[];          // 分组标签（JSON 数组）
+  queryType: 'tag' | 'raw' | 'list';  // 查询类型
+  notes?: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// 标签分组
+export interface FavoriteTagLabel {
+  id: number;
+  name: string;
+  color?: string;
+  sortOrder: number;
+  createdAt: string;
+}
+
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {
   siteId: number;

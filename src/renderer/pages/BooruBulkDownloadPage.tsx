@@ -82,10 +82,34 @@ export const BooruBulkDownloadPage: React.FC = () => {
     }
   };
 
+  // 恢复运行中的批量下载会话（首次进入时调用）
+  const hasResumedRef = React.useRef(false);
+  const resumeRunningSessions = async () => {
+    if (hasResumedRef.current) return;
+    hasResumedRef.current = true;
+
+    try {
+      if (!window.electronAPI) return;
+
+      console.log('[BooruBulkDownloadPage] 尝试恢复运行中的批量下载会话...');
+      const result = await window.electronAPI.bulkDownload.resumeRunningSessions();
+      if (result.success && result.data && result.data.resumed > 0) {
+        message.info(`已恢复 ${result.data.resumed} 个批量下载会话`);
+        // 恢复后刷新会话列表
+        loadSessions();
+      }
+      console.log('[BooruBulkDownloadPage] 恢复结果:', result);
+    } catch (error) {
+      console.error('[BooruBulkDownloadPage] 恢复批量下载会话失败:', error);
+    }
+  };
+
   useEffect(() => {
     loadSessions();
     loadTasks();
     loadSites();
+    // 首次进入时恢复运行中的会话
+    resumeRunningSessions();
   }, []);
 
   // 分离活跃会话和历史会话
