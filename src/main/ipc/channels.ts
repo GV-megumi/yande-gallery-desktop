@@ -108,6 +108,7 @@ export const IPC_CHANNELS = {
   BOORU_VOTE_POST: 'booru:vote-post',
   BOORU_SERVER_FAVORITE: 'booru:server-favorite',
   BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
+  BOORU_GET_SERVER_FAVORITES: 'booru:get-server-favorites',
 
   // === 热门图片 ===
   BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',

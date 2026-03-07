@@ -6,7 +6,7 @@ import {
   AppstoreOutlined, CloudOutlined, BookOutlined,
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
   SunOutlined, MoonOutlined, StopOutlined,
-  FireOutlined, DatabaseOutlined
+  FireOutlined, DatabaseOutlined, HeartOutlined
 } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -20,6 +20,7 @@ import { FavoriteTagsPage } from './pages/FavoriteTagsPage';
 import { BlacklistedTagsPage } from './pages/BlacklistedTagsPage';
 import { BooruPopularPage } from './pages/BooruPopularPage';
 import { BooruPoolsPage } from './pages/BooruPoolsPage';
+import { BooruServerFavoritesPage } from './pages/BooruServerFavoritesPage';
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
 const { Content, Sider } = Layout;
@@ -64,6 +65,7 @@ const booruSubMenuItems: MenuItem[] = [
   { key: 'popular', icon: <FireOutlined style={{ color: iconColors.popular }} />, label: '热门图片' },
   { key: 'pools', icon: <DatabaseOutlined style={{ color: iconColors.pools }} />, label: 'Pool 图集' },
   { key: 'favorites', icon: <BookOutlined style={{ color: iconColors.favorites }} />, label: '我的收藏' },
+  { key: 'server-favorites', icon: <HeartOutlined style={{ color: iconColors.serverFavorites }} />, label: '我的喜欢' },
   { key: 'favorite-tags', icon: <StarOutlined style={{ color: iconColors.favoriteTags }} />, label: '收藏标签' },
   { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: '黑名单' },
   { key: 'downloads', icon: <CloudDownloadOutlined style={{ color: iconColors.downloads }} />, label: '下载管理' },
@@ -177,6 +179,7 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;

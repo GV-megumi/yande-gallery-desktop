@@ -330,6 +330,7 @@ export const iconColors = {
   booruSettings: '#8E8E93',
   popular: '#FF3B30',
   pools: '#5856D6',
+  serverFavorites: '#FF2D55',
 } as const;
 
 // ============================================================

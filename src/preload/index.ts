@@ -83,6 +83,7 @@ const IPC_CHANNELS = {
   BOORU_VOTE_POST: 'booru:vote-post',
   BOORU_SERVER_FAVORITE: 'booru:server-favorite',
   BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
+  BOORU_GET_SERVER_FAVORITES: 'booru:get-server-favorites',
 
   // 热门图片
   BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
@@ -288,6 +289,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_FAVORITE, siteId, postId),
     serverUnfavorite: (siteId: number, postId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_UNFAVORITE, siteId, postId),
+    getServerFavorites: (siteId: number, page?: number, limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SERVER_FAVORITES, siteId, page, limit),
 
     // 热门图片
     getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') =>
@@ -455,6 +458,7 @@ declare global {
         votePost: (siteId: number, postId: number, score: 1 | 0 | -1) => Promise<{ success: boolean; error?: string }>;
         serverFavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
         serverUnfavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
+        getServerFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         // 热门图片
         getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPopularByDay: (siteId: number, date: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;

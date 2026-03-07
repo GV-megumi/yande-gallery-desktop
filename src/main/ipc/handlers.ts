@@ -1678,6 +1678,58 @@ export function setupIPC() {
     }
   });
 
+  // ===== 服务端喜欢列表 =====
+
+  // 获取用户的服务端喜欢列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SERVER_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20) => {
+    console.log('[IPC] 获取服务端喜欢列表:', siteId, '页码:', page);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        throw new Error('需要登录才能查看喜欢列表');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const posts = await client.getServerFavorites(page, limit);
+      console.log('[IPC] 获取服务端喜欢列表成功:', posts.length, '张');
+
+      // 转换为统一格式
+      const mappedPosts = posts.map(post => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: new Date(post.created_at * 1000).toISOString()
+      }));
+
+      return { success: true, data: mappedPosts };
+    } catch (error) {
+      console.error('[IPC] 获取服务端喜欢列表失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // ===== 热门图片 =====
 
   // 获取近期热门图片

@@ -861,6 +861,39 @@ export class MoebooruClient {
   }
 
   /**
+   * 获取用户的服务端喜欢列表
+   * 通过搜索 vote:3:{username} 标签获取
+   * @param page - 页码
+   * @param limit - 每页数量
+   */
+  async getServerFavorites(page: number = 1, limit: number = 20): Promise<MoebooruPostResponse[]> {
+    try {
+      const auth = this.getAuthParams();
+      if (!auth.login || !auth.password_hash) {
+        throw new Error('Authentication required');
+      }
+
+      console.log('[MoebooruClient] 获取服务端喜欢列表:', auth.login, '页码:', page);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/post.json', {
+        params: {
+          tags: `vote:3:${auth.login} order:vote`,
+          page,
+          limit,
+          ...auth
+        }
+      });
+
+      console.log('[MoebooruClient] 获取服务端喜欢列表成功:', response.data.length, '张');
+      return response.data;
+    } catch (error) {
+      console.error('[MoebooruClient] 获取服务端喜欢列表失败:', error);
+      throw error;
+    }
+  }
+
+  /**
    * 测试认证是否有效
    * 通过尝试投票来验证（不实际投票）
    */
