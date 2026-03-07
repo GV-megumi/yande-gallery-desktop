@@ -895,35 +895,69 @@ export class MoebooruClient {
 
   /**
    * 测试认证是否有效
-   * 通过尝试投票来验证（不实际投票）
+   * 通过尝试对不存在的帖子投票来验证凭证
+   * 如果凭证无效，API 会返回 403；凭证有效则返回投票失败（帖子不存在）
    */
-  async testAuth(): Promise<boolean> {
+  async testAuth(): Promise<{ valid: boolean; error?: string }> {
     try {
       const auth = this.getAuthParams();
       if (!auth.login || !auth.password_hash) {
-        return false;
+        return { valid: false, error: '缺少用户名或密码' };
       }
 
-      // 尝试获取用户的收藏来验证认证
+      console.log('[MoebooruClient] 测试认证:', auth.login);
+
+      // 用一个极大的不存在的 post ID 尝试投票
+      // 凭证正确 → 返回错误「帖子不存在」但不是 403
+      // 凭证错误 → 返回 403 Forbidden
       await this.rateLimiter.acquire();
-      const response = await this.client.get('/post.json', {
+      await this.client.post('/post/vote.json', null, {
         params: {
-          tags: `vote:3:${auth.login} order:id_desc`,
-          limit: 1,
+          id: 999999999,
+          score: 0,
           ...auth
         }
       });
 
+      // 如果竟然成功了，说明凭证有效
       console.log('[MoebooruClient] 认证测试成功');
-      return true;
+      return { valid: true };
     } catch (error: any) {
-      if (error.response?.status === 403 || error.response?.status === 401) {
-        console.error('[MoebooruClient] 认证测试失败: 无效的凭证');
-        return false;
+      const status = error.response?.status;
+      const responseData = error.response?.data;
+
+      if (status === 403) {
+        console.error('[MoebooruClient] 认证测试失败: 凭证无效 (403)');
+        return { valid: false, error: '用户名或密码错误' };
       }
-      // 网络错误不代表认证失败
-      console.error('[MoebooruClient] 认证测试异常:', error.message);
-      throw error;
+
+      if (status === 421) {
+        // 421 表示帖子不存在但凭证是有效的
+        console.log('[MoebooruClient] 认证测试成功（帖子不存在但凭证有效）');
+        return { valid: true };
+      }
+
+      if (status === 423) {
+        // 423 表示帖子已锁定但凭证是有效的
+        console.log('[MoebooruClient] 认证测试成功（帖子已锁定但凭证有效）');
+        return { valid: true };
+      }
+
+      // 其他非 403 的 HTTP 错误也可能表示凭证有效（服务器正常处理了请求）
+      if (status && status >= 400 && status < 500 && status !== 403 && status !== 401) {
+        console.log('[MoebooruClient] 认证测试成功（HTTP', status, '但非认证错误）');
+        return { valid: true };
+      }
+
+      if (status === 401) {
+        console.error('[MoebooruClient] 认证测试失败: 未授权 (401)');
+        return { valid: false, error: '用户名或密码错误' };
+      }
+
+      // 网络错误
+      const msg = error.message || String(error);
+      console.error('[MoebooruClient] 认证测试异常:', msg);
+      return { valid: false, error: '网络错误: ' + msg };
     }
   }
 

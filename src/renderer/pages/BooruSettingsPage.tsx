@@ -600,10 +600,12 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   const [loginSite, setLoginSite] = useState<BooruSite | null>(null);
   const [loginForm] = Form.useForm();
   const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
 
   // 打开登录弹窗
   const handleOpenLogin = (site: BooruSite) => {
     setLoginSite(site);
+    setLoginError(null);
     loginForm.resetFields();
     setLoginModalVisible(true);
   };
@@ -613,18 +615,23 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     if (!loginSite) return;
 
     setLoginLoading(true);
+    setLoginError(null);
     try {
       const result = await window.electronAPI.booru.login(loginSite.id, values.username, values.password);
       if (result.success) {
         message.success(`登录成功: ${values.username}`);
         setLoginModalVisible(false);
+        setLoginError(null);
         loadSites();
       } else {
-        message.error('登录失败: ' + result.error);
+        const errorMsg = result.error || '登录失败，请检查用户名和密码';
+        setLoginError(errorMsg);
+        console.error('[BooruSettingsPage] 登录失败:', errorMsg);
       }
     } catch (error) {
+      const errorMsg = '登录失败: ' + (error instanceof Error ? error.message : String(error));
+      setLoginError(errorMsg);
       console.error('[BooruSettingsPage] 登录失败:', error);
-      message.error('登录失败');
     } finally {
       setLoginLoading(false);
     }
@@ -1151,11 +1158,22 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         forceRender
       >
         <Alert
-          message="登录后可以使用投票、服务端收藏和评论功能"
+          message="登录后可以使用喜欢、投票和评论功能"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
         />
+        {loginError && (
+          <Alert
+            message="登录失败"
+            description={loginError}
+            type="error"
+            showIcon
+            closable
+            onClose={() => setLoginError(null)}
+            style={{ marginBottom: 16 }}
+          />
+        )}
         <Form
           form={loginForm}
           layout="vertical"

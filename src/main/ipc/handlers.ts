@@ -1524,20 +1524,28 @@ export function setupIPC() {
         passwordHash
       });
 
-      const authValid = await client.testAuth();
+      const authResult = await client.testAuth();
 
-      if (!authValid) {
+      if (!authResult.valid) {
         // 认证失败，清除凭证
         await booruService.updateBooruSite(siteId, {
           username: '',
           passwordHash: ''
         });
-        return { success: false, error: '认证失败，请检查用户名和密码' };
+        console.error('[IPC] 登录失败:', authResult.error);
+        return { success: false, error: authResult.error || '认证失败，请检查用户名和密码' };
       }
 
       console.log('[IPC] 登录成功:', username);
       return { success: true, data: { username, authenticated: true } };
     } catch (error) {
+      // 认证失败时也清除凭证
+      try {
+        await booruService.updateBooruSite(siteId, {
+          username: '',
+          passwordHash: ''
+        });
+      } catch (_) { /* ignore cleanup error */ }
       console.error('[IPC] 登录失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -1577,8 +1585,8 @@ export function setupIPC() {
         passwordHash: site.passwordHash
       });
 
-      const authValid = await client.testAuth();
-      return { success: true, data: { authenticated: authValid, username: site.username } };
+      const authResult = await client.testAuth();
+      return { success: true, data: { authenticated: authResult.valid, username: site.username, error: authResult.error } };
     } catch (error) {
       console.error('[IPC] 测试认证失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
