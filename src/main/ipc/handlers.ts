@@ -1410,6 +1410,91 @@ export function setupIPC() {
       return { success: false, error: errorMessage };
     }
   });
+
+  // ========= 黑名单标签管理 =========
+
+  // 添加黑名单标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAG, async (_event: IpcMainInvokeEvent, tagName: string, siteId?: number | null, reason?: string) => {
+    console.log('[IPC] 添加黑名单标签:', { tagName, siteId, reason });
+    try {
+      const tag = await booruService.addBlacklistedTag(tagName, siteId, reason);
+      return { success: true, data: tag };
+    } catch (error) {
+      console.error('[IPC] 添加黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 批量添加黑名单标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, tagString: string, siteId?: number | null, reason?: string) => {
+    console.log('[IPC] 批量添加黑名单标签');
+    try {
+      const result = await booruService.addBlacklistedTags(tagString, siteId, reason);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 批量添加黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取黑名单标签列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    console.log('[IPC] 获取黑名单标签列表, siteId:', siteId);
+    try {
+      const tags = await booruService.getBlacklistedTags(siteId);
+      return { success: true, data: tags };
+    } catch (error) {
+      console.error('[IPC] 获取黑名单标签列表失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取激活的黑名单标签名列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    try {
+      const tagNames = await booruService.getActiveBlacklistTagNames(siteId);
+      return { success: true, data: tagNames };
+    } catch (error) {
+      console.error('[IPC] 获取激活黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 切换黑名单标签激活状态
+  ipcMain.handle(IPC_CHANNELS.BOORU_TOGGLE_BLACKLISTED_TAG, async (_event: IpcMainInvokeEvent, id: number) => {
+    console.log('[IPC] 切换黑名单标签激活状态:', id);
+    try {
+      const tag = await booruService.toggleBlacklistedTag(id);
+      return { success: true, data: tag };
+    } catch (error) {
+      console.error('[IPC] 切换黑名单标签状态失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 更新黑名单标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_BLACKLISTED_TAG, async (_event: IpcMainInvokeEvent, id: number, updates: any) => {
+    console.log('[IPC] 更新黑名单标签:', id);
+    try {
+      await booruService.updateBlacklistedTag(id, updates);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 更新黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 删除黑名单标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_REMOVE_BLACKLISTED_TAG, async (_event: IpcMainInvokeEvent, id: number) => {
+    console.log('[IPC] 删除黑名单标签:', id);
+    try {
+      await booruService.removeBlacklistedTag(id);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 删除黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 }
 
 

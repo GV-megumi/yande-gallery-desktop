@@ -312,7 +312,7 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
       )}
 
       {session.status === 'dryRun' && (
-        <div style={{ marginTop: 16, color: '#1890ff' }}>
+        <div style={{ marginTop: 16, color: '#007AFF' }}>
           正在扫描页面 {session.currentPage}...
         </div>
       )}

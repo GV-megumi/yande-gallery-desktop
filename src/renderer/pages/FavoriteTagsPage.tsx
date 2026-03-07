@@ -234,10 +234,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               placeholder="筛选站点"
               allowClear
               style={{ width: 150 }}
-              value={filterSiteId}
-              onChange={(value) => setFilterSiteId(value)}
+              value={filterSiteId ?? '__all__'}
+              onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? null : value as number)}
             >
-              <Select.Option value={null}>全局标签</Select.Option>
+              <Select.Option value="__all__">全局标签</Select.Option>
               {sites.map(site => (
                 <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
               ))}

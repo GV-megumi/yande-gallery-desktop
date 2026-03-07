@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { Card, Button, Space, message, Modal, Empty, Spin, List, Popconfirm, Tag, Divider, Tabs } from 'antd';
+import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Divider, Tabs } from 'antd';
 import { 
   DownloadOutlined, 
   PlusOutlined,
@@ -24,6 +24,7 @@ import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
 import { BulkDownloadSessionCard } from '../components/BulkDownloadSessionCard';
 
 export const BooruBulkDownloadPage: React.FC = () => {
+  const { message } = App.useApp();
   const [sessions, setSessions] = useState<BulkDownloadSession[]>([]);
   const [tasks, setTasks] = useState<BulkDownloadTask[]>([]);
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -82,34 +83,11 @@ export const BooruBulkDownloadPage: React.FC = () => {
     }
   };
 
-  // 恢复运行中的批量下载会话（首次进入时调用）
-  const hasResumedRef = React.useRef(false);
-  const resumeRunningSessions = async () => {
-    if (hasResumedRef.current) return;
-    hasResumedRef.current = true;
-
-    try {
-      if (!window.electronAPI) return;
-
-      console.log('[BooruBulkDownloadPage] 尝试恢复运行中的批量下载会话...');
-      const result = await window.electronAPI.bulkDownload.resumeRunningSessions();
-      if (result.success && result.data && result.data.resumed > 0) {
-        message.info(`已恢复 ${result.data.resumed} 个批量下载会话`);
-        // 恢复后刷新会话列表
-        loadSessions();
-      }
-      console.log('[BooruBulkDownloadPage] 恢复结果:', result);
-    } catch (error) {
-      console.error('[BooruBulkDownloadPage] 恢复批量下载会话失败:', error);
-    }
-  };
-
+  // 下载恢复已移至 init.ts，程序启动时自动后台恢复，无需手动触发
   useEffect(() => {
     loadSessions();
     loadTasks();
     loadSites();
-    // 首次进入时恢复运行中的会话
-    resumeRunningSessions();
   }, []);
 
   // 分离活跃会话和历史会话
@@ -381,7 +359,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
               <>
                 <div style={{ marginBottom: 16 }}>
                   <h3 style={{ margin: 0 }}>已保存的任务</h3>
-                  <p style={{ color: '#999', marginTop: 8, marginBottom: 16 }}>
+                  <p style={{ color: 'rgba(60, 60, 67, 0.60)', marginTop: 8, marginBottom: 16 }}>
                     点击"开始"按钮可以从已保存的任务创建新的下载会话
                   </p>
                 </div>
@@ -392,35 +370,35 @@ export const BooruBulkDownloadPage: React.FC = () => {
                     return (
                       <List.Item
                         actions={[
-                          <Button
-                            key="start"
-                            type="primary"
-                            icon={<PlayCircleOutlined />}
-                            onClick={() => handleStartFromTask(task)}
-                          >
-                            开始
-                          </Button>,
-                          <Button
-                            key="edit"
-                            icon={<EditOutlined />}
-                            onClick={() => handleEditTask(task)}
-                          >
-                            编辑
-                          </Button>,
-                          <Popconfirm
-                            key="delete"
-                            title="确定要删除这个任务吗？"
-                            onConfirm={() => handleDeleteTask(task.id)}
-                            okText="确定"
-                            cancelText="取消"
-                          >
+                          <Space key="actions" size={8}>
                             <Button
-                              danger
-                              icon={<DeleteOutlined />}
+                              type="primary"
+                              size="small"
+                              icon={<PlayCircleOutlined />}
+                              onClick={() => handleStartFromTask(task)}
                             >
-                              删除
+                              开始
                             </Button>
-                          </Popconfirm>
+                            <Button
+                              size="small"
+                              icon={<EditOutlined />}
+                              onClick={() => handleEditTask(task)}
+                            >
+                              编辑
+                            </Button>
+                            <Popconfirm
+                              title="确定要删除这个任务吗？"
+                              onConfirm={() => handleDeleteTask(task.id)}
+                              okText="确定"
+                              cancelText="取消"
+                            >
+                              <Button
+                                danger
+                                size="small"
+                                icon={<DeleteOutlined />}
+                              />
+                            </Popconfirm>
+                          </Space>
                         ]}
                       >
                         <List.Item.Meta

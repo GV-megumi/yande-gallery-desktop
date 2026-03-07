@@ -3,7 +3,7 @@ import { Card, Image, Tag, Button, Modal, Descriptions, Space, message } from 'a
 import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
-import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
+import { colors, spacing, radius, fontSize, zIndex, shadows, transitions, layout as layoutTokens } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
 
 export interface ImageGridProps {
@@ -232,57 +232,54 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
     return (
       <ContextMenu items={imageContextItems}>
-      <Card
-        key={image.id}
-        hoverable
-        styles={{ body: { padding: 0 } }}
-        style={{ borderRadius: radius.md, overflow: 'hidden' }}
-        cover={
+      <div
+        className="card-ios-hover"
+        style={{
+          borderRadius: radius.md,
+          overflow: 'hidden',
+          boxShadow: shadows.card,
+          background: colors.bgBase,
+          border: `1px solid ${colors.borderCard}`,
+          position: 'relative',
+          cursor: 'pointer',
+        }}
+      >
           <div
             style={{
               width: '100%',
               position: 'relative',
               overflow: 'hidden',
-              cursor: 'pointer'
             }}
           >
             {isThumbnailLoading ? (
-              // 缩略图加载中：显示占位符，使用 padding-bottom 技巧保持宽高比
+              // 缩略图加载中：shimmer 骨架屏
               <div
+                className="ios-skeleton-shimmer"
                 style={{
                   width: '100%',
                   paddingBottom: `${aspectRatio}%`,
-                  backgroundColor: colors.bgDark,
                   display: 'block',
-                  position: 'relative'
+                  position: 'relative',
+                  borderRadius: 0,
                 }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    color: colors.textTertiary,
-                    fontSize: fontSize.sm
-                  }}
-                >
-                  加载中...
-                </div>
-              </div>
+              />
             ) : displaySrc ? (
-              // 有图片源（缩略图或原图），点击打开单图预览（避免 PreviewGroup 内存开销）
+              // 有图片源，点击打开预览
               <img
                 src={displaySrc}
                 alt={image.filename}
+                className="image-fade-in"
                 style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer' }}
+                onLoad={(e) => {
+                  (e.target as HTMLImageElement).classList.add('loaded');
+                }}
                 onClick={() => {
                   setPreviewImage(previewSrc);
                   setPreviewVisible(true);
                 }}
               />
             ) : (
-              // 兜底：如果既没有缩略图也没有原图，显示占位符
+              // 兜底占位
               <div
                 style={{
                   width: '100%',
@@ -306,29 +303,36 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                 </div>
               </div>
             )}
-            {/* 右上角信息按钮 */}
-            <Button
-              type="text"
-              size="small"
-              icon={<TagsOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                handleImageInfo(image);
-              }}
-              style={{
-                position: 'absolute',
-                top: 4,
-                right: 4,
-                background: colors.overlayDark,
-                color: colors.bgBase,
-                zIndex: zIndex.sticky,
-                // 加载中时隐藏按钮
-                display: isThumbnailLoading ? 'none' : 'block'
-              }}
-            />
+            {/* 右上角信息按钮 — 圆形 */}
+            {!isThumbnailLoading && (
+              <Button
+                type="text"
+                size="small"
+                icon={<TagsOutlined />}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleImageInfo(image);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 28,
+                  height: 28,
+                  borderRadius: radius.round,
+                  background: 'rgba(0, 0, 0, 0.35)',
+                  backdropFilter: 'blur(8px)',
+                  color: '#FFFFFF',
+                  zIndex: zIndex.sticky,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                }}
+              />
+            )}
           </div>
-        }
-      />
+      </div>
       </ContextMenu>
     );
   };
@@ -360,9 +364,10 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                     <div
                       style={{
                         margin: `${spacing.sm}px 0 ${spacing.md}px`,
-                        fontWeight: 600,
-                        fontSize: groupBy === 'year' ? fontSize.xl : groupBy === 'month' ? fontSize.lg : fontSize.base,
-                        color: colors.textSecondary
+                        fontWeight: 700,
+                        fontSize: groupBy === 'year' ? fontSize.xxl : groupBy === 'month' ? fontSize.xl : fontSize.lg,
+                        color: colors.textPrimary,
+                        letterSpacing: '-0.3px',
                       }}
                     >
                       {displayTitle}
@@ -371,11 +376,11 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                 <div
                   style={{
                     columnWidth: 220,
-                    columnGap: spacing.lg
+                    columnGap: layoutTokens.cardGap,
                   }}
                 >
                   {group.map((image: any) => (
-                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: spacing.lg }}>
+                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: layoutTokens.cardGap }}>
                       {renderCard(image)}
                     </div>
                   ))}

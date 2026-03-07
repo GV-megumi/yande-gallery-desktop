@@ -14,5 +14,7 @@ export default defineConfig({
     alias: {
       '@': path.join(__dirname, 'src'),
     },
+    // 优先解析 .ts 文件，避免被同名 .js 文件干扰
+    extensions: ['.ts', '.tsx', '.js', '.jsx', '.json'],
   },
 });

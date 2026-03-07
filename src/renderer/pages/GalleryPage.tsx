@@ -90,34 +90,58 @@ const GalleryCardList: React.FC<{
     <Row gutter={[16, 16]}>
       {galleries.map((gallery: any) => (
         <Col key={gallery.id} xs={24} sm={12} md={8} lg={6}>
-          <Card
-            hoverable
-            cover={
-              gallery.coverImage ? (
-                <div style={{ height: '200px', overflow: 'hidden' }}>
-                  <img
-                    src={coverThumbnails[gallery.id] 
-                      ? getImageUrl(coverThumbnails[gallery.id]!) 
-                      : (gallery.coverImage.filepath ? getImageUrl(gallery.coverImage.filepath) : undefined)}
-                    alt={gallery.name}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  />
-                </div>
-              ) : (
-                <div style={{ height: '200px', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colors.bgDark }}>
-                  <AppstoreOutlined style={{ fontSize: 48, color: colors.borderLight }} />
-                </div>
-              )
-            }
+          <div
+            className="card-ios-hover"
+            style={{
+              borderRadius: radius.md,
+              overflow: 'hidden',
+              background: colors.bgBase,
+              boxShadow: shadows.card,
+              border: `1px solid ${colors.borderCard}`,
+              cursor: 'pointer',
+            }}
             onClick={() => onSelect(gallery)}
           >
-            <Card.Meta
-              title={gallery.name}
-              description={
-                <div>图片数量: {gallery.imageCount}</div>
-              }
-            />
-          </Card>
+            {gallery.coverImage ? (
+              <div style={{ height: 200, overflow: 'hidden' }}>
+                <img
+                  src={coverThumbnails[gallery.id]
+                    ? getImageUrl(coverThumbnails[gallery.id]!)
+                    : (gallery.coverImage.filepath ? getImageUrl(gallery.coverImage.filepath) : undefined)}
+                  alt={gallery.name}
+                  className="image-fade-in"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onLoad={(e) => (e.target as HTMLImageElement).classList.add('loaded')}
+                />
+              </div>
+            ) : (
+              <div style={{
+                height: 200,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: colors.bgLight,
+              }}>
+                <AppstoreOutlined style={{ fontSize: 40, color: colors.textTertiary }} />
+              </div>
+            )}
+            <div style={{ padding: `${spacing.md}px ${spacing.lg}px` }}>
+              <div style={{
+                fontSize: fontSize.base,
+                fontWeight: 600,
+                color: colors.textPrimary,
+                marginBottom: 4,
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}>
+                {gallery.name}
+              </div>
+              <div style={{ fontSize: fontSize.sm, color: colors.textTertiary }}>
+                {gallery.imageCount} 张图片
+              </div>
+            </div>
+          </div>
         </Col>
       ))}
     </Row>
@@ -755,45 +779,54 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             layout="waterfall"
             groupBy="none"
           >
-            <div style={{ marginTop: spacing.xl, textAlign: 'center' }}>
-              <Space>
-                <Button
-                  disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
-                  onClick={() => {
-                    if (isSearchMode) {
-                      const next = Math.max(1, searchPage - 1);
-                      handleSearch(searchQuery, next, 20);
-                    } else {
-                      const next = Math.max(1, allPage - 1);
-                      setAllPage(next);
-                      loadImages(next, 20);
-                    }
-                  }}
-                >
-                  上一页
-                </Button>
-                <span>
-                  第 {isSearchMode ? searchPage : allPage} 页
-                  {isSearchMode && searchTotal > 0 && ` / 共 ${Math.ceil(searchTotal / 20)} 页`}
-                </span>
-                <Button
-                  disabled={isSearchMode ? !searchHasMore : !allHasMore}
-                  onClick={() => {
-                    if (isSearchMode) {
-                      if (!searchHasMore) return;
-                      const next = searchPage + 1;
-                      handleSearch(searchQuery, next, 20);
-                    } else {
-                      if (!allHasMore) return;
-                      const next = allPage + 1;
-                      setAllPage(next);
-                      loadImages(next, 20);
-                    }
-                  }}
-                >
-                  下一页
-                </Button>
-              </Space>
+            <div style={{
+              marginTop: spacing.xxl,
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              gap: spacing.lg,
+            }}>
+              <Button
+                disabled={isSearchMode ? searchPage <= 1 : allPage <= 1}
+                onClick={() => {
+                  if (isSearchMode) {
+                    const next = Math.max(1, searchPage - 1);
+                    handleSearch(searchQuery, next, 20);
+                  } else {
+                    const next = Math.max(1, allPage - 1);
+                    setAllPage(next);
+                    loadImages(next, 20);
+                  }
+                }}
+              >
+                上一页
+              </Button>
+              <span style={{
+                fontSize: fontSize.base,
+                color: colors.textSecondary,
+                minWidth: 80,
+                textAlign: 'center',
+              }}>
+                第 {isSearchMode ? searchPage : allPage} 页
+                {isSearchMode && searchTotal > 0 && ` / ${Math.ceil(searchTotal / 20)}`}
+              </span>
+              <Button
+                disabled={isSearchMode ? !searchHasMore : !allHasMore}
+                onClick={() => {
+                  if (isSearchMode) {
+                    if (!searchHasMore) return;
+                    const next = searchPage + 1;
+                    handleSearch(searchQuery, next, 20);
+                  } else {
+                    if (!allHasMore) return;
+                    const next = allPage + 1;
+                    setAllPage(next);
+                    loadImages(next, 20);
+                  }
+                }}
+              >
+                下一页
+              </Button>
             </div>
           </ImageListWrapper>
         </>
@@ -802,7 +835,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return (
         <>
           {!selectedGallery && (
-            <div style={{ marginBottom: spacing.xl, display: 'flex', gap: spacing.md, alignItems: 'center' }}>
+            <div style={{ marginBottom: spacing.xl, display: 'flex', flexWrap: 'wrap', gap: spacing.md, alignItems: 'center' }}>
               <Button
                 type="primary"
                 icon={<FolderOpenOutlined />}
@@ -814,38 +847,41 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                 placeholder="搜索图集名称..."
                 allowClear
                 enterButton={<SearchOutlined />}
-                style={{ width: 300 }}
+                style={{ width: 260 }}
                 value={gallerySearchQuery}
                 onChange={(e) => setGallerySearchQuery(e.target.value)}
                 onSearch={handleGallerySearch}
               />
+              <div style={{ flex: 1 }} />
               {/* 排序控件 */}
-              <span style={{ marginLeft: 'auto', fontSize: fontSize.md, color: colors.textSecondary }}>排序:</span>
-              <Segmented
-                size="small"
-                value={gallerySortKey}
-                onChange={(val) => {
-                  console.log(`[GalleryPage] 图集排序字段变更: ${val}`);
-                  setGallerySortKey(val as 'name' | 'createdAt' | 'updatedAt');
-                }}
-                options={[
-                  { label: '名字', value: 'name' },
-                  { label: '创建时间', value: 'createdAt' },
-                  { label: '更新时间', value: 'updatedAt' }
-                ]}
-              />
-              <Segmented
-                size="small"
-                value={gallerySortOrder}
-                onChange={(val) => {
-                  console.log(`[GalleryPage] 图集排序顺序变更: ${val}`);
-                  setGallerySortOrder(val as 'asc' | 'desc');
-                }}
-                options={[
-                  { label: '升序', value: 'asc' },
-                  { label: '降序', value: 'desc' }
-                ]}
-              />
+              <Space size={spacing.sm}>
+                <span style={{ fontSize: fontSize.md, color: colors.textTertiary }}>排序:</span>
+                <Segmented
+                  size="small"
+                  value={gallerySortKey}
+                  onChange={(val) => {
+                    console.log(`[GalleryPage] 图集排序字段变更: ${val}`);
+                    setGallerySortKey(val as 'name' | 'createdAt' | 'updatedAt');
+                  }}
+                  options={[
+                    { label: '名字', value: 'name' },
+                    { label: '创建时间', value: 'createdAt' },
+                    { label: '更新时间', value: 'updatedAt' }
+                  ]}
+                />
+                <Segmented
+                  size="small"
+                  value={gallerySortOrder}
+                  onChange={(val) => {
+                    console.log(`[GalleryPage] 图集排序顺序变更: ${val}`);
+                    setGallerySortOrder(val as 'asc' | 'desc');
+                  }}
+                  options={[
+                    { label: '升序', value: 'asc' },
+                    { label: '降序', value: 'desc' }
+                  ]}
+                />
+              </Space>
             </div>
           )}
 
@@ -859,27 +895,29 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                   display: 'flex',
                   justifyContent: 'space-between',
                   alignItems: 'center',
-                  background: colors.bgBase,
-                  padding: `${spacing.md}px ${spacing.lg}px`,
-                  borderRadius: radius.md,
-                  boxShadow: shadows.toolbar
+                  background: colors.materialRegular,
+                  backdropFilter: 'blur(20px) saturate(180%)',
+                  WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+                  padding: `${spacing.sm}px ${spacing.lg}px`,
+                  borderRadius: radius.lg,
+                  border: `0.5px solid ${colors.separator}`,
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: spacing.lg }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md }}>
                     <Button onClick={() => {
                       console.log('[GalleryPage] 返回图集列表');
                       setSelectedGallery(null);
                       setGalleryImages([]);
                     }}>
-                      返回图集列表
+                      返回
                     </Button>
-                    <span style={{ fontWeight: 'bold' }}>
-                      当前图集：{selectedGallery.name}
+                    <span style={{ fontWeight: 600, fontSize: fontSize.lg, color: colors.textPrimary }}>
+                      {selectedGallery.name}
                     </span>
-                    <span>
-                      排序：
+                    <div style={{ width: 1, height: 20, background: colors.separator, margin: `0 ${spacing.xs}px` }} />
+                    <Space size={spacing.sm}>
+                      <span style={{ fontSize: fontSize.md, color: colors.textTertiary }}>排序:</span>
                       <Segmented
                         size="small"
-                        style={{ marginLeft: spacing.sm }}
                         value={gallerySort}
                         onChange={(val) => setGallerySort(val as 'time' | 'name')}
                         options={[
@@ -887,7 +925,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                           { label: '按文件名', value: 'name' }
                         ]}
                       />
-                    </span>
+                    </Space>
                   </div>
                   <Space>
                     <Button

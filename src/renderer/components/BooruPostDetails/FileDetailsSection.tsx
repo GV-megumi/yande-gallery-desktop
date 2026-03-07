@@ -3,7 +3,6 @@ import { Collapse, Descriptions, Space, Button, message, Typography } from 'antd
 import { CopyOutlined, ArrowRightOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 
-const { Panel } = Collapse;
 const { Text } = Typography;
 
 interface FileDetailsSectionProps {
@@ -99,86 +98,84 @@ export const FileDetailsSection: React.FC<FileDetailsSectionProps> = ({
           setExpanded(keys.includes('details'));
         }}
         style={{ background: '#fff' }}
-      >
-        <Panel
-          header={
-            <Text strong>
-              文件详情
-            </Text>
-          }
-          key="details"
-          extra={
-            <Text type="secondary" style={{ fontSize: '12px' }}>
-              {generateSummary()}
-            </Text>
-          }
-        >
-          <Descriptions
-            bordered
-            column={1}
-            size="small"
-            style={{ marginTop: '8px' }}
-          >
-            {/* ID */}
-            <Descriptions.Item label="ID">
-              <Space>
-                <Text>{post.postId || '未知'}</Text>
-                <Button
-                  type="text"
-                  size="small"
-                  icon={<CopyOutlined />}
-                  onClick={handleCopyId}
-                  style={{ marginLeft: '8px' }}
-                />
-              </Space>
-            </Descriptions.Item>
+        items={[
+          {
+            key: 'details',
+            label: (
+              <Text strong>
+                文件详情
+              </Text>
+            ),
+            extra: (
+              <Text type="secondary" style={{ fontSize: '12px' }}>
+                {generateSummary()}
+              </Text>
+            ),
+            children: (
+              <Descriptions
+                bordered
+                column={1}
+                size="small"
+                style={{ marginTop: '8px' }}
+              >
+                {/* ID */}
+                <Descriptions.Item label="ID">
+                  <Space>
+                    <Text>{post.postId || '未知'}</Text>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={<CopyOutlined />}
+                      onClick={handleCopyId}
+                      style={{ marginLeft: '8px' }}
+                    />
+                  </Space>
+                </Descriptions.Item>
 
-            {/* 评分 */}
-            <Descriptions.Item label="评分">
-              <Space>
-                <Text>{formatRating(post.rating)}</Text>
-                {post.score !== undefined && post.score !== null && (
-                  <Text type="secondary">({post.score} 分)</Text>
+                {/* 评分 */}
+                <Descriptions.Item label="评分">
+                  <Space>
+                    <Text>{formatRating(post.rating)}</Text>
+                    {post.score !== undefined && post.score !== null && (
+                      <Text type="secondary">({post.score} 分)</Text>
+                    )}
+                  </Space>
+                </Descriptions.Item>
+
+                {/* 文件大小 */}
+                {post.fileSize && (
+                  <Descriptions.Item label="文件大小">
+                    {formatFileSize(post.fileSize)}
+                  </Descriptions.Item>
                 )}
-              </Space>
-            </Descriptions.Item>
 
-            {/* 文件大小 */}
-            {post.fileSize && (
-              <Descriptions.Item label="文件大小">
-                {formatFileSize(post.fileSize)}
-              </Descriptions.Item>
-            )}
+                {/* 分辨率 */}
+                {post.width && post.height && (
+                  <Descriptions.Item label="分辨率">
+                    {post.width} × {post.height}
+                  </Descriptions.Item>
+                )}
 
-            {/* 分辨率 */}
-            {post.width && post.height && (
-              <Descriptions.Item label="分辨率">
-                {post.width} × {post.height}
-              </Descriptions.Item>
-            )}
+                {/* 文件格式 */}
+                {post.fileExt && (
+                  <Descriptions.Item label="文件格式">
+                    {post.fileExt.toUpperCase()}
+                  </Descriptions.Item>
+                )}
 
-            {/* 文件格式 */}
-            {post.fileExt && (
-              <Descriptions.Item label="文件格式">
-                {post.fileExt.toUpperCase()}
-              </Descriptions.Item>
-            )}
-
-            {/* MD5 */}
-            {post.md5 && (
-              <Descriptions.Item label="MD5">
-                <Text code style={{ fontSize: '11px' }}>
-                  {post.md5}
-                </Text>
-              </Descriptions.Item>
-            )}
-
-            {/* 上传者（如果有） */}
-            {/* 注意：BooruPost 类型中没有 uploaderName 字段，需要从 API 获取 */}
-            {/* 这里暂时不显示，等 API 支持后再添加 */}
-          </Descriptions>
-        </Panel>
-      </Collapse>
+                {/* MD5 */}
+                {post.md5 && (
+                  <Descriptions.Item label="MD5">
+                    <Text code style={{ fontSize: '11px' }}>
+                      {post.md5}
+                    </Text>
+                  </Descriptions.Item>
+                )}
+              </Descriptions>
+            )
+          }
+        ]}
+      />
     </div>
   );
 };

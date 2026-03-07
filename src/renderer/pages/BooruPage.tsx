@@ -45,6 +45,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     logPrefix: '[BooruPage]'
   });
 
+  // 黑名单标签名列表（用于前端过滤）
+  const [blacklistTagNames, setBlacklistTagNames] = useState<string[]>([]);
+  const [blacklistEnabled, setBlacklistEnabled] = useState(true);
+  // 用户手动取消隐藏的黑名单标签（按标签粒度控制）
+  const [disabledBlacklistTags, setDisabledBlacklistTags] = useState<Set<string>>(new Set());
+
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
@@ -52,8 +58,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 8,
-    margin: 24
+    borderRadius: 14,
+    margin: 20
   });
 
   // 加载外观配置
@@ -76,8 +82,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
             paginationPosition: 'bottom',
             pageMode: 'pagination',
             spacing: 16,
-            borderRadius: 8,
-            margin: 24
+            borderRadius: 14,
+            margin: 20
           }
         };
 
@@ -125,6 +131,26 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     }
   };
 
+
+  // 加载黑名单标签名列表
+  const loadBlacklistTagNames = useCallback(async () => {
+    if (!selectedSiteId) return;
+    try {
+      const result = await window.electronAPI.booru.getActiveBlacklistTagNames(selectedSiteId);
+      if (result.success && result.data) {
+        setBlacklistTagNames(result.data);
+        console.log('[BooruPage] 加载黑名单标签:', result.data.length, '个');
+      }
+    } catch (error) {
+      console.error('[BooruPage] 加载黑名单标签失败:', error);
+    }
+  }, [selectedSiteId]);
+
+  // 当站点变化时重新加载黑名单，并重置按标签取消隐藏的状态
+  useEffect(() => {
+    loadBlacklistTagNames();
+    setDisabledBlacklistTags(new Set());
+  }, [loadBlacklistTagNames]);
 
   // 从Booru站点加载图片
   const loadPosts = async (page: number = 1) => {
@@ -365,11 +391,52 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
 
-  // 排序后再按评级筛选，避免重复排序
+  // 统计当前页面中每个黑名单标签命中的图片数量
+  const blacklistHitStats = useMemo(() => {
+    if (!blacklistTagNames.length) return new Map<string, number>();
+    const hitMap = new Map<string, number>();
+    const ratingFiltered = ratingFilter !== 'all'
+      ? sortedPosts.filter(post => post.rating === ratingFilter)
+      : sortedPosts;
+    for (const post of ratingFiltered) {
+      const postTags = post.tags.split(' ');
+      for (const tag of postTags) {
+        if (blacklistTagNames.includes(tag)) {
+          hitMap.set(tag, (hitMap.get(tag) || 0) + 1);
+        }
+      }
+    }
+    return hitMap;
+  }, [sortedPosts, ratingFilter, blacklistTagNames]);
+
+  // 排序后按评级筛选 + 黑名单过滤（支持按标签粒度取消隐藏）
   const filteredSortedPosts = useMemo(() => {
-    if (ratingFilter === 'all') return sortedPosts;
-    return sortedPosts.filter(post => post.rating === ratingFilter);
-  }, [sortedPosts, ratingFilter]);
+    let result = sortedPosts;
+
+    // 评级筛选
+    if (ratingFilter !== 'all') {
+      result = result.filter(post => post.rating === ratingFilter);
+    }
+
+    // 黑名单过滤：仅过滤启用中且未被用户单独取消的标签
+    if (blacklistEnabled && blacklistTagNames.length > 0) {
+      const activeBlacklist = blacklistTagNames.filter(t => !disabledBlacklistTags.has(t));
+      if (activeBlacklist.length > 0) {
+        const blacklistSet = new Set(activeBlacklist);
+        const beforeCount = result.length;
+        result = result.filter(post => {
+          const postTags = post.tags.split(' ');
+          return !postTags.some(tag => blacklistSet.has(tag));
+        });
+        const hiddenCount = beforeCount - result.length;
+        if (hiddenCount > 0) {
+          console.log(`[BooruPage] 黑名单过滤: 隐藏 ${hiddenCount} 张图片`);
+        }
+      }
+    }
+
+    return result;
+  }, [sortedPosts, ratingFilter, blacklistEnabled, blacklistTagNames, disabledBlacklistTags]);
 
   // 初始化
   useEffect(() => {
@@ -457,6 +524,95 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         selectedTags={selectedTags}
         onRemoveTag={handleRemoveTag}
       />
+
+      {/* 黑名单过滤提示 - 按标签显示命中情况，支持按标签取消隐藏 */}
+      {blacklistEnabled && blacklistHitStats.size > 0 && (
+        <div style={{
+          padding: '8px 12px',
+          marginBottom: 8,
+          background: 'rgba(255, 59, 48, 0.06)',
+          borderRadius: 8,
+          fontSize: 12,
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <span style={{ color: '#FF3B30' }}>
+              黑名单命中 {blacklistHitStats.size} 个标签
+              {(() => {
+                const activeBlacklist = blacklistTagNames.filter(t => !disabledBlacklistTags.has(t));
+                const activeSet = new Set(activeBlacklist);
+                const ratingFiltered = ratingFilter !== 'all'
+                  ? sortedPosts.filter(p => p.rating === ratingFilter)
+                  : sortedPosts;
+                const hiddenCount = ratingFiltered.filter(post => {
+                  const postTags = post.tags.split(' ');
+                  return postTags.some(tag => activeSet.has(tag));
+                }).length;
+                return hiddenCount > 0 ? `，已隐藏 ${hiddenCount} 张图片` : '';
+              })()}
+            </span>
+            <Button type="link" size="small" onClick={() => setBlacklistEnabled(false)} style={{ fontSize: 12, padding: 0 }}>
+              全部显示
+            </Button>
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {Array.from(blacklistHitStats.entries())
+              .sort((a, b) => b[1] - a[1])
+              .map(([tag, count]) => {
+                const isDisabled = disabledBlacklistTags.has(tag);
+                return (
+                  <span
+                    key={tag}
+                    onClick={() => {
+                      setDisabledBlacklistTags(prev => {
+                        const next = new Set(prev);
+                        if (isDisabled) {
+                          next.delete(tag);
+                        } else {
+                          next.add(tag);
+                        }
+                        return next;
+                      });
+                    }}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      padding: '1px 6px',
+                      borderRadius: 4,
+                      cursor: 'pointer',
+                      background: isDisabled ? 'rgba(0,0,0,0.04)' : 'rgba(255, 59, 48, 0.1)',
+                      color: isDisabled ? '#999' : '#FF3B30',
+                      textDecoration: isDisabled ? 'line-through' : 'none',
+                      transition: 'all 0.2s',
+                    }}
+                  >
+                    {tag.replace(/_/g, ' ')} ({count})
+                  </span>
+                );
+              })}
+          </div>
+        </div>
+      )}
+      {!blacklistEnabled && blacklistTagNames.length > 0 && (
+        <div style={{
+          padding: '6px 12px',
+          marginBottom: 8,
+          background: 'rgba(255, 149, 0, 0.06)',
+          borderRadius: 8,
+          fontSize: 12,
+          color: '#FF9500',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center'
+        }}>
+          <span>黑名单过滤已暂时关闭</span>
+          <Button type="link" size="small" onClick={() => {
+            setBlacklistEnabled(true);
+            setDisabledBlacklistTags(new Set());
+          }} style={{ fontSize: 12, padding: 0 }}>
+            重新启用
+          </Button>
+        </div>
+      )}
 
       {/* 图片列表 */}
       <div>

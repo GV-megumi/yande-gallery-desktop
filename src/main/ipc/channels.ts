@@ -87,5 +87,14 @@ export const IPC_CHANNELS = {
   // 收藏标签分组管理
   BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
   BOORU_ADD_FAVORITE_TAG_LABEL: 'booru:add-favorite-tag-label',
-  BOORU_REMOVE_FAVORITE_TAG_LABEL: 'booru:remove-favorite-tag-label'
+  BOORU_REMOVE_FAVORITE_TAG_LABEL: 'booru:remove-favorite-tag-label',
+
+  // === 黑名单标签管理 ===
+  BOORU_ADD_BLACKLISTED_TAG: 'booru:add-blacklisted-tag',
+  BOORU_ADD_BLACKLISTED_TAGS: 'booru:add-blacklisted-tags',
+  BOORU_GET_BLACKLISTED_TAGS: 'booru:get-blacklisted-tags',
+  BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES: 'booru:get-active-blacklist-tag-names',
+  BOORU_TOGGLE_BLACKLISTED_TAG: 'booru:toggle-blacklisted-tag',
+  BOORU_UPDATE_BLACKLISTED_TAG: 'booru:update-blacklisted-tag',
+  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag'
 } as const;

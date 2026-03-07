@@ -8,6 +8,10 @@ import * as booruService from './booruService.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
 import { getConfig, getProxyConfig, getDownloadsPath } from './config.js';
 import { BooruPost, DownloadQueueItem } from '../../shared/types';
+import { networkScheduler } from './networkScheduler.js';
+
+/** 浏览模式下的最大并发数（让出带宽给图片预览） */
+const BROWSING_MODE_CONCURRENCY = 1;
 
 interface ActiveDownload {
   id: number; // Queue ID
@@ -29,6 +33,24 @@ class DownloadManager {
     } catch (e) {
       console.warn('[DownloadManager] 无法加载配置，使用默认并发数:', this.maxConcurrent);
     }
+
+    // 监听浏览模式变化：浏览结束后尝试恢复下载队列
+    networkScheduler.onChange((isBrowsing) => {
+      if (!isBrowsing && !this.isPaused && this.activeDownloads.size > 0) {
+        console.log('[DownloadManager] 浏览模式结束，尝试填充下载队列');
+        this.processQueue();
+      }
+    });
+  }
+
+  /**
+   * 获取当前有效的最大并发数（浏览模式下自动降低）
+   */
+  private getEffectiveConcurrency(): number {
+    if (networkScheduler.isBrowsingActive()) {
+      return Math.min(BROWSING_MODE_CONCURRENCY, this.maxConcurrent);
+    }
+    return this.maxConcurrent;
   }
 
   /**
@@ -325,7 +347,8 @@ class DownloadManager {
 
     try {
       // 循环填充空闲槽位，直到达到并发上限或没有更多待下载任务
-      while (this.activeDownloads.size < this.maxConcurrent && !this.isPaused) {
+      const effectiveConcurrency = this.getEffectiveConcurrency();
+      while (this.activeDownloads.size < effectiveConcurrency && !this.isPaused) {
         const queue = await booruService.getDownloadQueue('pending');
 
         // 过滤掉已经在活跃下载中的任务

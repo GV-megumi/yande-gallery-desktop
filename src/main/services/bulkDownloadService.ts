@@ -18,6 +18,7 @@ import { MoebooruClient } from './moebooruClient.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
 import * as booruService from './booruService.js';
 import { downloadManager } from './downloadManager.js';
+import { networkScheduler } from './networkScheduler.js';
 import {
   BulkDownloadTask,
   BulkDownloadSession,
@@ -1091,16 +1092,32 @@ async function startDownloadingSession(
 
   try {
     // 事件驱动的并发下载（替代 200ms 轮询循环，降低 CPU 空转）
-    const concurrency = task.concurrency || 3;
+    const maxConcurrency = task.concurrency || 3;
+    /** 浏览模式下的并发上限 */
+    const BROWSING_CONCURRENCY = 1;
     let activeCount = 0;
     let isStopped = false;
+
+    // 获取当前有效并发数（浏览模式下自动降低）
+    const getEffectiveConcurrency = () => {
+      return networkScheduler.isBrowsingActive()
+        ? Math.min(BROWSING_CONCURRENCY, maxConcurrency)
+        : maxConcurrency;
+    };
 
     // 用 Promise + resolve 实现事件通知：下载完成时唤醒调度器
     let wakeup: (() => void) | null = null;
 
+    // 监听浏览模式变化：浏览结束后唤醒调度器填充槽位
+    const onBrowsingChange = (isBrowsing: boolean) => {
+      if (!isBrowsing && wakeup) wakeup();
+    };
+    networkScheduler.onChange(onBrowsingChange);
+
     // 工作函数：处理单个下载任务
     const processDownload = async (record: BulkDownloadRecord) => {
       activeCount++;
+      const concurrency = getEffectiveConcurrency();
       console.log(`[bulkDownloadService] 开始下载: ${record.fileName} (活跃数: ${activeCount}/${concurrency})`);
 
       try {
@@ -1109,7 +1126,7 @@ async function startDownloadingSession(
         console.error(`[bulkDownloadService] 下载记录失败: ${record.fileName}`, error);
       } finally {
         activeCount--;
-        console.log(`[bulkDownloadService] 下载完成: ${record.fileName} (活跃数: ${activeCount}/${concurrency})`);
+        console.log(`[bulkDownloadService] 下载完成: ${record.fileName} (活跃数: ${activeCount}/${getEffectiveConcurrency()})`);
         // 通知调度器有空闲槽位
         if (wakeup) wakeup();
       }
@@ -1117,7 +1134,7 @@ async function startDownloadingSession(
 
     // 等待空闲槽位的辅助函数（事件驱动，不轮询）
     const waitForSlot = (): Promise<void> => {
-      if (activeCount < concurrency) return Promise.resolve();
+      if (activeCount < getEffectiveConcurrency()) return Promise.resolve();
       return new Promise<void>((resolve) => { wakeup = resolve; });
     };
 
@@ -1142,7 +1159,7 @@ async function startDownloadingSession(
           if (isStopped) break;
 
           // 获取待下载的记录
-          const needMore = concurrency - activeCount;
+          const needMore = getEffectiveConcurrency() - activeCount;
           if (needMore <= 0) continue;
 
           const pendingRecords = await getBulkDownloadRecordsBySession(sessionId, 'pending');

@@ -1,11 +1,10 @@
 /**
- * 骨架屏网格组件
+ * 骨架屏组件 — iOS shimmer 风格
  * 替代 Spin 加载状态，提供更好的视觉反馈
  */
 
 import React from 'react';
-import { Skeleton } from 'antd';
-import { spacing, radius, shadows } from '../styles/tokens';
+import { colors, spacing, radius, shadows } from '../styles/tokens';
 
 interface SkeletonGridProps {
   /** 卡片数量（默认 12） */
@@ -17,8 +16,7 @@ interface SkeletonGridProps {
 }
 
 /**
- * Booru 图片网格骨架屏
- * 模拟图片卡片的加载占位效果
+ * Booru 图片网格骨架屏 — iOS shimmer 动画
  */
 export const SkeletonGrid: React.FC<SkeletonGridProps> = ({
   count = 12,
@@ -30,22 +28,36 @@ export const SkeletonGrid: React.FC<SkeletonGridProps> = ({
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}
+          className="ios-skeleton-shimmer"
           style={{
             width: cardWidth,
             borderRadius: radius.md,
             overflow: 'hidden',
-            boxShadow: shadows.card,
-            background: '#fff',
+            boxShadow: shadows.subtle,
+            border: `1px solid ${colors.borderCard}`,
           }}
         >
           {/* 图片占位 */}
-          <Skeleton.Image
-            active
-            style={{ width: cardWidth, height: cardWidth * 0.75, display: 'block' }}
-          />
+          <div style={{
+            width: '100%',
+            height: cardWidth * 0.75,
+            background: colors.bgLight,
+          }} />
           {/* 文字占位 */}
-          <div style={{ padding: spacing.sm }}>
-            <Skeleton active paragraph={{ rows: 1, width: '60%' }} title={false} />
+          <div style={{ padding: spacing.md }}>
+            <div style={{
+              height: 12,
+              width: '60%',
+              borderRadius: radius.xs,
+              background: colors.bgDark,
+              marginBottom: 8,
+            }} />
+            <div style={{
+              height: 10,
+              width: '40%',
+              borderRadius: radius.xs,
+              background: colors.bgDark,
+            }} />
           </div>
         </div>
       ))}
@@ -54,30 +66,32 @@ export const SkeletonGrid: React.FC<SkeletonGridProps> = ({
 };
 
 /**
- * 图库瀑布流骨架屏
- * 模拟本地图库的加载占位效果
+ * 图库瀑布流骨架屏 — iOS shimmer 动画
  */
 export const SkeletonWaterfall: React.FC<{ count?: number }> = ({ count = 8 }) => {
-  // 随机高度模拟瀑布流
   const heights = React.useMemo(
     () => Array.from({ length: count }).map(() => 150 + Math.floor(Math.random() * 150)),
     [count]
   );
 
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.sm }}>
+    <div style={{
+      columnWidth: 220,
+      columnGap: 16,
+    }}>
       {heights.map((h, i) => (
         <div
           key={i}
+          className="ios-skeleton-shimmer"
           style={{
-            width: 200,
+            width: '100%',
             height: h,
             borderRadius: radius.md,
-            overflow: 'hidden',
+            marginBottom: 16,
+            breakInside: 'avoid',
+            boxShadow: shadows.subtle,
           }}
-        >
-          <Skeleton.Image active style={{ width: 200, height: h, display: 'block' }} />
-        </div>
+        />
       ))}
     </div>
   );

@@ -2,6 +2,8 @@ import { loadConfig, getConfig, getDatabasePath } from './config.js';
 import { initDatabase } from './database.js';
 import { createGallery, getGalleries } from './galleryService.js';
 import { normalizePath } from '../utils/path.js';
+import { downloadManager } from './downloadManager.js';
+import * as bulkDownloadService from './bulkDownloadService.js';
 
 /**
  * 初始化应用（加载配置 + 初始化数据库 + 初始化图库）
@@ -29,6 +31,9 @@ export async function initializeApp(): Promise<{ success: boolean; error?: strin
     await initGalleriesFromConfig();
     console.log('✅ 图库初始化完成');
 
+    // 4. 后台自动恢复未完成的下载任务（不阻塞启动）
+    resumeDownloadsInBackground();
+
     console.log('🎉 应用初始化完成！');
 
     return { success: true };
@@ -37,6 +42,41 @@ export async function initializeApp(): Promise<{ success: boolean; error?: strin
     console.error('❌ 应用初始化失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
+}
+
+/**
+ * 后台恢复未完成的下载任务（普通下载 + 批量下载）
+ * 在应用启动时自动调用，不阻塞主流程
+ */
+function resumeDownloadsInBackground(): void {
+  // 延迟 2 秒执行，让窗口和 IPC 先初始化完成
+  setTimeout(async () => {
+    console.log('[init] 开始后台恢复未完成的下载任务...');
+
+    // 恢复普通下载队列
+    try {
+      const result = await downloadManager.resumePendingDownloads();
+      if (result.resumed > 0) {
+        console.log(`[init] 已恢复 ${result.resumed} 个普通下载任务`);
+      } else {
+        console.log('[init] 没有需要恢复的普通下载任务');
+      }
+    } catch (error) {
+      console.error('[init] 恢复普通下载任务失败:', error);
+    }
+
+    // 恢复批量下载会话
+    try {
+      const result = await bulkDownloadService.resumeRunningSessions();
+      if (result.success && result.data && result.data.resumed > 0) {
+        console.log(`[init] 已恢复 ${result.data.resumed} 个批量下载会话`);
+      } else {
+        console.log('[init] 没有需要恢复的批量下载会话');
+      }
+    } catch (error) {
+      console.error('[init] 恢复批量下载会话失败:', error);
+    }
+  }, 2000);
 }
 
 /**

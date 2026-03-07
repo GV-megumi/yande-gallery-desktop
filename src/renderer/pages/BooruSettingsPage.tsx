@@ -158,8 +158,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
             paginationPosition: 'bottom',
             pageMode: 'pagination',
             spacing: 16,
-            borderRadius: 8,
-            margin: 24,
+            borderRadius: 14,
+            margin: 20,
             maxCacheSizeMB: 500
           }
         };
@@ -892,13 +892,15 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     name="maxCacheSizeMB"
                     tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
                   >
-                    <InputNumber
-                      min={100}
-                      max={5000}
-                      step={100}
-                      style={{ width: '100%' }}
-                      addonAfter="MB"
-                    />
+                    <Space.Compact style={{ width: '100%' }}>
+                      <InputNumber
+                        min={100}
+                        max={5000}
+                        step={100}
+                        style={{ width: '100%' }}
+                      />
+                      <Button disabled style={{ cursor: 'default' }}>MB</Button>
+                    </Space.Compact>
                   </Form.Item>
 
                   <CacheStatsDisplay />
@@ -1002,7 +1004,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
                   <Divider orientation="left" style={{ marginTop: 32 }}>使用示例</Divider>
 
-                  <div style={{ background: '#f5f5f5', padding: 16, borderRadius: 4, fontFamily: 'monospace', fontSize: '13px' }}>
+                  <div style={{ background: 'var(--ant-color-bg-layout, #F2F2F7)', padding: 16, borderRadius: 14, fontFamily: 'monospace', fontSize: '13px' }}>
                     <Paragraph>
                       <Text strong>简单：</Text> <Text code>{`{id}_{md5}.{extension}`}</Text> → 123456_abc123.jpg
                     </Paragraph>
@@ -1064,6 +1066,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         onCancel={() => setModalVisible(false)}
         footer={null}
         width={600}
+        forceRender
       >
         <Form
           form={form}

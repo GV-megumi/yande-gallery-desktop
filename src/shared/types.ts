@@ -254,6 +254,22 @@ export interface FavoriteTagLabel {
   createdAt: string;
 }
 
+// ========= 黑名单标签相关类型定义 =========
+
+// 黑名单标签
+export interface BlacklistedTag {
+  id: number;
+  siteId: number | null;  // null = 全局黑名单
+  tagName: string;
+  isActive: boolean;      // 是否激活
+  reason?: string;        // 黑名单原因（可选）
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// 黑名单排序类型
+export type BlacklistedTagsSortType = 'recentlyAdded' | 'nameAZ' | 'nameZA';
+
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {
   siteId: number;

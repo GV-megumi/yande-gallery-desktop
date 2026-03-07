@@ -10,6 +10,7 @@ import { pipeline } from 'stream/promises';
 import axios from 'axios';
 import { getConfig, getProxyConfig } from './config.js';
 import crypto from 'crypto';
+import { networkScheduler } from './networkScheduler.js';
 
 // 正在进行中的缓存请求映射（防止同一图片并发下载）
 const inFlightRequests = new Map<string, Promise<string>>();
@@ -191,6 +192,9 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     return existing;
   }
 
+  // 通知网络调度器：浏览请求开始
+  networkScheduler.incrementBrowsing();
+
   // 创建下载 Promise 并注册到 in-flight map
   const downloadPromise = doCacheImage(url, md5, extension);
   inFlightRequests.set(cacheKey, downloadPromise);
@@ -199,6 +203,8 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     return await downloadPromise;
   } finally {
     inFlightRequests.delete(cacheKey);
+    // 通知网络调度器：浏览请求结束
+    networkScheduler.decrementBrowsing();
   }
 }
 

@@ -7,6 +7,7 @@ import { Toolbar } from '../components/BooruPostDetails/Toolbar';
 import { TagsSection } from '../components/BooruPostDetails/TagsSection';
 import { FileDetailsSection } from '../components/BooruPostDetails/FileDetailsSection';
 import { RelatedPostsSection } from '../components/BooruPostDetails/RelatedPostsSection';
+import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
 interface BooruPostDetailsPageProps {
   open: boolean;
@@ -359,15 +360,16 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
         {/* 顶部工具栏 */}
         <div style={{
-          padding: '12px 16px',
-          borderBottom: '1px solid #f0f0f0',
+          padding: `${spacing.sm}px ${spacing.lg}px`,
+          borderBottom: `0.5px solid ${colors.separator}`,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          background: '#fff',
-          zIndex: 10
+          background: colors.bgBase,
+          zIndex: 10,
+          minHeight: 48,
         }}>
-          <Space>
+          <Space size={spacing.sm}>
             <Button
               icon={<CloseOutlined />}
               onClick={onClose}
@@ -376,33 +378,33 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
             </Button>
             {posts.length > 0 && (
               <>
+                <div style={{ width: 1, height: 20, background: colors.separator }} />
                 <Button
                   icon={<LeftOutlined />}
                   onClick={handlePrevious}
                   disabled={currentIndex <= 0}
-                >
-                  上一张
-                </Button>
-                <span style={{ margin: '0 8px' }}>
+                />
+                <span style={{
+                  fontSize: fontSize.md,
+                  color: colors.textSecondary,
+                  minWidth: 50,
+                  textAlign: 'center',
+                }}>
                   {currentIndex + 1} / {posts.length}
                 </span>
                 <Button
                   icon={<RightOutlined />}
                   onClick={handleNext}
                   disabled={currentIndex >= posts.length - 1}
-                >
-                  下一张
-                </Button>
+                />
               </>
             )}
           </Space>
-          <Space>
-            {currentPost.postId && (
-              <span style={{ color: '#666' }}>
-                ID: {currentPost.postId}
-              </span>
-            )}
-          </Space>
+          {currentPost.postId && (
+            <span style={{ color: colors.textTertiary, fontSize: fontSize.md }}>
+              ID: {currentPost.postId}
+            </span>
+          )}
         </div>
 
         {/* 主内容区域 */}
@@ -487,12 +489,13 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
 
           {/* 右侧：详情面板 */}
           <div style={{
-            width: '400px',
-            borderLeft: '1px solid #f0f0f0',
+            width: 380,
+            minWidth: 320,
+            borderLeft: `0.5px solid ${colors.separator}`,
             overflowY: 'auto',
-            background: '#fff'
+            background: colors.bgBase,
           }}>
-            <div style={{ padding: '16px' }}>
+            <div style={{ padding: spacing.lg }}>
               {/* 信息部分 */}
               <InformationSection
                 post={currentPost}

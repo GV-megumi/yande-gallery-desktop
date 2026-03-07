@@ -19,7 +19,6 @@ import {
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
 
-const { TabPane } = Tabs;
 const { Option } = Select;
 
 // 排序类型
@@ -519,7 +518,7 @@ export const BooruDownloadPage: React.FC = () => {
           <Tooltip title="点击在资源管理器中显示">
             <span 
               style={{ 
-                color: '#1890ff', 
+                color: '#007AFF',
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -590,176 +589,190 @@ export const BooruDownloadPage: React.FC = () => {
           </Button>
         }
       >
-        <Tabs defaultActiveKey="active">
-          <TabPane tab={`进行中 (${activeDownloads.length})`} key="active">
-            {/* 工具栏 */}
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
-              <Space>
-                {activeDownloads.length > 0 && (
-                  queueStatus.isPaused ? (
-                    <Button 
-                      type="primary"
-                      icon={<PlayCircleOutlined />} 
-                      onClick={handleResumeAll}
+        <Tabs defaultActiveKey="active" items={[
+          {
+            key: 'active',
+            label: `进行中 (${activeDownloads.length})`,
+            children: (
+              <>
+                {/* 工具栏 */}
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end' }}>
+                  <Space>
+                    {activeDownloads.length > 0 && (
+                      queueStatus.isPaused ? (
+                        <Button
+                          type="primary"
+                          icon={<PlayCircleOutlined />}
+                          onClick={handleResumeAll}
+                        >
+                          全部继续
+                        </Button>
+                      ) : (
+                        <Button
+                          icon={<PauseCircleOutlined />}
+                          onClick={handlePauseAll}
+                        >
+                          全部暂停
+                        </Button>
+                      )
+                    )}
+                  </Space>
+                </div>
+                <Table
+                  dataSource={activeDownloads}
+                  columns={activeColumns}
+                  rowKey="id"
+                  pagination={false}
+                  locale={{ emptyText: '没有进行中的下载' }}
+                  onRow={makeOnRow('active')}
+                />
+              </>
+            )
+          },
+          {
+            key: 'completed',
+            label: `已完成 (${completedDownloads.length})`,
+            children: (
+              <>
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <Space>
+                    <span style={{ color: 'rgba(60, 60, 67, 0.60)' }}>排序:</span>
+                    <Select
+                      value={sortField}
+                      onChange={(value: SortField) => setSortField(value)}
+                      style={{ width: 120 }}
+                      size="small"
                     >
-                      全部继续
-                    </Button>
-                  ) : (
-                    <Button 
-                      icon={<PauseCircleOutlined />} 
-                      onClick={handlePauseAll}
+                      <Option value="completedAt">完成时间</Option>
+                      <Option value="filename">文件名</Option>
+                      <Option value="totalBytes">文件大小</Option>
+                    </Select>
+                    <Button
+                      type="text"
+                      size="small"
+                      icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                      onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
                     >
-                      全部暂停
+                      {sortOrder === 'asc' ? '升序' : '降序'}
                     </Button>
-                  )
-                )}
-              </Space>
-            </div>
-            <Table
-              dataSource={activeDownloads}
-              columns={activeColumns}
-              rowKey="id"
-              pagination={false}
-              locale={{ emptyText: '没有进行中的下载' }}
-              onRow={makeOnRow('active')}
-            />
-          </TabPane>
-          <TabPane 
-            tab={`已完成 (${completedDownloads.length})`} 
-            key="completed"
-            tabKey="completed"
-          >
-            <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Space>
-                <span style={{ color: '#666' }}>排序:</span>
-                <Select 
-                  value={sortField} 
-                  onChange={(value: SortField) => setSortField(value)}
-                  style={{ width: 120 }}
-                  size="small"
-                >
-                  <Option value="completedAt">完成时间</Option>
-                  <Option value="filename">文件名</Option>
-                  <Option value="totalBytes">文件大小</Option>
-                </Select>
-                <Button 
-                  type="text" 
-                  size="small"
-                  icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
-                  onClick={() => setSortOrder(sortOrder === 'asc' ? 'desc' : 'asc')}
-                >
-                  {sortOrder === 'asc' ? '升序' : '降序'}
-                </Button>
-              </Space>
-              <Popconfirm
-                title="确定要清空所有已完成的下载记录吗？"
-                onConfirm={() => handleClearRecords('completed')}
-                okText="确定"
-                cancelText="取消"
-                disabled={completedDownloads.length === 0}
-              >
-                <Button 
-                  icon={<ClearOutlined />} 
-                  danger
-                  disabled={completedDownloads.length === 0}
-                >
-                  清空记录
-                </Button>
-              </Popconfirm>
-            </div>
-            <Table
-              dataSource={sortedCompletedDownloads}
-              columns={completedColumns}
-              rowKey="id"
-              onRow={makeOnRow('completed')}
-            />
-          </TabPane>
-          <TabPane tab={`失败 (${failedDownloads.length})`} key="failed">
-            <div style={{ marginBottom: 16, textAlign: 'right' }}>
-              <Space>
-                {failedDownloads.length > 0 && (
+                  </Space>
                   <Popconfirm
-                    title={`确定要重试所有 ${failedDownloads.length} 个失败的下载吗？`}
-                    onConfirm={handleRetryAllFailed}
+                    title="确定要清空所有已完成的下载记录吗？"
+                    onConfirm={() => handleClearRecords('completed')}
                     okText="确定"
                     cancelText="取消"
+                    disabled={completedDownloads.length === 0}
                   >
-                    <Button 
-                      type="primary"
-                      icon={<ReloadOutlined />}
+                    <Button
+                      icon={<ClearOutlined />}
+                      danger
+                      disabled={completedDownloads.length === 0}
                     >
-                      全部重试
+                      清空记录
                     </Button>
                   </Popconfirm>
-                )}
-                <Popconfirm
-                  title="确定要清空所有失败的下载记录吗？"
-                  onConfirm={() => handleClearRecords('failed')}
-                  okText="确定"
-                  cancelText="取消"
-                  disabled={failedDownloads.length === 0}
-                >
-                  <Button 
-                    icon={<ClearOutlined />} 
-                    danger
-                    disabled={failedDownloads.length === 0}
-                  >
-                    清空记录
-                  </Button>
-                </Popconfirm>
-              </Space>
-            </div>
-            <Table
-              dataSource={failedDownloads}
-              rowKey="id"
-              onRow={makeOnRow('failed')}
-              columns={[
-                ...activeColumns.slice(0, 2),
-                {
-                  title: '错误信息',
-                  dataIndex: 'errorMessage',
-                  key: 'errorMessage',
-                  ellipsis: true,
-                  render: (msg: string) => (
-                    <Tooltip title={msg}>
-                      <Tag color="red" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                        {msg || '未知错误'}
-                      </Tag>
-                    </Tooltip>
-                  )
-                },
-                {
-                  title: '操作',
-                  key: 'action',
-                  width: 100,
-                  render: (_: any, record: DownloadQueueItem) => (
-                    <Button 
-                      size="small" 
-                      type="primary"
-                      icon={<ReloadOutlined />}
-                      onClick={async () => {
-                        try {
-                          const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
-                          if (result.success) {
-                            message.success('已重新加入下载队列');
-                            loadQueue();
-                          } else {
-                            message.error(result.error || '重试失败');
-                          }
-                        } catch (error) {
-                          console.error('重试下载失败:', error);
-                          message.error('重试下载失败');
-                        }
-                      }}
+                </div>
+                <Table
+                  dataSource={sortedCompletedDownloads}
+                  columns={completedColumns}
+                  rowKey="id"
+                  onRow={makeOnRow('completed')}
+                />
+              </>
+            )
+          },
+          {
+            key: 'failed',
+            label: `失败 (${failedDownloads.length})`,
+            children: (
+              <>
+                <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'flex-end', alignItems: 'center' }}>
+                  <Space>
+                    {failedDownloads.length > 0 && (
+                      <Popconfirm
+                        title={`确定要重试所有 ${failedDownloads.length} 个失败的下载吗？`}
+                        onConfirm={handleRetryAllFailed}
+                        okText="确定"
+                        cancelText="取消"
+                      >
+                        <Button
+                          type="primary"
+                          icon={<ReloadOutlined />}
+                        >
+                          全部重试
+                        </Button>
+                      </Popconfirm>
+                    )}
+                    <Popconfirm
+                      title="确定要清空所有失败的下载记录吗？"
+                      onConfirm={() => handleClearRecords('failed')}
+                      okText="确定"
+                      cancelText="取消"
+                      disabled={failedDownloads.length === 0}
                     >
-                      重试
-                    </Button>
-                  )
-                }
-              ]} 
-            />
-          </TabPane>
-        </Tabs>
+                      <Button
+                        icon={<ClearOutlined />}
+                        danger
+                        disabled={failedDownloads.length === 0}
+                      >
+                        清空记录
+                      </Button>
+                    </Popconfirm>
+                  </Space>
+                </div>
+                <Table
+                  dataSource={failedDownloads}
+                  rowKey="id"
+                  onRow={makeOnRow('failed')}
+                  columns={[
+                    ...activeColumns.slice(0, 2),
+                    {
+                      title: '错误信息',
+                      dataIndex: 'errorMessage',
+                      key: 'errorMessage',
+                      ellipsis: true,
+                      render: (msg: string) => (
+                        <Tooltip title={msg}>
+                          <Tag color="red" style={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {msg || '未知错误'}
+                          </Tag>
+                        </Tooltip>
+                      )
+                    },
+                    {
+                      title: '操作',
+                      key: 'action',
+                      width: 100,
+                      render: (_: any, record: DownloadQueueItem) => (
+                        <Button
+                          size="small"
+                          type="primary"
+                          icon={<ReloadOutlined />}
+                          onClick={async () => {
+                            try {
+                              const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
+                              if (result.success) {
+                                message.success('已重新加入下载队列');
+                                loadQueue();
+                              } else {
+                                message.error(result.error || '重试失败');
+                              }
+                            } catch (error) {
+                              console.error('重试下载失败:', error);
+                              message.error('重试下载失败');
+                            }
+                          }}
+                        >
+                          重试
+                        </Button>
+                      )
+                    }
+                  ]}
+                />
+              </>
+            )
+          }
+        ]} />
       </Card>
       
       {/* 图片预览组件 */}

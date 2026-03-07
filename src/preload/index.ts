@@ -62,7 +62,16 @@ const IPC_CHANNELS = {
   // 搜索历史
   BOORU_ADD_SEARCH_HISTORY: 'booru:add-search-history',
   BOORU_GET_SEARCH_HISTORY: 'booru:get-search-history',
-  BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history'
+  BOORU_CLEAR_SEARCH_HISTORY: 'booru:clear-search-history',
+
+  // 黑名单标签管理
+  BOORU_ADD_BLACKLISTED_TAG: 'booru:add-blacklisted-tag',
+  BOORU_ADD_BLACKLISTED_TAGS: 'booru:add-blacklisted-tags',
+  BOORU_GET_BLACKLISTED_TAGS: 'booru:get-blacklisted-tags',
+  BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES: 'booru:get-active-blacklist-tag-names',
+  BOORU_TOGGLE_BLACKLISTED_TAG: 'booru:toggle-blacklisted-tag',
+  BOORU_UPDATE_BLACKLISTED_TAG: 'booru:update-blacklisted-tag',
+  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -216,6 +225,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     clearSearchHistory: (siteId?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_SEARCH_HISTORY, siteId),
 
+    // 黑名单标签管理
+    addBlacklistedTag: (tagName: string, siteId?: number | null, reason?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAG, tagName, siteId, reason),
+    addBlacklistedTags: (tagString: string, siteId?: number | null, reason?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAGS, tagString, siteId, reason),
+    getBlacklistedTags: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, siteId),
+    getActiveBlacklistTagNames: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES, siteId),
+    toggleBlacklistedTag: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_TOGGLE_BLACKLISTED_TAG, id),
+    updateBlacklistedTag: (id: number, updates: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_BLACKLISTED_TAG, id, updates),
+    removeBlacklistedTag: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_BLACKLISTED_TAG, id),
+
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-progress', subscription);
@@ -336,6 +361,13 @@ declare global {
         addSearchHistory: (siteId: number, query: string, resultCount?: number) => Promise<{ success: boolean; error?: string }>;
         getSearchHistory: (siteId?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         clearSearchHistory: (siteId?: number) => Promise<{ success: boolean; error?: string }>;
+        addBlacklistedTag: (tagName: string, siteId?: number | null, reason?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        addBlacklistedTags: (tagString: string, siteId?: number | null, reason?: string) => Promise<{ success: boolean; data?: { added: number; skipped: number }; error?: string }>;
+        getBlacklistedTags: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getActiveBlacklistTagNames: (siteId?: number | null) => Promise<{ success: boolean; data?: string[]; error?: string }>;
+        toggleBlacklistedTag: (id: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+        updateBlacklistedTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
+        removeBlacklistedTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
         onQueueStatus: (callback: (data: any) => void) => () => void;

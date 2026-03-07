@@ -167,12 +167,15 @@ export const BooruPageToolbar: React.FC<BooruPageToolbarProps> = React.memo(({
   return (
     <Affix offsetTop={offsetTop}>
       <div style={{
-        background: colors.bgBase,
-        padding: spacing.lg,
-        borderRadius: radius.md,
+        background: colors.materialRegular,
+        backdropFilter: 'blur(20px) saturate(180%)',
+        WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+        padding: `${spacing.md}px ${spacing.xl}px`,
+        borderRadius: radius.lg,
         marginBottom: hasSearch ? spacing.xl : spacing.lg,
         boxShadow: shadows.toolbar,
-        zIndex: zIndex.sticky
+        zIndex: zIndex.sticky,
+        border: `1px solid ${colors.border}`,
       }}>
         <Space wrap style={{
           width: '100%',

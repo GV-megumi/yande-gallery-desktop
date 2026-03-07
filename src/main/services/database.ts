@@ -452,6 +452,32 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     console.log('[database] 收藏标签相关表创建成功');
     // === 收藏标签相关表结束 ===
 
+    // === 黑名单标签相关表开始 ===
+    console.log('[database] 开始创建黑名单标签相关表...');
+
+    // 创建 booru_blacklisted_tags 表 - 黑名单标签
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_blacklisted_tags (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER,
+        tagName TEXT NOT NULL,
+        isActive INTEGER DEFAULT 1,
+        reason TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE,
+        UNIQUE(siteId, tagName)
+      )
+    `);
+
+    // 创建黑名单标签相关索引
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_siteId ON booru_blacklisted_tags(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_active ON booru_blacklisted_tags(isActive)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_tagName ON booru_blacklisted_tags(tagName)');
+
+    console.log('[database] 黑名单标签相关表创建成功');
+    // === 黑名单标签相关表结束 ===
+
     // === 性能优化索引 ===
     console.log('[database] 创建性能优化索引...');
     // 复合索引：分页浏览和排序场景

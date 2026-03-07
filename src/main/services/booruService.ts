@@ -1,4 +1,4 @@
-import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem, FavoriteTag, FavoriteTagLabel } from '../../shared/types.js';
+import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem, FavoriteTag, FavoriteTagLabel, BlacklistedTag } from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 
 // ========= 站点管理 =========
@@ -1313,6 +1313,205 @@ export async function clearSearchHistory(siteId?: number): Promise<void> {
   }
 }
 
+// ========= 黑名单标签管理 =========
+
+/**
+ * 添加黑名单标签
+ */
+export async function addBlacklistedTag(tagName: string, siteId?: number | null, reason?: string): Promise<BlacklistedTag> {
+  console.log('[booruService] 添加黑名单标签:', { tagName, siteId, reason });
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    const resolvedSiteId = siteId ?? null;
+
+    await run(db,
+      'INSERT INTO booru_blacklisted_tags (siteId, tagName, isActive, reason, createdAt, updatedAt) VALUES (?, ?, 1, ?, ?, ?)',
+      [resolvedSiteId, tagName, reason || null, now, now]
+    );
+
+    const inserted = await get<any>(db,
+      'SELECT * FROM booru_blacklisted_tags WHERE siteId IS ? AND tagName = ?',
+      [resolvedSiteId, tagName]
+    );
+
+    console.log('[booruService] 黑名单标签已添加:', inserted?.id);
+    return {
+      ...inserted,
+      isActive: Boolean(inserted.isActive)
+    };
+  } catch (error) {
+    console.error('[booruService] 添加黑名单标签失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 批量添加黑名单标签（支持换行分隔的字符串）
+ */
+export async function addBlacklistedTags(tagString: string, siteId?: number | null, reason?: string): Promise<{ added: number; skipped: number }> {
+  console.log('[booruService] 批量添加黑名单标签');
+  const tags = tagString.split('\n').map(t => t.trim()).filter(t => t.length > 0);
+  let added = 0;
+  let skipped = 0;
+
+  for (const tag of tags) {
+    try {
+      await addBlacklistedTag(tag, siteId, reason);
+      added++;
+    } catch (error: any) {
+      if (error.message?.includes('UNIQUE constraint')) {
+        skipped++;
+      } else {
+        console.error('[booruService] 添加黑名单标签失败:', tag, error);
+        skipped++;
+      }
+    }
+  }
+
+  console.log('[booruService] 批量添加完成:', { added, skipped });
+  return { added, skipped };
+}
+
+/**
+ * 获取黑名单标签列表
+ * @param siteId 站点 ID（可选，不传则获取全部）
+ */
+export async function getBlacklistedTags(siteId?: number | null): Promise<BlacklistedTag[]> {
+  console.log('[booruService] 获取黑名单标签列表, siteId:', siteId);
+  try {
+    const db = await getDatabase();
+    let sql = 'SELECT * FROM booru_blacklisted_tags';
+    const params: any[] = [];
+
+    if (siteId !== undefined && siteId !== null) {
+      sql += ' WHERE siteId = ? OR siteId IS NULL';
+      params.push(siteId);
+    }
+
+    sql += ' ORDER BY createdAt DESC';
+    const tags = await all<any>(db, sql, params);
+
+    const result = tags.map((tag: any) => ({
+      ...tag,
+      isActive: Boolean(tag.isActive)
+    }));
+
+    console.log('[booruService] 获取到', result.length, '个黑名单标签');
+    return result;
+  } catch (error) {
+    console.error('[booruService] 获取黑名单标签列表失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 获取激活的黑名单标签名列表（用于过滤）
+ * @param siteId 站点 ID（可选）
+ */
+export async function getActiveBlacklistTagNames(siteId?: number | null): Promise<string[]> {
+  console.log('[booruService] 获取激活的黑名单标签名列表, siteId:', siteId);
+  try {
+    const db = await getDatabase();
+    let sql = 'SELECT tagName FROM booru_blacklisted_tags WHERE isActive = 1';
+    const params: any[] = [];
+
+    if (siteId !== undefined && siteId !== null) {
+      sql += ' AND (siteId = ? OR siteId IS NULL)';
+      params.push(siteId);
+    }
+
+    const tags = await all<{ tagName: string }>(db, sql, params);
+    const result = tags.map(t => t.tagName);
+    console.log('[booruService] 获取到', result.length, '个激活的黑名单标签');
+    return result;
+  } catch (error) {
+    console.error('[booruService] 获取激活黑名单标签失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 切换黑名单标签激活状态
+ */
+export async function toggleBlacklistedTag(id: number): Promise<BlacklistedTag> {
+  console.log('[booruService] 切换黑名单标签激活状态:', id);
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+
+    // 先获取当前状态
+    const tag = await get<any>(db, 'SELECT * FROM booru_blacklisted_tags WHERE id = ?', [id]);
+    if (!tag) {
+      throw new Error('黑名单标签不存在');
+    }
+
+    const newIsActive = tag.isActive ? 0 : 1;
+    await run(db,
+      'UPDATE booru_blacklisted_tags SET isActive = ?, updatedAt = ? WHERE id = ?',
+      [newIsActive, now, id]
+    );
+
+    console.log('[booruService] 黑名单标签状态已切换:', id, '->', newIsActive);
+    return {
+      ...tag,
+      isActive: Boolean(newIsActive),
+      updatedAt: now
+    };
+  } catch (error) {
+    console.error('[booruService] 切换黑名单标签状态失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 更新黑名单标签
+ */
+export async function updateBlacklistedTag(id: number, updates: Partial<Pick<BlacklistedTag, 'tagName' | 'reason' | 'isActive'>>): Promise<void> {
+  console.log('[booruService] 更新黑名单标签:', id, updates);
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    const setClauses: string[] = ['updatedAt = ?'];
+    const params: any[] = [now];
+
+    if (updates.tagName !== undefined) {
+      setClauses.push('tagName = ?');
+      params.push(updates.tagName);
+    }
+    if (updates.reason !== undefined) {
+      setClauses.push('reason = ?');
+      params.push(updates.reason);
+    }
+    if (updates.isActive !== undefined) {
+      setClauses.push('isActive = ?');
+      params.push(updates.isActive ? 1 : 0);
+    }
+
+    params.push(id);
+    await run(db, `UPDATE booru_blacklisted_tags SET ${setClauses.join(', ')} WHERE id = ?`, params);
+    console.log('[booruService] 黑名单标签已更新:', id);
+  } catch (error) {
+    console.error('[booruService] 更新黑名单标签失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 删除黑名单标签
+ */
+export async function removeBlacklistedTag(id: number): Promise<void> {
+  console.log('[booruService] 删除黑名单标签:', id);
+  try {
+    const db = await getDatabase();
+    await run(db, 'DELETE FROM booru_blacklisted_tags WHERE id = ?', [id]);
+    console.log('[booruService] 黑名单标签已删除:', id);
+  } catch (error) {
+    console.error('[booruService] 删除黑名单标签失败:', error);
+    throw error;
+  }
+}
+
 // ========= 批量导出 =========
 
 export default {
@@ -1366,6 +1565,15 @@ export default {
   // 搜索历史
   addSearchHistory,
   getSearchHistory,
-  clearSearchHistory
+  clearSearchHistory,
+
+  // 黑名单标签管理
+  addBlacklistedTag,
+  addBlacklistedTags,
+  getBlacklistedTags,
+  getActiveBlacklistTagNames,
+  toggleBlacklistedTag,
+  updateBlacklistedTag,
+  removeBlacklistedTag
 };
 

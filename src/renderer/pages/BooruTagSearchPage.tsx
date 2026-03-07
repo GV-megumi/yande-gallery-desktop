@@ -63,8 +63,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 8,
-    margin: 24
+    borderRadius: 14,
+    margin: 20
   });
 
   // 加载外观配置
