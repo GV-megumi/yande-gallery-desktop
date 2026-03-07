@@ -39,6 +39,30 @@ import * as bulkDownloadService from '../services/bulkDownloadService.js';
 import * as imageCacheService from '../services/imageCacheService.js';
 import { runInTransaction, getDatabase } from '../services/database.js';
 
+/**
+ * 安全解析 created_at 字段
+ * Moebooru API 在不同接口返回的格式不同：
+ * - /post.json 返回 Unix 时间戳（数字）
+ * - /pool/show.json 的 posts 返回 ISO 字符串
+ */
+function parseCreatedAt(value: any): string {
+  if (!value) return new Date().toISOString();
+
+  // 如果是数字（Unix 时间戳）
+  if (typeof value === 'number') {
+    return new Date(value * 1000).toISOString();
+  }
+
+  // 如果是字符串，尝试直接解析
+  if (typeof value === 'string') {
+    const date = new Date(value);
+    if (!isNaN(date.getTime())) {
+      return date.toISOString();
+    }
+  }
+
+  return new Date().toISOString();
+}
 
 export function setupIPC() {
   // 数据库初始化
@@ -1728,7 +1752,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: new Date(post.created_at * 1000).toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return { success: true, data: mappedPosts };
@@ -1776,7 +1800,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: new Date(post.created_at * 1000).toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return { success: true, data: mappedPosts };
@@ -1820,7 +1844,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: new Date(post.created_at * 1000).toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return { success: true, data: mappedPosts };
@@ -1864,7 +1888,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: new Date(post.created_at * 1000).toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return { success: true, data: mappedPosts };
@@ -1908,7 +1932,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: new Date(post.created_at * 1000).toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return { success: true, data: mappedPosts };
@@ -2054,7 +2078,7 @@ export function setupIPC() {
         tags: post.tags,
         downloaded: false,
         isFavorited: false,
-        createdAt: post.created_at ? new Date(post.created_at * 1000).toISOString() : new Date().toISOString()
+        createdAt: parseCreatedAt(post.created_at)
       }));
 
       return {
