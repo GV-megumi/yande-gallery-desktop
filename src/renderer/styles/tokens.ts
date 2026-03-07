@@ -69,6 +69,10 @@ const lightColors = {
   ratingSafe: '#34C759',
   ratingQuestionable: '#FF9500',
   ratingExplicit: '#FF3B30',
+
+  // Overlay 按钮激活色
+  heartActive: 'rgba(255, 45, 85, 0.85)',       // 喜欢：粉红
+  bookmarkActive: 'rgba(255, 149, 0, 0.85)',     // 收藏：橙色
 };
 
 /** 颜色 Token 类型 */
@@ -137,6 +141,10 @@ const darkColors: ColorTokens = {
   ratingSafe: '#30D158',
   ratingQuestionable: '#FF9F0A',
   ratingExplicit: '#FF453A',
+
+  // Overlay 按钮激活色
+  heartActive: 'rgba(255, 55, 95, 0.85)',
+  bookmarkActive: 'rgba(255, 159, 10, 0.85)',
 };
 
 // ============================================================

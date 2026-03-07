@@ -153,6 +153,28 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
     }
   };
 
+  // 服务端喜欢状态管理
+  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
+
+  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
+    if (!activeSite) return;
+    const isCurrentlyFavorited = serverFavorites.has(post.postId);
+    try {
+      if (isCurrentlyFavorited) {
+        await window.electronAPI.booru.serverUnfavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
+        message.success('已取消喜欢');
+      } else {
+        await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => new Set(prev).add(post.postId));
+        message.success('已喜欢');
+      }
+    } catch (error) {
+      console.error('[BooruPoolsPage] 切换喜欢失败:', error);
+      message.error('操作失败');
+    }
+  }, [activeSite, serverFavorites]);
+
   // 下载
   const handleDownload = async (post: BooruPost) => {
     if (!activeSite) return;
@@ -183,8 +205,9 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
             icon={<ArrowLeftOutlined />}
             onClick={handleBack}
           >
-            返回
+            返回列表
           </Button>
+          <Text type="secondary" style={{ fontSize: fontSize.md }}>/</Text>
           <div>
             <Text strong style={{ fontSize: fontSize.lg }}>
               {selectedPool.name.replace(/_/g, ' ')}
@@ -226,6 +249,8 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
                   onToggleFavorite={() => handleToggleFavorite(post)}
                   onDownload={() => handleDownload(post)}
                   onTagClick={onTagClick ? (tag) => onTagClick(tag, activeSite?.id) : undefined}
+                  onToggleServerFavorite={activeSite?.username ? () => handleToggleServerFavorite(post) : undefined}
+                  isServerFavorited={serverFavorites.has(post.postId)}
                 />
               ))}
             </div>

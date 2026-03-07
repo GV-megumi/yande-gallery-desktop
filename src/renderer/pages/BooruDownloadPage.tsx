@@ -46,6 +46,9 @@ export const BooruDownloadPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [queueStatus, setQueueStatus] = useState<QueueStatus>({ isPaused: false, activeCount: 0, maxConcurrent: 3 });
   const [resuming, setResuming] = useState(false);
+  const [pausingAll, setPausingAll] = useState(false);
+  const [resumingAll, setResumingAll] = useState(false);
+  const [clearing, setClearing] = useState(false);
   const hasResumedRef = useRef(false); // 标记是否已经尝试恢复过
   
   // 用于查看原图的状态
@@ -159,6 +162,7 @@ export const BooruDownloadPage: React.FC = () => {
 
   // 暂停所有下载
   const handlePauseAll = async () => {
+    setPausingAll(true);
     try {
       if (!window.electronAPI) return;
 
@@ -172,11 +176,14 @@ export const BooruDownloadPage: React.FC = () => {
     } catch (error) {
       console.error('[BooruDownloadPage] 暂停下载失败:', error);
       message.error('暂停下载失败');
+    } finally {
+      setPausingAll(false);
     }
   };
 
   // 恢复所有下载
   const handleResumeAll = async () => {
+    setResumingAll(true);
     try {
       if (!window.electronAPI) return;
 
@@ -190,6 +197,8 @@ export const BooruDownloadPage: React.FC = () => {
     } catch (error) {
       console.error('[BooruDownloadPage] 恢复下载失败:', error);
       message.error('恢复下载失败');
+    } finally {
+      setResumingAll(false);
     }
   };
 
@@ -318,6 +327,7 @@ export const BooruDownloadPage: React.FC = () => {
   // 清空下载记录
   const handleClearRecords = async (status: 'completed' | 'failed') => {
     console.log('[BooruDownloadPage] 清空下载记录，状态:', status);
+    setClearing(true);
     try {
       if (!window.electronAPI) return;
 
@@ -332,6 +342,8 @@ export const BooruDownloadPage: React.FC = () => {
     } catch (error) {
       console.error('[BooruDownloadPage] 清空下载记录失败:', error);
       message.error('清空下载记录失败');
+    } finally {
+      setClearing(false);
     }
   };
 
@@ -604,6 +616,7 @@ export const BooruDownloadPage: React.FC = () => {
                           type="primary"
                           icon={<PlayCircleOutlined />}
                           onClick={handleResumeAll}
+                          loading={resumingAll}
                         >
                           全部继续
                         </Button>
@@ -611,6 +624,7 @@ export const BooruDownloadPage: React.FC = () => {
                         <Button
                           icon={<PauseCircleOutlined />}
                           onClick={handlePauseAll}
+                          loading={pausingAll}
                         >
                           全部暂停
                         </Button>
@@ -661,12 +675,13 @@ export const BooruDownloadPage: React.FC = () => {
                     onConfirm={() => handleClearRecords('completed')}
                     okText="确定"
                     cancelText="取消"
-                    disabled={completedDownloads.length === 0}
+                    disabled={completedDownloads.length === 0 || clearing}
                   >
                     <Button
                       icon={<ClearOutlined />}
                       danger
                       disabled={completedDownloads.length === 0}
+                      loading={clearing}
                     >
                       清空记录
                     </Button>
@@ -708,12 +723,13 @@ export const BooruDownloadPage: React.FC = () => {
                       onConfirm={() => handleClearRecords('failed')}
                       okText="确定"
                       cancelText="取消"
-                      disabled={failedDownloads.length === 0}
+                      disabled={failedDownloads.length === 0 || clearing}
                     >
                       <Button
                         icon={<ClearOutlined />}
                         danger
                         disabled={failedDownloads.length === 0}
+                        loading={clearing}
                       >
                         清空记录
                       </Button>

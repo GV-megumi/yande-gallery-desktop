@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button, Empty, App, Typography } from 'antd';
 import { LeftOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
@@ -66,6 +66,28 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     borderRadius: 14,
     margin: 20
   });
+
+  // 服务端喜欢状态管理
+  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
+
+  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
+    if (!selectedSiteId) return;
+    const isCurrentlyFavorited = serverFavorites.has(post.postId);
+    try {
+      if (isCurrentlyFavorited) {
+        await window.electronAPI.booru.serverUnfavorite(selectedSiteId, post.postId);
+        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
+        message.success('已取消喜欢');
+      } else {
+        await window.electronAPI.booru.serverFavorite(selectedSiteId, post.postId);
+        setServerFavorites(prev => new Set(prev).add(post.postId));
+        message.success('已喜欢');
+      }
+    } catch (error) {
+      console.error('[BooruTagSearchPage] 切换喜欢失败:', error);
+      message.error('操作失败');
+    }
+  }, [selectedSiteId, serverFavorites]);
 
   // 加载外观配置
   const loadAppearanceConfig = async () => {
@@ -411,6 +433,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
               onTagClick={handleTagClick}
+              onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+              serverFavorites={serverFavorites}
             />
 
             <PaginationControl

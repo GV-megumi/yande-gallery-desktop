@@ -359,7 +359,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       footer={null}
     >
       <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
-        {/* 顶部工具栏 */}
+        {/* 顶部工具栏 — 精简：关闭 + 页码 + ID */}
         <div style={{
           padding: `${spacing.sm}px ${spacing.lg}px`,
           borderBottom: `0.5px solid ${colors.separator}`,
@@ -370,37 +370,20 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
           zIndex: 10,
           minHeight: 48,
         }}>
-          <Space size={spacing.sm}>
-            <Button
-              icon={<CloseOutlined />}
-              onClick={onClose}
-            >
-              关闭
-            </Button>
-            {posts.length > 0 && (
-              <>
-                <div style={{ width: 1, height: 20, background: colors.separator }} />
-                <Button
-                  icon={<LeftOutlined />}
-                  onClick={handlePrevious}
-                  disabled={currentIndex <= 0}
-                />
-                <span style={{
-                  fontSize: fontSize.md,
-                  color: colors.textSecondary,
-                  minWidth: 50,
-                  textAlign: 'center',
-                }}>
-                  {currentIndex + 1} / {posts.length}
-                </span>
-                <Button
-                  icon={<RightOutlined />}
-                  onClick={handleNext}
-                  disabled={currentIndex >= posts.length - 1}
-                />
-              </>
-            )}
-          </Space>
+          <Button
+            icon={<CloseOutlined />}
+            onClick={onClose}
+          >
+            关闭
+          </Button>
+          {posts.length > 0 && (
+            <span style={{
+              fontSize: fontSize.md,
+              color: colors.textSecondary,
+            }}>
+              {currentIndex + 1} / {posts.length}
+            </span>
+          )}
           {currentPost.postId && (
             <span style={{ color: colors.textTertiary, fontSize: fontSize.md }}>
               ID: {currentPost.postId}
@@ -444,6 +427,70 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 正在加载原图...
               </div>
             )}
+            {/* 左侧导航按钮 — 半透明悬浮 */}
+            {posts.length > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handlePrevious(); }}
+                disabled={currentIndex <= 0}
+                style={{
+                  position: 'absolute',
+                  left: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: 40,
+                  height: 80,
+                  background: currentIndex <= 0 ? 'transparent' : 'rgba(0, 0, 0, 0.2)',
+                  border: 'none',
+                  borderRadius: '0 8px 8px 0',
+                  color: currentIndex <= 0 ? 'rgba(255,255,255,0.3)' : '#fff',
+                  fontSize: 18,
+                  cursor: currentIndex <= 0 ? 'default' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 5,
+                  transition: 'background 0.2s, opacity 0.2s',
+                  opacity: 0.6,
+                }}
+                onMouseEnter={(e) => { if (currentIndex > 0) { e.currentTarget.style.background = 'rgba(0, 0, 0, 0.5)'; e.currentTarget.style.opacity = '1'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = currentIndex <= 0 ? 'transparent' : 'rgba(0, 0, 0, 0.2)'; e.currentTarget.style.opacity = '0.6'; }}
+              >
+                <LeftOutlined />
+              </button>
+            )}
+
+            {/* 右侧导航按钮 — 半透明悬浮 */}
+            {posts.length > 1 && (
+              <button
+                onClick={(e) => { e.stopPropagation(); handleNext(); }}
+                disabled={currentIndex >= posts.length - 1}
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '50%',
+                  transform: 'translateY(-50%)',
+                  width: 40,
+                  height: 80,
+                  background: currentIndex >= posts.length - 1 ? 'transparent' : 'rgba(0, 0, 0, 0.2)',
+                  border: 'none',
+                  borderRadius: '8px 0 0 8px',
+                  color: currentIndex >= posts.length - 1 ? 'rgba(255,255,255,0.3)' : '#fff',
+                  fontSize: 18,
+                  cursor: currentIndex >= posts.length - 1 ? 'default' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  zIndex: 5,
+                  transition: 'background 0.2s, opacity 0.2s',
+                  opacity: 0.6,
+                }}
+                onMouseEnter={(e) => { if (currentIndex < posts.length - 1) { e.currentTarget.style.background = 'rgba(0, 0, 0, 0.5)'; e.currentTarget.style.opacity = '1'; } }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = currentIndex >= posts.length - 1 ? 'transparent' : 'rgba(0, 0, 0, 0.2)'; e.currentTarget.style.opacity = '0.6'; }}
+              >
+                <RightOutlined />
+              </button>
+            )}
+
             {imageUrl && (
               <img
                 src={imageUrl}

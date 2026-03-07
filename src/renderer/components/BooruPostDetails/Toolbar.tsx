@@ -144,8 +144,8 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   return (
     <div style={{ marginBottom: '24px', paddingBottom: '16px', borderBottom: '1px solid #f0f0f0' }}>
-      <Space wrap>
-        {/* 本地收藏按钮 */}
+      {/* 主操作行：收藏、喜欢、投票 */}
+      <Space wrap style={{ marginBottom: 8 }}>
         {supportsFavorite && (
           <Button
             type={post.isFavorited ? 'primary' : 'default'}
@@ -157,7 +157,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </Button>
         )}
 
-        {/* 服务端收藏按钮 */}
         {isLoggedIn && (
           <Tooltip title="同步收藏到服务端">
             <Button
@@ -172,7 +171,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </Tooltip>
         )}
 
-        {/* 投票按钮 */}
         {isLoggedIn && (
           <>
             <Tooltip title="点赞">
@@ -194,24 +192,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             </Tooltip>
           </>
         )}
+      </Space>
 
-        {/* 下载按钮 */}
+      {/* 次操作行：下载、幻灯片、分享 */}
+      <Space wrap>
         <Button
           icon={<DownloadOutlined />}
           onClick={handleDownload}
         >
           下载
         </Button>
-
-        {/* 幻灯片按钮 */}
         <Button
           icon={<PlayCircleOutlined />}
           onClick={handleSlideshow}
         >
           幻灯片
         </Button>
-
-        {/* 分享按钮 */}
         <Button
           icon={<ShareAltOutlined />}
           onClick={handleShare}

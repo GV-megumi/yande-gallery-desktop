@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
-import { Card, Image, Tag, Space, Button, message } from 'antd';
-import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined, HeartOutlined, HeartFilled } from '@ant-design/icons';
+import { Card, Image, Tag, Space, Button, message, Modal } from 'antd';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined, HeartOutlined, HeartFilled, InfoCircleOutlined, LinkOutlined } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
 import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
@@ -52,6 +52,14 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   const [loading, setLoading] = useState(false);
   const [imageLoaded, setImageLoaded] = useState(false);
   const [imageError, setImageError] = useState(false);
+  // 动画反馈状态：'bounce' 成功 | 'shake' 失败 | null 无
+  const [favAnim, setFavAnim] = useState<string | null>(null);
+  const [heartAnim, setHeartAnim] = useState<string | null>(null);
+
+  const triggerAnim = (setter: (v: string | null) => void, cls: string) => {
+    setter(cls);
+    setTimeout(() => setter(null), 400);
+  };
 
   const handleDownload = () => {
     console.log('[BooruImageCard] 点击下载按钮:', post.postId);
@@ -63,12 +71,14 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   const handleToggleFavorite = () => {
     console.log('[BooruImageCard] 点击收藏按钮:', post.postId, '当前状态:', isFavorited);
     onToggleFavorite(post);
+    triggerAnim(setFavAnim, 'overlay-btn-bounce');
   };
 
   const handleToggleServerFavorite = () => {
     if (onToggleServerFavorite) {
       console.log('[BooruImageCard] 点击喜欢按钮:', post.postId, '当前状态:', isServerFavorited);
       onToggleServerFavorite(post);
+      triggerAnim(setHeartAnim, 'overlay-btn-bounce');
     }
   };
 
@@ -95,11 +105,18 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
       ...(onToggleServerFavorite ? [{ key: 'server-favorite', label: isServerFavorited ? '取消喜欢' : '喜欢', icon: isServerFavorited ? <HeartFilled /> : <HeartOutlined />, onClick: handleToggleServerFavorite }] : []),
       { key: 'download', label: '下载', icon: <DownloadOutlined />, onClick: handleDownload },
       { type: 'divider' },
-      { key: 'copyImageUrl', label: '复制图片链接', icon: <CopyOutlined />, onClick: () => {
+      { key: 'copyImageUrl', label: '复制原图链接', icon: <CopyOutlined />, onClick: () => {
         const url = getFullFileUrl();
         if (url) {
           navigator.clipboard.writeText(url);
-          message.success('已复制图片链接');
+          message.success('已复制原图链接');
+        }
+      }},
+      { key: 'copyPreviewUrl', label: '复制预览图链接', icon: <LinkOutlined />, onClick: () => {
+        const url = getPreviewUrl();
+        if (url) {
+          navigator.clipboard.writeText(url);
+          message.success('已复制预览图链接');
         }
       }},
     ];
@@ -109,8 +126,30 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
         window.electronAPI?.system.openExternal(postPageUrl);
       }});
     }
+    items.push({ type: 'divider' });
+    items.push({ key: 'imageInfo', label: '查看图片信息', icon: <InfoCircleOutlined />, onClick: () => {
+      const fileUrl = getFullFileUrl();
+      const ext = fileUrl ? fileUrl.split('.').pop()?.split('?')[0]?.toUpperCase() || '未知' : '未知';
+      Modal.info({
+        title: `图片信息 #${post.postId}`,
+        content: (
+          <div style={{ lineHeight: 2 }}>
+            <div><strong>ID：</strong>{post.postId}</div>
+            {post.width && post.height && <div><strong>尺寸：</strong>{post.width} × {post.height}</div>}
+            {post.fileSize && <div><strong>文件大小：</strong>{(post.fileSize / 1024 / 1024).toFixed(2)} MB</div>}
+            <div><strong>格式：</strong>{ext}</div>
+            {post.rating && <div><strong>分级：</strong>{post.rating}</div>}
+            {post.score !== undefined && post.score !== null && <div><strong>评分：</strong>{post.score}</div>}
+            {post.md5 && <div><strong>MD5：</strong><span style={{ fontSize: 11, wordBreak: 'break-all' }}>{post.md5}</span></div>}
+            {post.source && <div><strong>来源：</strong><a onClick={() => { window.electronAPI?.system.openExternal(post.source!); }} style={{ cursor: 'pointer', wordBreak: 'break-all' }}>{post.source}</a></div>}
+          </div>
+        ),
+        okText: '关闭',
+        width: 420,
+      });
+    }});
     return items;
-  }, [isFavorited, postPageUrl, post.fileUrl]);
+  }, [isFavorited, isServerFavorited, postPageUrl, post.fileUrl, post.postId, post.width, post.height, post.fileSize, post.rating, post.score, post.md5, post.source]);
 
   // iOS 风格评分颜色
   const ratingConfig = post.rating === 'safe'
@@ -221,81 +260,61 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           }}
         />
 
-        {/* 右上角操作按钮组 — iOS 圆形毛玻璃按钮 */}
+        {/* 右上角操作按钮组 — iOS 圆形毛玻璃按钮，hover 时显示，竖排 */}
         <div
+          className={`card-overlay-buttons${isFavorited || isServerFavorited ? ' has-active' : ''}`}
           style={{
             position: 'absolute',
             top: 8,
             right: 8,
             display: 'flex',
+            flexDirection: 'column',
             gap: 6,
           }}
         >
           <button
+            className="overlay-btn"
             onClick={(e) => { e.stopPropagation(); handlePreview(); }}
             title="预览"
             style={{
-              width: 30,
-              height: 30,
+              width: 32,
+              height: 32,
               borderRadius: '50%',
               background: 'rgba(0, 0, 0, 0.35)',
               backdropFilter: 'blur(8px)',
               border: 'none',
               color: '#FFFFFF',
-              fontSize: 13,
+              fontSize: 14,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'background 0.2s',
+              transition: 'background 0.2s, transform 0.15s',
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.35)'}
           >
             <EyeOutlined />
           </button>
-          <button
-            onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
-            title={isFavorited ? '取消收藏' : '收藏'}
-            className={isFavorited ? '' : ''}
-            style={{
-              width: 30,
-              height: 30,
-              borderRadius: '50%',
-              background: isFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)',
-              backdropFilter: 'blur(8px)',
-              border: 'none',
-              color: '#FFFFFF',
-              fontSize: 13,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s',
-            }}
-            onMouseEnter={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 45, 85, 1)' : 'rgba(0, 0, 0, 0.55)'}
-            onMouseLeave={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
-          >
-            {isFavorited ? <BookFilled /> : <BookOutlined />}
-          </button>
           {onToggleServerFavorite && (
             <button
+              className={`overlay-btn${heartAnim ? ` ${heartAnim}` : ''}`}
               onClick={(e) => { e.stopPropagation(); handleToggleServerFavorite(); }}
               title={isServerFavorited ? '取消喜欢' : '喜欢'}
               style={{
-                width: 30,
-                height: 30,
+                width: 32,
+                height: 32,
                 borderRadius: '50%',
                 background: isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)',
                 backdropFilter: 'blur(8px)',
                 border: 'none',
                 color: '#FFFFFF',
-                fontSize: 13,
+                fontSize: 14,
                 cursor: 'pointer',
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                transition: 'background 0.2s',
+                transition: 'background 0.2s, transform 0.15s',
               }}
               onMouseEnter={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 1)' : 'rgba(0, 0, 0, 0.55)'}
               onMouseLeave={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
@@ -304,22 +323,47 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             </button>
           )}
           <button
+            className={`overlay-btn${favAnim ? ` ${favAnim}` : ''}`}
+            onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
+            title={isFavorited ? '取消收藏' : '收藏'}
+            style={{
+              width: 32,
+              height: 32,
+              borderRadius: '50%',
+              background: isFavorited ? 'rgba(255, 149, 0, 0.85)' : 'rgba(0, 0, 0, 0.35)',
+              backdropFilter: 'blur(8px)',
+              border: 'none',
+              color: '#FFFFFF',
+              fontSize: 14,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              transition: 'background 0.2s, transform 0.15s',
+            }}
+            onMouseEnter={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 149, 0, 1)' : 'rgba(0, 0, 0, 0.55)'}
+            onMouseLeave={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 149, 0, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
+          >
+            {isFavorited ? <BookFilled /> : <BookOutlined />}
+          </button>
+          <button
+            className="overlay-btn"
             onClick={(e) => { e.stopPropagation(); handleDownload(); }}
             title="下载"
             style={{
-              width: 30,
-              height: 30,
+              width: 32,
+              height: 32,
               borderRadius: '50%',
               background: 'rgba(0, 0, 0, 0.35)',
               backdropFilter: 'blur(8px)',
               border: 'none',
               color: '#FFFFFF',
-              fontSize: 13,
+              fontSize: 14,
               cursor: 'pointer',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              transition: 'background 0.2s',
+              transition: 'background 0.2s, transform 0.15s',
             }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.35)'}

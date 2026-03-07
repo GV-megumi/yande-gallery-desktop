@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Collapse, Tag, Space, Typography, message } from 'antd';
+import { Collapse, Tag, Space, Typography, Tooltip, message } from 'antd';
 import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { ContextMenu } from '../ContextMenu';
@@ -183,21 +183,23 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
     ];
     return (
       <ContextMenu key={`${category}-${index}`} items={tagContextItems}>
-        <Tag
-          color={getTagColor(category)}
-          style={{ cursor: 'pointer', marginBottom: '4px' }}
-          onClick={() => handleTagClick(tag)}
-        >
-          <span
-            onClick={(e) => { e.stopPropagation(); toggleFavoriteTag(tag); }}
-            style={{ cursor: 'pointer', marginRight: 4 }}
+        <Tooltip title="右键查看更多操作" mouseEnterDelay={0.6} placement="top">
+          <Tag
+            color={getTagColor(category)}
+            style={{ cursor: 'pointer', marginBottom: '4px' }}
+            onClick={() => handleTagClick(tag)}
           >
-            {isFav
-              ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
-              : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
-          </span>
-          {tag.replace(/_/g, ' ')}
-        </Tag>
+            <span
+              onClick={(e) => { e.stopPropagation(); toggleFavoriteTag(tag); }}
+              style={{ cursor: 'pointer', marginRight: 4 }}
+            >
+              {isFav
+                ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
+                : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
+            </span>
+            {tag.replace(/_/g, ' ')}
+          </Tag>
+        </Tooltip>
       </ContextMenu>
     );
   };

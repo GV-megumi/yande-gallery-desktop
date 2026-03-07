@@ -116,6 +116,28 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
     }
   };
 
+  // 服务端喜欢状态管理
+  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
+
+  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
+    if (!activeSite) return;
+    const isCurrentlyFavorited = serverFavorites.has(post.postId);
+    try {
+      if (isCurrentlyFavorited) {
+        await window.electronAPI.booru.serverUnfavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
+        message.success('已取消喜欢');
+      } else {
+        await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => new Set(prev).add(post.postId));
+        message.success('已喜欢');
+      }
+    } catch (error) {
+      console.error('[BooruPopularPage] 切换喜欢失败:', error);
+      message.error('操作失败');
+    }
+  }, [activeSite, serverFavorites]);
+
   // 下载
   const handleDownload = async (post: BooruPost) => {
     if (!activeSite) return;
@@ -150,11 +172,11 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
           </span>
         </Space>
 
-        <Space>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, minWidth: 280 }}>
           <Select
             value={period}
             onChange={(val: PeriodType) => setPeriod(val)}
-            style={{ width: 120 }}
+            style={{ width: 120, flexShrink: 0 }}
           >
             <Option value="recent">近期热门</Option>
             <Option value="day">按日期</Option>
@@ -162,27 +184,28 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
             <Option value="month">按月</Option>
           </Select>
 
-          {period === 'recent' && (
-            <Select
-              value={recentPeriod}
-              onChange={(val: '1day' | '1week' | '1month') => setRecentPeriod(val)}
-              style={{ width: 100 }}
-            >
-              <Option value="1day">今日</Option>
-              <Option value="1week">本周</Option>
-              <Option value="1month">本月</Option>
-            </Select>
-          )}
-
-          {period !== 'recent' && (
-            <DatePicker
-              value={selectedDate}
-              onChange={(date) => date && setSelectedDate(date)}
-              picker={period === 'month' ? 'month' : period === 'week' ? 'week' : 'date'}
-              allowClear={false}
-            />
-          )}
-        </Space>
+          <div style={{ width: 150 }}>
+            {period === 'recent' ? (
+              <Select
+                value={recentPeriod}
+                onChange={(val: '1day' | '1week' | '1month') => setRecentPeriod(val)}
+                style={{ width: '100%' }}
+              >
+                <Option value="1day">今日</Option>
+                <Option value="1week">本周</Option>
+                <Option value="1month">本月</Option>
+              </Select>
+            ) : (
+              <DatePicker
+                value={selectedDate}
+                onChange={(date) => date && setSelectedDate(date)}
+                picker={period === 'month' ? 'month' : period === 'week' ? 'week' : 'date'}
+                allowClear={false}
+                style={{ width: '100%' }}
+              />
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 图片网格 */}
@@ -210,6 +233,8 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
               onToggleFavorite={() => handleToggleFavorite(post)}
               onDownload={() => handleDownload(post)}
               onTagClick={onTagClick ? (tag) => onTagClick(tag, activeSite?.id) : undefined}
+              onToggleServerFavorite={activeSite?.username ? () => handleToggleServerFavorite(post) : undefined}
+              isServerFavorited={serverFavorites.has(post.postId)}
             />
           ))}
         </div>

@@ -160,6 +160,25 @@ html.dark .ios-skeleton-shimmer {
   background-size: 200% 100%;
 }
 
+/* --- 卡片 Overlay 按钮：hover 时显示 --- */
+.card-overlay-buttons {
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  pointer-events: none;
+}
+
+.card-ios-hover:hover .card-overlay-buttons,
+.card-overlay-buttons.has-active {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* --- Overlay 圆形按钮 active 按下效果 --- */
+.overlay-btn:active {
+  transform: scale(0.85) !important;
+  transition: transform 0.1s ease !important;
+}
+
 /* --- 收藏心跳动画 --- */
 @keyframes ios-heartbeat {
   0% { transform: scale(1); }
@@ -171,6 +190,31 @@ html.dark .ios-skeleton-shimmer {
 
 .ios-heart-pulse {
   animation: ios-heartbeat 0.4s ease;
+}
+
+/* --- 操作成功弹跳动画 --- */
+@keyframes ios-bounce-success {
+  0% { transform: scale(1); }
+  30% { transform: scale(1.25); }
+  60% { transform: scale(0.95); }
+  100% { transform: scale(1); }
+}
+
+.overlay-btn-bounce {
+  animation: ios-bounce-success 0.35s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+/* --- 操作失败抖动动画 --- */
+@keyframes ios-shake-error {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+.overlay-btn-shake {
+  animation: ios-shake-error 0.35s ease;
 }
 
 /* ============================================================

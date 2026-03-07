@@ -42,6 +42,37 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
     margin: 20
   });
 
+  // 服务端喜欢状态管理（喜欢页面中所有帖子默认为已喜欢）
+  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
+
+  // 当 posts 加载完成时，初始化 serverFavorites
+  useEffect(() => {
+    if (posts.length > 0) {
+      setServerFavorites(new Set(posts.map(p => p.postId)));
+    }
+  }, [posts]);
+
+  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
+    if (!activeSite) return;
+    const isCurrentlyFavorited = serverFavorites.has(post.postId);
+    try {
+      if (isCurrentlyFavorited) {
+        await window.electronAPI.booru.serverUnfavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
+        // 取消喜欢后从列表中移除
+        setPosts(prev => prev.filter(p => p.postId !== post.postId));
+        message.success('已取消喜欢');
+      } else {
+        await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
+        setServerFavorites(prev => new Set(prev).add(post.postId));
+        message.success('已喜欢');
+      }
+    } catch (error) {
+      console.error('[BooruServerFavoritesPage] 切换喜欢失败:', error);
+      message.error('操作失败');
+    }
+  }, [activeSite, serverFavorites]);
+
   // 加载外观配置
   useEffect(() => {
     const loadConfig = async () => {
@@ -272,6 +303,8 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
               favorites={new Set()}
               getPreviewUrl={getPreviewUrl}
               onTagClick={handleTagClick}
+              onToggleServerFavorite={isLoggedIn ? handleToggleServerFavorite : undefined}
+              serverFavorites={serverFavorites}
             />
 
             <PaginationControl
