@@ -49,9 +49,20 @@ const CacheStatsDisplay: React.FC = () => {
 
   React.useEffect(() => {
     loadStats();
-    // 每 5 秒刷新一次
-    const interval = setInterval(loadStats, 5000);
-    return () => clearInterval(interval);
+    // 每 5 秒刷新一次（页面不可见时暂停轮询）
+    let interval: NodeJS.Timeout | null = setInterval(loadStats, 5000);
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (interval) { clearInterval(interval); interval = null; }
+      } else {
+        if (!interval) { loadStats(); interval = setInterval(loadStats, 5000); }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, []);
 
   if (!stats) {

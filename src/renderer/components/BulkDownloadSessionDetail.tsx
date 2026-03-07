@@ -170,11 +170,21 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
     // 如果会话正在运行，定期静默刷新（用于同步状态变化，如完成、失败等）
     // 但进度更新和状态变化主要依赖实时事件，所以可以大幅降低轮询频率
-    let interval: NodeJS.Timeout | undefined;
+    // 页面不可见时暂停轮询，避免后台 CPU 空转
+    let interval: NodeJS.Timeout | null = null;
+    let handleVisibility: (() => void) | null = null;
     if (session.status === 'running' || session.status === 'paused') {
       interval = setInterval(() => {
-        loadRecords(true); // 静默刷新，主要用于同步状态变化（作为备用机制）
-      }, 10000); // 降低到10秒刷新一次，因为进度和状态更新都通过实时事件
+        loadRecords(true);
+      }, 10000);
+      handleVisibility = () => {
+        if (document.hidden) {
+          if (interval) { clearInterval(interval); interval = null; }
+        } else {
+          if (!interval) { loadRecords(true); interval = setInterval(() => loadRecords(true), 10000); }
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
     }
 
     return () => {
@@ -186,6 +196,9 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
       }
       if (interval) {
         clearInterval(interval);
+      }
+      if (handleVisibility) {
+        document.removeEventListener('visibilitychange', handleVisibility);
       }
     };
   }, [session.id, session.status]);

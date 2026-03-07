@@ -13,7 +13,7 @@ interface ImageListWrapperProps extends Omit<ImageGridProps, 'images'> {
 /**
  * 图片列表包装组件，统一处理 loading、empty 和 ImageGrid 的渲染逻辑
  */
-export const ImageListWrapper: React.FC<ImageListWrapperProps> = ({
+export const ImageListWrapper: React.FC<ImageListWrapperProps> = React.memo(({
   images,
   loading = false,
   emptyDescription = '暂无图片',
@@ -62,5 +62,7 @@ export const ImageListWrapper: React.FC<ImageListWrapperProps> = ({
       {children}
     </>
   );
-};
+});
+
+ImageListWrapper.displayName = 'ImageListWrapper';
 

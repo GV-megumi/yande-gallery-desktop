@@ -66,11 +66,21 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
     }
 
     // 如果会话正在运行，定期刷新统计（降低频率，减少 IPC 调用）
+    // 页面不可见时暂停轮询，避免后台 CPU 空转
     if (session.status === 'running' || session.status === 'dryRun') {
-      const interval = setInterval(() => {
-        loadStats();
-      }, 5000); // 从2秒改为5秒，减少 IPC 调用频率
-      return () => clearInterval(interval);
+      let interval: NodeJS.Timeout | null = setInterval(loadStats, 5000);
+      const handleVisibility = () => {
+        if (document.hidden) {
+          if (interval) { clearInterval(interval); interval = null; }
+        } else {
+          if (!interval) { loadStats(); interval = setInterval(loadStats, 5000); }
+        }
+      };
+      document.addEventListener('visibilitychange', handleVisibility);
+      return () => {
+        if (interval) clearInterval(interval);
+        document.removeEventListener('visibilitychange', handleVisibility);
+      };
     }
   }, [session.id, session.status]);
 

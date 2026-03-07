@@ -5,6 +5,71 @@ import { BooruPost } from '../../shared/types';
 import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
 
+// --- 静态样式常量（避免每次渲染重新创建对象） ---
+const overlayBtnBase: React.CSSProperties = {
+  width: 32,
+  height: 32,
+  borderRadius: '50%',
+  backdropFilter: 'blur(8px)',
+  border: 'none',
+  color: '#FFFFFF',
+  fontSize: 14,
+  cursor: 'pointer',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  transition: 'background 0.2s, transform 0.15s',
+};
+
+const imageAreaStyle: React.CSSProperties = {
+  position: 'relative',
+  cursor: 'pointer',
+  overflow: 'hidden',
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minHeight: 0,
+};
+
+const shimmerOverlayStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  borderRadius: 0,
+};
+
+const overlayBtnGroupStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 8,
+  right: 8,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const infoRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  marginBottom: 6,
+  flexWrap: 'wrap',
+};
+
+const tagRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 4,
+  marginBottom: 6,
+};
+
+const sizeRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+};
+
 interface BooruImageCardProps {
   post: BooruPost;
   siteName: string;
@@ -175,30 +240,14 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     >
       {/* 图片区域 */}
       <div
-        style={{
-          position: 'relative',
-          cursor: 'pointer',
-          overflow: 'hidden',
-          flex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: 0
-        }}
+        style={imageAreaStyle}
         onClick={handlePreview}
       >
         {/* 加载占位 — shimmer 骨架 */}
         {!imageLoaded && !imageError && (
           <div
             className="ios-skeleton-shimmer"
-            style={{
-              position: 'absolute',
-              inset: 0,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: 0,
-            }}
+            style={shimmerOverlayStyle}
           >
             <PictureOutlined style={{ fontSize: 28, color: colors.textQuaternary || colors.textTertiary }} />
           </div>
@@ -263,34 +312,13 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
         {/* 右上角操作按钮组 — iOS 圆形毛玻璃按钮，hover 时显示，竖排 */}
         <div
           className={`card-overlay-buttons${isFavorited || isServerFavorited ? ' has-active' : ''}`}
-          style={{
-            position: 'absolute',
-            top: 8,
-            right: 8,
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 6,
-          }}
+          style={overlayBtnGroupStyle}
         >
           <button
             className="overlay-btn"
             onClick={(e) => { e.stopPropagation(); handlePreview(); }}
             title="预览"
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: 'rgba(0, 0, 0, 0.35)',
-              backdropFilter: 'blur(8px)',
-              border: 'none',
-              color: '#FFFFFF',
-              fontSize: 14,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s, transform 0.15s',
-            }}
+            style={{ ...overlayBtnBase, background: 'rgba(0, 0, 0, 0.35)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.35)'}
           >
@@ -301,21 +329,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
               className={`overlay-btn${heartAnim ? ` ${heartAnim}` : ''}`}
               onClick={(e) => { e.stopPropagation(); handleToggleServerFavorite(); }}
               title={isServerFavorited ? '取消喜欢' : '喜欢'}
-              style={{
-                width: 32,
-                height: 32,
-                borderRadius: '50%',
-                background: isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)',
-                backdropFilter: 'blur(8px)',
-                border: 'none',
-                color: '#FFFFFF',
-                fontSize: 14,
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background 0.2s, transform 0.15s',
-              }}
+              style={{ ...overlayBtnBase, background: isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)' }}
               onMouseEnter={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 1)' : 'rgba(0, 0, 0, 0.55)'}
               onMouseLeave={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
             >
@@ -326,21 +340,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             className={`overlay-btn${favAnim ? ` ${favAnim}` : ''}`}
             onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
             title={isFavorited ? '取消收藏' : '收藏'}
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: isFavorited ? 'rgba(255, 149, 0, 0.85)' : 'rgba(0, 0, 0, 0.35)',
-              backdropFilter: 'blur(8px)',
-              border: 'none',
-              color: '#FFFFFF',
-              fontSize: 14,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s, transform 0.15s',
-            }}
+            style={{ ...overlayBtnBase, background: isFavorited ? 'rgba(255, 149, 0, 0.85)' : 'rgba(0, 0, 0, 0.35)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 149, 0, 1)' : 'rgba(0, 0, 0, 0.55)'}
             onMouseLeave={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(255, 149, 0, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
           >
@@ -350,21 +350,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             className="overlay-btn"
             onClick={(e) => { e.stopPropagation(); handleDownload(); }}
             title="下载"
-            style={{
-              width: 32,
-              height: 32,
-              borderRadius: '50%',
-              background: 'rgba(0, 0, 0, 0.35)',
-              backdropFilter: 'blur(8px)',
-              border: 'none',
-              color: '#FFFFFF',
-              fontSize: 14,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              transition: 'background 0.2s, transform 0.15s',
-            }}
+            style={{ ...overlayBtnBase, background: 'rgba(0, 0, 0, 0.35)' }}
             onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.55)'}
             onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0, 0, 0, 0.35)'}
           >
@@ -376,7 +362,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
       {/* 底部信息区 */}
       <div style={{ padding: `${spacing.sm}px ${spacing.md}px ${spacing.md}px` }}>
         {/* 评分行：站点 + 评分 + 分级 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
+        <div style={infoRowStyle}>
           {/* 站点胶囊标签 */}
           <span style={{
             fontSize: fontSize.xs,
@@ -416,7 +402,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
 
         {/* 标签 */}
         {post.tags && (
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+          <div style={tagRowStyle}>
             {formatTags(post.tags).map((tag, index) => (
               <ContextMenu
                 key={index}
@@ -458,7 +444,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
         )}
 
         {/* 尺寸和ID */}
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={sizeRowStyle}>
           {post.width && post.height && (
             <span style={{ fontSize: fontSize.xs, color: colors.textTertiary }}>
               {post.width}x{post.height}

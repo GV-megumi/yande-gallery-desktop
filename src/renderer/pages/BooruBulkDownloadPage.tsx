@@ -114,12 +114,21 @@ export const BooruBulkDownloadPage: React.FC = () => {
       return;
     }
 
-    // 定期刷新会话状态
-    const interval = setInterval(() => {
-      loadSessions();
-    }, 5000); // 每5秒刷新一次（降低频率，减少日志输出）
+    // 定期刷新会话状态（页面不可见时暂停轮询）
+    let interval: NodeJS.Timeout | null = setInterval(loadSessions, 5000);
+    const handleVisibility = () => {
+      if (document.hidden) {
+        if (interval) { clearInterval(interval); interval = null; }
+      } else {
+        if (!interval) { loadSessions(); interval = setInterval(loadSessions, 5000); }
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
-    return () => clearInterval(interval);
+    return () => {
+      if (interval) clearInterval(interval);
+      document.removeEventListener('visibilitychange', handleVisibility);
+    };
   }, [activeSessions.length]); // 当活跃会话数量变化时重新设置定时器
 
   // 创建或更新任务
