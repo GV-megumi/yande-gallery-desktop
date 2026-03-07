@@ -2,26 +2,15 @@ database:
   path: data/gallery.db
   logging: true
 downloads:
-  path: M:\test
+  path: ./downloads
   createSubfolders: true
   subfolderFormat:
     - tags
     - date
 galleries:
   folders:
-    - path: M:\booru_u
-      name: booru_u
-      autoScan: true
-      recursive: true
-      extensions:
-        - .jpg
-        - .jpeg
-        - .png
-        - .gif
-        - .webp
-        - .bmp
-    - path: M:\booru
-      name: booru
+    - path: /path/to/your/images
+      name: my_gallery
       autoScan: true
       recursive: true
       extensions:
@@ -57,15 +46,15 @@ logging:
   maxFiles: 5
 network:
   proxy:
-    enabled: true
+    enabled: false
     protocol: http
     host: 127.0.0.1
-    port: '7078'
+    port: '7890'
     username: ''
     password: ''
 booru:
   appearance:
-    gridSize: 400
+    gridSize: 300
     previewQuality: original
     itemsPerPage: 20
     paginationPosition: both

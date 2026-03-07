@@ -113,10 +113,13 @@ downloads/
 images/
 
 # Configuration files with sensitive data
+config.yaml
+config.json
+config.yml
 config/*.json
 config/*.yaml
 config/*.yml
-!config/example.*
+!config.example.*
 
 # Redis dump
 dump.rdb
