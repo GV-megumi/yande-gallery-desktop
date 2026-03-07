@@ -21,6 +21,8 @@ export interface BooruGridLayoutProps {
   favorites: Set<number>;
   getPreviewUrl: (post: BooruPost) => string;
   onTagClick?: (tag: string) => void;
+  onToggleServerFavorite?: (post: BooruPost) => void;
+  serverFavorites?: Set<number>;
 }
 
 export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
@@ -34,7 +36,9 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   onToggleFavorite,
   favorites,
   getPreviewUrl,
-  onTagClick
+  onTagClick,
+  onToggleServerFavorite,
+  serverFavorites
 }) => {
   // 计算每行能放多少张图片（根据容器宽度和 gridSize）
   const containerRef = useRef<HTMLDivElement>(null);
@@ -113,6 +117,8 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
                   previewUrl={getPreviewUrl(post)}
                   onImageLoad={handleImageLoad}
                   onTagClick={onTagClick}
+                  onToggleServerFavorite={onToggleServerFavorite}
+                  isServerFavorited={serverFavorites?.has(post.postId)}
                 />
               </div>
             ))}

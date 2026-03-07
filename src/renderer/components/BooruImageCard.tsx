@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Card, Image, Tag, Space, Button, message } from 'antd';
-import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined } from '@ant-design/icons';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined, HeartOutlined, HeartFilled } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
 import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
@@ -16,6 +16,8 @@ interface BooruImageCardProps {
   onImageLoad?: (postId: number, height: number) => void;
   siteUrl?: string;
   onTagClick?: (tag: string) => void;
+  onToggleServerFavorite?: (post: BooruPost) => void;
+  isServerFavorited?: boolean;
 }
 
 // 格式化标签
@@ -34,7 +36,9 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   previewUrl,
   onImageLoad,
   siteUrl,
-  onTagClick
+  onTagClick,
+  onToggleServerFavorite,
+  isServerFavorited = false
 }) => {
   // 获取预览图URL
   const getPreviewUrl = (): string => {
@@ -61,6 +65,13 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     onToggleFavorite(post);
   };
 
+  const handleToggleServerFavorite = () => {
+    if (onToggleServerFavorite) {
+      console.log('[BooruImageCard] 点击喜欢按钮:', post.postId, '当前状态:', isServerFavorited);
+      onToggleServerFavorite(post);
+    }
+  };
+
   const handlePreview = () => {
     console.log('[BooruImageCard] 点击图片预览:', post.postId);
     onPreview(post);
@@ -81,6 +92,7 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     const items: any[] = [
       { key: 'preview', label: '预览', icon: <EyeOutlined />, onClick: handlePreview },
       { key: 'favorite', label: isFavorited ? '取消收藏' : '收藏', icon: isFavorited ? <BookFilled /> : <BookOutlined />, onClick: handleToggleFavorite },
+      ...(onToggleServerFavorite ? [{ key: 'server-favorite', label: isServerFavorited ? '取消喜欢' : '喜欢', icon: isServerFavorited ? <HeartFilled /> : <HeartOutlined />, onClick: handleToggleServerFavorite }] : []),
       { key: 'download', label: '下载', icon: <DownloadOutlined />, onClick: handleDownload },
       { type: 'divider' },
       { key: 'copyImageUrl', label: '复制图片链接', icon: <CopyOutlined />, onClick: () => {
@@ -266,6 +278,31 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           >
             {isFavorited ? <BookFilled /> : <BookOutlined />}
           </button>
+          {onToggleServerFavorite && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleToggleServerFavorite(); }}
+              title={isServerFavorited ? '取消喜欢' : '喜欢'}
+              style={{
+                width: 30,
+                height: 30,
+                borderRadius: '50%',
+                background: isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)',
+                backdropFilter: 'blur(8px)',
+                border: 'none',
+                color: '#FFFFFF',
+                fontSize: 13,
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'background 0.2s',
+              }}
+              onMouseEnter={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 1)' : 'rgba(0, 0, 0, 0.55)'}
+              onMouseLeave={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(255, 45, 85, 0.85)' : 'rgba(0, 0, 0, 0.35)'}
+            >
+              {isServerFavorited ? <HeartFilled /> : <HeartOutlined />}
+            </button>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); handleDownload(); }}
             title="下载"

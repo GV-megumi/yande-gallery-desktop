@@ -45,6 +45,28 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     logPrefix: '[BooruPage]'
   });
 
+  // 服务端喜欢状态管理
+  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
+
+  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
+    if (!selectedSiteId) return;
+    const isCurrentlyFavorited = serverFavorites.has(post.postId);
+    try {
+      if (isCurrentlyFavorited) {
+        await window.electronAPI.booru.serverUnfavorite(selectedSiteId, post.postId);
+        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
+        message.success('已取消喜欢');
+      } else {
+        await window.electronAPI.booru.serverFavorite(selectedSiteId, post.postId);
+        setServerFavorites(prev => new Set(prev).add(post.postId));
+        message.success('已喜欢');
+      }
+    } catch (error) {
+      console.error('[BooruPage] 切换喜欢失败:', error);
+      message.error('操作失败');
+    }
+  }, [selectedSiteId, serverFavorites]);
+
   // 黑名单标签名列表（用于前端过滤）
   const [blacklistTagNames, setBlacklistTagNames] = useState<string[]>([]);
   const [blacklistEnabled, setBlacklistEnabled] = useState(true);
@@ -665,6 +687,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
               onTagClick={handleTagClick}
+              onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+              serverFavorites={serverFavorites}
             />
 
             <PaginationControl
