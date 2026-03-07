@@ -5,7 +5,8 @@ import {
   PictureOutlined, SettingOutlined, ClockCircleOutlined,
   AppstoreOutlined, CloudOutlined, BookOutlined,
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
-  SunOutlined, MoonOutlined, StopOutlined
+  SunOutlined, MoonOutlined, StopOutlined,
+  FireOutlined, DatabaseOutlined
 } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -17,6 +18,8 @@ import { BooruTagSearchPage } from './pages/BooruTagSearchPage';
 import { BooruFavoritesPage } from './pages/BooruFavoritesPage';
 import { FavoriteTagsPage } from './pages/FavoriteTagsPage';
 import { BlacklistedTagsPage } from './pages/BlacklistedTagsPage';
+import { BooruPopularPage } from './pages/BooruPopularPage';
+import { BooruPoolsPage } from './pages/BooruPoolsPage';
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
 const { Content, Sider } = Layout;
@@ -58,6 +61,8 @@ const gallerySubMenuItems: MenuItem[] = [
 
 const booruSubMenuItems: MenuItem[] = [
   { key: 'posts', icon: <CloudOutlined style={{ color: iconColors.posts }} />, label: '图片浏览' },
+  { key: 'popular', icon: <FireOutlined style={{ color: iconColors.popular }} />, label: '热门图片' },
+  { key: 'pools', icon: <DatabaseOutlined style={{ color: iconColors.pools }} />, label: 'Pool 图集' },
   { key: 'favorites', icon: <BookOutlined style={{ color: iconColors.favorites }} />, label: '我的收藏' },
   { key: 'favorite-tags', icon: <StarOutlined style={{ color: iconColors.favoriteTags }} />, label: '收藏标签' },
   { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: '黑名单' },
@@ -169,6 +174,8 @@ export const AppContent: React.FC = () => {
         return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
       case 'booru':
         if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;

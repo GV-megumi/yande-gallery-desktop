@@ -733,6 +733,168 @@ export class MoebooruClient {
   }
 
   /**
+   * 获取指定周的热门图片
+   * @param date - 日期（YYYY-MM-DD格式，该周内任意一天）
+   */
+  async getPopularByWeek(date: string): Promise<MoebooruPostResponse[]> {
+    try {
+      console.log('[MoebooruClient] 获取指定周热门图片:', date);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/post/popular_by_week.json', {
+        params: {
+          day: date,
+          ...this.getAuthParams()
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(`[MoebooruClient] 获取 ${date} 周热门图片失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取指定月的热门图片
+   * @param date - 日期（YYYY-MM-DD格式，该月内任意一天）
+   */
+  async getPopularByMonth(date: string): Promise<MoebooruPostResponse[]> {
+    try {
+      console.log('[MoebooruClient] 获取指定月热门图片:', date);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/post/popular_by_month.json', {
+        params: {
+          month: date.substring(0, 7).replace('-', ''), // YYYYMM format
+          ...this.getAuthParams()
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(`[MoebooruClient] 获取 ${date} 月热门图片失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 创建评论
+   * @param postId - 图片ID
+   * @param body - 评论内容
+   */
+  async createComment(postId: number, body: string): Promise<any> {
+    try {
+      const auth = this.getAuthParams();
+      if (!auth.login || !auth.password_hash) {
+        throw new Error('Authentication required');
+      }
+
+      console.log('[MoebooruClient] 创建评论:', postId);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.post('/comment/create.json', null, {
+        params: {
+          'comment[post_id]': postId,
+          'comment[body]': body,
+          ...auth
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(`[MoebooruClient] 创建评论失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取 Pool 列表
+   * @param params - 查询参数
+   */
+  async getPools(params?: {
+    query?: string;
+    page?: number;
+  }): Promise<any[]> {
+    try {
+      console.log('[MoebooruClient] 获取 Pool 列表:', params);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/pool.json', {
+        params: {
+          query: params?.query || '',
+          page: params?.page || 1,
+          ...this.getAuthParams()
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error('[MoebooruClient] 获取 Pool 列表失败:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取 Pool 详情（包含图片列表）
+   * @param id - Pool ID
+   * @param page - 页码
+   */
+  async getPool(id: number, page?: number): Promise<any> {
+    try {
+      console.log('[MoebooruClient] 获取 Pool 详情:', id);
+
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/pool/show.json', {
+        params: {
+          id,
+          page: page || 1,
+          ...this.getAuthParams()
+        }
+      });
+
+      return response.data;
+    } catch (error) {
+      console.error(`[MoebooruClient] 获取 Pool ${id} 详情失败:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * 测试认证是否有效
+   * 通过尝试投票来验证（不实际投票）
+   */
+  async testAuth(): Promise<boolean> {
+    try {
+      const auth = this.getAuthParams();
+      if (!auth.login || !auth.password_hash) {
+        return false;
+      }
+
+      // 尝试获取用户的收藏来验证认证
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/post.json', {
+        params: {
+          tags: `vote:3:${auth.login} order:id_desc`,
+          limit: 1,
+          ...auth
+        }
+      });
+
+      console.log('[MoebooruClient] 认证测试成功');
+      return true;
+    } catch (error: any) {
+      if (error.response?.status === 403 || error.response?.status === 401) {
+        console.error('[MoebooruClient] 认证测试失败: 无效的凭证');
+        return false;
+      }
+      // 网络错误不代表认证失败
+      console.error('[MoebooruClient] 认证测试异常:', error.message);
+      throw error;
+    }
+  }
+
+  /**
    * 测试连接
    */
   async testConnection(): Promise<boolean> {

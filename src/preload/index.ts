@@ -71,7 +71,37 @@ const IPC_CHANNELS = {
   BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES: 'booru:get-active-blacklist-tag-names',
   BOORU_TOGGLE_BLACKLISTED_TAG: 'booru:toggle-blacklisted-tag',
   BOORU_UPDATE_BLACKLISTED_TAG: 'booru:update-blacklisted-tag',
-  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag'
+  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag',
+
+  // 认证
+  BOORU_LOGIN: 'booru:login',
+  BOORU_LOGOUT: 'booru:logout',
+  BOORU_TEST_AUTH: 'booru:test-auth',
+  BOORU_HASH_PASSWORD: 'booru:hash-password',
+
+  // 投票/服务端收藏
+  BOORU_VOTE_POST: 'booru:vote-post',
+  BOORU_SERVER_FAVORITE: 'booru:server-favorite',
+  BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
+
+  // 热门图片
+  BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
+  BOORU_GET_POPULAR_BY_DAY: 'booru:get-popular-by-day',
+  BOORU_GET_POPULAR_BY_WEEK: 'booru:get-popular-by-week',
+  BOORU_GET_POPULAR_BY_MONTH: 'booru:get-popular-by-month',
+
+  // 评论
+  BOORU_GET_COMMENTS: 'booru:get-comments',
+  BOORU_CREATE_COMMENT: 'booru:create-comment',
+
+  // Pool
+  BOORU_GET_POOLS: 'booru:get-pools',
+  BOORU_GET_POOL: 'booru:get-pool',
+  BOORU_SEARCH_POOLS: 'booru:search-pools',
+
+  // 标签导入/导出
+  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -241,6 +271,54 @@ contextBridge.exposeInMainWorld('electronAPI', {
     removeBlacklistedTag: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_BLACKLISTED_TAG, id),
 
+    // 认证
+    login: (siteId: number, username: string, password: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_LOGIN, siteId, username, password),
+    logout: (siteId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_LOGOUT, siteId),
+    testAuth: (siteId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_TEST_AUTH, siteId),
+    hashPassword: (salt: string, password: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_HASH_PASSWORD, salt, password),
+
+    // 投票/服务端收藏
+    votePost: (siteId: number, postId: number, score: 1 | 0 | -1) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_VOTE_POST, siteId, postId, score),
+    serverFavorite: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_FAVORITE, siteId, postId),
+    serverUnfavorite: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_UNFAVORITE, siteId, postId),
+
+    // 热门图片
+    getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POPULAR_RECENT, siteId, period),
+    getPopularByDay: (siteId: number, date: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POPULAR_BY_DAY, siteId, date),
+    getPopularByWeek: (siteId: number, date: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POPULAR_BY_WEEK, siteId, date),
+    getPopularByMonth: (siteId: number, date: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POPULAR_BY_MONTH, siteId, date),
+
+    // 评论
+    getComments: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_COMMENTS, siteId, postId),
+    createComment: (siteId: number, postId: number, body: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CREATE_COMMENT, siteId, postId, body),
+
+    // Pool
+    getPools: (siteId: number, page?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POOLS, siteId, page),
+    getPool: (siteId: number, poolId: number, page?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POOL, siteId, poolId, page),
+    searchPools: (siteId: number, query: string, page?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POOLS, siteId, query, page),
+
+    // 标签导入/导出
+    exportFavoriteTags: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, siteId),
+    importFavoriteTags: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS),
+
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-progress', subscription);
@@ -368,6 +446,30 @@ declare global {
         toggleBlacklistedTag: (id: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         updateBlacklistedTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         removeBlacklistedTag: (id: number) => Promise<{ success: boolean; error?: string }>;
+        // 认证
+        login: (siteId: number, username: string, password: string) => Promise<{ success: boolean; data?: { username: string; authenticated: boolean }; error?: string }>;
+        logout: (siteId: number) => Promise<{ success: boolean; error?: string }>;
+        testAuth: (siteId: number) => Promise<{ success: boolean; data?: { authenticated: boolean; username?: string; reason?: string }; error?: string }>;
+        hashPassword: (salt: string, password: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        // 投票/服务端收藏
+        votePost: (siteId: number, postId: number, score: 1 | 0 | -1) => Promise<{ success: boolean; error?: string }>;
+        serverFavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
+        serverUnfavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
+        // 热门图片
+        getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPopularByDay: (siteId: number, date: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPopularByWeek: (siteId: number, date: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPopularByMonth: (siteId: number, date: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        // 评论
+        getComments: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        createComment: (siteId: number, postId: number, body: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        // Pool
+        getPools: (siteId: number, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPool: (siteId: number, poolId: number, page?: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+        searchPools: (siteId: number, query: string, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        // 标签导入/导出
+        exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
+        importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
         onQueueStatus: (callback: (data: any) => void) => () => void;

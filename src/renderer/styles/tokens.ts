@@ -328,6 +328,8 @@ export const iconColors = {
   downloads: '#34C759',
   bulkDownload: '#5856D6',
   booruSettings: '#8E8E93',
+  popular: '#FF3B30',
+  pools: '#5856D6',
 } as const;
 
 // ============================================================

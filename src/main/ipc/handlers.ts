@@ -1495,6 +1495,680 @@ export function setupIPC() {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
+
+  // ===== 认证相关 =====
+
+  // 登录（计算密码哈希并保存到站点配置）
+  ipcMain.handle(IPC_CHANNELS.BOORU_LOGIN, async (_event: IpcMainInvokeEvent, siteId: number, username: string, password: string) => {
+    console.log('[IPC] 登录 Booru 站点:', siteId, '用户:', username);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      // 使用站点的 salt 计算密码哈希
+      const salt = site.salt || 'choujin-steiner--{0}--';
+      const passwordHash = hashPasswordSHA1(salt, password);
+
+      // 更新站点配置
+      await booruService.updateBooruSite(siteId, {
+        username,
+        passwordHash
+      });
+
+      // 测试认证是否有效
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: username,
+        passwordHash
+      });
+
+      const authValid = await client.testAuth();
+
+      if (!authValid) {
+        // 认证失败，清除凭证
+        await booruService.updateBooruSite(siteId, {
+          username: '',
+          passwordHash: ''
+        });
+        return { success: false, error: '认证失败，请检查用户名和密码' };
+      }
+
+      console.log('[IPC] 登录成功:', username);
+      return { success: true, data: { username, authenticated: true } };
+    } catch (error) {
+      console.error('[IPC] 登录失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 登出（清除认证信息）
+  ipcMain.handle(IPC_CHANNELS.BOORU_LOGOUT, async (_event: IpcMainInvokeEvent, siteId: number) => {
+    console.log('[IPC] 登出 Booru 站点:', siteId);
+    try {
+      await booruService.updateBooruSite(siteId, {
+        username: '',
+        passwordHash: ''
+      });
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 登出失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 测试认证
+  ipcMain.handle(IPC_CHANNELS.BOORU_TEST_AUTH, async (_event: IpcMainInvokeEvent, siteId: number) => {
+    console.log('[IPC] 测试认证:', siteId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        return { success: true, data: { authenticated: false, reason: '未配置认证信息' } };
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const authValid = await client.testAuth();
+      return { success: true, data: { authenticated: authValid, username: site.username } };
+    } catch (error) {
+      console.error('[IPC] 测试认证失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 计算密码哈希（供前端预览）
+  ipcMain.handle(IPC_CHANNELS.BOORU_HASH_PASSWORD, async (_event: IpcMainInvokeEvent, salt: string, password: string) => {
+    try {
+      const hash = hashPasswordSHA1(salt || 'choujin-steiner--{0}--', password);
+      return { success: true, data: hash };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 投票/服务端收藏 =====
+
+  // 为图片投票
+  ipcMain.handle(IPC_CHANNELS.BOORU_VOTE_POST, async (_event: IpcMainInvokeEvent, siteId: number, postId: number, score: 1 | 0 | -1) => {
+    console.log('[IPC] 为图片投票:', siteId, postId, score);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        throw new Error('需要登录才能投票');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      await client.votePost(postId, score);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 投票失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 服务端收藏
+  ipcMain.handle(IPC_CHANNELS.BOORU_SERVER_FAVORITE, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    console.log('[IPC] 服务端收藏:', siteId, postId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        throw new Error('需要登录才能收藏');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      await client.favoritePost(postId);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 服务端收藏失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 取消服务端收藏
+  ipcMain.handle(IPC_CHANNELS.BOORU_SERVER_UNFAVORITE, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    console.log('[IPC] 取消服务端收藏:', siteId, postId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        throw new Error('需要登录才能操作');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      await client.unfavoritePost(postId);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 取消服务端收藏失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 热门图片 =====
+
+  // 获取近期热门图片
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POPULAR_RECENT, async (_event: IpcMainInvokeEvent, siteId: number, period: '1day' | '1week' | '1month' = '1day') => {
+    console.log('[IPC] 获取近期热门图片:', siteId, period);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const posts = await client.getPopularRecent(period);
+      console.log('[IPC] 获取热门图片成功:', posts.length, '张');
+
+      // 转换为统一格式
+      const mappedPosts = posts.map(post => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: new Date(post.created_at * 1000).toISOString()
+      }));
+
+      return { success: true, data: mappedPosts };
+    } catch (error) {
+      console.error('[IPC] 获取热门图片失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取指定日期的热门图片
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POPULAR_BY_DAY, async (_event: IpcMainInvokeEvent, siteId: number, date: string) => {
+    console.log('[IPC] 获取指定日期热门图片:', siteId, date);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const posts = await client.getPopularByDay(date);
+
+      const mappedPosts = posts.map(post => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: new Date(post.created_at * 1000).toISOString()
+      }));
+
+      return { success: true, data: mappedPosts };
+    } catch (error) {
+      console.error('[IPC] 获取指定日期热门图片失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取指定周的热门图片
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POPULAR_BY_WEEK, async (_event: IpcMainInvokeEvent, siteId: number, date: string) => {
+    console.log('[IPC] 获取指定周热门图片:', siteId, date);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const posts = await client.getPopularByWeek(date);
+
+      const mappedPosts = posts.map(post => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: new Date(post.created_at * 1000).toISOString()
+      }));
+
+      return { success: true, data: mappedPosts };
+    } catch (error) {
+      console.error('[IPC] 获取指定周热门图片失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取指定月的热门图片
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POPULAR_BY_MONTH, async (_event: IpcMainInvokeEvent, siteId: number, date: string) => {
+    console.log('[IPC] 获取指定月热门图片:', siteId, date);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const posts = await client.getPopularByMonth(date);
+
+      const mappedPosts = posts.map(post => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: new Date(post.created_at * 1000).toISOString()
+      }));
+
+      return { success: true, data: mappedPosts };
+    } catch (error) {
+      console.error('[IPC] 获取指定月热门图片失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 评论 =====
+
+  // 获取评论
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_COMMENTS, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    console.log('[IPC] 获取评论:', siteId, postId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const comments = await client.getComments(postId);
+
+      // 转换为统一格式
+      const mappedComments = (comments || []).map((c: any) => ({
+        id: c.id,
+        postId: c.post_id,
+        body: c.body,
+        creator: c.creator || 'Anonymous',
+        creatorId: c.creator_id,
+        createdAt: c.created_at,
+        updatedAt: c.updated_at
+      }));
+
+      return { success: true, data: mappedComments };
+    } catch (error) {
+      console.error('[IPC] 获取评论失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 创建评论
+  ipcMain.handle(IPC_CHANNELS.BOORU_CREATE_COMMENT, async (_event: IpcMainInvokeEvent, siteId: number, postId: number, body: string) => {
+    console.log('[IPC] 创建评论:', siteId, postId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      if (!site.username || !site.passwordHash) {
+        throw new Error('需要登录才能评论');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const result = await client.createComment(postId, body);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 创建评论失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== Pool（图集） =====
+
+  // 获取 Pool 列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POOLS, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1) => {
+    console.log('[IPC] 获取 Pool 列表:', siteId, page);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const pools = await client.getPools({ page });
+
+      const mappedPools = (pools || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        postCount: p.post_count,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        isPublic: p.is_public !== false,
+        userId: p.user_id
+      }));
+
+      return { success: true, data: mappedPools };
+    } catch (error) {
+      console.error('[IPC] 获取 Pool 列表失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 获取 Pool 详情
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POOL, async (_event: IpcMainInvokeEvent, siteId: number, poolId: number, page: number = 1) => {
+    console.log('[IPC] 获取 Pool 详情:', siteId, poolId, page);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const poolData = await client.getPool(poolId, page);
+
+      // 转换 posts
+      const posts = (poolData.posts || []).map((post: any) => ({
+        postId: post.id,
+        siteId,
+        md5: post.md5,
+        fileUrl: post.file_url,
+        previewUrl: post.preview_url,
+        sampleUrl: post.sample_url,
+        width: post.width,
+        height: post.height,
+        fileSize: post.file_size,
+        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+        rating: RATING_MAP[post.rating] || 'questionable',
+        score: post.score,
+        source: post.source,
+        tags: post.tags,
+        downloaded: false,
+        isFavorited: false,
+        createdAt: post.created_at ? new Date(post.created_at * 1000).toISOString() : new Date().toISOString()
+      }));
+
+      return {
+        success: true,
+        data: {
+          id: poolData.id,
+          name: poolData.name,
+          description: poolData.description,
+          postCount: poolData.post_count,
+          createdAt: poolData.created_at,
+          updatedAt: poolData.updated_at,
+          isPublic: poolData.is_public !== false,
+          userId: poolData.user_id,
+          posts
+        }
+      };
+    } catch (error) {
+      console.error('[IPC] 获取 Pool 详情失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 搜索 Pool
+  ipcMain.handle(IPC_CHANNELS.BOORU_SEARCH_POOLS, async (_event: IpcMainInvokeEvent, siteId: number, query: string, page: number = 1) => {
+    console.log('[IPC] 搜索 Pool:', siteId, query, page);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const pools = await client.getPools({ query, page });
+
+      const mappedPools = (pools || []).map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        description: p.description,
+        postCount: p.post_count,
+        createdAt: p.created_at,
+        updatedAt: p.updated_at,
+        isPublic: p.is_public !== false,
+        userId: p.user_id
+      }));
+
+      return { success: true, data: mappedPools };
+    } catch (error) {
+      console.error('[IPC] 搜索 Pool 失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 标签导入/导出 =====
+
+  // 导出收藏标签为 JSON
+  ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    console.log('[IPC] 导出收藏标签:', siteId);
+    try {
+      const tags = await booruService.getFavoriteTags(siteId);
+      const labels = await booruService.getFavoriteTagLabels();
+
+      const exportData = {
+        version: 1,
+        exportedAt: new Date().toISOString(),
+        tags: tags.map(t => ({
+          tagName: t.tagName,
+          siteId: t.siteId,
+          labels: t.labels,
+          queryType: t.queryType,
+          notes: t.notes,
+          sortOrder: t.sortOrder,
+        })),
+        labels: labels.map(l => ({
+          name: l.name,
+          color: l.color,
+          sortOrder: l.sortOrder,
+        })),
+      };
+
+      // 弹出保存对话框
+      const { dialog } = await import('electron');
+      const result = await dialog.showSaveDialog({
+        title: '导出收藏标签',
+        defaultPath: `favorite-tags-${new Date().toISOString().split('T')[0]}.json`,
+        filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: '取消导出' };
+      }
+
+      await fs.writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8');
+      console.log('[IPC] 导出收藏标签成功:', result.filePath, '标签数:', tags.length);
+      return { success: true, data: { count: tags.length, path: result.filePath } };
+    } catch (error) {
+      console.error('[IPC] 导出收藏标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 导入收藏标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent) => {
+    console.log('[IPC] 导入收藏标签');
+    try {
+      // 弹出文件选择对话框
+      const { dialog } = await import('electron');
+      const result = await dialog.showOpenDialog({
+        title: '导入收藏标签',
+        filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+        properties: ['openFile'],
+      });
+
+      if (result.canceled || !result.filePaths.length) {
+        return { success: false, error: '取消导入' };
+      }
+
+      const content = await fs.readFile(result.filePaths[0], 'utf-8');
+      const importData = JSON.parse(content);
+
+      if (!importData.tags || !Array.isArray(importData.tags)) {
+        throw new Error('无效的导入文件格式');
+      }
+
+      let importedTags = 0;
+      let importedLabels = 0;
+      let skippedTags = 0;
+
+      // 导入标签分组
+      if (importData.labels && Array.isArray(importData.labels)) {
+        const existingLabels = await booruService.getFavoriteTagLabels();
+        const existingLabelNames = new Set(existingLabels.map(l => l.name));
+
+        for (const label of importData.labels) {
+          if (!existingLabelNames.has(label.name)) {
+            await booruService.addFavoriteTagLabel(label.name, label.color);
+            importedLabels++;
+          }
+        }
+      }
+
+      // 导入收藏标签
+      const existingTags = await booruService.getFavoriteTags();
+      const existingTagNames = new Set(existingTags.map(t => `${t.siteId || 'null'}_${t.tagName}`));
+
+      for (const tag of importData.tags) {
+        const key = `${tag.siteId || 'null'}_${tag.tagName}`;
+        if (!existingTagNames.has(key)) {
+          await booruService.addFavoriteTag(
+            tag.siteId || null,
+            tag.tagName,
+            {
+              labels: tag.labels,
+              queryType: tag.queryType || 'tag',
+              notes: tag.notes,
+            }
+          );
+          importedTags++;
+        } else {
+          skippedTags++;
+        }
+      }
+
+      console.log('[IPC] 导入收藏标签成功: 导入', importedTags, '个标签,', importedLabels, '个分组, 跳过', skippedTags, '个');
+      return { success: true, data: { importedTags, importedLabels, skippedTags } };
+    } catch (error) {
+      console.error('[IPC] 导入收藏标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 }
 
 

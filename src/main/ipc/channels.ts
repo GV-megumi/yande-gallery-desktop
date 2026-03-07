@@ -96,5 +96,35 @@ export const IPC_CHANNELS = {
   BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES: 'booru:get-active-blacklist-tag-names',
   BOORU_TOGGLE_BLACKLISTED_TAG: 'booru:toggle-blacklisted-tag',
   BOORU_UPDATE_BLACKLISTED_TAG: 'booru:update-blacklisted-tag',
-  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag'
+  BOORU_REMOVE_BLACKLISTED_TAG: 'booru:remove-blacklisted-tag',
+
+  // === 认证相关通道 ===
+  BOORU_LOGIN: 'booru:login',
+  BOORU_LOGOUT: 'booru:logout',
+  BOORU_TEST_AUTH: 'booru:test-auth',
+  BOORU_HASH_PASSWORD: 'booru:hash-password',
+
+  // === 投票/服务端收藏 ===
+  BOORU_VOTE_POST: 'booru:vote-post',
+  BOORU_SERVER_FAVORITE: 'booru:server-favorite',
+  BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
+
+  // === 热门图片 ===
+  BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
+  BOORU_GET_POPULAR_BY_DAY: 'booru:get-popular-by-day',
+  BOORU_GET_POPULAR_BY_WEEK: 'booru:get-popular-by-week',
+  BOORU_GET_POPULAR_BY_MONTH: 'booru:get-popular-by-month',
+
+  // === 评论 ===
+  BOORU_GET_COMMENTS: 'booru:get-comments',
+  BOORU_CREATE_COMMENT: 'booru:create-comment',
+
+  // === Pool（图集） ===
+  BOORU_GET_POOLS: 'booru:get-pools',
+  BOORU_GET_POOL: 'booru:get-pool',
+  BOORU_SEARCH_POOLS: 'booru:search-pools',
+
+  // === 标签导入/导出 ===
+  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags'
 } as const;

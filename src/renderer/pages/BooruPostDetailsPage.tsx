@@ -7,6 +7,7 @@ import { Toolbar } from '../components/BooruPostDetails/Toolbar';
 import { TagsSection } from '../components/BooruPostDetails/TagsSection';
 import { FileDetailsSection } from '../components/BooruPostDetails/FileDetailsSection';
 import { RelatedPostsSection } from '../components/BooruPostDetails/RelatedPostsSection';
+import { CommentSection } from '../components/BooruPostDetails/CommentSection';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
 interface BooruPostDetailsPageProps {
@@ -535,6 +536,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                     }
                   }
                 }}
+              />
+
+              {/* 评论区 */}
+              <CommentSection
+                post={currentPost}
+                site={site}
               />
             </div>
           </div>

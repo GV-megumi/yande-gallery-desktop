@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip } from 'antd';
-import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined } from '@ant-design/icons';
+import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
 import type { FavoriteTag } from '../../shared/types';
 
 interface FavoriteTagsPageProps {
@@ -251,6 +251,41 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               }}
             >
               添加收藏
+            </Button>
+            <Button
+              icon={<ExportOutlined />}
+              onClick={async () => {
+                try {
+                  const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId);
+                  if (result.success && result.data) {
+                    message.success(`已导出 ${result.data.count} 个收藏标签`);
+                  } else if (result.error !== '取消导出') {
+                    message.error('导出失败: ' + result.error);
+                  }
+                } catch (error) {
+                  message.error('导出失败');
+                }
+              }}
+            >
+              导出
+            </Button>
+            <Button
+              icon={<ImportOutlined />}
+              onClick={async () => {
+                try {
+                  const result = await window.electronAPI.booru.importFavoriteTags();
+                  if (result.success && result.data) {
+                    message.success(`已导入 ${result.data.importedTags} 个标签, ${result.data.importedLabels} 个分组, 跳过 ${result.data.skippedTags} 个`);
+                    loadFavoriteTags();
+                  } else if (result.error !== '取消导入') {
+                    message.error('导入失败: ' + result.error);
+                  }
+                } catch (error) {
+                  message.error('导入失败');
+                }
+              }}
+            >
+              导入
             </Button>
           </Space>
         </Space>

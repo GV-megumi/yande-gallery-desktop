@@ -20,7 +20,7 @@ import {
   Typography,
   Alert
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined, UserOutlined, LockOutlined, LoginOutlined, LogoutOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
 
 const { Option } = Select;
@@ -595,6 +595,57 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     }
   };
 
+  // ===== 登录功能 =====
+  const [loginModalVisible, setLoginModalVisible] = useState(false);
+  const [loginSite, setLoginSite] = useState<BooruSite | null>(null);
+  const [loginForm] = Form.useForm();
+  const [loginLoading, setLoginLoading] = useState(false);
+
+  // 打开登录弹窗
+  const handleOpenLogin = (site: BooruSite) => {
+    setLoginSite(site);
+    loginForm.resetFields();
+    setLoginModalVisible(true);
+  };
+
+  // 执行登录
+  const handleLogin = async (values: { username: string; password: string }) => {
+    if (!loginSite) return;
+
+    setLoginLoading(true);
+    try {
+      const result = await window.electronAPI.booru.login(loginSite.id, values.username, values.password);
+      if (result.success) {
+        message.success(`登录成功: ${values.username}`);
+        setLoginModalVisible(false);
+        loadSites();
+      } else {
+        message.error('登录失败: ' + result.error);
+      }
+    } catch (error) {
+      console.error('[BooruSettingsPage] 登录失败:', error);
+      message.error('登录失败');
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  // 登出
+  const handleLogout = async (site: BooruSite) => {
+    try {
+      const result = await window.electronAPI.booru.logout(site.id);
+      if (result.success) {
+        message.success('已登出');
+        loadSites();
+      } else {
+        message.error('登出失败: ' + result.error);
+      }
+    } catch (error) {
+      console.error('[BooruSettingsPage] 登出失败:', error);
+      message.error('登出失败');
+    }
+  };
+
   // 站点表格列
   const columns = [
     {
@@ -623,6 +674,18 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       )
     },
     {
+      title: '认证',
+      key: 'auth',
+      width: 120,
+      render: (_: any, record: BooruSite) => (
+        record.username ? (
+          <Tag icon={<CheckCircleOutlined />} color="success">{record.username}</Tag>
+        ) : (
+          <Tag color="default">未登录</Tag>
+        )
+      )
+    },
+    {
       title: '收藏',
       dataIndex: 'favoriteSupport',
       key: 'favoriteSupport',
@@ -642,6 +705,25 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
               onClick={() => handleSetActive(record)}
             >
               设为默认
+            </Button>
+          )}
+          {record.username ? (
+            <Button
+              size="small"
+              icon={<LogoutOutlined />}
+              onClick={() => handleLogout(record)}
+            >
+              登出
+            </Button>
+          ) : (
+            <Button
+              size="small"
+              type="primary"
+              ghost
+              icon={<LoginOutlined />}
+              onClick={() => handleOpenLogin(record)}
+            >
+              登录
             </Button>
           )}
           <Button
@@ -1058,6 +1140,55 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
           }
         ]}
       />
+
+      {/* 登录弹窗 */}
+      <Modal
+        title={`登录 ${loginSite?.name || ''}`}
+        open={loginModalVisible}
+        onCancel={() => setLoginModalVisible(false)}
+        footer={null}
+        width={400}
+        forceRender
+      >
+        <Alert
+          message="登录后可以使用投票、服务端收藏和评论功能"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={loginForm}
+          layout="vertical"
+          onFinish={handleLogin}
+        >
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[{ required: true, message: '请输入用户名' }]}
+          >
+            <Input prefix={<UserOutlined />} placeholder="你的 Yande.re 用户名" />
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[{ required: true, message: '请输入密码' }]}
+          >
+            <Input.Password prefix={<LockOutlined />} placeholder="密码" />
+          </Form.Item>
+
+          <Form.Item>
+            <Space>
+              <Button type="primary" htmlType="submit" loading={loginLoading} icon={<LoginOutlined />}>
+                登录
+              </Button>
+              <Button onClick={() => setLoginModalVisible(false)}>
+                取消
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
 
       {/* 添加/编辑站点模态框 */}
       <Modal

@@ -270,6 +270,43 @@ export interface BlacklistedTag {
 // 黑名单排序类型
 export type BlacklistedTagsSortType = 'recentlyAdded' | 'nameAZ' | 'nameZA';
 
+// ========= 评论相关类型定义 =========
+
+// Booru 评论
+export interface BooruComment {
+  id: number;
+  postId: number;
+  body: string;
+  creator: string;
+  creatorId: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+// ========= Pool 相关类型定义 =========
+
+// Booru Pool（图集）
+export interface BooruPool {
+  id: number;
+  name: string;
+  description?: string;
+  postCount: number;
+  createdAt: string;
+  updatedAt?: string;
+  isPublic: boolean;
+  userId?: number;
+}
+
+// Pool 详情（包含图片列表）
+export interface BooruPoolDetail extends BooruPool {
+  posts: BooruPost[];
+}
+
+// ========= 投票相关类型定义 =========
+
+// 投票分数：1=up, 0=neutral, -1=down
+export type VoteScore = 1 | 0 | -1;
+
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {
   siteId: number;
