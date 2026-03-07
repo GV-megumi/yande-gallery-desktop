@@ -1,0 +1,150 @@
+# 已完成任务记录 (第二批)
+
+> 记录时间：2026-03-08
+
+---
+
+## 第一阶段：标签管理增强
+
+### 1.1 标签收藏功能 (2026-03-06)
+
+- [x] 创建数据库表 `booru_favorite_tags` + `booru_favorite_tag_labels`
+- [x] 添加类型定义 `FavoriteTag`, `FavoriteTagLabel` 到 `types.ts`
+- [x] 实现 `booruService` 方法：addFavoriteTag, getFavoriteTags, updateFavoriteTag, removeFavoriteTag, isFavoriteTag
+- [x] 添加 IPC 通道和处理器（BOORU_ADD_FAVORITE_TAG 等）
+- [x] 添加 Preload API
+- [x] 创建 `FavoriteTagsPage.tsx` 收藏标签管理页面（列表、快速搜索、添加、编辑、删除）
+- [x] 在 `TagsSection.tsx` 标签添加星标收藏按钮
+- [x] 收藏标签页面显示快速搜索标签云
+- [x] 支持标签分组筛选（按站点筛选）
+- [x] 编辑收藏标签弹窗
+- [x] 在 App.tsx 添加路由和侧栏菜单
+
+### 1.2 标签黑名单功能 (2026-03-06)
+
+- [x] 创建数据库表 `booru_blacklisted_tags`
+- [x] 实现 booruService 方法：addBlacklistedTag, getBlacklistedTags, toggleBlacklistedTag 等
+- [x] 创建 `BlacklistedTagsPage.tsx` 黑名单管理页面
+- [x] 在 `TagsSection.tsx` 标签右键菜单添加"加入黑名单"选项
+- [x] 在 `BooruPage.tsx` 添加黑名单过滤逻辑
+- [x] 在图片列表顶部显示"已隐藏 X 张图片"提示
+- [x] 添加全局黑名单开关（临时显示所有图片）
+- [x] 支持单个标签的激活/禁用切换
+- [x] 支持批量导入黑名单（每行一个标签）
+- [x] 在 App.tsx 添加黑名单页面路由
+
+---
+
+## 第二阶段：用户认证功能
+
+### 2.1 Yande.re/Moebooru 登录配置
+
+- [x] 密码哈希算法实现（`hashPasswordSHA1`）
+- [x] 在 `BooruSettingsPage.tsx` 添加登录弹窗表单（用户名 + 密码）
+- [x] IPC 通道：BOORU_LOGIN, BOORU_TEST_AUTH
+- [x] 登录状态存储到数据库（username, passwordHash）
+- [x] 登录/登出功能
+
+### 2.2 喜欢功能（Vote）
+
+- [x] IPC 通道：BOORU_VOTE_POST, BOORU_SERVER_FAVORITE, BOORU_SERVER_UNFAVORITE, BOORU_GET_SERVER_FAVORITES
+- [x] Preload API：votePost, serverFavorite, serverUnfavorite, getServerFavorites
+- [x] `BooruImageCard.tsx` 添加心形喜欢按钮（overlay 按钮，仅有 onToggleServerFavorite 时显示）
+- [x] 服务器收藏状态管理（`serverFavorites: Set<number>`）
+- [x] 收藏/喜欢按钮动画反馈（bounce 成功, shake 失败）
+
+---
+
+## 第三阶段：功能增强
+
+### 3.1 服务器收藏同步
+
+- [x] 创建 `BooruServerFavoritesPage.tsx` 服务器收藏页面
+- [x] IPC 通道：BOORU_GET_SERVER_FAVORITES
+- [x] Preload API：getServerFavorites
+- [x] 显示当前登录用户的服务器收藏列表
+
+### 3.2 热门图片浏览
+
+- [x] 创建 `BooruPopularPage.tsx` 热门图片页面
+- [x] IPC 通道：BOORU_GET_POPULAR_RECENT, BOORU_GET_POPULAR_BY_DAY
+- [x] Preload API：getPopularRecent, getPopularByDay
+- [x] 时间周期切换（日/周/月）
+- [x] 日期选择器
+- [x] 在 App.tsx 添加路由和导航菜单
+
+### 3.3 评论功能
+
+- [x] 创建 `CommentSection.tsx` 评论区组件
+- [x] IPC 通道：BOORU_GET_COMMENTS, BOORU_CREATE_COMMENT
+- [x] Preload API：getComments, createComment
+- [x] `moebooruClient.ts` 实现 getComments, createComment
+- [x] 在 `BooruPostDetailsPage.tsx` 集成评论区
+- [x] 评论输入框和发送功能
+
+### 3.4 Pool（图集）浏览
+
+- [x] 创建 `BooruPoolsPage.tsx` Pool 列表和详情页面
+- [x] IPC 通道：BOORU_GET_POOLS, BOORU_GET_POOL, BOORU_SEARCH_POOLS
+- [x] Preload API：getPools, getPool, searchPools
+- [x] `moebooruClient.ts` 实现 getPools, getPool
+- [x] Pool 搜索功能
+- [x] Pool 内图片浏览
+- [x] 在 App.tsx 添加路由和导航菜单
+
+---
+
+## 第四阶段：体验优化
+
+### 4.1 主题切换
+
+- [x] 创建 `useTheme.ts` Hook（明/暗/跟随系统）
+- [x] 设计令牌系统 `tokens.ts`（Proxy 自动切换明暗色）
+- [x] Ant Design 主题配置（ConfigProvider）
+- [x] 在 `SettingsPage.tsx` 添加主题切换
+- [x] 持久化主题设置
+- [x] `global.css` 支持 `html.dark` 暗色模式样式
+
+---
+
+## 紧急修复
+
+### A. 批量下载自动恢复
+
+- [x] `bulkDownloadService.ts` 添加 `resumeRunningSessions()` 方法
+- [x] IPC 通道：BULK_DOWNLOAD_RESUME_RUNNING_SESSIONS
+- [x] `BooruBulkDownloadPage.tsx` 首次进入时自动调用恢复接口
+
+### B. 普通下载功能强化
+
+- [x] `downloadManager.ts` 下载失败时清除损坏文件 + 重试前清除损坏文件
+- [x] `BooruDownloadPage.tsx` 失败列表单个重试按钮
+
+---
+
+## UI/交互优化
+
+### 按钮与交互优化 (2026-03-08)
+
+来源：`doc/按钮与交互优化方案.md`，共 13 项任务全部完成。
+
+**P0（严重）：**
+- [x] 卡片 Overlay 按钮添加 active 按下效果（CSS `.overlay-btn:active`）
+- [x] 服务器喜欢按钮改用心形图标（HeartOutlined/HeartFilled），区别于书签收藏
+- [x] 喜欢按钮激活态颜色改为粉红色 `rgba(255, 45, 85, 0.85)`
+
+**P1（重要）：**
+- [x] Overlay 按钮改为垂直排列（`flexDirection: 'column'`）
+- [x] 收藏/喜欢成功动画反馈（bounce 弹跳）
+- [x] 收藏/喜欢失败动画反馈（shake 抖动）
+- [x] 右键菜单添加"复制预览图链接"
+- [x] 右键菜单添加"查看图片信息"（Modal 弹窗）
+- [x] 下载管理页"全部暂停/继续/清空"按钮添加 loading 状态
+
+**P2（改进）：**
+- [x] BooruPoolsPage 的 Pool 详情网格接入服务器喜欢功能
+- [x] 设计令牌添加 `heartActive` 和 `bookmarkActive` 颜色
+- [x] `global.css` 添加 bounce/shake 动画定义
+- [x] Overlay 按钮统一使用 `overlay-btn` 类名
+
+涉及文件：BooruImageCard.tsx, BooruPoolsPage.tsx, BooruDownloadPage.tsx, global.css, tokens.ts

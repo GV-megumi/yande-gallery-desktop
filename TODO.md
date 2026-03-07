@@ -427,18 +427,18 @@ if (result.success) {
 | `getTags()` | `/tag.json` | ✅ | ⚠️ 未直接调用 | ⚠️ | 未使用 |
 | `getTagsByNames()` | `/tag.json` | ✅ | ✅ 在 getPosts 中调用 | ✅ | **已完成** |
 | `getTagSummary()` | `/tag/summary.json` | ✅ | ⚠️ 在 getTagsByNames 内部调用 | ❌ | 内部使用 |
-| `hashPasswordSHA1()` | - | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `testConnection()` | - | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `votePost()` | `/post/vote.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `favoritePost()` | `/post/vote.json?score=3` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `unfavoritePost()` | `/post/vote.json?score=0` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `getPopularRecent()` | `/post/popular_recent.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `getPopularByDay()` | `/post/popular_by_day.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `getComments()` | `/comment.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
-| `getFavoriteUsers()` | `/favorite/list_users.json` | ✅ | ❌ 未使用 | ❌ | **仅示例代码** |
+| `hashPasswordSHA1()` | - | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `testConnection()` | - | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `votePost()` | `/post/vote.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `favoritePost()` | `/post/vote.json?score=3` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `unfavoritePost()` | `/post/vote.json?score=0` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getPopularRecent()` | `/post/popular_recent.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getPopularByDay()` | `/post/popular_by_day.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getComments()` | `/comment.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
+| `getFavoriteUsers()` | `/favorite/list_users.json` | ✅ | ✅ 被调用 | ✅ | **已完成** |
 
 **状态说明**：
-- **已完成**：客户端方法 + IPC Handler 调用 + Preload API 暴露，前端可调用
+- **已完成**：客户端方法 + IPC Handler 调用 + Preload API 暴露，前端可调用（所有 API 均已完成全链路对接）
 - **仅示例代码**：只在 moebooruClient.ts 中实现了方法，但**没有被任何 IPC Handler 调用**，前端无法使用
 - **内部使用**：被其他方法内部调用，但没有单独暴露
 - **未使用**：方法存在但未被使用
@@ -478,7 +478,7 @@ if (result.success) {
 
 ### 第一阶段：标签管理增强 (优先级: 高)
 
-#### 1.1 标签收藏功能
+#### 1.1 标签收藏功能 [已完成]
 
 **需求描述**：
 - 用户可以收藏常用标签，方便快速搜索
@@ -615,7 +615,7 @@ async isFavoriteTag(siteId: number | null, tagName: string): Promise<boolean>
 
 ---
 
-#### 1.2 标签黑名单功能
+#### 1.2 标签黑名单功能 [已完成]
 
 **需求描述**：
 - 用户可以设置黑名单标签
@@ -898,7 +898,7 @@ async parseImportContent(content: string): Promise<{
 
 ### 第二阶段：用户认证功能 (优先级: 高)
 
-#### 2.1 Yande.re/Moebooru 登录配置
+#### 2.1 Yande.re/Moebooru 登录配置 [已完成]
 
 **需求描述**：
 - 支持配置用户名和密码哈希
@@ -995,7 +995,7 @@ async testAuth(): Promise<boolean>  // 通过尝试获取用户信息验证
 
 ---
 
-#### 2.2 喜欢功能（Vote）
+#### 2.2 喜欢功能（Vote） [已完成]
 
 **需求描述**：
 - 用户可以为图片投票（喜欢/不喜欢）
@@ -1139,7 +1139,7 @@ booru: {
 
 ### 第三阶段：功能增强 (优先级: 中)
 
-#### 3.1 服务器收藏同步
+#### 3.1 服务器收藏同步 [已完成]
 
 **需求描述**：
 - 登录后可查看服务器上的收藏
@@ -1208,7 +1208,7 @@ BOORU_SYNC_FAVORITES: 'booru:sync-favorites',
 
 ---
 
-#### 3.2 热门图片浏览
+#### 3.2 热门图片浏览 [已完成]
 
 **需求描述**：
 - 查看近期热门图片
@@ -1303,7 +1303,7 @@ BOORU_GET_POPULAR_BY_MONTH: 'booru:get-popular-by-month',
 
 ---
 
-#### 3.3 评论功能
+#### 3.3 评论功能 [已完成]
 
 **需求描述**：
 - 在图片详情页查看评论
@@ -1417,7 +1417,7 @@ BOORU_CREATE_COMMENT: 'booru:create-comment',
 
 ---
 
-#### 3.4 Pool（图集）浏览
+#### 3.4 Pool（图集）浏览 [已完成]
 
 **需求描述**：
 - 浏览 Booru 站点的 Pool（图集/合集）
@@ -1526,16 +1526,12 @@ Pool 详情页:
 
 ### 第四阶段：体验优化 (优先级: 低)
 
-#### 4.1 主题切换
+#### 4.1 主题切换 [已完成]
 
-**需求描述**：
-- 支持明暗主题切换
-- 跟随系统主题
-
-**待实现**：
-- [ ] Ant Design 主题配置
-- [ ] 主题切换按钮
-- [ ] 持久化主题设置
+- [x] Ant Design 主题配置
+- [x] useTheme Hook（明/暗/跟随系统）
+- [x] 持久化主题设置
+- [x] 设计令牌系统 tokens.ts
 
 ---
 
@@ -1565,37 +1561,29 @@ Pool 详情页:
 
 ## 开发优先级总结
 
-### 高优先级 (用户明确需求)
+### 已完成
 
-| # | 功能 | 状态 | 主要工作 | 备注 |
-|---|------|------|---------|------|
-| 1 | 标签收藏功能 | ✅ 已完成 | 数据库表 + 服务层 + IPC + UI页面 | 全链路已实现 |
-| 2 | 标签黑名单功能 | ✅ 已完成 | 数据库表 + 服务层 + 过滤逻辑 + UI | 全链路已实现 |
-| 3 | 收藏/黑名单导入导出 | ⏳ 未开始 | 导出服务 + 导入解析 + UI弹窗 | 全新功能 |
-| 4 | Yande.re 登录配置 | ⚠️ 部分 | 登录表单 + 密码哈希 + 状态存储 | 客户端已有 hashPassword |
-| 5 | 喜欢功能（Vote） | ⚠️ 部分 | IPC通道 + Preload API + UI按钮 | 客户端已有 votePost，需补 IPC |
+| # | 功能 | 完成时间 |
+|---|------|---------|
+| 1 | 标签收藏功能 | 2026-03-06 |
+| 2 | 标签黑名单功能 | 2026-03-06 |
+| 4 | Yande.re 登录配置 | 2026-03-07 |
+| 5 | 喜欢功能（Vote） | 2026-03-07 |
+| 6 | 服务器收藏同步 | 2026-03-07 |
+| 7 | 热门图片浏览 | 2026-03-07 |
+| 8 | 评论功能 | 2026-03-07 |
+| 9 | Pool（图集）浏览 | 2026-03-07 |
+| 10 | 主题切换 | 2026-03-07 |
+| - | 批量下载修复 + 按钮交互优化 | 2026-03-08 |
 
-### 中优先级 (功能增强)
+### 待完成
 
-| # | 功能 | 状态 | 主要工作 | 备注 |
-|---|------|------|---------|------|
-| 6 | 服务器收藏同步 | ⚠️ 部分 | getUserFavorites API + 同步逻辑 + UI | 客户端已有 favoritePost |
-| 7 | 热门图片浏览 | ⚠️ 部分 | IPC + Preload + 新页面 + 日期选择器 | 客户端已有 getPopular* |
-| 8 | 评论功能 | ⚠️ 部分 | IPC + Preload + 评论组件 + createComment | 客户端已有 getComments |
-| 9 | Pool（图集）浏览 | ⏳ 未开始 | Pool API + 列表页 + 详情页 | 全新功能 |
-
-### 低优先级 (体验优化)
-
-| # | 功能 | 状态 | 主要工作 | 备注 |
-|---|------|------|---------|------|
-| 10 | 主题切换 | ⏳ 未开始 | Ant Design 主题配置 + 持久化 | |
-| 11 | 多语言支持 | ⏳ 未开始 | i18n 框架 + 语言文件 | |
-| 12 | 快捷键支持 | ⏳ 未开始 | 快捷键绑定 + 提示UI | |
-
-**状态说明**：
-- ⏳ **未开始**：完全没有实现
-- ⚠️ **部分**：moebooruClient.ts 中有基础方法，但没有 IPC 通道和 Preload API
-- ✅ **已完成**：前端到后端链路完整，UI 已实现
+| # | 功能 | 状态 | 优先级 |
+|---|------|------|--------|
+| 3 | 收藏/黑名单导入导出 | ⏳ 未开始 | 中 |
+| 11 | 多语言支持 | ⏳ 未开始 | 低 |
+| 12 | 快捷键支持 | ⏳ 未开始 | 低 |
+| - | UI 细节改进 | ⏳ 未开始 | 低 |
 
 ---
 
@@ -1603,99 +1591,58 @@ Pool 详情页:
 
 ### 实现顺序建议
 
-**阶段 1：标签管理基础（建议先做）**
-```
-1.1 标签收藏功能
-    ├── 创建数据库表 booru_favorite_tags
-    ├── 添加类型定义到 types.ts
-    ├── 实现 booruService 方法
-    ├── 添加 IPC 通道和处理器
-    ├── 添加 Preload API
-    └── 创建 UI 页面和组件
-
-1.2 标签黑名单功能
-    ├── 创建数据库表 booru_blacklisted_tags
-    ├── 实现过滤逻辑
-    ├── 添加 IPC 通道
-    └── 创建 UI 页面
-
-1.3 导入导出功能
-    ├── 创建 tagExportService.ts
-    ├── 实现导出逻辑（JSON/TXT）
-    ├── 实现导入解析逻辑
-    └── 创建导入预览弹窗
-```
-
-**阶段 2：用户认证（依赖标签功能完成）**
-```
-2.1 登录配置
-    ├── 扩展站点配置表单
-    ├── 实现密码哈希逻辑
-    ├── 添加登录状态管理
-    └── 创建测试认证功能
-
-2.2 喜欢功能
-    ├── 添加 IPC 通道
-    ├── 添加 Preload API
-    ├── 修改详情页工具栏
-    └── 添加投票按钮
-```
-
-**阶段 3：功能增强（可并行开发）**
-```
-3.1 热门图片 → 新页面，独立功能
-3.2 评论功能 → 详情页扩展
-3.3 Pool 浏览 → 新页面，独立功能
-3.4 服务器收藏同步 → 收藏页扩展
-```
+> 阶段 1-3 已全部完成，详见 `doc/done/done2.md`
+>
+> 下一步可选任务：
+> 1. **1.3 导入导出功能** — 创建 tagExportService + ImportTagsModal
+> 2. **UI 细节改进** — 搜索结果收藏状态、拖拽排序、收藏用户列表等
+> 3. **多语言 / 快捷键** — 低优先级体验优化
 
 ---
 
 ### 已完成
 
-#### 已完成任务
-- [x] **1.1 标签收藏功能** - 数据库表 + 服务层 + IPC + Preload + UI页面 + TagsSection星标收藏 ✅ (2026-03-06)
+> 详细记录见 `doc/done/done2.md`
 
-### 待开始
+- [x] **1.1 标签收藏功能** - 数据库表 + 服务层 + IPC + Preload + UI (2026-03-06)
+- [x] **1.2 标签黑名单功能** - 数据库表 + 服务层 + 过滤逻辑 + UI (2026-03-06)
+- [x] **2.1 登录配置** - 登录弹窗 + 密码哈希 + 状态存储 (2026-03-07)
+- [x] **2.2 喜欢功能（Vote）** - IPC + Preload + UI 按钮 + 动画反馈 (2026-03-07)
+- [x] **3.1 服务器收藏同步** - BooruServerFavoritesPage (2026-03-07)
+- [x] **3.2 热门图片浏览** - BooruPopularPage + 日期选择 (2026-03-07)
+- [x] **3.3 评论功能** - CommentSection + getComments/createComment (2026-03-07)
+- [x] **3.4 Pool 浏览** - BooruPoolsPage + Pool 搜索 (2026-03-07)
+- [x] **4.1 主题切换** - useTheme Hook + 明暗模式 + 设计令牌 (2026-03-07)
+- [x] **批量下载自动恢复** - resumeRunningSessions (2026-03-06)
+- [x] **普通下载功能强化** - 失败清除 + 重试 (2026-03-06)
+- [x] **按钮与交互优化** - 13 项 P0-P2 任务全部完成 (2026-03-08)
 
-#### 下一步任务（紧急修复）
+### 待完成
 
-##### A. 批量下载自动恢复 ✅
-- [x] 后端：`bulkDownloadService.ts` 添加 `resumeRunningSessions()` 方法，程序启动后恢复 `running`/`paused` 状态的会话
-- [x] IPC：添加 `BULK_DOWNLOAD_RESUME_RUNNING_SESSIONS` 通道 + handler + preload API
-- [x] 前端：`BooruBulkDownloadPage.tsx` 首次进入时自动调用恢复接口
+#### 1.3 收藏/黑名单标签导入导出 (优先级: 中)
+- [ ] 创建 `tagExportService.ts` 导入导出服务
+- [ ] 支持 JSON/TXT 格式导出
+- [ ] 支持文件导入和剪贴板粘贴导入
+- [ ] 创建 `ImportTagsModal.tsx` 导入预览弹窗
+- [ ] 在设置页面或收藏/黑名单页面添加导入导出按钮
 
-##### B. 普通下载功能强化 ✅
-- [x] 后端：`downloadManager.ts` 下载失败时清除损坏文件 + 重试前清除损坏文件
-- [x] 前端：`BooruDownloadPage.tsx` 失败列表已有单个重试按钮（已确认存在）
+#### 4.2 多语言支持 (优先级: 低)
+- [ ] i18n 框架集成
+- [ ] 中英文语言文件
+- [ ] 语言切换功能
 
-#### 后续任务
-- [ ] **1.2 标签黑名单功能** - 创建数据库表和基础服务
+#### 4.3 快捷键支持 (优先级: 低)
+- [ ] 图片浏览快捷键（上下左右）
+- [ ] 常用操作快捷键
+- [ ] 快捷键配置和提示
 
----
-
-### 文件修改清单（预估）
-
-| 文件 | 修改内容 |
-|------|---------|
-| `src/shared/types.ts` | 添加 FavoriteTag, BlacklistedTag, BooruComment, BooruPool 等类型 |
-| `src/main/ipc/channels.ts` | 添加新 IPC 通道定义 |
-| `src/main/ipc/handlers.ts` | 添加新 IPC 处理器 |
-| `src/preload/index.ts` | 暴露新 API |
-| `src/main/services/database.ts` | 创建新数据库表 |
-| `src/main/services/booruService.ts` | 添加收藏标签、黑名单服务方法 |
-| `src/main/services/tagExportService.ts` | 新建：导入导出服务 |
-| `src/main/services/moebooruClient.ts` | 添加 Pool、热门等 API |
-| `src/renderer/App.tsx` | 添加新页面路由 |
-| `src/renderer/pages/FavoriteTagsPage.tsx` | 新建：收藏标签页面 |
-| `src/renderer/pages/BlacklistedTagsPage.tsx` | 新建：黑名单页面 |
-| `src/renderer/pages/BooruPopularPage.tsx` | 新建：热门图片页面 |
-| `src/renderer/pages/BooruPoolsPage.tsx` | 新建：Pool 列表页面 |
-| `src/renderer/pages/BooruPoolDetailPage.tsx` | 新建：Pool 详情页面 |
-| `src/renderer/components/CommentSection.tsx` | 新建：评论区组件 |
-| `src/renderer/components/ImportTagsModal.tsx` | 新建：导入标签弹窗 |
+#### UI 细节待改进 (优先级: 低)
+- [ ] `BooruTagSearchPage.tsx` 搜索结果中显示收藏状态
+- [ ] 收藏标签支持拖拽排序（`@dnd-kit/core`）
+- [ ] 详情页显示"谁收藏了这张图片"用户列表
+- [ ] 未登录时喜欢/投票按钮显示"请先登录"提示
 
 ---
 
-**最后更新**: 2026年3月6日
-**版本**: 2.2
+**最后更新**: 2026年3月8日
+**版本**: 3.0
