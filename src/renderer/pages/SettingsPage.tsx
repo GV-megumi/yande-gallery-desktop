@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Switch, Select, message, List, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
 import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
+import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 
 const { Option } = Select;
@@ -116,6 +117,7 @@ export const SettingsPage: React.FC = () => {
   const [scanning, setScanning] = useState<string | null>(null);
   const [proxyForm] = Form.useForm();
   const { themeMode, setThemeMode } = useTheme();
+  const { t, locale, setLocale } = useLocale();
 
   // 表单值状态（用于即时渲染）
   const [downloadPath, setDownloadPath] = useState('');
@@ -300,8 +302,8 @@ export const SettingsPage: React.FC = () => {
     <div style={{ maxWidth: 680, margin: '0 auto', padding: `0 ${spacing.lg}px` }}>
       {/* ===== 图库文件夹 ===== */}
       <SettingsGroup
-        title="图库文件夹"
-        footer="首次添加文件夹时，程序会自动扫描子文件夹并创建图集。"
+        title={t('settings.galleryFolders')}
+        footer={t('settings.galleryFoldersFooter')}
       >
         <Spin spinning={loading}>
           {folders.length === 0 ? (
@@ -311,7 +313,7 @@ export const SettingsPage: React.FC = () => {
               color: colors.textTertiary,
               fontSize: fontSize.base,
             }}>
-              暂无配置的文件夹
+              {t('settings.noFolders')}
             </div>
           ) : (
             folders.map((item, index) => (
@@ -330,10 +332,10 @@ export const SettingsPage: React.FC = () => {
                       onClick={() => scanSubfolders(item.path, item.extensions)}
                       style={{ color: colors.primary }}
                     >
-                      扫描
+                      {t('settings.scanFolder')}
                     </Button>
                     <Popconfirm
-                      title="确定删除此文件夹？"
+                      title={t('settings.deleteFolderConfirm')}
                       onConfirm={() => handleDeleteFolder(index)}
                       okText="删除"
                       cancelText="取消"
@@ -344,7 +346,7 @@ export const SettingsPage: React.FC = () => {
                         icon={<DeleteOutlined />}
                         danger
                       >
-                        删除
+                        {t('settings.deleteFolder')}
                       </Button>
                     </Popconfirm>
                   </Space>
@@ -363,16 +365,16 @@ export const SettingsPage: React.FC = () => {
             onClick={handleAddFolder}
             style={{ padding: 0, color: colors.primary, fontWeight: 500 }}
           >
-            添加文件夹
+            {t('settings.addFolder')}
           </Button>
         </div>
       </SettingsGroup>
 
       {/* ===== 下载设置 ===== */}
-      <SettingsGroup title="下载">
+      <SettingsGroup title={t('settings.download')}>
         <SettingsRow
-          label="下载路径"
-          description={downloadPath || '未设置'}
+          label={t('settings.downloadPath')}
+          description={downloadPath || t('settings.notSet')}
           isLast
           onClick={handleSelectDownloadPath}
           extra={
@@ -382,9 +384,9 @@ export const SettingsPage: React.FC = () => {
       </SettingsGroup>
 
       {/* ===== 缩略图设置 ===== */}
-      <SettingsGroup title="缩略图" footer="更大的缩略图尺寸和质量会占用更多磁盘空间。">
+      <SettingsGroup title={t('settings.thumbnails')} footer={t('settings.thumbnailsFooter')}>
         <SettingsRow
-          label="缩略图尺寸"
+          label={t('settings.thumbnailSize')}
           extra={
             <Select
               value={thumbnailSize}
@@ -392,16 +394,16 @@ export const SettingsPage: React.FC = () => {
               style={{ width: 140 }}
               variant="borderless"
             >
-              <Option value={300}>小 (300px)</Option>
-              <Option value={400}>中 (400px)</Option>
-              <Option value={600}>大 (600px)</Option>
-              <Option value={800}>高清 (800px)</Option>
-              <Option value={1000}>超清 (1000px)</Option>
+              <Option value={300}>{t('settings.sizeSmall')}</Option>
+              <Option value={400}>{t('settings.sizeMedium')}</Option>
+              <Option value={600}>{t('settings.sizeLarge')}</Option>
+              <Option value={800}>{t('settings.sizeHD')}</Option>
+              <Option value={1000}>{t('settings.sizeUHD')}</Option>
             </Select>
           }
         />
         <SettingsRow
-          label="缩略图质量"
+          label={t('settings.thumbnailQuality')}
           extra={
             <Select
               value={thumbnailQuality}
@@ -409,17 +411,17 @@ export const SettingsPage: React.FC = () => {
               style={{ width: 140 }}
               variant="borderless"
             >
-              <Option value={80}>标准 (80)</Option>
-              <Option value={85}>良好 (85)</Option>
-              <Option value={90}>高质量 (90)</Option>
-              <Option value={92}>超高 (92)</Option>
-              <Option value={95}>极高 (95)</Option>
+              <Option value={80}>{t('settings.qualityStandard')}</Option>
+              <Option value={85}>{t('settings.qualityGood')}</Option>
+              <Option value={90}>{t('settings.qualityHigh')}</Option>
+              <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
+              <Option value={95}>{t('settings.qualityMax')}</Option>
             </Select>
           }
         />
         <SettingsRow
-          label="自动生成缩略图"
-          description="导入新图片时自动生成"
+          label={t('settings.autoGenThumbnail')}
+          description={t('settings.autoGenThumbnailDesc')}
           isLast
           extra={
             <Switch
@@ -431,18 +433,32 @@ export const SettingsPage: React.FC = () => {
       </SettingsGroup>
 
       {/* ===== 外观 ===== */}
-      <SettingsGroup title="外观">
+      <SettingsGroup title={t('settings.appearance')}>
         <SettingsRow
-          label="主题"
-          isLast
+          label={t('settings.theme')}
           extra={
             <Segmented
               value={themeMode}
               onChange={(value) => setThemeMode(value as ThemeMode)}
               options={[
-                { label: '浅色', value: 'light' },
-                { label: '深色', value: 'dark' },
-                { label: '跟随系统', value: 'system' }
+                { label: t('settings.themeLight'), value: 'light' },
+                { label: t('settings.themeDark'), value: 'dark' },
+                { label: t('settings.themeSystem'), value: 'system' }
+              ]}
+              size="small"
+            />
+          }
+        />
+        <SettingsRow
+          label={t('settings.language')}
+          isLast
+          extra={
+            <Segmented
+              value={locale}
+              onChange={(value) => setLocale(value as LocaleType)}
+              options={[
+                { label: t('settings.languageZh'), value: 'zh-CN' },
+                { label: t('settings.languageEn'), value: 'en-US' }
               ]}
               size="small"
             />
@@ -451,10 +467,10 @@ export const SettingsPage: React.FC = () => {
       </SettingsGroup>
 
       {/* ===== 网络代理 ===== */}
-      <SettingsGroup title="网络代理" footer="用于访问 Booru 站点等需要代理的网络资源。">
+      <SettingsGroup title={t('settings.network')} footer={t('settings.networkFooter')}>
         <Form form={proxyForm} style={{ margin: 0 }}>
           <SettingsRow
-            label="启用代理"
+            label={t('settings.proxyEnabled')}
             extra={
               <Form.Item name="proxyEnabled" valuePropName="checked" noStyle>
                 <Switch onChange={setProxyEnabled} />
@@ -462,7 +478,7 @@ export const SettingsPage: React.FC = () => {
             }
           />
           <SettingsRow
-            label="协议"
+            label={t('settings.proxyProtocol')}
             extra={
               <Form.Item name="proxyProtocol" noStyle>
                 <Select style={{ width: 120 }} variant="borderless" disabled={!proxyEnabled}>
@@ -474,7 +490,7 @@ export const SettingsPage: React.FC = () => {
             }
           />
           <SettingsRow
-            label="主机"
+            label={t('settings.proxyHost')}
             extra={
               <Form.Item name="proxyHost" noStyle>
                 <Input
@@ -487,7 +503,7 @@ export const SettingsPage: React.FC = () => {
             }
           />
           <SettingsRow
-            label="端口"
+            label={t('settings.proxyPort')}
             isLast
             extra={
               <Form.Item name="proxyPort" noStyle>
@@ -507,34 +523,34 @@ export const SettingsPage: React.FC = () => {
       {/* 代理保存和测试 */}
       <SettingsGroup>
         <SettingsRow
-          label={<span style={{ color: colors.primary, fontWeight: 500 }}>保存代理设置</span>}
+          label={<span style={{ color: colors.primary, fontWeight: 500 }}>{t('settings.saveProxy')}</span>}
           onClick={handleSaveProxy}
         />
         <SettingsRow
-          label="测试百度连接"
+          label={t('settings.testBaidu')}
           onClick={async () => {
             if (!window.electronAPI) return;
             try {
               const result = await window.electronAPI.system.testBaidu();
-              if (result.success) message.success(`百度连接成功！状态码: ${result.status}`);
-              else message.error('百度连接失败: ' + result.error);
+              if (result.success) message.success(t('settings.baiduSuccess', { status: result.status ?? 200 }));
+              else message.error(t('settings.baiduFailed') + ': ' + result.error);
             } catch (error) {
-              message.error('测试失败: ' + String(error));
+              message.error(t('settings.baiduFailed') + ': ' + String(error));
             }
           }}
           extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Baidu</span>}
         />
         <SettingsRow
-          label="测试 Google 连接"
+          label={t('settings.testGoogle')}
           isLast
           onClick={async () => {
             if (!window.electronAPI) return;
             try {
               const result = await window.electronAPI.system.testGoogle();
-              if (result.success) message.success(`Google 连接成功！状态码: ${result.status}`);
-              else message.error('Google 连接失败: ' + result.error);
+              if (result.success) message.success(t('settings.googleSuccess', { status: result.status ?? 200 }));
+              else message.error(t('settings.googleFailed') + ': ' + result.error);
             } catch (error) {
-              message.error('测试失败: ' + String(error));
+              message.error(t('settings.googleFailed') + ': ' + String(error));
             }
           }}
           extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Google</span>}
@@ -556,24 +572,24 @@ export const SettingsPage: React.FC = () => {
             fontWeight: 600,
           }}
         >
-          保存所有设置
+          {t('settings.saveAll')}
         </Button>
       </div>
 
       {/* ===== 高级 ===== */}
-      <SettingsGroup title="高级">
-        <SettingsRow label="清除缓存" onClick={() => message.info('功能开发中')} />
-        <SettingsRow label="重新索引数据库" onClick={() => message.info('功能开发中')} />
+      <SettingsGroup title={t('settings.advanced')}>
+        <SettingsRow label={t('settings.clearCache')} onClick={() => message.info(t('settings.featureDev'))} />
+        <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
         <SettingsRow
-          label={<span style={{ color: colors.danger }}>重置所有设置</span>}
+          label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}
           isLast
-          onClick={() => message.info('功能开发中')}
+          onClick={() => message.info(t('settings.featureDev'))}
         />
       </SettingsGroup>
 
       {/* ===== 关于 ===== */}
-      <SettingsGroup title="关于">
-        <SettingsRow label="版本" extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>} />
+      <SettingsGroup title={t('settings.about')}>
+        <SettingsRow label={t('settings.version')} extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>} />
         <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
         <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
         <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />

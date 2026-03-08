@@ -1,9 +1,11 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { ConfigProvider, theme as antTheme } from 'antd';
-import zhCN from 'antd/locale/zh_CN';
+import antdZhCN from 'antd/locale/zh_CN';
+import antdEnUS from 'antd/locale/en_US';
 import { App } from './App';
 import { ThemeContext, useThemeProvider } from './hooks/useTheme';
+import { LocaleContext, useLocaleProvider } from './locales';
 import { setDarkMode } from './styles/tokens';
 import 'antd/dist/reset.css';
 import './styles/global.css';
@@ -199,22 +201,36 @@ const iosDarkTheme = {
  * 主题包装器
  * 同步 useTheme 状态到 Ant Design ConfigProvider 和 Token 系统
  */
+/** Antd locale 映射 */
+const antdLocales = {
+  'zh-CN': antdZhCN,
+  'en-US': antdEnUS,
+};
+
+/**
+ * 主题 + 语言包装器
+ * 同步 useTheme / useLocale 状态到 Ant Design ConfigProvider 和 Token 系统
+ */
 const ThemedApp: React.FC = () => {
   const themeValue = useThemeProvider();
+  const localeValue = useLocaleProvider();
 
   // 同步暗色模式到 Token 系统
   setDarkMode(themeValue.isDark);
 
   const currentTheme = themeValue.isDark ? iosDarkTheme : iosLightTheme;
+  const antdLocale = antdLocales[localeValue.locale] || antdZhCN;
 
   return (
     <ThemeContext.Provider value={themeValue}>
-      <ConfigProvider
-        locale={zhCN}
-        theme={currentTheme}
-      >
-        <App />
-      </ConfigProvider>
+      <LocaleContext.Provider value={localeValue}>
+        <ConfigProvider
+          locale={antdLocale}
+          theme={currentTheme}
+        >
+          <App />
+        </ConfigProvider>
+      </LocaleContext.Provider>
     </ThemeContext.Provider>
   );
 };

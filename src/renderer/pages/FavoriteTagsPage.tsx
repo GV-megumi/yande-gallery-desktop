@@ -1,18 +1,53 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip } from 'antd';
-import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined } from '@ant-design/icons';
+import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined } from '@ant-design/icons';
+import {
+  DndContext,
+  closestCenter,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
+import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import type { FavoriteTag } from '../../shared/types';
+import { useLocale } from '../locales';
 
 interface FavoriteTagsPageProps {
   /** 点击标签时的回调，用于跳转到标签搜索页面 */
   onTagClick?: (tag: string, siteId?: number | null) => void;
 }
 
+/** 可拖拽的表格行组件 */
+const SortableRow: React.FC<any> = (props) => {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: props['data-row-key'],
+  });
+
+  const style: React.CSSProperties = {
+    ...props.style,
+    transform: CSS.Transform.toString(transform),
+    transition,
+    cursor: 'move',
+    ...(isDragging ? { position: 'relative', zIndex: 9999, background: '#fafafa', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' } : {}),
+  };
+
+  return <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners} />;
+};
+
 /**
  * 收藏标签管理页面
- * 展示用户收藏的标签列表，支持添加、编辑、删除收藏标签
+ * 展示用户收藏的标签列表，支持添加、编辑、删除、拖拽排序
  */
 export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }) => {
+  const { t } = useLocale();
   const [favoriteTags, setFavoriteTags] = useState<FavoriteTag[]>([]);
   const [loading, setLoading] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
@@ -20,6 +55,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [sites, setSites] = useState<any[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | null | undefined>(undefined);
   const [form] = Form.useForm();
+
+  // dnd-kit 传感器：需要拖拽 5px 才触发，防止误触
+  const sensors = useSensors(
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 5 },
+    })
+  );
 
   // 加载收藏标签列表
   const loadFavoriteTags = useCallback(async () => {
@@ -34,11 +76,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 加载收藏标签失败:', error);
-      message.error('加载收藏标签失败');
+      message.error(t('common.failed'));
     } finally {
       setLoading(false);
     }
-  }, [filterSiteId]);
+  }, [filterSiteId, t]);
 
   // 加载站点列表
   const loadSites = useCallback(async () => {
@@ -52,13 +94,41 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   }, []);
 
-  useEffect(() => {
-    loadSites();
-  }, [loadSites]);
+  useEffect(() => { loadSites(); }, [loadSites]);
+  useEffect(() => { loadFavoriteTags(); }, [loadFavoriteTags]);
 
-  useEffect(() => {
-    loadFavoriteTags();
-  }, [loadFavoriteTags]);
+  // 拖拽排序结束
+  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = favoriteTags.findIndex(tag => tag.id === active.id);
+    const newIndex = favoriteTags.findIndex(tag => tag.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    // 乐观更新：先更新 UI
+    const newTags = arrayMove(favoriteTags, oldIndex, newIndex);
+    setFavoriteTags(newTags);
+
+    // 批量更新 sortOrder 到后端
+    console.log('[FavoriteTagsPage] 拖拽排序: 从', oldIndex, '到', newIndex);
+    try {
+      const updates = newTags.map((tag, index) => ({
+        id: tag.id,
+        sortOrder: index + 1,
+      }));
+      // 逐个更新 sortOrder
+      await Promise.all(
+        updates.map(u => window.electronAPI.booru.updateFavoriteTag(u.id, { sortOrder: u.sortOrder }))
+      );
+      console.log('[FavoriteTagsPage] 排序保存成功');
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 排序保存失败:', error);
+      message.error(t('common.failed'));
+      // 回滚：重新加载
+      loadFavoriteTags();
+    }
+  }, [favoriteTags, loadFavoriteTags, t]);
 
   // 添加收藏标签
   const handleAdd = async (values: any) => {
@@ -73,16 +143,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         }
       );
       if (result.success) {
-        message.success(`已收藏标签: ${tagName}`);
+        message.success(t('favoriteTags.favorited', { name: tagName }));
         setAddModalVisible(false);
         form.resetFields();
         loadFavoriteTags();
       } else {
-        message.error('收藏失败: ' + result.error);
+        message.error(t('common.failed') + ': ' + result.error);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 添加收藏标签失败:', error);
-      message.error('收藏标签失败');
+      message.error(t('common.failed'));
     }
   };
 
@@ -95,16 +165,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         labels: values.labels ? values.labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined
       });
       if (result.success) {
-        message.success('更新成功');
+        message.success(t('favoriteTags.updateSuccess'));
         setEditingTag(null);
         form.resetFields();
         loadFavoriteTags();
       } else {
-        message.error('更新失败: ' + result.error);
+        message.error(t('common.failed') + ': ' + result.error);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 编辑收藏标签失败:', error);
-      message.error('编辑失败');
+      message.error(t('common.failed'));
     }
   };
 
@@ -113,14 +183,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     try {
       const result = await window.electronAPI.booru.removeFavoriteTag(id);
       if (result.success) {
-        message.success('已取消收藏');
+        message.success(t('favoriteTags.unfavorited'));
         loadFavoriteTags();
       } else {
-        message.error('取消收藏失败: ' + result.error);
+        message.error(t('common.failed') + ': ' + result.error);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 删除收藏标签失败:', error);
-      message.error('删除失败');
+      message.error(t('common.failed'));
     }
   };
 
@@ -133,15 +203,22 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
 
   // 获取站点名称
   const getSiteName = (siteId: number | null) => {
-    if (siteId === null) return '全局';
+    if (siteId === null) return t('favoriteTags.global');
     const site = sites.find(s => s.id === siteId);
-    return site ? site.name : `站点 #${siteId}`;
+    return site ? site.name : `#${siteId}`;
   };
 
   // 表格列定义
   const columns = [
     {
-      title: '标签名',
+      title: '',
+      dataIndex: 'sort',
+      key: 'sort',
+      width: 40,
+      render: () => <HolderOutlined style={{ cursor: 'grab', color: '#999' }} />,
+    },
+    {
+      title: t('favoriteTags.tagName'),
       dataIndex: 'tagName',
       key: 'tagName',
       render: (tagName: string, record: FavoriteTag) => (
@@ -153,7 +230,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       ),
     },
     {
-      title: '站点',
+      title: t('favoriteTags.site'),
       dataIndex: 'siteId',
       key: 'siteId',
       width: 120,
@@ -162,18 +239,18 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       ),
     },
     {
-      title: '分组',
+      title: t('favoriteTags.group'),
       dataIndex: 'labels',
       key: 'labels',
       width: 200,
       render: (labels?: string[]) => (
         labels && labels.length > 0
           ? labels.map(label => <Tag key={label} color="purple">{label}</Tag>)
-          : <span style={{ color: '#ccc' }}>无</span>
+          : <span style={{ color: '#ccc' }}>{t('common.none')}</span>
       ),
     },
     {
-      title: '备注',
+      title: t('favoriteTags.notes'),
       dataIndex: 'notes',
       key: 'notes',
       width: 200,
@@ -181,12 +258,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       render: (notes?: string) => notes || <span style={{ color: '#ccc' }}>-</span>,
     },
     {
-      title: '操作',
+      title: t('favoriteTags.actions'),
       key: 'actions',
       width: 150,
       render: (_: any, record: FavoriteTag) => (
         <Space>
-          <Tooltip title="搜索此标签">
+          <Tooltip title={t('favoriteTags.searchTag')}>
             <Button
               type="link"
               size="small"
@@ -194,7 +271,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               onClick={() => handleTagClick(record)}
             />
           </Tooltip>
-          <Tooltip title="编辑">
+          <Tooltip title={t('common.edit')}>
             <Button
               type="link"
               size="small"
@@ -208,8 +285,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               }}
             />
           </Tooltip>
-          <Popconfirm title="确定取消收藏？" onConfirm={() => handleDelete(record.id)}>
-            <Tooltip title="取消收藏">
+          <Popconfirm title={t('favorites.removeConfirm')} onConfirm={() => handleDelete(record.id)}>
+            <Tooltip title={t('favoriteTags.unfavorited')}>
               <Button type="link" size="small" danger icon={<DeleteOutlined />} />
             </Tooltip>
           </Popconfirm>
@@ -226,18 +303,18 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           <Space>
             <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
             <span style={{ fontSize: 16, fontWeight: 500 }}>
-              收藏标签 ({favoriteTags.length})
+              {t('favoriteTags.count', { count: favoriteTags.length })}
             </span>
           </Space>
           <Space>
             <Select
-              placeholder="筛选站点"
+              placeholder={t('favoriteTags.filterSite')}
               allowClear
               style={{ width: 150 }}
               value={filterSiteId ?? '__all__'}
               onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? null : value as number)}
             >
-              <Select.Option value="__all__">全局标签</Select.Option>
+              <Select.Option value="__all__">{t('favoriteTags.globalTags')}</Select.Option>
               {sites.map(site => (
                 <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
               ))}
@@ -250,7 +327,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 setAddModalVisible(true);
               }}
             >
-              添加收藏
+              {t('favoriteTags.add')}
             </Button>
             <Button
               icon={<ExportOutlined />}
@@ -258,16 +335,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 try {
                   const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId);
                   if (result.success && result.data) {
-                    message.success(`已导出 ${result.data.count} 个收藏标签`);
+                    message.success(t('favoriteTags.exportSuccess', { count: result.data.count }));
                   } else if (result.error !== '取消导出') {
-                    message.error('导出失败: ' + result.error);
+                    message.error(t('favoriteTags.exportFailed') + ': ' + result.error);
                   }
                 } catch (error) {
-                  message.error('导出失败');
+                  message.error(t('favoriteTags.exportFailed'));
                 }
               }}
             >
-              导出
+              {t('common.export')}
             </Button>
             <Button
               icon={<ImportOutlined />}
@@ -275,17 +352,21 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 try {
                   const result = await window.electronAPI.booru.importFavoriteTags();
                   if (result.success && result.data) {
-                    message.success(`已导入 ${result.data.importedTags} 个标签, ${result.data.importedLabels} 个分组, 跳过 ${result.data.skippedTags} 个`);
+                    message.success(t('favoriteTags.importSuccess', {
+                      imported: result.data.importedTags,
+                      labels: result.data.importedLabels,
+                      skipped: result.data.skippedTags
+                    }));
                     loadFavoriteTags();
                   } else if (result.error !== '取消导入') {
-                    message.error('导入失败: ' + result.error);
+                    message.error(t('favoriteTags.importFailed') + ': ' + result.error);
                   }
                 } catch (error) {
-                  message.error('导入失败');
+                  message.error(t('favoriteTags.importFailed'));
                 }
               }}
             >
-              导入
+              {t('common.import')}
             </Button>
           </Space>
         </Space>
@@ -293,7 +374,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
 
       {/* 快捷标签区域 */}
       {favoriteTags.length > 0 && onTagClick && (
-        <Card size="small" style={{ marginBottom: 16 }} title="快速搜索">
+        <Card size="small" style={{ marginBottom: 16 }} title={t('favoriteTags.quickSearch')}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {favoriteTags.map(tag => (
               <Tag
@@ -310,66 +391,83 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Card>
       )}
 
-      {/* 标签列表 */}
+      {/* 可拖拽排序的标签列表 */}
       <Card>
-        <Table
-          dataSource={favoriteTags}
-          columns={columns}
-          rowKey="id"
-          loading={loading}
-          pagination={{ pageSize: 20 }}
-          locale={{ emptyText: <Empty description="还没有收藏的标签" /> }}
-        />
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          onDragEnd={handleDragEnd}
+          modifiers={[restrictToVerticalAxis]}
+        >
+          <SortableContext
+            items={favoriteTags.map(tag => tag.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            <Table
+              dataSource={favoriteTags}
+              columns={columns}
+              rowKey="id"
+              loading={loading}
+              pagination={{ pageSize: 50 }}
+              locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
+              components={{
+                body: {
+                  row: SortableRow,
+                },
+              }}
+            />
+          </SortableContext>
+        </DndContext>
       </Card>
 
       {/* 添加收藏标签弹窗 */}
       <Modal
-        title="添加收藏标签"
+        title={t('favoriteTags.addTitle')}
         open={addModalVisible}
         onCancel={() => { setAddModalVisible(false); form.resetFields(); }}
         onOk={() => form.submit()}
-        okText="收藏"
-        cancelText="取消"
+        okText={t('details.favorite')}
+        cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={handleAdd}>
           <Form.Item
             name="tagName"
-            label="标签名"
-            rules={[{ required: true, message: '请输入标签名' }]}
+            label={t('favoriteTags.tagName')}
+            rules={[{ required: true, message: t('favoriteTags.tagNameRequired') }]}
           >
-            <Input placeholder="例如: blue_eyes, landscape" />
+            <Input placeholder={t('favoriteTags.tagNamePlaceholder')} />
           </Form.Item>
-          <Form.Item name="siteId" label="所属站点">
-            <Select placeholder="选择站点（留空为全局）" allowClear>
+          <Form.Item name="siteId" label={t('favoriteTags.site')}>
+            <Select placeholder={t('favoriteTags.sitePlaceholder')} allowClear>
               {sites.map(site => (
                 <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="labels" label="分组（逗号分隔）">
-            <Input placeholder="例如: 角色, 风格" />
+          <Form.Item name="labels" label={t('favoriteTags.groupSeparator')}>
+            <Input placeholder={t('favoriteTags.groupPlaceholder')} />
           </Form.Item>
-          <Form.Item name="notes" label="备注">
-            <Input.TextArea rows={2} placeholder="可选备注信息" />
+          <Form.Item name="notes" label={t('favoriteTags.notes')}>
+            <Input.TextArea rows={2} placeholder={t('favoriteTags.notesPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>
 
       {/* 编辑收藏标签弹窗 */}
       <Modal
-        title={`编辑收藏标签: ${editingTag?.tagName || ''}`}
+        title={t('favoriteTags.editTitle', { name: editingTag?.tagName || '' })}
         open={!!editingTag}
         onCancel={() => { setEditingTag(null); form.resetFields(); }}
         onOk={() => form.submit()}
-        okText="保存"
-        cancelText="取消"
+        okText={t('common.save')}
+        cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={handleEdit}>
-          <Form.Item name="labels" label="分组（逗号分隔）">
-            <Input placeholder="例如: 角色, 风格" />
+          <Form.Item name="labels" label={t('favoriteTags.groupSeparator')}>
+            <Input placeholder={t('favoriteTags.groupPlaceholder')} />
           </Form.Item>
-          <Form.Item name="notes" label="备注">
-            <Input.TextArea rows={2} placeholder="可选备注信息" />
+          <Form.Item name="notes" label={t('favoriteTags.notes')}>
+            <Input.TextArea rows={2} placeholder={t('favoriteTags.notesPlaceholder')} />
           </Form.Item>
         </Form>
       </Modal>

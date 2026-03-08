@@ -1,6 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { Layout, Menu, message, App as AntApp } from 'antd';
 import { useTheme } from './hooks/useTheme';
+import { useLocale } from './locales';
+import { useKeyboardShortcuts, SHORTCUT_KEYS } from './hooks/useKeyboardShortcuts';
+import { ShortcutsModal } from './components/ShortcutsModal';
 import {
   PictureOutlined, SettingOutlined, ClockCircleOutlined,
   AppstoreOutlined, CloudOutlined, BookOutlined,
@@ -49,50 +52,34 @@ const IconBadge: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, 
   </span>
 );
 
-const mainMenuItems: MenuItem[] = [
-  { key: 'gallery', icon: <IconBadge color={iconColors.gallery} icon={<PictureOutlined />} />, label: '图库' },
-  { key: 'booru', icon: <IconBadge color={iconColors.booru} icon={<CloudOutlined />} />, label: 'Booru' },
-];
+/** 创建主菜单项（依赖翻译） */
+function buildMainMenuItems(t: (path: string) => string): MenuItem[] {
+  return [
+    { key: 'gallery', icon: <IconBadge color={iconColors.gallery} icon={<PictureOutlined />} />, label: t('menu.gallery') },
+    { key: 'booru', icon: <IconBadge color={iconColors.booru} icon={<CloudOutlined />} />, label: t('menu.booru') },
+  ];
+}
 
-const gallerySubMenuItems: MenuItem[] = [
-  { key: 'recent', icon: <ClockCircleOutlined style={{ color: iconColors.recent }} />, label: '最近' },
-  { key: 'all', icon: <AppstoreOutlined style={{ color: iconColors.all }} />, label: '所有' },
-  { key: 'galleries', icon: <FolderOutlined style={{ color: iconColors.galleries }} />, label: '图集' }
-];
+function buildGallerySubMenuItems(t: (path: string) => string): MenuItem[] {
+  return [
+    { key: 'recent', icon: <ClockCircleOutlined style={{ color: iconColors.recent }} />, label: t('menu.recent') },
+    { key: 'all', icon: <AppstoreOutlined style={{ color: iconColors.all }} />, label: t('menu.all') },
+    { key: 'galleries', icon: <FolderOutlined style={{ color: iconColors.galleries }} />, label: t('menu.galleries') }
+  ];
+}
 
-const booruSubMenuItems: MenuItem[] = [
-  { key: 'posts', icon: <CloudOutlined style={{ color: iconColors.posts }} />, label: '图片浏览' },
-  { key: 'popular', icon: <FireOutlined style={{ color: iconColors.popular }} />, label: '热门图片' },
-  { key: 'pools', icon: <DatabaseOutlined style={{ color: iconColors.pools }} />, label: 'Pool 图集' },
-  { key: 'favorites', icon: <BookOutlined style={{ color: iconColors.favorites }} />, label: '我的收藏' },
-  { key: 'server-favorites', icon: <HeartOutlined style={{ color: iconColors.serverFavorites }} />, label: '我的喜欢' },
-  { key: 'favorite-tags', icon: <StarOutlined style={{ color: iconColors.favoriteTags }} />, label: '收藏标签' },
-  { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: '黑名单' },
-  { key: 'downloads', icon: <CloudDownloadOutlined style={{ color: iconColors.downloads }} />, label: '下载管理' },
-  { key: 'bulk-download', icon: <CloudDownloadOutlined style={{ color: iconColors.bulkDownload }} />, label: '批量下载' },
-];
-
-/** 获取页面标题 */
-function getPageTitle(
-  selectedKey: string,
-  selectedSubKey: string,
-  selectedBooruSubKey: string,
-  tagSearchPage: { tag: string } | null
-): { main: string; sub?: string } {
-  if (tagSearchPage) {
-    return { main: '标签搜索', sub: tagSearchPage.tag.replace(/_/g, ' ') };
-  }
-  switch (selectedKey) {
-    case 'gallery':
-      if (selectedSubKey === 'settings') return { main: '设置' };
-      return { main: '图库', sub: gallerySubMenuItems.find(i => i.key === selectedSubKey)?.label };
-    case 'booru':
-      if (selectedBooruSubKey === 'booru-settings') return { main: 'Booru', sub: '站点配置' };
-      if (selectedBooruSubKey === 'settings') return { main: '设置' };
-      return { main: 'Booru', sub: booruSubMenuItems.find(i => i.key === selectedBooruSubKey)?.label };
-    default:
-      return { main: 'Booru' };
-  }
+function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
+  return [
+    { key: 'posts', icon: <CloudOutlined style={{ color: iconColors.posts }} />, label: t('menu.posts') },
+    { key: 'popular', icon: <FireOutlined style={{ color: iconColors.popular }} />, label: t('menu.popular') },
+    { key: 'pools', icon: <DatabaseOutlined style={{ color: iconColors.pools }} />, label: t('menu.pools') },
+    { key: 'favorites', icon: <BookOutlined style={{ color: iconColors.favorites }} />, label: t('menu.favorites') },
+    { key: 'server-favorites', icon: <HeartOutlined style={{ color: iconColors.serverFavorites }} />, label: t('menu.serverFavorites') },
+    { key: 'favorite-tags', icon: <StarOutlined style={{ color: iconColors.favoriteTags }} />, label: t('menu.favoriteTags') },
+    { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: t('menu.blacklist') },
+    { key: 'downloads', icon: <CloudDownloadOutlined style={{ color: iconColors.downloads }} />, label: t('menu.downloads') },
+    { key: 'bulk-download', icon: <CloudDownloadOutlined style={{ color: iconColors.bulkDownload }} />, label: t('menu.bulkDownload') },
+  ];
 }
 
 export const AppContent: React.FC = () => {
@@ -102,6 +89,45 @@ export const AppContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [tagSearchPage, setTagSearchPage] = useState<{ tag: string; siteId?: number | null } | null>(null);
   const { isDark, themeMode, setThemeMode } = useTheme();
+  const { t } = useLocale();
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+
+  // 使用 useMemo 缓存菜单项，语言变化时重新生成
+  const mainMenuItems = useMemo(() => buildMainMenuItems(t), [t]);
+  const gallerySubMenuItems = useMemo(() => buildGallerySubMenuItems(t), [t]);
+  const booruSubMenuItems = useMemo(() => buildBooruSubMenuItems(t), [t]);
+
+  // 全局快捷键
+  const toggleTheme = useCallback(() => {
+    setThemeMode(isDark ? 'light' : 'dark');
+  }, [isDark, setThemeMode]);
+
+  const openSettings = useCallback(() => {
+    if (selectedKey === 'gallery') {
+      setSelectedSubKey('settings');
+    } else {
+      setSelectedBooruSubKey('settings');
+    }
+  }, [selectedKey]);
+
+  const focusSearch = useCallback(() => {
+    // 查找页面中的搜索输入框并聚焦
+    const searchInput = document.querySelector<HTMLInputElement>(
+      '.ant-input-search input, .ant-input-affix-wrapper input, input[type="search"]'
+    );
+    if (searchInput) {
+      searchInput.focus();
+      searchInput.select();
+    }
+  }, []);
+
+  useKeyboardShortcuts([
+    { key: SHORTCUT_KEYS.TOGGLE_THEME, handler: toggleTheme, description: t('shortcuts.toggleTheme') },
+    { key: SHORTCUT_KEYS.OPEN_SETTINGS, handler: openSettings, description: t('shortcuts.openSettings') },
+    { key: SHORTCUT_KEYS.FOCUS_SEARCH, handler: focusSearch, description: t('shortcuts.focusSearch'), enableInInput: true },
+    { key: SHORTCUT_KEYS.SHOW_SHORTCUTS, handler: () => setShortcutsModalOpen(true), description: t('shortcuts.showShortcuts') },
+    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
+  ]);
 
   // 初始化数据库
   useEffect(() => {
@@ -151,13 +177,29 @@ export const AppContent: React.FC = () => {
     setTagSearchPage(null);
   };
 
-  const pageTitle = getPageTitle(selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage);
+  // 计算页面标题
+  const pageTitle = useMemo(() => {
+    if (tagSearchPage) {
+      return { main: t('pageTitle.tagSearch'), sub: tagSearchPage.tag.replace(/_/g, ' ') };
+    }
+    switch (selectedKey) {
+      case 'gallery':
+        if (selectedSubKey === 'settings') return { main: t('pageTitle.settings') };
+        return { main: t('pageTitle.gallery'), sub: gallerySubMenuItems.find(i => i.key === selectedSubKey)?.label };
+      case 'booru':
+        if (selectedBooruSubKey === 'booru-settings') return { main: t('pageTitle.booru'), sub: t('menu.siteConfig') };
+        if (selectedBooruSubKey === 'settings') return { main: t('pageTitle.settings') };
+        return { main: t('pageTitle.booru'), sub: booruSubMenuItems.find(i => i.key === selectedBooruSubKey)?.label };
+      default:
+        return { main: t('pageTitle.booru') };
+    }
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, t, gallerySubMenuItems, booruSubMenuItems]);
 
   const renderContent = () => {
     if (loading) {
       return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-          <h2 style={{ color: colors.textTertiary, fontWeight: 400, fontSize: fontSize.lg }}>正在初始化应用...</h2>
+          <h2 style={{ color: colors.textTertiary, fontWeight: 400, fontSize: fontSize.lg }}>{t('app.initializing')}</h2>
         </div>
       );
     }
@@ -190,12 +232,6 @@ export const AppContent: React.FC = () => {
       default:
         return <BooruPage onTagClick={navigateToTagSearch} />;
     }
-  };
-
-  /** 切换主题 */
-  const toggleTheme = () => {
-    const next = isDark ? 'light' : 'dark';
-    setThemeMode(next);
   };
 
   return (
@@ -258,7 +294,7 @@ export const AppContent: React.FC = () => {
               textTransform: 'uppercase' as const,
               letterSpacing: '0.5px',
             }}>
-              浏览
+              {t('menu.browse')}
             </div>
             <Menu
               mode="inline"
@@ -276,7 +312,7 @@ export const AppContent: React.FC = () => {
                 mode="inline"
                 selectedKeys={[selectedSubKey]}
                 items={[
-                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: '设置' }
+                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: t('menu.settings') }
                 ]}
                 onClick={({ key }) => {
                   console.log(`[App] 图库子菜单切换: ${key}`);
@@ -315,8 +351,8 @@ export const AppContent: React.FC = () => {
                 mode="inline"
                 selectedKeys={[selectedBooruSubKey]}
                 items={[
-                  { key: 'booru-settings', icon: <CloudOutlined style={{ color: iconColors.booruSettings }} />, label: '站点配置' },
-                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: '设置' },
+                  { key: 'booru-settings', icon: <CloudOutlined style={{ color: iconColors.booruSettings }} />, label: t('menu.siteConfig') },
+                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: t('menu.settings') },
                 ]}
                 onClick={({ key }) => {
                   console.log(`[App] Booru子菜单切换: ${key}`);
@@ -362,7 +398,7 @@ export const AppContent: React.FC = () => {
             }}
           >
             {isDark ? <SunOutlined /> : <MoonOutlined />}
-            {isDark ? '浅色模式' : '深色模式'}
+            {isDark ? t('app.lightMode') : t('app.darkMode')}
           </button>
         </div>
       </Sider>
@@ -429,6 +465,9 @@ export const AppContent: React.FC = () => {
           {renderContent()}
         </Content>
       </Layout>
+
+      {/* 快捷键帮助弹窗 */}
+      <ShortcutsModal open={shortcutsModalOpen} onClose={() => setShortcutsModalOpen(false)} />
     </Layout>
   );
 };

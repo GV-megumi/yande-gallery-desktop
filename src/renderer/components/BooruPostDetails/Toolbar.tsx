@@ -16,6 +16,7 @@ import {
   LockOutlined
 } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
+import { useLocale } from '../../locales';
 
 interface ToolbarProps {
   post: BooruPost;
@@ -35,6 +36,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   onDownload
 }) => {
   const { message } = App.useApp();
+  const { t } = useLocale();
   const [voteState, setVoteState] = useState<1 | 0 | -1>(0);
   const [serverFavorited, setServerFavorited] = useState(false);
   const [votingLoading, setVotingLoading] = useState(false);
@@ -68,8 +70,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     console.log('[Toolbar] 切换本地收藏状态:', post.id, '当前:', post.isFavorited);
     if (onToggleFavorite) {
       onToggleFavorite(post);
-    } else {
-      message.info('收藏功能需要传入 onToggleFavorite 回调');
     }
   };
 
@@ -77,15 +77,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     console.log('[Toolbar] 下载图片:', post.postId);
     if (onDownload) {
       onDownload(post);
-    } else {
-      message.info('下载功能需要传入 onDownload 回调');
     }
   };
 
   // 投票
   const handleVote = async (score: 1 | 0 | -1) => {
     if (!isLoggedIn || !site) {
-      message.warning('需要登录才能投票，请在站点配置中登录');
+      message.warning(t('details.loginRequiredVote'));
       return;
     }
 
@@ -96,14 +94,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       const result = await window.electronAPI.booru.votePost(site.id, post.postId, newScore);
       if (result.success) {
         setVoteState(newScore);
-        const labels = { 1: '点赞', 0: '取消投票', '-1': '踩' };
-        message.success(labels[newScore] + '成功');
+        const labels: Record<number, string> = { 1: t('details.upvote'), 0: t('details.cancelVote'), [-1]: t('details.downvote') };
+        message.success(labels[newScore] + ' ' + t('details.voteSuccess'));
       } else {
-        message.error('投票失败: ' + result.error);
+        message.error(t('details.voteFailed') + ': ' + result.error);
       }
     } catch (error) {
       console.error('[Toolbar] 投票失败:', error);
-      message.error('投票失败');
+      message.error(t('details.voteFailed'));
     } finally {
       setVotingLoading(false);
     }
@@ -112,7 +110,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   // 服务端收藏/取消收藏
   const handleServerFavorite = async () => {
     if (!isLoggedIn || !site) {
-      message.warning('需要登录才能服务端收藏，请在站点配置中登录');
+      message.warning(t('details.loginRequiredFav'));
       return;
     }
 
@@ -122,22 +120,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         const result = await window.electronAPI.booru.serverUnfavorite(site.id, post.postId);
         if (result.success) {
           setServerFavorited(false);
-          message.success('已取消服务端收藏');
+          message.success(t('details.serverFavRemoved'));
         } else {
-          message.error('取消服务端收藏失败: ' + result.error);
+          message.error(t('details.serverFavFailed') + ': ' + result.error);
         }
       } else {
         const result = await window.electronAPI.booru.serverFavorite(site.id, post.postId);
         if (result.success) {
           setServerFavorited(true);
-          message.success('已添加服务端收藏');
+          message.success(t('details.serverFavAdded'));
         } else {
-          message.error('服务端收藏失败: ' + result.error);
+          message.error(t('details.serverFavFailed') + ': ' + result.error);
         }
       }
     } catch (error) {
       console.error('[Toolbar] 服务端收藏失败:', error);
-      message.error('操作失败');
+      message.error(t('details.serverFavFailed'));
     } finally {
       setServerFavLoading(false);
     }
@@ -145,7 +143,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   const handleSlideshow = () => {
     console.log('[Toolbar] 开始幻灯片播放');
-    message.info('幻灯片功能开发中...');
+    message.info(t('details.slideshowDev'));
   };
 
   const handleShare = () => {
@@ -154,10 +152,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     const url = site ? `${site.url}/post/show/${post.postId}` : (post.fileUrl || post.sampleUrl || '');
     if (url) {
       navigator.clipboard.writeText(url).then(() => {
-        message.success('链接已复制到剪贴板');
+        message.success(t('details.linkCopied'));
       }).catch(err => {
         console.error('[Toolbar] 复制失败:', err);
-        message.error('复制失败');
+        message.error(t('common.copyFailed'));
       });
     }
   };
@@ -176,12 +174,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             icon={post.isFavorited ? <BookFilled /> : <BookOutlined />}
             onClick={handleToggleFavorite}
           >
-            {post.isFavorited ? '已收藏' : '收藏'}
+            {post.isFavorited ? t('details.favorited') : t('details.favorite')}
           </Button>
         )}
 
         {isLoggedIn ? (
-          <Tooltip title="同步收藏到服务端">
+          <Tooltip title={t('details.syncToServer')}>
             <Button
               type={serverFavorited ? 'primary' : 'default'}
               icon={serverFavorited ? <HeartFilled /> : <HeartOutlined />}
@@ -189,20 +187,20 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               loading={serverFavLoading}
               style={serverFavorited ? { background: '#ff4d4f', borderColor: '#ff4d4f' } : undefined}
             >
-              {serverFavorited ? '已喜欢' : '喜欢'}
+              {serverFavorited ? t('details.liked') : t('details.like')}
             </Button>
           </Tooltip>
         ) : (
-          <Tooltip title="需要在站点设置中登录后才能使用喜欢和投票功能">
+          <Tooltip title={t('details.loginHint')}>
             <Button icon={<LockOutlined />} disabled>
-              喜欢
+              {t('details.like')}
             </Button>
           </Tooltip>
         )}
 
         {isLoggedIn ? (
           <>
-            <Tooltip title="点赞">
+            <Tooltip title={t('details.upvote')}>
               <Button
                 type={voteState === 1 ? 'primary' : 'default'}
                 icon={voteState === 1 ? <LikeFilled /> : <LikeOutlined />}
@@ -210,7 +208,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 loading={votingLoading}
               />
             </Tooltip>
-            <Tooltip title="踩">
+            <Tooltip title={t('details.downvote')}>
               <Button
                 type={voteState === -1 ? 'primary' : 'default'}
                 danger={voteState === -1}
@@ -222,10 +220,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </>
         ) : (
           <>
-            <Tooltip title="请先登录">
+            <Tooltip title={t('details.loginRequired')}>
               <Button icon={<LikeOutlined />} disabled />
             </Tooltip>
-            <Tooltip title="请先登录">
+            <Tooltip title={t('details.loginRequired')}>
               <Button icon={<DislikeOutlined />} disabled />
             </Tooltip>
           </>
@@ -238,19 +236,19 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           icon={<DownloadOutlined />}
           onClick={handleDownload}
         >
-          下载
+          {t('details.download')}
         </Button>
         <Button
           icon={<PlayCircleOutlined />}
           onClick={handleSlideshow}
         >
-          幻灯片
+          {t('details.slideshow')}
         </Button>
         <Button
           icon={<ShareAltOutlined />}
           onClick={handleShare}
         >
-          分享
+          {t('details.share')}
         </Button>
       </Space>
 
@@ -259,13 +257,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div style={{ marginTop: 12 }}>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>
             <UserOutlined style={{ marginRight: 4 }} />
-            {favoriteUsers.length} 人收藏了此图片
+            {t('details.favoritedBy', { count: favoriteUsers.length })}
             {favoriteUsers.length > 5 && (
               <a
                 onClick={() => setFavoriteUsersExpanded(!favoriteUsersExpanded)}
                 style={{ marginLeft: 8, fontSize: 12 }}
               >
-                {favoriteUsersExpanded ? '收起' : '展开全部'}
+                {favoriteUsersExpanded ? t('details.collapse') : t('details.expand')}
               </a>
             )}
           </Typography.Text>
