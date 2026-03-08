@@ -1,47 +1,33 @@
 import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs/promises';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 数据库文件路径
-const DB_DIR = path.join(__dirname, '../../../data');
-const DB_PATH = path.join(DB_DIR, 'gallery.db');
+import { getDatabasePath } from './config.js';
 
 // 数据库连接实例
 let db: sqlite3.Database | null = null;
 
 /**
- * 初始化数据库目录
- */
-async function initDbDirectory(): Promise<void> {
-  try {
-    await fs.access(DB_DIR);
-  } catch {
-    await fs.mkdir(DB_DIR, { recursive: true });
-    console.log('Created database directory:', DB_DIR);
-  }
-}
-
-/**
  * 获取数据库连接（单例模式）
+ * 数据库路径由 config 统一管理
  */
 export async function getDatabase(): Promise<sqlite3.Database> {
   if (db) {
     return db;
   }
 
-  await initDbDirectory();
+  const dbPath = getDatabasePath();
+  const dbDir = path.dirname(dbPath);
+
+  // 确保数据库目录存在
+  await fs.mkdir(dbDir, { recursive: true });
 
   return new Promise((resolve, reject) => {
-    const database = new sqlite3.Database(DB_PATH, (err) => {
+    const database = new sqlite3.Database(dbPath, (err) => {
       if (err) {
-        console.error('Database connection error:', err);
+        console.error('[database] 连接失败:', err);
         reject(err);
       } else {
-        console.log('Database connected successfully:', DB_PATH);
+        console.log('[database] 连接成功:', dbPath);
         db = database;
         resolve(database);
       }
@@ -656,7 +642,8 @@ export async function runInTransaction<T>(db: sqlite3.Database, fn: () => Promis
  */
 export async function isDatabaseInitialized(): Promise<boolean> {
   try {
-    await fs.access(DB_PATH);
+    const dbPath = getDatabasePath();
+    await fs.access(dbPath);
     return true;
   } catch {
     return false;

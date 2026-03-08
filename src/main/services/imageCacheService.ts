@@ -8,7 +8,7 @@ import fsSync from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import axios from 'axios';
-import { getConfig, getProxyConfig } from './config.js';
+import { getConfig, getProxyConfig, getCachePath as getConfigCachePath } from './config.js';
 import crypto from 'crypto';
 import { networkScheduler } from './networkScheduler.js';
 
@@ -18,9 +18,8 @@ const inFlightRequests = new Map<string, Promise<string>>();
 /**
  * 获取缓存文件路径
  */
-function getCachePath(md5: string, extension: string): string {
-  const config = getConfig();
-  const cacheDir = path.join(process.cwd(), 'data', 'cache');
+function getCacheFilePath(md5: string, extension: string): string {
+  const cacheDir = getConfigCachePath();
   // 使用 MD5 的前两位作为子目录，避免单个目录文件过多
   const subDir = md5.substring(0, 2);
   return path.join(cacheDir, subDir, `${md5}.${extension}`);
@@ -30,7 +29,7 @@ function getCachePath(md5: string, extension: string): string {
  * 获取缓存目录大小（MB）
  */
 async function getCacheSize(): Promise<number> {
-  const cacheDir = path.join(process.cwd(), 'data', 'cache');
+  const cacheDir = getConfigCachePath();
   try {
     await fs.access(cacheDir);
   } catch {
@@ -64,7 +63,7 @@ const MAX_SINGLE_FILE_SIZE_MB = 200;
  * @param targetSizeMB 目标缓存大小（MB），驱逐到此值以下
  */
 async function cleanCache(targetSizeMB?: number): Promise<void> {
-  const cacheDir = path.join(process.cwd(), 'data', 'cache');
+  const cacheDir = getConfigCachePath();
   try {
     await fs.access(cacheDir);
   } catch {
@@ -160,7 +159,7 @@ async function checkAndCleanCache(): Promise<void> {
  * 获取缓存的图片路径（如果存在）
  */
 export async function getCachedImagePath(md5: string, extension: string): Promise<string | null> {
-  const cachePath = getCachePath(md5, extension);
+  const cachePath = getCacheFilePath(md5, extension);
   try {
     await fs.access(cachePath);
     return cachePath;
@@ -216,7 +215,7 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
   await checkAndCleanCache();
 
   // 下载图片
-  const cachePath = getCachePath(md5, extension);
+  const cachePath = getCacheFilePath(md5, extension);
   const cacheDir = path.dirname(cachePath);
 
   // 确保缓存目录存在
@@ -303,17 +302,15 @@ export async function getCachedImageUrl(md5: string, extension: string): Promise
     }
   }
   
-  // Unix 路径或其他格式
-  const relativePath = path.relative(process.cwd(), cachePath);
-  const normalizedPath = relativePath.replace(/\\/g, '/');
-  return `app://${normalizedPath}`;
+  // Unix 路径
+  return `app://${cachePath}`;
 }
 
 /**
  * 获取缓存统计信息
  */
 export async function getCacheStats(): Promise<{ sizeMB: number; fileCount: number }> {
-  const cacheDir = path.join(process.cwd(), 'data', 'cache');
+  const cacheDir = getConfigCachePath();
   let totalSize = 0;
   let fileCount = 0;
 

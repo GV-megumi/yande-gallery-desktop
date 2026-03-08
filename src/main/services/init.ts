@@ -1,4 +1,4 @@
-import { loadConfig, getConfig, getDatabasePath } from './config.js';
+import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir } from './config.js';
 import { initDatabase } from './database.js';
 import { createGallery, getGalleries } from './galleryService.js';
 import { normalizePath } from '../utils/path.js';
@@ -10,36 +10,44 @@ import * as bulkDownloadService from './bulkDownloadService.js';
  */
 export async function initializeApp(): Promise<{ success: boolean; error?: string }> {
   try {
-    console.log('🚀 正在初始化应用...');
+    console.log('[init] 正在初始化应用...');
 
-    // 1. 加载配置
-    console.log('📋 加载配置文件...');
+    // 0. 初始化路径系统（读 .env → 确定 configDir）
+    console.log('[init] 初始化路径系统...');
+    await initPaths();
+    console.log('[init] 配置目录:', getConfigDir());
+
+    // 1. 加载配置文件（从 configDir/config.yaml）
+    console.log('[init] 加载配置文件...');
     await loadConfig();
     const config = getConfig();
-    console.log('✅ 配置加载成功');
+    console.log('[init] 数据目录:', getDataDir());
+
+    // 1.5. 确保所有数据子目录存在
+    await ensureDataDirectories();
 
     // 2. 初始化数据库
-    console.log('🗄️ 初始化数据库...');
+    console.log('[init] 初始化数据库...');
     const dbResult = await initDatabase();
     if (!dbResult.success) {
       throw new Error(dbResult.error || 'Database initialization failed');
     }
-    console.log('✅ 数据库初始化成功');
+    console.log('[init] 数据库初始化成功');
 
     // 3. 从配置初始化图库
-    console.log('🖼️ 初始化图库...');
+    console.log('[init] 初始化图库...');
     await initGalleriesFromConfig();
-    console.log('✅ 图库初始化完成');
+    console.log('[init] 图库初始化完成');
 
     // 4. 后台自动恢复未完成的下载任务（不阻塞启动）
     resumeDownloadsInBackground();
 
-    console.log('🎉 应用初始化完成！');
+    console.log('[init] 应用初始化完成');
 
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ 应用初始化失败:', errorMessage);
+    console.error('[init] 应用初始化失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }
