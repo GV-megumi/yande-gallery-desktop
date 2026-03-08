@@ -37,7 +37,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
       // 更新图片数据中的收藏状态
       setPosts(prevPosts =>
         prevPosts.map(p =>
-          p.id === postId ? { ...p, isFavorited } : p
+          p.postId === postId ? { ...p, isFavorited } : p
         )
       );
       message[isFavorited ? 'success' : 'success'](isFavorited ? '已添加收藏' : '已取消收藏');
@@ -733,6 +733,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
             handleTagClick(tag);
           }
         }}
+        isServerFavorited={(p) => serverFavorites.has(p.postId)}
+        onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
       />
     </div>
   );

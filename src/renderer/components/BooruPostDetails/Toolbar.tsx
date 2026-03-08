@@ -23,6 +23,10 @@ interface ToolbarProps {
   site: BooruSite | null;
   onToggleFavorite?: (post: BooruPost) => void;
   onDownload?: (post: BooruPost) => void;
+  /** 外部传入的服务端喜欢状态 */
+  isServerFavorited?: boolean;
+  /** 服务端喜欢切换回调（由父组件管理状态） */
+  onToggleServerFavorite?: (post: BooruPost) => void;
 }
 
 /**
@@ -33,12 +37,17 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   post,
   site,
   onToggleFavorite,
-  onDownload
+  onDownload,
+  isServerFavorited: externalServerFavorited,
+  onToggleServerFavorite
 }) => {
   const { message } = App.useApp();
   const { t } = useLocale();
   const [voteState, setVoteState] = useState<1 | 0 | -1>(0);
-  const [serverFavorited, setServerFavorited] = useState(false);
+  // 如果外部传入了 isServerFavorited，使用外部状态；否则用内部状态
+  const [internalServerFavorited, setInternalServerFavorited] = useState(false);
+  const serverFavorited = externalServerFavorited ?? internalServerFavorited;
+  const setServerFavorited = setInternalServerFavorited;
   const [votingLoading, setVotingLoading] = useState(false);
   const [serverFavLoading, setServerFavLoading] = useState(false);
 
@@ -109,6 +118,12 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
   // 服务端收藏/取消收藏
   const handleServerFavorite = async () => {
+    // 如果有外部回调，优先使用（由父组件统一管理状态）
+    if (onToggleServerFavorite) {
+      onToggleServerFavorite(post);
+      return;
+    }
+
     if (!isLoggedIn || !site) {
       message.warning(t('details.loginRequiredFav'));
       return;

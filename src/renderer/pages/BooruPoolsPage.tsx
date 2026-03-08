@@ -245,6 +245,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
                   post={post}
                   siteName={activeSite?.name || ''}
                   siteUrl={activeSite?.url}
+                  isFavorited={!!post.isFavorited}
                   onPreview={() => handlePostClick(post)}
                   onToggleFavorite={() => handleToggleFavorite(post)}
                   onDownload={() => handleDownload(post)}
@@ -294,6 +295,8 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
           onToggleFavorite={handleToggleFavorite}
           onDownload={handleDownload}
           onTagClick={onTagClick}
+          isServerFavorited={(p) => serverFavorites.has(p.postId)}
+          onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
         />
       </div>
     );

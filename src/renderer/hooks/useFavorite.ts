@@ -42,13 +42,13 @@ export function useFavorite({
 
   /** 判断是否已收藏 */
   const isFavorited = useCallback((post: BooruPost): boolean => {
-    return favorites.has(post.id) || !!post.isFavorited;
+    return favorites.has(post.postId) || !!post.isFavorited;
   }, [favorites]);
 
   /** 切换收藏状态 */
   const toggleFavorite = useCallback(async (post: BooruPost): Promise<{ success: boolean; isFavorited: boolean }> => {
-    const currentlyFavorited = favorites.has(post.id) || !!post.isFavorited;
-    console.log(`${logPrefix} 切换收藏状态:`, post.id, '当前:', currentlyFavorited);
+    const currentlyFavorited = favorites.has(post.postId) || !!post.isFavorited;
+    console.log(`${logPrefix} 切换收藏状态:`, post.postId, '当前:', currentlyFavorited);
 
     if (!window.electronAPI || !siteId) {
       return { success: false, isFavorited: currentlyFavorited };
@@ -57,15 +57,15 @@ export function useFavorite({
     try {
       if (currentlyFavorited) {
         // 取消收藏
-        const result = await window.electronAPI.booru.removeFavorite(post.id);
+        const result = await window.electronAPI.booru.removeFavorite(post.postId);
         if (result.success) {
-          console.log(`${logPrefix} 取消收藏成功:`, post.id);
+          console.log(`${logPrefix} 取消收藏成功:`, post.postId);
           setFavorites(prev => {
             const newSet = new Set(prev);
-            newSet.delete(post.id);
+            newSet.delete(post.postId);
             return newSet;
           });
-          onSuccess?.(post.id, false);
+          onSuccess?.(post.postId, false);
           return { success: true, isFavorited: false };
         } else {
           console.error(`${logPrefix} 取消收藏失败:`, result.error);
@@ -73,15 +73,15 @@ export function useFavorite({
         }
       } else {
         // 添加收藏
-        const result = await window.electronAPI.booru.addFavorite(post.id, siteId, false);
+        const result = await window.electronAPI.booru.addFavorite(post.postId, siteId, false);
         if (result.success) {
-          console.log(`${logPrefix} 添加收藏成功:`, post.id);
+          console.log(`${logPrefix} 添加收藏成功:`, post.postId);
           setFavorites(prev => {
             const newSet = new Set(prev);
-            newSet.add(post.id);
+            newSet.add(post.postId);
             return newSet;
           });
-          onSuccess?.(post.id, true);
+          onSuccess?.(post.postId, true);
           return { success: true, isFavorited: true };
         } else {
           console.error(`${logPrefix} 添加收藏失败:`, result.error);
@@ -99,7 +99,7 @@ export function useFavorite({
     const favoriteIds = new Set<number>();
     posts.forEach(post => {
       if (post.isFavorited) {
-        favoriteIds.add(post.id);
+        favoriteIds.add(post.postId);
       }
     });
     console.log(`${logPrefix} 收藏状态加载:`, favoriteIds.size, '个收藏');

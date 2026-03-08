@@ -1734,26 +1734,39 @@ export function setupIPC() {
       const posts = await client.getServerFavorites(page, limit);
       console.log('[IPC] 获取服务端喜欢列表成功:', posts.length, '张');
 
-      // 转换为统一格式
-      const mappedPosts = posts.map(post => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of posts) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const mappedPosts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return { success: true, data: mappedPosts };
     } catch (error) {
@@ -1815,26 +1828,40 @@ export function setupIPC() {
       const posts = await client.getPopularRecent(period);
       console.log('[IPC] 获取热门图片成功:', posts.length, '张');
 
-      // 转换为统一格式
-      const mappedPosts = posts.map(post => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of posts) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      // 从数据库重新查询，获取正确的 isFavorited 状态
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const mappedPosts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return { success: true, data: mappedPosts };
     } catch (error) {
@@ -1860,25 +1887,39 @@ export function setupIPC() {
 
       const posts = await client.getPopularByDay(date);
 
-      const mappedPosts = posts.map(post => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of posts) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const mappedPosts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return { success: true, data: mappedPosts };
     } catch (error) {
@@ -1904,25 +1945,39 @@ export function setupIPC() {
 
       const posts = await client.getPopularByWeek(date);
 
-      const mappedPosts = posts.map(post => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of posts) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const mappedPosts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return { success: true, data: mappedPosts };
     } catch (error) {
@@ -1948,25 +2003,39 @@ export function setupIPC() {
 
       const posts = await client.getPopularByMonth(date);
 
-      const mappedPosts = posts.map(post => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of posts) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const mappedPosts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return { success: true, data: mappedPosts };
     } catch (error) {
@@ -2093,26 +2162,39 @@ export function setupIPC() {
 
       const poolData = await client.getPool(poolId, page);
 
-      // 转换 posts
-      const posts = (poolData.posts || []).map((post: any) => ({
-        postId: post.id,
-        siteId,
-        md5: post.md5,
-        fileUrl: post.file_url,
-        previewUrl: post.preview_url,
-        sampleUrl: post.sample_url,
-        width: post.width,
-        height: post.height,
-        fileSize: post.file_size,
-        fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
-        rating: RATING_MAP[post.rating] || 'questionable',
-        score: post.score,
-        source: post.source,
-        tags: post.tags,
-        downloaded: false,
-        isFavorited: false,
-        createdAt: parseCreatedAt(post.created_at)
-      }));
+      // 保存 posts 到数据库并查询正确的 isFavorited 状态
+      const savedPostIds: number[] = [];
+      for (const post of (poolData.posts || [])) {
+        const dbId = await booruService.saveBooruPost({
+          siteId,
+          postId: post.id,
+          md5: post.md5,
+          fileUrl: post.file_url,
+          previewUrl: post.preview_url,
+          sampleUrl: post.sample_url,
+          width: post.width,
+          height: post.height,
+          fileSize: post.file_size,
+          fileExt: post.file_url ? path.extname(post.file_url).replace('.', '') : 'jpg',
+          rating: RATING_MAP[post.rating] || 'questionable',
+          score: post.score,
+          source: post.source,
+          tags: post.tags,
+          downloaded: false,
+          isFavorited: false
+        });
+        savedPostIds.push(dbId);
+      }
+
+      const dbPosts = await Promise.all(
+        savedPostIds.map(id => booruService.getBooruPostById(id))
+      );
+      const posts = dbPosts
+        .filter((post): post is BooruPost => post !== null)
+        .map(post => ({
+          ...post,
+          createdAt: post.createdAt || new Date().toISOString()
+        }));
 
       return {
         success: true,

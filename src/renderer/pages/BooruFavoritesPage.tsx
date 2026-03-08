@@ -46,7 +46,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     onSuccess: (postId, isFavorited) => {
       if (!isFavorited) {
         // 取消收藏：从列表中移除
-        setPosts(prevPosts => prevPosts.filter(p => p.id !== postId));
+        setPosts(prevPosts => prevPosts.filter(p => p.postId !== postId));
         message.success('已取消收藏');
         // 如果当前页没有图片了，加载上一页（使用 ref 避免闭包过期）
         if (postsLengthRef.current === 1 && currentPage > 1) {
@@ -367,6 +367,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={handleTagClick}
+        isServerFavorited={(p) => serverFavorites.has(p.postId)}
+        onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
       />
     </div>
   );

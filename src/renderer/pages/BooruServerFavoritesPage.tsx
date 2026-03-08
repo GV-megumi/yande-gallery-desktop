@@ -300,7 +300,7 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
               onPreview={handlePreview}
               onDownload={handleDownload}
               onToggleFavorite={handleToggleFavorite}
-              favorites={new Set()}
+              favorites={new Set(posts.filter(p => p.isFavorited).map(p => p.postId))}
               getPreviewUrl={getPreviewUrl}
               onTagClick={handleTagClick}
               onToggleServerFavorite={isLoggedIn ? handleToggleServerFavorite : undefined}
@@ -334,6 +334,8 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={handleTagClick}
+        isServerFavorited={(p) => serverFavorites.has(p.postId)}
+        onToggleServerFavorite={isLoggedIn ? handleToggleServerFavorite : undefined}
       />
     </div>
   );

@@ -556,8 +556,8 @@ export async function addToFavorites(postId: number, siteId: number, notes?: str
         VALUES (?, ?, ?, ?)
       `, [postId, siteId, notes || null, now]);
 
-      // 更新图片的收藏状态
-      await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE id = ?', [postId]);
+      // 更新图片的收藏状态（postId 是 Moebooru 的 post ID，需要用 postId 列匹配）
+      await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE postId = ? AND siteId = ?', [postId, siteId]);
 
       await run(db, 'COMMIT');
     } catch (txError) {
@@ -585,7 +585,7 @@ export async function removeFromFavorites(postId: number): Promise<void> {
     const db = await getDatabase();
 
     await run(db, 'DELETE FROM booru_favorites WHERE postId = ?', [postId]);
-    await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [postId]);
+    await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE postId = ?', [postId]);
 
     console.log('[booruService] 移除收藏成功:', postId);
   } catch (error) {

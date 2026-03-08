@@ -49,7 +49,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     onSuccess: (postId, isFavorited) => {
       setPosts(prevPosts =>
         prevPosts.map(p =>
-          p.id === postId ? { ...p, isFavorited } : p
+          p.postId === postId ? { ...p, isFavorited } : p
         )
       );
       message[isFavorited ? 'success' : 'success'](isFavorited ? '已添加收藏' : '已取消收藏');
@@ -285,7 +285,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         setPosts(prevPosts =>
           prevPosts.map(p => ({
             ...p,
-            isFavorited: favoriteIds.has(p.id)
+            isFavorited: favoriteIds.has(p.postId)
           }))
         );
       }
@@ -515,6 +515,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={handleTagClick}
+        isServerFavorited={(p) => serverFavorites.has(p.postId)}
+        onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
       />
     </div>
   );
