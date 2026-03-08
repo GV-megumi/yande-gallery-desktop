@@ -84,6 +84,7 @@ const IPC_CHANNELS = {
   BOORU_SERVER_FAVORITE: 'booru:server-favorite',
   BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
   BOORU_GET_SERVER_FAVORITES: 'booru:get-server-favorites',
+  BOORU_GET_FAVORITE_USERS: 'booru:get-favorite-users',
 
   // 热门图片
   BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
@@ -102,7 +103,9 @@ const IPC_CHANNELS = {
 
   // 标签导入/导出
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags'
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
+  BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
+  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -291,6 +294,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_SERVER_UNFAVORITE, siteId, postId),
     getServerFavorites: (siteId: number, page?: number, limit?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SERVER_FAVORITES, siteId, page, limit),
+    getFavoriteUsers: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_USERS, siteId, postId),
 
     // 热门图片
     getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') =>
@@ -321,6 +326,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, siteId),
     importFavoriteTags: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS),
+    exportBlacklistedTags: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_BLACKLISTED_TAGS, siteId),
+    importBlacklistedTags: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS),
 
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
@@ -459,6 +468,7 @@ declare global {
         serverFavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
         serverUnfavorite: (siteId: number, postId: number) => Promise<{ success: boolean; error?: string }>;
         getServerFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavoriteUsers: (siteId: number, postId: number) => Promise<{ success: boolean; data?: string[]; error?: string }>;
         // 热门图片
         getPopularRecent: (siteId: number, period?: '1day' | '1week' | '1month') => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPopularByDay: (siteId: number, date: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -474,6 +484,8 @@ declare global {
         // 标签导入/导出
         exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
         importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
+        exportBlacklistedTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
+        importBlacklistedTags: () => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
         onQueueStatus: (callback: (data: any) => void) => () => void;

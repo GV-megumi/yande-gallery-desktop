@@ -109,6 +109,7 @@ export const IPC_CHANNELS = {
   BOORU_SERVER_FAVORITE: 'booru:server-favorite',
   BOORU_SERVER_UNFAVORITE: 'booru:server-unfavorite',
   BOORU_GET_SERVER_FAVORITES: 'booru:get-server-favorites',
+  BOORU_GET_FAVORITE_USERS: 'booru:get-favorite-users',
 
   // === 热门图片 ===
   BOORU_GET_POPULAR_RECENT: 'booru:get-popular-recent',
@@ -127,5 +128,7 @@ export const IPC_CHANNELS = {
 
   // === 标签导入/导出 ===
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags'
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
+  BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
+  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags'
 } as const;

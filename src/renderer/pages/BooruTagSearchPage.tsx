@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography } from 'antd';
-import { LeftOutlined } from '@ant-design/icons';
+import { Button, Empty, App, Typography, Tooltip } from 'antd';
+import { LeftOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -66,6 +66,48 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     borderRadius: 14,
     margin: 20
   });
+
+  // 当前搜索标签的收藏状态
+  const [isTagFavorited, setIsTagFavorited] = useState(false);
+
+  // 检查当前搜索标签是否已收藏
+  const checkTagFavoriteStatus = useCallback(async (tag: string) => {
+    if (!window.electronAPI) return;
+    try {
+      const result = await window.electronAPI.booru.isFavoriteTag(selectedSiteId, tag);
+      if (result.success) {
+        setIsTagFavorited(!!result.data);
+      }
+    } catch (error) {
+      console.error('[BooruTagSearchPage] 检查标签收藏状态失败:', error);
+    }
+  }, [selectedSiteId]);
+
+  // 切换当前标签的收藏状态
+  const handleToggleTagFavorite = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      if (isTagFavorited) {
+        await window.electronAPI.booru.removeFavoriteTagByName(selectedSiteId, searchTag);
+        setIsTagFavorited(false);
+        message.success('已取消收藏标签');
+      } else {
+        await window.electronAPI.booru.addFavoriteTag(selectedSiteId, searchTag);
+        setIsTagFavorited(true);
+        message.success('已收藏标签');
+      }
+    } catch (error) {
+      console.error('[BooruTagSearchPage] 切换标签收藏失败:', error);
+      message.error('操作失败');
+    }
+  }, [isTagFavorited, selectedSiteId, searchTag]);
+
+  // 搜索标签变化时检查收藏状态
+  useEffect(() => {
+    if (searchTag) {
+      checkTagFavoriteStatus(searchTag);
+    }
+  }, [searchTag, selectedSiteId, checkTagFavoriteStatus]);
 
   // 服务端喜欢状态管理
   const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
@@ -373,6 +415,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         <Title level={3} style={{ margin: 0 }}>
           标签搜索: {searchTag.replace(/_/g, ' ')}
         </Title>
+        <Tooltip title={isTagFavorited ? '取消收藏此标签' : '收藏此标签'}>
+          <Button
+            type="text"
+            icon={isTagFavorited
+              ? <StarFilled style={{ color: '#faad14', fontSize: 20 }} />
+              : <StarOutlined style={{ fontSize: 20 }} />}
+            onClick={handleToggleTagFavorite}
+          />
+        </Tooltip>
       </div>
 
       {/* 工具栏 */}

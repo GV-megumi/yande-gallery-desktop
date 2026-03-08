@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Space, Button, App, Tooltip } from 'antd';
+import React, { useState, useEffect } from 'react';
+import { Space, Button, App, Tooltip, Tag, Typography } from 'antd';
 import {
   BookOutlined,
   BookFilled,
@@ -11,7 +11,9 @@ import {
   DislikeOutlined,
   DislikeFilled,
   HeartOutlined,
-  HeartFilled
+  HeartFilled,
+  UserOutlined,
+  LockOutlined
 } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 
@@ -38,8 +40,29 @@ export const Toolbar: React.FC<ToolbarProps> = ({
   const [votingLoading, setVotingLoading] = useState(false);
   const [serverFavLoading, setServerFavLoading] = useState(false);
 
+  // 收藏用户列表
+  const [favoriteUsers, setFavoriteUsers] = useState<string[]>([]);
+  const [favoriteUsersExpanded, setFavoriteUsersExpanded] = useState(false);
+
   // 是否已登录
   const isLoggedIn = !!(site?.username && site?.passwordHash);
+
+  // 加载收藏用户列表
+  useEffect(() => {
+    if (!site || !post.postId) return;
+    const loadFavoriteUsers = async () => {
+      try {
+        const result = await window.electronAPI.booru.getFavoriteUsers(site.id, post.postId);
+        if (result.success && result.data) {
+          setFavoriteUsers(result.data);
+          console.log('[Toolbar] 收藏用户:', result.data.length, '人');
+        }
+      } catch (error) {
+        console.error('[Toolbar] 加载收藏用户失败:', error);
+      }
+    };
+    loadFavoriteUsers();
+  }, [site, post.postId]);
 
   const handleToggleFavorite = () => {
     console.log('[Toolbar] 切换本地收藏状态:', post.id, '当前:', post.isFavorited);
@@ -157,7 +180,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           </Button>
         )}
 
-        {isLoggedIn && (
+        {isLoggedIn ? (
           <Tooltip title="同步收藏到服务端">
             <Button
               type={serverFavorited ? 'primary' : 'default'}
@@ -169,9 +192,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
               {serverFavorited ? '已喜欢' : '喜欢'}
             </Button>
           </Tooltip>
+        ) : (
+          <Tooltip title="需要在站点设置中登录后才能使用喜欢和投票功能">
+            <Button icon={<LockOutlined />} disabled>
+              喜欢
+            </Button>
+          </Tooltip>
         )}
 
-        {isLoggedIn && (
+        {isLoggedIn ? (
           <>
             <Tooltip title="点赞">
               <Button
@@ -189,6 +218,15 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 onClick={() => handleVote(-1)}
                 loading={votingLoading}
               />
+            </Tooltip>
+          </>
+        ) : (
+          <>
+            <Tooltip title="请先登录">
+              <Button icon={<LikeOutlined />} disabled />
+            </Tooltip>
+            <Tooltip title="请先登录">
+              <Button icon={<DislikeOutlined />} disabled />
             </Tooltip>
           </>
         )}
@@ -215,6 +253,34 @@ export const Toolbar: React.FC<ToolbarProps> = ({
           分享
         </Button>
       </Space>
+
+      {/* 收藏用户列表 */}
+      {favoriteUsers.length > 0 && (
+        <div style={{ marginTop: 12 }}>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+            <UserOutlined style={{ marginRight: 4 }} />
+            {favoriteUsers.length} 人收藏了此图片
+            {favoriteUsers.length > 5 && (
+              <a
+                onClick={() => setFavoriteUsersExpanded(!favoriteUsersExpanded)}
+                style={{ marginLeft: 8, fontSize: 12 }}
+              >
+                {favoriteUsersExpanded ? '收起' : '展开全部'}
+              </a>
+            )}
+          </Typography.Text>
+          <div style={{ marginTop: 4, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+            {(favoriteUsersExpanded ? favoriteUsers : favoriteUsers.slice(0, 5)).map(user => (
+              <Tag key={user} style={{ fontSize: 11 }}>{user}</Tag>
+            ))}
+            {!favoriteUsersExpanded && favoriteUsers.length > 5 && (
+              <Tag style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => setFavoriteUsersExpanded(true)}>
+                +{favoriteUsers.length - 5}
+              </Tag>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

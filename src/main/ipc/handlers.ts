@@ -1762,6 +1762,39 @@ export function setupIPC() {
     }
   });
 
+  // 获取收藏某图片的用户列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_USERS, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    console.log('[IPC] 获取收藏用户列表:', siteId, postId);
+    try {
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        throw new Error('站点不存在');
+      }
+
+      const client = new MoebooruClient({
+        baseUrl: site.url,
+        login: site.username,
+        passwordHash: site.passwordHash
+      });
+
+      const users: any = await client.getFavoriteUsers(postId);
+      console.log('[IPC] 获取收藏用户成功:', users);
+
+      // API 返回 { favorited_users: "user1,user2,..." } 或字符串数组
+      let userList: string[] = [];
+      if (users && typeof users === 'object' && !Array.isArray(users) && users.favorited_users) {
+        userList = String(users.favorited_users).split(',').map((u: string) => u.trim()).filter(Boolean);
+      } else if (Array.isArray(users)) {
+        userList = users.map(String);
+      }
+
+      return { success: true, data: userList };
+    } catch (error) {
+      console.error('[IPC] 获取收藏用户列表失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // ===== 热门图片 =====
 
   // 获取近期热门图片
@@ -2138,44 +2171,55 @@ export function setupIPC() {
 
   // ===== 标签导入/导出 =====
 
-  // 导出收藏标签为 JSON
+  // 导出收藏标签（支持 JSON/TXT）
   ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 导出收藏标签:', siteId);
     try {
       const tags = await booruService.getFavoriteTags(siteId);
       const labels = await booruService.getFavoriteTagLabels();
 
-      const exportData = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        tags: tags.map(t => ({
-          tagName: t.tagName,
-          siteId: t.siteId,
-          labels: t.labels,
-          queryType: t.queryType,
-          notes: t.notes,
-          sortOrder: t.sortOrder,
-        })),
-        labels: labels.map(l => ({
-          name: l.name,
-          color: l.color,
-          sortOrder: l.sortOrder,
-        })),
-      };
-
-      // 弹出保存对话框
-      const { dialog } = await import('electron');
+      // 弹出保存对话框（支持 JSON 和 TXT）
       const result = await dialog.showSaveDialog({
         title: '导出收藏标签',
         defaultPath: `favorite-tags-${new Date().toISOString().split('T')[0]}.json`,
-        filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+        filters: [
+          { name: 'JSON 文件', extensions: ['json'] },
+          { name: '文本文件（仅标签名）', extensions: ['txt'] },
+        ],
       });
 
       if (result.canceled || !result.filePath) {
         return { success: false, error: '取消导出' };
       }
 
-      await fs.writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8');
+      const isTxt = result.filePath.endsWith('.txt');
+      if (isTxt) {
+        // TXT 格式：每行一个标签名
+        const content = tags.map(t => t.tagName).join('\n');
+        await fs.writeFile(result.filePath, content, 'utf-8');
+      } else {
+        // JSON 格式：完整数据
+        const exportData = {
+          version: 1,
+          type: 'favorite_tags',
+          exportedAt: new Date().toISOString(),
+          tags: tags.map(t => ({
+            tagName: t.tagName,
+            siteId: t.siteId,
+            labels: t.labels,
+            queryType: t.queryType,
+            notes: t.notes,
+            sortOrder: t.sortOrder,
+          })),
+          labels: labels.map(l => ({
+            name: l.name,
+            color: l.color,
+            sortOrder: l.sortOrder,
+          })),
+        };
+        await fs.writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8');
+      }
+
       console.log('[IPC] 导出收藏标签成功:', result.filePath, '标签数:', tags.length);
       return { success: true, data: { count: tags.length, path: result.filePath } };
     } catch (error) {
@@ -2184,15 +2228,17 @@ export function setupIPC() {
     }
   });
 
-  // 导入收藏标签
+  // 导入收藏标签（支持 JSON/TXT）
   ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent) => {
     console.log('[IPC] 导入收藏标签');
     try {
-      // 弹出文件选择对话框
-      const { dialog } = await import('electron');
       const result = await dialog.showOpenDialog({
         title: '导入收藏标签',
-        filters: [{ name: 'JSON 文件', extensions: ['json'] }],
+        filters: [
+          { name: '支持的文件', extensions: ['json', 'txt'] },
+          { name: 'JSON 文件', extensions: ['json'] },
+          { name: '文本文件', extensions: ['txt'] },
+        ],
         properties: ['openFile'],
       });
 
@@ -2200,49 +2246,62 @@ export function setupIPC() {
         return { success: false, error: '取消导入' };
       }
 
-      const content = await fs.readFile(result.filePaths[0], 'utf-8');
-      const importData = JSON.parse(content);
-
-      if (!importData.tags || !Array.isArray(importData.tags)) {
-        throw new Error('无效的导入文件格式');
-      }
+      const filePath = result.filePaths[0];
+      const content = await fs.readFile(filePath, 'utf-8');
+      const isTxt = filePath.endsWith('.txt');
 
       let importedTags = 0;
       let importedLabels = 0;
       let skippedTags = 0;
 
-      // 导入标签分组
-      if (importData.labels && Array.isArray(importData.labels)) {
-        const existingLabels = await booruService.getFavoriteTagLabels();
-        const existingLabelNames = new Set(existingLabels.map(l => l.name));
-
-        for (const label of importData.labels) {
-          if (!existingLabelNames.has(label.name)) {
-            await booruService.addFavoriteTagLabel(label.name, label.color);
-            importedLabels++;
-          }
-        }
-      }
-
-      // 导入收藏标签
+      // 获取已有标签用于去重
       const existingTags = await booruService.getFavoriteTags();
       const existingTagNames = new Set(existingTags.map(t => `${t.siteId || 'null'}_${t.tagName}`));
 
-      for (const tag of importData.tags) {
-        const key = `${tag.siteId || 'null'}_${tag.tagName}`;
-        if (!existingTagNames.has(key)) {
-          await booruService.addFavoriteTag(
-            tag.siteId || null,
-            tag.tagName,
-            {
-              labels: tag.labels,
-              queryType: tag.queryType || 'tag',
-              notes: tag.notes,
+      if (isTxt) {
+        // TXT 格式：每行一个标签名，作为全局标签导入
+        const tagNames = content.split('\n').map(l => l.trim()).filter(Boolean);
+        for (const tagName of tagNames) {
+          const key = `null_${tagName}`;
+          if (!existingTagNames.has(key)) {
+            await booruService.addFavoriteTag(null, tagName);
+            importedTags++;
+          } else {
+            skippedTags++;
+          }
+        }
+      } else {
+        // JSON 格式
+        const importData = JSON.parse(content);
+        if (!importData.tags || !Array.isArray(importData.tags)) {
+          throw new Error('无效的导入文件格式：缺少 tags 数组');
+        }
+
+        // 导入标签分组
+        if (importData.labels && Array.isArray(importData.labels)) {
+          const existingLabels = await booruService.getFavoriteTagLabels();
+          const existingLabelNames = new Set(existingLabels.map(l => l.name));
+          for (const label of importData.labels) {
+            if (!existingLabelNames.has(label.name)) {
+              await booruService.addFavoriteTagLabel(label.name, label.color);
+              importedLabels++;
             }
-          );
-          importedTags++;
-        } else {
-          skippedTags++;
+          }
+        }
+
+        // 导入收藏标签
+        for (const tag of importData.tags) {
+          const key = `${tag.siteId || 'null'}_${tag.tagName}`;
+          if (!existingTagNames.has(key)) {
+            await booruService.addFavoriteTag(
+              tag.siteId || null,
+              tag.tagName,
+              { labels: tag.labels, queryType: tag.queryType || 'tag', notes: tag.notes }
+            );
+            importedTags++;
+          } else {
+            skippedTags++;
+          }
         }
       }
 
@@ -2250,6 +2309,113 @@ export function setupIPC() {
       return { success: true, data: { importedTags, importedLabels, skippedTags } };
     } catch (error) {
       console.error('[IPC] 导入收藏标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 导出黑名单标签（支持 JSON/TXT）
+  ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    console.log('[IPC] 导出黑名单标签:', siteId);
+    try {
+      const tags = await booruService.getBlacklistedTags(siteId);
+
+      const result = await dialog.showSaveDialog({
+        title: '导出黑名单标签',
+        defaultPath: `blacklisted-tags-${new Date().toISOString().split('T')[0]}.json`,
+        filters: [
+          { name: 'JSON 文件', extensions: ['json'] },
+          { name: '文本文件（仅标签名）', extensions: ['txt'] },
+        ],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: '取消导出' };
+      }
+
+      const isTxt = result.filePath.endsWith('.txt');
+      if (isTxt) {
+        const content = tags.map(t => t.tagName).join('\n');
+        await fs.writeFile(result.filePath, content, 'utf-8');
+      } else {
+        const exportData = {
+          version: 1,
+          type: 'blacklisted_tags',
+          exportedAt: new Date().toISOString(),
+          tags: tags.map(t => ({
+            tagName: t.tagName,
+            siteId: t.siteId,
+            isActive: t.isActive,
+            reason: t.reason,
+          })),
+        };
+        await fs.writeFile(result.filePath, JSON.stringify(exportData, null, 2), 'utf-8');
+      }
+
+      console.log('[IPC] 导出黑名单标签成功:', result.filePath, '标签数:', tags.length);
+      return { success: true, data: { count: tags.length, path: result.filePath } };
+    } catch (error) {
+      console.error('[IPC] 导出黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 导入黑名单标签（支持 JSON/TXT）
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent) => {
+    console.log('[IPC] 导入黑名单标签');
+    try {
+      const result = await dialog.showOpenDialog({
+        title: '导入黑名单标签',
+        filters: [
+          { name: '支持的文件', extensions: ['json', 'txt'] },
+          { name: 'JSON 文件', extensions: ['json'] },
+          { name: '文本文件', extensions: ['txt'] },
+        ],
+        properties: ['openFile'],
+      });
+
+      if (result.canceled || !result.filePaths.length) {
+        return { success: false, error: '取消导入' };
+      }
+
+      const filePath = result.filePaths[0];
+      const content = await fs.readFile(filePath, 'utf-8');
+      const isTxt = filePath.endsWith('.txt');
+
+      let imported = 0;
+      let skipped = 0;
+
+      if (isTxt) {
+        // TXT 格式：每行一个标签名，批量添加为全局黑名单
+        const tagString = content.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
+        const addResult = await booruService.addBlacklistedTags(tagString, null);
+        imported = addResult.added;
+        skipped = addResult.skipped;
+      } else {
+        // JSON 格式
+        const importData = JSON.parse(content);
+        if (!importData.tags || !Array.isArray(importData.tags)) {
+          throw new Error('无效的导入文件格式：缺少 tags 数组');
+        }
+
+        for (const tag of importData.tags) {
+          try {
+            await booruService.addBlacklistedTag(
+              tag.tagName,
+              tag.siteId || null,
+              tag.reason || undefined
+            );
+            imported++;
+          } catch {
+            // 标签已存在等情况，计为跳过
+            skipped++;
+          }
+        }
+      }
+
+      console.log('[IPC] 导入黑名单标签成功: 导入', imported, '个, 跳过', skipped, '个');
+      return { success: true, data: { imported, skipped } };
+    } catch (error) {
+      console.error('[IPC] 导入黑名单标签失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, Popconfirm, Modal, Form, Select, Empty, Switch, App, Tooltip } from 'antd';
-import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, DownloadOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import type { BlacklistedTag } from '../../shared/types';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
@@ -261,6 +261,41 @@ export const BlacklistedTagsPage: React.FC = () => {
             }}
           >
             批量添加
+          </Button>
+          <Button
+            icon={<ExportOutlined />}
+            onClick={async () => {
+              try {
+                const result = await window.electronAPI.booru.exportBlacklistedTags(filterSiteId);
+                if (result.success && result.data) {
+                  message.success(`已导出 ${result.data.count} 个黑名单标签`);
+                } else if (result.error !== '取消导出') {
+                  message.error('导出失败: ' + result.error);
+                }
+              } catch (error) {
+                message.error('导出失败');
+              }
+            }}
+          >
+            导出
+          </Button>
+          <Button
+            icon={<DownloadOutlined />}
+            onClick={async () => {
+              try {
+                const result = await window.electronAPI.booru.importBlacklistedTags();
+                if (result.success && result.data) {
+                  message.success(`已导入 ${result.data.imported} 个标签，跳过 ${result.data.skipped} 个`);
+                  loadBlacklistedTags();
+                } else if (result.error !== '取消导入') {
+                  message.error('导入失败: ' + result.error);
+                }
+              } catch (error) {
+                message.error('导入失败');
+              }
+            }}
+          >
+            导入
           </Button>
         </Space>
       </div>
