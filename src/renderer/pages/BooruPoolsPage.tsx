@@ -263,9 +263,9 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
 
         {/* Pool 图片网格 */}
         {poolLoading ? (
-          <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
-            <Spin size="large" tip="加载中..." />
-          </div>
+          <Spin size="large" tip="加载中...">
+            <div style={{ padding: 60 }} />
+          </Spin>
         ) : poolPosts.length === 0 ? (
           <Empty description="该 Pool 暂无图片" />
         ) : (
@@ -367,9 +367,9 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
 
       {/* Pool 列表 */}
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
-          <Spin size="large" tip="加载中..." />
-        </div>
+        <Spin size="large" tip="加载中...">
+          <div style={{ padding: 60 }} />
+        </Spin>
       ) : pools.length === 0 ? (
         <Card>
           <Empty description="暂无 Pool" />

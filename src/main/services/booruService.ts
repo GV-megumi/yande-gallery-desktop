@@ -607,7 +607,7 @@ export async function getFavorites(siteId: number, page: number = 1, limit: numb
       db,
       `
         SELECT p.* FROM booru_posts p
-        INNER JOIN booru_favorites f ON p.id = f.postId
+        INNER JOIN booru_favorites f ON p.postId = f.postId AND p.siteId = f.siteId
         WHERE p.siteId = ? AND p.isFavorited = 1
         ORDER BY f.createdAt DESC
         LIMIT ? OFFSET ?

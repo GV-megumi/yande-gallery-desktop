@@ -210,9 +210,9 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
 
       {/* 图片网格 */}
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
-          <Spin size="large" tip="加载中..." />
-        </div>
+        <Spin size="large" tip="加载中...">
+          <div style={{ padding: 60 }} />
+        </Spin>
       ) : posts.length === 0 ? (
         <Card>
           <Empty description="暂无热门图片" />

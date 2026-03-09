@@ -95,22 +95,44 @@
 
 ---
 
+## 后续修复（2026-03-09）
+
+### F1. booruService.ts - getFavorites() JOIN 条件错误导致收藏列表为空 -- 已修复
+- **级别**: CRITICAL
+- **现象**: 在主页收藏图片后，收藏列表页面看不到该图片
+- **根因**: `getFavorites()` SQL 查询中 JOIN 条件使用了 `p.id = f.postId`，但 `booru_favorites.postId` 存储的是外部 Moebooru postId（如 1234567），而 `booru_posts.id` 是内部自增主键（如 1, 2, 3），导致 JOIN 永远匹配不到
+- **修复**: 将 `INNER JOIN booru_favorites f ON p.id = f.postId` 改为 `INNER JOIN booru_favorites f ON p.postId = f.postId AND p.siteId = f.siteId`，同时修复了 `getFavoritesCount()` 的相同问题
+
+### F2. BooruPoolsPage.tsx / BooruPopularPage.tsx - Spin tip 控制台警告 -- 已修复
+- **级别**: LOW
+- **现象**: 控制台警告 `[antd: Spin] tip only work in nest or fullscreen pattern`
+- **根因**: Ant Design 5.x 要求使用 `tip` 属性时，Spin 必须包裹子元素（嵌套模式）
+- **修复**: 将 `<Spin tip="..."/>` 改为 `<Spin tip="..."><div style={{ padding: 60 }} /></Spin>`
+
+### F3. TagsSection.tsx - 静态 message API 控制台警告 -- 已修复
+- **级别**: LOW
+- **现象**: 控制台警告 `[antd: message] Static function can not consume context`
+- **根因**: 直接 import 的 `message` 是静态方法，无法访问 Ant Design 的 ConfigProvider 上下文
+- **修复**: 将 `import { message } from 'antd'` 改为使用 `App.useApp()` 获取 `message` 实例
+
+---
+
 ## 修复统计
 
 | 级别 | 总数 | 已修复 | 非 Bug | 未修复 |
 |------|------|--------|--------|--------|
-| CRITICAL | 7 | 5 | 2 | 0 |
+| CRITICAL | 8 | 6 | 2 | 0 |
 | HIGH | 5 | 3 | 1 | 0 |
 | MEDIUM | 10 | 7 | 2 | 0 |
-| LOW | 3 | 0 | 0 | 3 |
-| **合计** | **25** | **15** | **5** | **3** |
+| LOW | 5 | 2 | 0 | 3 |
+| **合计** | **28** | **18** | **5** | **3** |
 
 ### 修改的文件
 
 1. `src/main/services/imageCacheService.ts` - 并发缓存防重 + pipeline
 2. `src/main/services/moebooruClient.ts` - 速率限制修正
 3. `src/main/services/bulkDownloadService.ts` - abort 机制 + 文件清理 + 并发池修复
-4. `src/main/services/booruService.ts` - 事务包裹
+4. `src/main/services/booruService.ts` - 事务包裹 + getFavorites JOIN 修复
 5. `src/main/services/filenameGenerator.ts` - MAX_PATH 验证
 6. `src/main/ipc/channels.ts` - 删除未实现频道
 7. `src/preload/index.ts` - 同步清理
@@ -118,3 +140,6 @@
 9. `src/renderer/pages/BooruPage.tsx` - 竞态条件 + 依赖修复
 10. `src/renderer/pages/BooruFavoritesPage.tsx` - 闭包修复
 11. `src/renderer/App.tsx` - useEffect 依赖修复
+12. `src/renderer/pages/BooruPoolsPage.tsx` - Spin tip 嵌套模式修复
+13. `src/renderer/pages/BooruPopularPage.tsx` - Spin tip 嵌套模式修复
+14. `src/renderer/components/BooruPostDetails/TagsSection.tsx` - 静态 message 改为 App.useApp()

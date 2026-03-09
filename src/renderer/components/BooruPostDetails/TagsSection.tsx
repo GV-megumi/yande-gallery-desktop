@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Collapse, Tag, Space, Typography, Tooltip, message } from 'antd';
+import { Collapse, Tag, Space, Typography, Tooltip, App } from 'antd';
 import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { ContextMenu } from '../ContextMenu';
@@ -22,6 +22,7 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
   site,
   onTagClick
 }) => {
+  const { message } = App.useApp();
   const [expanded, setExpanded] = useState(false);
   const [tagCategories, setTagCategories] = useState<Record<string, string>>({});
   // 收藏标签状态：记录哪些标签已被收藏
