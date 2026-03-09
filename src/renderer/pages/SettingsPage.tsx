@@ -118,6 +118,7 @@ export const SettingsPage: React.FC = () => {
   const [proxyForm] = Form.useForm();
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
+  const [activeTab, setActiveTab] = useState<'general' | 'proxy'>('general');
 
   // 表单值状态（用于即时渲染）
   const [downloadPath, setDownloadPath] = useState('');
@@ -255,309 +256,330 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleSave = async () => {
-    console.log('[SettingsPage] 保存设置');
+    console.log('[SettingsPage] 保存所有设置');
     setSaving(true);
     try {
       if (!window.electronAPI) { message.error('系统功能不可用'); return; }
+      const proxyValues = await proxyForm.validateFields();
       const configResult = await window.electronAPI.config.get();
       if (!configResult.success || !configResult.data) { message.error('获取配置失败'); return; }
       const updatedConfig = {
         ...configResult.data,
         downloads: { ...configResult.data.downloads, path: downloadPath },
         thumbnails: { ...configResult.data.thumbnails, maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality },
+        network: { ...configResult.data.network, proxy: {
+          enabled: proxyValues.proxyEnabled, protocol: proxyValues.proxyProtocol,
+          host: proxyValues.proxyHost, port: Number(proxyValues.proxyPort),
+          username: proxyValues.proxyUsername || '', password: proxyValues.proxyPassword || ''
+        }},
       };
       const result = await window.electronAPI.config.save(updatedConfig);
-      if (result.success) { message.success('设置已保存'); }
-      else { message.error(result.error || '保存失败'); }
+      if (result.success) { message.success(t('settings.saveSuccess')); }
+      else { message.error(result.error || t('settings.saveFailed')); }
     } catch (error) {
-      message.error('保存失败');
+      message.error(t('settings.saveFailed'));
     } finally {
       setSaving(false);
     }
   };
 
-  const handleSaveProxy = async () => {
-    try {
-      const values = await proxyForm.validateFields();
-      if (!window.electronAPI) { message.error('系统功能不可用'); return; }
-      const configResult = await window.electronAPI.config.get();
-      if (!configResult.success || !configResult.data) { message.error('获取配置失败'); return; }
-      const updatedConfig = {
-        ...configResult.data,
-        network: { ...configResult.data.network, proxy: {
-          enabled: values.proxyEnabled, protocol: values.proxyProtocol,
-          host: values.proxyHost, port: values.proxyPort,
-          username: values.proxyUsername || '', password: values.proxyPassword || ''
-        }}
-      };
-      const result = await window.electronAPI.config.save(updatedConfig);
-      if (result.success) message.success('代理设置已保存');
-      else message.error(result.error || '保存失败');
-    } catch (error) {
-      message.error('保存代理设置失败');
-    }
-  };
-
   return (
     <div style={{ maxWidth: 680, margin: '0 auto', padding: `0 ${spacing.lg}px` }}>
-      {/* ===== 图库文件夹 ===== */}
-      <SettingsGroup
-        title={t('settings.galleryFolders')}
-        footer={t('settings.galleryFoldersFooter')}
-      >
-        <Spin spinning={loading}>
-          {folders.length === 0 ? (
+      {/* ===== 子页面切换 ===== */}
+      <div style={{ display: 'flex', justifyContent: 'center', marginBottom: spacing.xl }}>
+        <Segmented
+          value={activeTab}
+          onChange={(value) => setActiveTab(value as 'general' | 'proxy')}
+          options={[
+            { label: t('settings.tabGeneral'), value: 'general' },
+            { label: t('settings.tabProxy'), value: 'proxy' },
+          ]}
+        />
+      </div>
+
+      {/* ===== 通用配置 ===== */}
+      {activeTab === 'general' && (
+        <>
+          {/* 图库文件夹 */}
+          <SettingsGroup
+            title={t('settings.galleryFolders')}
+            footer={t('settings.galleryFoldersFooter')}
+          >
+            <Spin spinning={loading}>
+              {folders.length === 0 ? (
+                <div style={{
+                  padding: `${spacing.xxl}px`,
+                  textAlign: 'center',
+                  color: colors.textTertiary,
+                  fontSize: fontSize.base,
+                }}>
+                  {t('settings.noFolders')}
+                </div>
+              ) : (
+                folders.map((item, index) => (
+                  <SettingsRow
+                    key={item.path}
+                    label={item.name}
+                    description={item.path}
+                    isLast={index === folders.length - 1}
+                    extra={
+                      <Space size={spacing.sm}>
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<ScanOutlined />}
+                          loading={scanning === item.path}
+                          onClick={() => scanSubfolders(item.path, item.extensions)}
+                          style={{ color: colors.primary }}
+                        >
+                          {t('settings.scanFolder')}
+                        </Button>
+                        <Popconfirm
+                          title={t('settings.deleteFolderConfirm')}
+                          onConfirm={() => handleDeleteFolder(index)}
+                          okText="删除"
+                          cancelText="取消"
+                        >
+                          <Button
+                            type="text"
+                            size="small"
+                            icon={<DeleteOutlined />}
+                            danger
+                          >
+                            {t('settings.deleteFolder')}
+                          </Button>
+                        </Popconfirm>
+                      </Space>
+                    }
+                  />
+                ))
+              )}
+            </Spin>
             <div style={{
-              padding: `${spacing.xxl}px`,
-              textAlign: 'center',
-              color: colors.textTertiary,
-              fontSize: fontSize.base,
+              padding: `${spacing.sm}px ${spacing.lg}px`,
+              borderTop: `0.5px solid ${colors.separator}`,
             }}>
-              {t('settings.noFolders')}
+              <Button
+                type="link"
+                icon={<PlusOutlined />}
+                onClick={handleAddFolder}
+                style={{ padding: 0, color: colors.primary, fontWeight: 500 }}
+              >
+                {t('settings.addFolder')}
+              </Button>
             </div>
-          ) : (
-            folders.map((item, index) => (
+          </SettingsGroup>
+
+          {/* 下载设置 */}
+          <SettingsGroup title={t('settings.download')}>
+            <SettingsRow
+              label={t('settings.downloadPath')}
+              description={downloadPath || t('settings.notSet')}
+              isLast
+              onClick={handleSelectDownloadPath}
+              extra={
+                <FolderOutlined style={{ color: colors.textTertiary, fontSize: 16 }} />
+              }
+            />
+          </SettingsGroup>
+
+          {/* 缩略图设置 */}
+          <SettingsGroup title={t('settings.thumbnails')} footer={t('settings.thumbnailsFooter')}>
+            <SettingsRow
+              label={t('settings.thumbnailSize')}
+              extra={
+                <Select
+                  value={thumbnailSize}
+                  onChange={(v) => setThumbnailSize(v)}
+                  style={{ width: 140 }}
+                  variant="borderless"
+                >
+                  <Option value={300}>{t('settings.sizeSmall')}</Option>
+                  <Option value={400}>{t('settings.sizeMedium')}</Option>
+                  <Option value={600}>{t('settings.sizeLarge')}</Option>
+                  <Option value={800}>{t('settings.sizeHD')}</Option>
+                  <Option value={1000}>{t('settings.sizeUHD')}</Option>
+                </Select>
+              }
+            />
+            <SettingsRow
+              label={t('settings.thumbnailQuality')}
+              extra={
+                <Select
+                  value={thumbnailQuality}
+                  onChange={(v) => setThumbnailQuality(v)}
+                  style={{ width: 140 }}
+                  variant="borderless"
+                >
+                  <Option value={80}>{t('settings.qualityStandard')}</Option>
+                  <Option value={85}>{t('settings.qualityGood')}</Option>
+                  <Option value={90}>{t('settings.qualityHigh')}</Option>
+                  <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
+                  <Option value={95}>{t('settings.qualityMax')}</Option>
+                </Select>
+              }
+            />
+            <SettingsRow
+              label={t('settings.autoGenThumbnail')}
+              description={t('settings.autoGenThumbnailDesc')}
+              isLast
+              extra={
+                <Switch
+                  checked={autoGenThumbnail}
+                  onChange={setAutoGenThumbnail}
+                />
+              }
+            />
+          </SettingsGroup>
+
+          {/* 外观 */}
+          <SettingsGroup title={t('settings.appearance')}>
+            <SettingsRow
+              label={t('settings.theme')}
+              extra={
+                <Segmented
+                  value={themeMode}
+                  onChange={(value) => setThemeMode(value as ThemeMode)}
+                  options={[
+                    { label: t('settings.themeLight'), value: 'light' },
+                    { label: t('settings.themeDark'), value: 'dark' },
+                    { label: t('settings.themeSystem'), value: 'system' }
+                  ]}
+                  size="small"
+                />
+              }
+            />
+            <SettingsRow
+              label={t('settings.language')}
+              isLast
+              extra={
+                <Segmented
+                  value={locale}
+                  onChange={(value) => setLocale(value as LocaleType)}
+                  options={[
+                    { label: t('settings.languageZh'), value: 'zh-CN' },
+                    { label: t('settings.languageEn'), value: 'en-US' }
+                  ]}
+                  size="small"
+                />
+              }
+            />
+          </SettingsGroup>
+
+          {/* 高级 */}
+          <SettingsGroup title={t('settings.advanced')}>
+            <SettingsRow label={t('settings.clearCache')} onClick={() => message.info(t('settings.featureDev'))} />
+            <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
+            <SettingsRow
+              label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}
+              isLast
+              onClick={() => message.info(t('settings.featureDev'))}
+            />
+          </SettingsGroup>
+
+          {/* 关于 */}
+          <SettingsGroup title={t('settings.about')}>
+            <SettingsRow label={t('settings.version')} extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>} />
+            <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
+            <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
+            <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />
+          </SettingsGroup>
+        </>
+      )}
+
+      {/* ===== 代理配置 ===== */}
+      {activeTab === 'proxy' && (
+        <>
+          {/* 代理服务器 */}
+          <SettingsGroup title={t('settings.proxyServer')} footer={t('settings.networkFooter')}>
+            <Form form={proxyForm} style={{ margin: 0 }}>
               <SettingsRow
-                key={item.path}
-                label={item.name}
-                description={item.path}
-                isLast={index === folders.length - 1}
+                label={t('settings.proxyEnabled')}
                 extra={
-                  <Space size={spacing.sm}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={<ScanOutlined />}
-                      loading={scanning === item.path}
-                      onClick={() => scanSubfolders(item.path, item.extensions)}
-                      style={{ color: colors.primary }}
-                    >
-                      {t('settings.scanFolder')}
-                    </Button>
-                    <Popconfirm
-                      title={t('settings.deleteFolderConfirm')}
-                      onConfirm={() => handleDeleteFolder(index)}
-                      okText="删除"
-                      cancelText="取消"
-                    >
-                      <Button
-                        type="text"
-                        size="small"
-                        icon={<DeleteOutlined />}
-                        danger
-                      >
-                        {t('settings.deleteFolder')}
-                      </Button>
-                    </Popconfirm>
-                  </Space>
+                  <Form.Item name="proxyEnabled" valuePropName="checked" noStyle>
+                    <Switch onChange={setProxyEnabled} />
+                  </Form.Item>
                 }
               />
-            ))
-          )}
-        </Spin>
-        <div style={{
-          padding: `${spacing.sm}px ${spacing.lg}px`,
-          borderTop: `0.5px solid ${colors.separator}`,
-        }}>
-          <Button
-            type="link"
-            icon={<PlusOutlined />}
-            onClick={handleAddFolder}
-            style={{ padding: 0, color: colors.primary, fontWeight: 500 }}
-          >
-            {t('settings.addFolder')}
-          </Button>
-        </div>
-      </SettingsGroup>
+              <SettingsRow
+                label={t('settings.proxyProtocol')}
+                extra={
+                  <Form.Item name="proxyProtocol" noStyle>
+                    <Select style={{ width: 120 }} variant="borderless" disabled={!proxyEnabled}>
+                      <Option value="http">HTTP</Option>
+                      <Option value="https">HTTPS</Option>
+                      <Option value="socks5">SOCKS5</Option>
+                    </Select>
+                  </Form.Item>
+                }
+              />
+              <SettingsRow
+                label={t('settings.proxyHost')}
+                extra={
+                  <Form.Item name="proxyHost" noStyle>
+                    <Input
+                      placeholder="127.0.0.1"
+                      variant="borderless"
+                      style={{ width: 160, textAlign: 'right' }}
+                      disabled={!proxyEnabled}
+                    />
+                  </Form.Item>
+                }
+              />
+              <SettingsRow
+                label={t('settings.proxyPort')}
+                isLast
+                extra={
+                  <Form.Item name="proxyPort" noStyle>
+                    <Input
+                      type="number"
+                      placeholder="7890"
+                      variant="borderless"
+                      style={{ width: 100, textAlign: 'right' }}
+                      disabled={!proxyEnabled}
+                    />
+                  </Form.Item>
+                }
+              />
+            </Form>
+          </SettingsGroup>
 
-      {/* ===== 下载设置 ===== */}
-      <SettingsGroup title={t('settings.download')}>
-        <SettingsRow
-          label={t('settings.downloadPath')}
-          description={downloadPath || t('settings.notSet')}
-          isLast
-          onClick={handleSelectDownloadPath}
-          extra={
-            <FolderOutlined style={{ color: colors.textTertiary, fontSize: 16 }} />
-          }
-        />
-      </SettingsGroup>
-
-      {/* ===== 缩略图设置 ===== */}
-      <SettingsGroup title={t('settings.thumbnails')} footer={t('settings.thumbnailsFooter')}>
-        <SettingsRow
-          label={t('settings.thumbnailSize')}
-          extra={
-            <Select
-              value={thumbnailSize}
-              onChange={(v) => setThumbnailSize(v)}
-              style={{ width: 140 }}
-              variant="borderless"
-            >
-              <Option value={300}>{t('settings.sizeSmall')}</Option>
-              <Option value={400}>{t('settings.sizeMedium')}</Option>
-              <Option value={600}>{t('settings.sizeLarge')}</Option>
-              <Option value={800}>{t('settings.sizeHD')}</Option>
-              <Option value={1000}>{t('settings.sizeUHD')}</Option>
-            </Select>
-          }
-        />
-        <SettingsRow
-          label={t('settings.thumbnailQuality')}
-          extra={
-            <Select
-              value={thumbnailQuality}
-              onChange={(v) => setThumbnailQuality(v)}
-              style={{ width: 140 }}
-              variant="borderless"
-            >
-              <Option value={80}>{t('settings.qualityStandard')}</Option>
-              <Option value={85}>{t('settings.qualityGood')}</Option>
-              <Option value={90}>{t('settings.qualityHigh')}</Option>
-              <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
-              <Option value={95}>{t('settings.qualityMax')}</Option>
-            </Select>
-          }
-        />
-        <SettingsRow
-          label={t('settings.autoGenThumbnail')}
-          description={t('settings.autoGenThumbnailDesc')}
-          isLast
-          extra={
-            <Switch
-              checked={autoGenThumbnail}
-              onChange={setAutoGenThumbnail}
+          {/* 连通性测试 */}
+          <SettingsGroup title={t('settings.connectivityTest')}>
+            <SettingsRow
+              label={t('settings.testBaidu')}
+              onClick={async () => {
+                if (!window.electronAPI) return;
+                try {
+                  const result = await window.electronAPI.system.testBaidu();
+                  if (result.success) message.success(t('settings.baiduSuccess', { status: result.status ?? 200 }));
+                  else message.error(t('settings.baiduFailed') + ': ' + result.error);
+                } catch (error) {
+                  message.error(t('settings.baiduFailed') + ': ' + String(error));
+                }
+              }}
+              extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Baidu</span>}
             />
-          }
-        />
-      </SettingsGroup>
-
-      {/* ===== 外观 ===== */}
-      <SettingsGroup title={t('settings.appearance')}>
-        <SettingsRow
-          label={t('settings.theme')}
-          extra={
-            <Segmented
-              value={themeMode}
-              onChange={(value) => setThemeMode(value as ThemeMode)}
-              options={[
-                { label: t('settings.themeLight'), value: 'light' },
-                { label: t('settings.themeDark'), value: 'dark' },
-                { label: t('settings.themeSystem'), value: 'system' }
-              ]}
-              size="small"
+            <SettingsRow
+              label={t('settings.testGoogle')}
+              isLast
+              onClick={async () => {
+                if (!window.electronAPI) return;
+                try {
+                  const result = await window.electronAPI.system.testGoogle();
+                  if (result.success) message.success(t('settings.googleSuccess', { status: result.status ?? 200 }));
+                  else message.error(t('settings.googleFailed') + ': ' + result.error);
+                } catch (error) {
+                  message.error(t('settings.googleFailed') + ': ' + String(error));
+                }
+              }}
+              extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Google</span>}
             />
-          }
-        />
-        <SettingsRow
-          label={t('settings.language')}
-          isLast
-          extra={
-            <Segmented
-              value={locale}
-              onChange={(value) => setLocale(value as LocaleType)}
-              options={[
-                { label: t('settings.languageZh'), value: 'zh-CN' },
-                { label: t('settings.languageEn'), value: 'en-US' }
-              ]}
-              size="small"
-            />
-          }
-        />
-      </SettingsGroup>
+          </SettingsGroup>
+        </>
+      )}
 
-      {/* ===== 网络代理 ===== */}
-      <SettingsGroup title={t('settings.network')} footer={t('settings.networkFooter')}>
-        <Form form={proxyForm} style={{ margin: 0 }}>
-          <SettingsRow
-            label={t('settings.proxyEnabled')}
-            extra={
-              <Form.Item name="proxyEnabled" valuePropName="checked" noStyle>
-                <Switch onChange={setProxyEnabled} />
-              </Form.Item>
-            }
-          />
-          <SettingsRow
-            label={t('settings.proxyProtocol')}
-            extra={
-              <Form.Item name="proxyProtocol" noStyle>
-                <Select style={{ width: 120 }} variant="borderless" disabled={!proxyEnabled}>
-                  <Option value="http">HTTP</Option>
-                  <Option value="https">HTTPS</Option>
-                  <Option value="socks5">SOCKS5</Option>
-                </Select>
-              </Form.Item>
-            }
-          />
-          <SettingsRow
-            label={t('settings.proxyHost')}
-            extra={
-              <Form.Item name="proxyHost" noStyle>
-                <Input
-                  placeholder="127.0.0.1"
-                  variant="borderless"
-                  style={{ width: 160, textAlign: 'right' }}
-                  disabled={!proxyEnabled}
-                />
-              </Form.Item>
-            }
-          />
-          <SettingsRow
-            label={t('settings.proxyPort')}
-            isLast
-            extra={
-              <Form.Item name="proxyPort" noStyle>
-                <Input
-                  type="number"
-                  placeholder="7890"
-                  variant="borderless"
-                  style={{ width: 100, textAlign: 'right' }}
-                  disabled={!proxyEnabled}
-                />
-              </Form.Item>
-            }
-          />
-        </Form>
-      </SettingsGroup>
-
-      {/* 代理保存和测试 */}
-      <SettingsGroup>
-        <SettingsRow
-          label={<span style={{ color: colors.primary, fontWeight: 500 }}>{t('settings.saveProxy')}</span>}
-          onClick={handleSaveProxy}
-        />
-        <SettingsRow
-          label={t('settings.testBaidu')}
-          onClick={async () => {
-            if (!window.electronAPI) return;
-            try {
-              const result = await window.electronAPI.system.testBaidu();
-              if (result.success) message.success(t('settings.baiduSuccess', { status: result.status ?? 200 }));
-              else message.error(t('settings.baiduFailed') + ': ' + result.error);
-            } catch (error) {
-              message.error(t('settings.baiduFailed') + ': ' + String(error));
-            }
-          }}
-          extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Baidu</span>}
-        />
-        <SettingsRow
-          label={t('settings.testGoogle')}
-          isLast
-          onClick={async () => {
-            if (!window.electronAPI) return;
-            try {
-              const result = await window.electronAPI.system.testGoogle();
-              if (result.success) message.success(t('settings.googleSuccess', { status: result.status ?? 200 }));
-              else message.error(t('settings.googleFailed') + ': ' + result.error);
-            } catch (error) {
-              message.error(t('settings.googleFailed') + ': ' + String(error));
-            }
-          }}
-          extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Google</span>}
-        />
-      </SettingsGroup>
-
-      {/* ===== 保存按钮 ===== */}
+      {/* ===== 保存按钮（始终显示） ===== */}
       <div style={{ marginBottom: spacing.xxl, display: 'flex', justifyContent: 'center', gap: spacing.md }}>
         <Button
           type="primary"
@@ -575,25 +597,6 @@ export const SettingsPage: React.FC = () => {
           {t('settings.saveAll')}
         </Button>
       </div>
-
-      {/* ===== 高级 ===== */}
-      <SettingsGroup title={t('settings.advanced')}>
-        <SettingsRow label={t('settings.clearCache')} onClick={() => message.info(t('settings.featureDev'))} />
-        <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
-        <SettingsRow
-          label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}
-          isLast
-          onClick={() => message.info(t('settings.featureDev'))}
-        />
-      </SettingsGroup>
-
-      {/* ===== 关于 ===== */}
-      <SettingsGroup title={t('settings.about')}>
-        <SettingsRow label={t('settings.version')} extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>} />
-        <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
-        <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
-        <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />
-      </SettingsGroup>
 
       {/* 底部留白 */}
       <div style={{ height: spacing['3xl'] }} />

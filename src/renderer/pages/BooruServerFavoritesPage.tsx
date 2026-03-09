@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Button, Empty, App, Typography, Space } from 'antd';
-import { HeartOutlined } from '@ant-design/icons';
+import { Button, Empty, App, Typography, Space, Progress } from 'antd';
+import { HeartOutlined, SyncOutlined, CloudDownloadOutlined, CloudUploadOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { PaginationControl } from '../components/PaginationControl';
 import { SkeletonGrid } from '../components/SkeletonGrid';
@@ -72,6 +72,124 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
       message.error('操作失败');
     }
   }, [activeSite, serverFavorites]);
+
+  // 同步状态
+  const [syncing, setSyncing] = useState(false);
+  const [syncProgress, setSyncProgress] = useState({ current: 0, total: 0, action: '' });
+
+  // 同步到本地：将服务端喜欢的图片添加到本地收藏
+  const handleSyncToLocal = useCallback(async () => {
+    if (!activeSite || !isLoggedIn) return;
+    setSyncing(true);
+    setSyncProgress({ current: 0, total: 0, action: '正在获取服务端喜欢列表...' });
+
+    try {
+      // 逐页获取所有服务端喜欢
+      const allServerPosts: BooruPost[] = [];
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const result = await window.electronAPI.booru.getServerFavorites(activeSite.id, page, 100);
+        if (result.success && result.data && result.data.length > 0) {
+          allServerPosts.push(...result.data);
+          page++;
+          setSyncProgress({ current: 0, total: 0, action: `已获取 ${allServerPosts.length} 张图片...` });
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allServerPosts.length === 0) {
+        message.info('服务端没有喜欢的图片');
+        return;
+      }
+
+      // 逐个添加到本地收藏
+      let added = 0;
+      let skipped = 0;
+      setSyncProgress({ current: 0, total: allServerPosts.length, action: '正在同步到本地收藏...' });
+
+      for (let i = 0; i < allServerPosts.length; i++) {
+        const post = allServerPosts[i];
+        try {
+          const result = await window.electronAPI.booru.addFavorite(post.postId, activeSite.id);
+          if (result.success) {
+            added++;
+          } else {
+            skipped++;
+          }
+        } catch {
+          skipped++;
+        }
+        setSyncProgress({ current: i + 1, total: allServerPosts.length, action: '正在同步到本地收藏...' });
+      }
+
+      message.success(`同步完成：添加 ${added} 张，跳过 ${skipped} 张`);
+      console.log(`[BooruServerFavoritesPage] 同步到本地完成: 添加 ${added}, 跳过 ${skipped}`);
+    } catch (error) {
+      console.error('[BooruServerFavoritesPage] 同步到本地失败:', error);
+      message.error('同步失败');
+    } finally {
+      setSyncing(false);
+      setSyncProgress({ current: 0, total: 0, action: '' });
+    }
+  }, [activeSite, isLoggedIn]);
+
+  // 上传到服务端：将本地收藏同步到服务端喜欢
+  const handleUploadToServer = useCallback(async () => {
+    if (!activeSite || !isLoggedIn) return;
+    setSyncing(true);
+    setSyncProgress({ current: 0, total: 0, action: '正在获取本地收藏列表...' });
+
+    try {
+      // 逐页获取所有本地收藏
+      const allLocalPosts: BooruPost[] = [];
+      let page = 1;
+      let hasMore = true;
+      while (hasMore) {
+        const result = await window.electronAPI.booru.getFavorites(activeSite.id, page, 100);
+        if (result.success && result.data && result.data.length > 0) {
+          allLocalPosts.push(...result.data);
+          page++;
+          setSyncProgress({ current: 0, total: 0, action: `已获取 ${allLocalPosts.length} 张本地收藏...` });
+        } else {
+          hasMore = false;
+        }
+      }
+
+      if (allLocalPosts.length === 0) {
+        message.info('本地没有收藏的图片');
+        return;
+      }
+
+      // 逐个添加到服务端喜欢
+      let added = 0;
+      let failed = 0;
+      setSyncProgress({ current: 0, total: allLocalPosts.length, action: '正在上传到服务端...' });
+
+      for (let i = 0; i < allLocalPosts.length; i++) {
+        const post = allLocalPosts[i];
+        try {
+          await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
+          added++;
+        } catch {
+          failed++;
+        }
+        setSyncProgress({ current: i + 1, total: allLocalPosts.length, action: '正在上传到服务端...' });
+      }
+
+      message.success(`上传完成：同步 ${added} 张，失败 ${failed} 张`);
+      console.log(`[BooruServerFavoritesPage] 上传到服务端完成: 同步 ${added}, 失败 ${failed}`);
+      // 刷新列表
+      loadServerFavorites(currentPage);
+    } catch (error) {
+      console.error('[BooruServerFavoritesPage] 上传到服务端失败:', error);
+      message.error('上传失败');
+    } finally {
+      setSyncing(false);
+      setSyncProgress({ current: 0, total: 0, action: '' });
+    }
+  }, [activeSite, isLoggedIn, currentPage]);
 
   // 加载外观配置
   useEffect(() => {
@@ -254,10 +372,44 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
           </Text>
         </Space>
 
-        <Button onClick={() => loadServerFavorites(currentPage)} loading={loading}>
-          刷新
-        </Button>
+        <Space>
+          <Button
+            icon={<CloudDownloadOutlined />}
+            onClick={handleSyncToLocal}
+            loading={syncing}
+            disabled={loading}
+            title="将服务端喜欢的图片同步到本地收藏"
+          >
+            同步到本地
+          </Button>
+          <Button
+            icon={<CloudUploadOutlined />}
+            onClick={handleUploadToServer}
+            loading={syncing}
+            disabled={loading}
+            title="将本地收藏上传到服务端"
+          >
+            上传到服务端
+          </Button>
+          <Button icon={<SyncOutlined />} onClick={() => loadServerFavorites(currentPage)} loading={loading}>
+            刷新
+          </Button>
+        </Space>
       </div>
+
+      {/* 同步进度 */}
+      {syncing && (
+        <div style={{ marginBottom: spacing.lg }}>
+          <Text type="secondary">{syncProgress.action}</Text>
+          {syncProgress.total > 0 && (
+            <Progress
+              percent={Math.round((syncProgress.current / syncProgress.total) * 100)}
+              size="small"
+              format={() => `${syncProgress.current}/${syncProgress.total}`}
+            />
+          )}
+        </div>
+      )}
 
       {/* 图片列表 */}
       <div>

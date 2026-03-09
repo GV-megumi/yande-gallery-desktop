@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Input, List, Space, Spin, Empty, App, Button, Tag, Typography } from 'antd';
-import { DatabaseOutlined, SearchOutlined, ArrowLeftOutlined } from '@ant-design/icons';
+import { DatabaseOutlined, SearchOutlined, ArrowLeftOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import type { BooruPost, BooruSite, BooruPool } from '../../shared/types';
 import { BooruImageCard } from '../components/BooruImageCard';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
@@ -130,8 +130,8 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
     setPage(1);
   };
 
-  // 图片详情
-  const handlePostClick = (post: BooruPost) => {
+  // 图片详情（记录索引用于 Pool 内导航）
+  const handlePostClick = (post: BooruPost, index?: number) => {
     setDetailPost(post);
     setDetailOpen(true);
   };
@@ -225,6 +225,42 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
           </Card>
         )}
 
+        {/* Pool 内导航栏 */}
+        {poolPosts.length > 0 && (
+          <div style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            gap: spacing.md, marginBottom: spacing.lg,
+            padding: `${spacing.sm}px ${spacing.lg}px`,
+            background: 'rgba(0,0,0,0.02)', borderRadius: 8,
+          }}>
+            <Button
+              icon={<LeftOutlined />}
+              disabled={poolPage <= 1}
+              onClick={() => {
+                const newPage = poolPage - 1;
+                setPoolPage(newPage);
+                loadPoolDetail(selectedPool);
+              }}
+            >
+              上一页
+            </Button>
+            <Text>
+              第 {poolPage} 页 · {poolPosts.length} 张图片
+              {selectedPool.postCount > 0 && ` / 共 ${selectedPool.postCount} 张`}
+            </Text>
+            <Button
+              disabled={poolPosts.length < 20}
+              onClick={() => {
+                const newPage = poolPage + 1;
+                setPoolPage(newPage);
+                loadPoolDetail(selectedPool);
+              }}
+            >
+              下一页 <RightOutlined />
+            </Button>
+          </div>
+        )}
+
         {/* Pool 图片网格 */}
         {poolLoading ? (
           <div style={{ display: 'flex', justifyContent: 'center', padding: 60 }}>
@@ -291,6 +327,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
           post={detailPost}
           site={activeSite}
           posts={poolPosts}
+          initialIndex={detailPost ? poolPosts.findIndex(p => p.postId === detailPost.postId) : 0}
           onClose={() => setDetailOpen(false)}
           onToggleFavorite={handleToggleFavorite}
           onDownload={handleDownload}

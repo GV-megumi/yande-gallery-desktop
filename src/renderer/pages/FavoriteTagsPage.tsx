@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip } from 'antd';
-import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert } from 'antd';
+import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined } from '@ant-design/icons';
 import {
   DndContext,
   closestCenter,
@@ -55,6 +55,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [sites, setSites] = useState<any[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | null | undefined>(undefined);
   const [form] = Form.useForm();
+
+  // 拖拽/粘贴/选择性导入状态
+  const [isDragging, setIsDragging] = useState(false);
+  const [importPreviewVisible, setImportPreviewVisible] = useState(false);
+  const [importPreviewTags, setImportPreviewTags] = useState<string[]>([]);
+  const [importCheckedTags, setImportCheckedTags] = useState<Set<string>>(new Set());
+  const [importing, setImporting] = useState(false);
 
   // dnd-kit 传感器：需要拖拽 5px 才触发，防止误触
   const sensors = useSensors(
@@ -201,6 +208,111 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
+  // === 拖拽/粘贴/选择性导入 ===
+
+  // 解析文本内容中的标签
+  const parseTagsFromContent = useCallback((content: string): string[] => {
+    // 尝试 JSON 格式
+    try {
+      const json = JSON.parse(content);
+      if (json.data?.favoriteTags) {
+        return json.data.favoriteTags.map((t: any) => t.tagName).filter(Boolean);
+      }
+      if (Array.isArray(json)) {
+        return json.map((t: any) => t.tagName || t.name || String(t)).filter(Boolean);
+      }
+    } catch { /* 非 JSON，按纯文本处理 */ }
+    // 纯文本：每行一个标签
+    return content.split('\n')
+      .map(l => l.trim())
+      .filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
+  }, []);
+
+  // 显示导入预览弹窗
+  const showImportPreview = useCallback((tags: string[]) => {
+    const unique = [...new Set(tags)];
+    if (unique.length === 0) {
+      message.warning(t('favoriteTags.noTagsToImport'));
+      return;
+    }
+    setImportPreviewTags(unique);
+    setImportCheckedTags(new Set(unique));
+    setImportPreviewVisible(true);
+  }, [t]);
+
+  // 拖拽事件处理
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  }, []);
+
+  const handleDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    const files = e.dataTransfer.files;
+    if (files.length === 0) return;
+    const file = files[0];
+    if (!file.name.endsWith('.json') && !file.name.endsWith('.txt')) {
+      message.error(t('favoriteTags.unsupportedFileType'));
+      return;
+    }
+    console.log('[FavoriteTagsPage] 拖拽导入文件:', file.name);
+    const text = await file.text();
+    const tags = parseTagsFromContent(text);
+    showImportPreview(tags);
+  }, [parseTagsFromContent, showImportPreview, t]);
+
+  // 剪贴板粘贴
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const target = e.target as HTMLElement;
+      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
+      const text = e.clipboardData?.getData('text');
+      if (!text) return;
+      const tags = parseTagsFromContent(text);
+      if (tags.length > 0) {
+        e.preventDefault();
+        console.log('[FavoriteTagsPage] 剪贴板粘贴导入:', tags.length, '个标签');
+        showImportPreview(tags);
+      }
+    };
+    document.addEventListener('paste', handlePaste);
+    return () => document.removeEventListener('paste', handlePaste);
+  }, [parseTagsFromContent, showImportPreview]);
+
+  // 导入选中的标签
+  const handleImportSelected = async () => {
+    const tagsToImport = importPreviewTags.filter(t => importCheckedTags.has(t));
+    if (tagsToImport.length === 0) {
+      message.warning(t('favoriteTags.selectAtLeastOne'));
+      return;
+    }
+    setImporting(true);
+    let added = 0, skipped = 0;
+    for (const tagName of tagsToImport) {
+      try {
+        const result = await window.electronAPI.booru.addFavoriteTag(
+          filterSiteId ?? null, tagName, {}
+        );
+        if (result.success) added++;
+        else skipped++;
+      } catch { skipped++; }
+    }
+    setImporting(false);
+    setImportPreviewVisible(false);
+    message.success(t('favoriteTags.selectiveImportResult', { added, skipped }));
+    console.log('[FavoriteTagsPage] 选择性导入完成: 成功', added, '跳过', skipped);
+    loadFavoriteTags();
+  };
+
   // 获取站点名称
   const getSiteName = (siteId: number | null) => {
     if (siteId === null) return t('favoriteTags.global');
@@ -296,7 +408,31 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   ];
 
   return (
-    <div>
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      style={{ position: 'relative' }}
+    >
+      {/* 拖拽覆盖层 */}
+      {isDragging && (
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 999,
+          background: 'rgba(24, 144, 255, 0.08)',
+          border: '2px dashed #1890ff',
+          borderRadius: 12,
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          pointerEvents: 'none',
+        }}>
+          <div style={{ textAlign: 'center' }}>
+            <InboxOutlined style={{ fontSize: 48, color: '#1890ff' }} />
+            <div style={{ fontSize: 16, color: '#1890ff', marginTop: 8 }}>
+              {t('favoriteTags.dropFileHere')}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 工具栏 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
@@ -470,6 +606,63 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             <Input.TextArea rows={2} placeholder={t('favoriteTags.notesPlaceholder')} />
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 选择性导入预览弹窗 */}
+      <Modal
+        title={t('favoriteTags.importPreviewTitle')}
+        open={importPreviewVisible}
+        onCancel={() => setImportPreviewVisible(false)}
+        okText={t('favoriteTags.importSelected')}
+        cancelText={t('common.cancel')}
+        onOk={handleImportSelected}
+        confirmLoading={importing}
+        width={500}
+      >
+        <Alert
+          message={t('favoriteTags.importPreviewHint', { count: importPreviewTags.length })}
+          type="info"
+          showIcon
+          style={{ marginBottom: 12 }}
+        />
+        <div style={{ marginBottom: 8 }}>
+          <Space>
+            <Button
+              size="small"
+              onClick={() => setImportCheckedTags(new Set(importPreviewTags))}
+            >
+              {t('favoriteTags.selectAll')}
+            </Button>
+            <Button
+              size="small"
+              onClick={() => setImportCheckedTags(new Set())}
+            >
+              {t('favoriteTags.deselectAll')}
+            </Button>
+            <span style={{ color: '#999', fontSize: 12 }}>
+              {t('favoriteTags.selectedCount', { count: importCheckedTags.size })}
+            </span>
+          </Space>
+        </div>
+        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>
+          {importPreviewTags.map(tagName => (
+            <div key={tagName} style={{ padding: '4px 0' }}>
+              <Checkbox
+                checked={importCheckedTags.has(tagName)}
+                onChange={(e) => {
+                  setImportCheckedTags(prev => {
+                    const next = new Set(prev);
+                    if (e.target.checked) next.add(tagName);
+                    else next.delete(tagName);
+                    return next;
+                  });
+                }}
+              >
+                <Tag color="blue">{tagName.replace(/_/g, ' ')}</Tag>
+              </Checkbox>
+            </div>
+          ))}
+        </div>
       </Modal>
     </div>
   );

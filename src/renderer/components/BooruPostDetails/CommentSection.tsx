@@ -7,6 +7,99 @@ import { colors, spacing, fontSize } from '../../styles/tokens';
 const { TextArea } = Input;
 const { Text } = Typography;
 
+/**
+ * 格式化 DText/BBCode 评论内容为 React 节点
+ * 支持: [b], [i], [u], [s], [quote], [url=], [spoiler], 自动链接 URL
+ */
+let dtextKeyCounter = 0;
+const formatDText = (body: string): React.ReactNode => {
+  const k = () => `dt${dtextKeyCounter++}`;
+
+  // 自动将纯文本中的 URL 转为可点击链接
+  const autoLinkUrls = (str: string): React.ReactNode[] => {
+    const urlPattern = /(https?:\/\/[^\s<\[\]]+)/g;
+    const segments: React.ReactNode[] = [];
+    let idx = 0;
+    for (const match of str.matchAll(urlPattern)) {
+      const before = str.slice(idx, match.index!);
+      if (before) segments.push(before);
+      segments.push(
+        <a key={k()} href={match[0]} target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()} style={{ wordBreak: 'break-all' }}
+        >{match[0]}</a>
+      );
+      idx = match.index! + match[0].length;
+    }
+    const after = str.slice(idx);
+    if (after) segments.push(after);
+    return segments.length > 0 ? segments : [str];
+  };
+
+  // 处理内联标记
+  const processInline = (text: string): React.ReactNode[] => {
+    const rules: { pattern: RegExp; render: (m: RegExpMatchArray) => React.ReactNode }[] = [
+      { pattern: /\[b\](.*?)\[\/b\]/gs, render: (m) => <strong key={k()}>{m[1]}</strong> },
+      { pattern: /\[i\](.*?)\[\/i\]/gs, render: (m) => <em key={k()}>{m[1]}</em> },
+      { pattern: /\[u\](.*?)\[\/u\]/gs, render: (m) => <u key={k()}>{m[1]}</u> },
+      { pattern: /\[s\](.*?)\[\/s\]/gs, render: (m) => <del key={k()}>{m[1]}</del> },
+      { pattern: /\[spoiler\](.*?)\[\/spoiler\]/gs, render: (m) => (
+        <span key={k()} style={{ background: '#333', color: '#333', cursor: 'pointer', padding: '0 4px', borderRadius: 2 }}
+          onClick={(e) => { e.currentTarget.style.color = '#fff'; }}
+        >{m[1]}</span>
+      )},
+      { pattern: /\[url=(.*?)\](.*?)\[\/url\]/gs, render: (m) => (
+        <a key={k()} href={m[1]} target="_blank" rel="noopener noreferrer"
+          onClick={(e) => e.stopPropagation()}
+        >{m[2]}</a>
+      )},
+    ];
+
+    for (const { pattern, render } of rules) {
+      const matches = [...text.matchAll(new RegExp(pattern.source, 'gs'))];
+      if (matches.length === 0) continue;
+      const segments: React.ReactNode[] = [];
+      let idx = 0;
+      for (const match of matches) {
+        const before = text.slice(idx, match.index!);
+        if (before) segments.push(...autoLinkUrls(before));
+        segments.push(render(match));
+        idx = match.index! + match[0].length;
+      }
+      const after = text.slice(idx);
+      if (after) segments.push(...autoLinkUrls(after));
+      return segments;
+    }
+    return autoLinkUrls(text);
+  };
+
+  // 处理 [quote] 块级标记
+  const quotePattern = /\[quote\](.*?)\[\/quote\]/gs;
+  const quoteMatches = [...body.matchAll(quotePattern)];
+
+  if (quoteMatches.length > 0) {
+    const parts: React.ReactNode[] = [];
+    let idx = 0;
+    for (const match of quoteMatches) {
+      const before = body.slice(idx, match.index!);
+      if (before.trim()) parts.push(<span key={k()}>{processInline(before)}</span>);
+      parts.push(
+        <div key={k()} style={{
+          borderLeft: '3px solid #d9d9d9', padding: '4px 12px', margin: '4px 0',
+          background: 'rgba(0,0,0,0.02)', borderRadius: 4, color: '#888', fontStyle: 'italic',
+        }}>
+          {processInline(match[1])}
+        </div>
+      );
+      idx = match.index! + match[0].length;
+    }
+    const after = body.slice(idx);
+    if (after.trim()) parts.push(<span key={k()}>{processInline(after)}</span>);
+    return <>{parts}</>;
+  }
+
+  return <>{processInline(body)}</>;
+};
+
 interface CommentSectionProps {
   post: BooruPost;
   site: BooruSite | null;
@@ -138,7 +231,9 @@ export const CommentSection: React.FC<CommentSectionProps> = ({ post, site }) =>
                       <Text strong style={{ fontSize: fontSize.sm }}>{comment.creator}</Text>
                       <Text type="secondary" style={{ fontSize: fontSize.xs }}>{formatDate(comment.createdAt)}</Text>
                     </div>
-                    <Text style={{ fontSize: fontSize.sm, whiteSpace: 'pre-wrap' }}>{comment.body}</Text>
+                    <div style={{ fontSize: fontSize.sm, whiteSpace: 'pre-wrap', lineHeight: 1.6 }}>
+                      {formatDText(comment.body)}
+                    </div>
                   </div>
                 </List.Item>
               )}
