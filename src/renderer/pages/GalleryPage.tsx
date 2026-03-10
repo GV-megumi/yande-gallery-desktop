@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, ClockCircleOutlined, AppstoreOutlined, QuestionCircleOutlined, InfoCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
@@ -8,7 +8,7 @@ import { LazyLoadFooter } from '../components/LazyLoadFooter';
 import { GalleryCoverImage } from '../components/GalleryCoverImage';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
-import { colors, spacing, radius, shadows, fontSize, zIndex } from '../styles/tokens';
+import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
 
 const { Search } = Input;
 
@@ -38,115 +38,6 @@ interface GalleryPageProps {
   subTab?: 'recent' | 'all' | 'galleries';
 }
 
-// 图集卡片列表组件（处理缩略图加载）
-const GalleryCardList: React.FC<{
-  galleries: any[];
-  onSelect: (gallery: any) => void;
-  getImageUrl: (path: string) => string;
-}> = ({ galleries, onSelect, getImageUrl }) => {
-  const [coverThumbnails, setCoverThumbnails] = React.useState<Record<number, string | null>>({});
-
-  // 加载所有封面的缩略图（并发 + 取消支持）
-  React.useEffect(() => {
-    if (!window.electronAPI || galleries.length === 0) return;
-
-    let cancelled = false;
-    const loadThumbnails = async () => {
-      const galleriesWithCover = galleries.filter(g => g.coverImage?.filepath);
-      const concurrency = 4;
-
-      for (let i = 0; i < galleriesWithCover.length; i += concurrency) {
-        if (cancelled) return;
-        const batch = galleriesWithCover.slice(i, i + concurrency);
-        const results = await Promise.all(batch.map(async (gallery) => {
-          if (cancelled) return null;
-          try {
-            const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
-            if (result.success && result.data) {
-              return { id: gallery.id, path: result.data };
-            }
-          } catch (error) {
-            console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
-          }
-          return null;
-        }));
-
-        if (cancelled) return;
-        const batchUpdate: Record<number, string | null> = {};
-        for (const r of results) {
-          if (r) batchUpdate[r.id] = r.path;
-        }
-        if (Object.keys(batchUpdate).length > 0) {
-          setCoverThumbnails(prev => ({ ...prev, ...batchUpdate }));
-        }
-      }
-    };
-
-    loadThumbnails();
-    return () => { cancelled = true; };
-  }, [galleries]);
-
-  return (
-    <Row gutter={[16, 16]}>
-      {galleries.map((gallery: any) => (
-        <Col key={gallery.id} xs={24} sm={12} md={8} lg={6}>
-          <div
-            className="card-ios-hover"
-            style={{
-              borderRadius: radius.md,
-              overflow: 'hidden',
-              background: colors.bgBase,
-              boxShadow: shadows.card,
-              border: `1px solid ${colors.borderCard}`,
-              cursor: 'pointer',
-            }}
-            onClick={() => onSelect(gallery)}
-          >
-            {gallery.coverImage ? (
-              <div style={{ height: 200, overflow: 'hidden' }}>
-                <img
-                  src={coverThumbnails[gallery.id]
-                    ? getImageUrl(coverThumbnails[gallery.id]!)
-                    : (gallery.coverImage.filepath ? getImageUrl(gallery.coverImage.filepath) : undefined)}
-                  alt={gallery.name}
-                  className="image-fade-in"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                  onLoad={(e) => (e.target as HTMLImageElement).classList.add('loaded')}
-                />
-              </div>
-            ) : (
-              <div style={{
-                height: 200,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: colors.bgLight,
-              }}>
-                <AppstoreOutlined style={{ fontSize: 40, color: colors.textTertiary }} />
-              </div>
-            )}
-            <div style={{ padding: `${spacing.md}px ${spacing.lg}px` }}>
-              <div style={{
-                fontSize: fontSize.base,
-                fontWeight: 600,
-                color: colors.textPrimary,
-                marginBottom: 4,
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}>
-                {gallery.name}
-              </div>
-              <div style={{ fontSize: fontSize.sm, color: colors.textTertiary }}>
-                {gallery.imageCount} 张图片
-              </div>
-            </div>
-          </div>
-        </Col>
-      ))}
-    </Row>
-  );
-};
 
 export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) => {
   // 分离不同模式的状态，避免相互干扰

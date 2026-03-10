@@ -115,6 +115,7 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     // 创建索引
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_filename ON images (filename)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_createdAt ON images (createdAt DESC)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_updatedAt ON images (updatedAt DESC)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_filepath ON images (filepath)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded)');

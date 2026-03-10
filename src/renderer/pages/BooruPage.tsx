@@ -212,25 +212,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
       }
       if (result.success) {
         const data = result.data || [];
-        console.log('[BooruPage] 图片加载成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
-        
-        // 调试：检查第一个 post 的 URL 是否完整
-        if (data.length > 0 && data[0]) {
-          const firstPost = data[0];
-          console.log('[BooruPage] 前端接收到的第一个 post URL:', {
-            postId: firstPost.postId,
-            fileUrlLength: firstPost.fileUrl?.length || 0,
-            previewUrlLength: firstPost.previewUrl?.length || 0,
-            sampleUrlLength: firstPost.sampleUrl?.length || 0,
-            fileUrl: firstPost.fileUrl,
-            previewUrl: firstPost.previewUrl,
-            sampleUrl: firstPost.sampleUrl,
-            fileUrlEndsWith: firstPost.fileUrl?.slice(-30) || '',
-            previewUrlEndsWith: firstPost.previewUrl?.slice(-30) || '',
-            sampleUrlEndsWith: firstPost.sampleUrl?.slice(-30) || ''
-          });
-        }
-        
+        console.log('[BooruPage] 图片加载成功:', data.length, '张图片');
         setPosts(data);
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
@@ -287,25 +269,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
       const result = await window.electronAPI.booru.searchPosts(selectedSiteId, allTags, page, appearanceConfig.itemsPerPage, true);
       if (result.success) {
         const data = result.data || [];
-        console.log('[BooruPage] 搜索成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
-        
-        // 调试：检查第一个 post 的 URL 是否完整
-        if (data.length > 0 && data[0]) {
-          const firstPost = data[0];
-          console.log('[BooruPage] 搜索后前端接收到的第一个 post URL:', {
-            postId: firstPost.postId,
-            fileUrlLength: firstPost.fileUrl?.length || 0,
-            previewUrlLength: firstPost.previewUrl?.length || 0,
-            sampleUrlLength: firstPost.sampleUrl?.length || 0,
-            fileUrl: firstPost.fileUrl,
-            previewUrl: firstPost.previewUrl,
-            sampleUrl: firstPost.sampleUrl,
-            fileUrlEndsWith: firstPost.fileUrl?.slice(-30) || '',
-            previewUrlEndsWith: firstPost.previewUrl?.slice(-30) || '',
-            sampleUrlEndsWith: firstPost.sampleUrl?.slice(-30) || ''
-          });
-        }
-        
+        console.log('[BooruPage] 搜索成功:', data.length, '张图片');
         setPosts(data);
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
@@ -444,6 +408,15 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
     return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
 
+  // 预解析每个帖子的标签数组，避免在多个 useMemo 中重复 split
+  const parsedPostTags = useMemo(() => {
+    const map = new Map<number, string[]>();
+    for (const post of sortedPosts) {
+      map.set(post.postId, post.tags ? post.tags.split(' ').filter(Boolean) : []);
+    }
+    return map;
+  }, [sortedPosts]);
+
   // 统计当前页面中每个黑名单标签命中的图片数量
   const blacklistHitStats = useMemo(() => {
     if (!blacklistTagNames.length) return new Map<string, number>();
@@ -452,7 +425,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
       ? sortedPosts.filter(post => post.rating === ratingFilter)
       : sortedPosts;
     for (const post of ratingFiltered) {
-      const postTags = post.tags.split(' ');
+      const postTags = parsedPostTags.get(post.postId) || [];
       for (const tag of postTags) {
         if (blacklistTagNames.includes(tag)) {
           hitMap.set(tag, (hitMap.get(tag) || 0) + 1);
@@ -460,7 +433,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
       }
     }
     return hitMap;
-  }, [sortedPosts, ratingFilter, blacklistTagNames]);
+  }, [sortedPosts, parsedPostTags, ratingFilter, blacklistTagNames]);
 
   // 排序后按评级筛选 + 黑名单过滤（支持按标签粒度取消隐藏）
   const filteredSortedPosts = useMemo(() => {
@@ -478,7 +451,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
         const blacklistSet = new Set(activeBlacklist);
         const beforeCount = result.length;
         result = result.filter(post => {
-          const postTags = post.tags.split(' ');
+          const postTags = parsedPostTags.get(post.postId) || [];
           return !postTags.some(tag => blacklistSet.has(tag));
         });
         const hiddenCount = beforeCount - result.length;
@@ -489,7 +462,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
     }
 
     return result;
-  }, [sortedPosts, ratingFilter, blacklistEnabled, blacklistTagNames, disabledBlacklistTags]);
+  }, [sortedPosts, parsedPostTags, ratingFilter, blacklistEnabled, blacklistTagNames, disabledBlacklistTags]);
 
   // 相关标签推荐：从当前帖子标签中统计高频标签（排除已搜索的标签）
   const relatedTags = useMemo(() => {
@@ -499,10 +472,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
     const excludeTags = new Set([...searchTags, 'order:random', 'highres', 'absurdres', 'commentary_request', 'tagme']);
     const tagCount = new Map<string, number>();
     for (const post of posts) {
-      const postTags = post.tags.split(' ').filter(t => t.trim());
+      const postTags = parsedPostTags.get(post.postId) || [];
       for (const tag of postTags) {
-        const lower = tag.toLowerCase();
-        if (!excludeTags.has(lower)) {
+        if (tag && !excludeTags.has(tag.toLowerCase())) {
           tagCount.set(tag, (tagCount.get(tag) || 0) + 1);
         }
       }
@@ -512,7 +484,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
       .sort((a, b) => b[1] - a[1])
       .slice(0, 15)
       .map(([tag, count]) => ({ tag, count }));
-  }, [posts, selectedTags]);
+  }, [posts, parsedPostTags, selectedTags]);
 
   // 初始化
   useEffect(() => {
