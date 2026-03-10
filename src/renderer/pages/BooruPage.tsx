@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App } from 'antd';
+import { Button, Empty, App, Tooltip, Tag } from 'antd';
+import { ThunderboltOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -342,6 +343,22 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     searchPosts(query, 1);
   };
 
+  // 随机帖子：基于当前搜索条件加上 order:random
+  const handleRandomPosts = useCallback(() => {
+    if (!selectedSiteId) {
+      message.warning('请先选择站点');
+      return;
+    }
+    console.log('[BooruPage] 随机帖子');
+    // 在当前标签基础上添加 order:random
+    const baseTags = isSearchMode && searchQuery.trim()
+      ? searchQuery.trim().replace(/\border:random\b/g, '').trim()
+      : '';
+    const randomQuery = baseTags ? `${baseTags} order:random` : 'order:random';
+    setSearchQuery(randomQuery);
+    searchPosts(randomQuery, 1);
+  }, [selectedSiteId, isSearchMode, searchQuery]);
+
   // 处理收藏切换（委托给 useFavorite Hook）
   const handleToggleFavorite = useCallback(async (post: BooruPost) => {
     const result = await toggleFavorite(post);
@@ -460,6 +477,29 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     return result;
   }, [sortedPosts, ratingFilter, blacklistEnabled, blacklistTagNames, disabledBlacklistTags]);
 
+  // 相关标签推荐：从当前帖子标签中统计高频标签（排除已搜索的标签）
+  const relatedTags = useMemo(() => {
+    if (posts.length === 0) return [];
+    const searchTags = new Set(selectedTags.map(t => t.toLowerCase()));
+    // 排除常见的 meta 标签和搜索关键词
+    const excludeTags = new Set([...searchTags, 'order:random', 'highres', 'absurdres', 'commentary_request', 'tagme']);
+    const tagCount = new Map<string, number>();
+    for (const post of posts) {
+      const postTags = post.tags.split(' ').filter(t => t.trim());
+      for (const tag of postTags) {
+        const lower = tag.toLowerCase();
+        if (!excludeTags.has(lower)) {
+          tagCount.set(tag, (tagCount.get(tag) || 0) + 1);
+        }
+      }
+    }
+    // 按出现频率排序，取前 15 个
+    return Array.from(tagCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 15)
+      .map(([tag, count]) => ({ tag, count }));
+  }, [posts, selectedTags]);
+
   // 初始化
   useEffect(() => {
     console.log('[BooruPage] 初始化页面');
@@ -545,7 +585,38 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         onSearch={handleSearch}
         selectedTags={selectedTags}
         onRemoveTag={handleRemoveTag}
+        extraActions={
+          <Tooltip title="随机浏览">
+            <Button
+              icon={<ThunderboltOutlined />}
+              onClick={handleRandomPosts}
+              disabled={!selectedSiteId || loading}
+            />
+          </Tooltip>
+        }
       />
+
+      {/* 相关标签推荐 — 在搜索模式下显示当前结果中的高频标签 */}
+      {isSearchMode && relatedTags.length > 0 && (
+        <div style={{
+          padding: '6px 12px',
+          marginBottom: 8,
+          background: 'rgba(22, 119, 255, 0.04)',
+          borderRadius: 8,
+          fontSize: 12,
+        }}>
+          <span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>相关标签:</span>
+          {relatedTags.map(({ tag, count }) => (
+            <Tag
+              key={tag}
+              style={{ cursor: 'pointer', marginBottom: 2 }}
+              onClick={() => handleTagClick(tag)}
+            >
+              {tag} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
+            </Tag>
+          ))}
+        </div>
+      )}
 
       {/* 黑名单过滤提示 - 按标签显示命中情况，支持按标签取消隐藏 */}
       {blacklistEnabled && blacklistHitStats.size > 0 && (

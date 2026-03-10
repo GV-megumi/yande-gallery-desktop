@@ -8,15 +8,10 @@
 
 ## P0 - 高优先级（核心体验提升）
 
-### 1. 多站点 API 完整对接
-- **现状**: 仅 Moebooru (Yande.re/Konachan) 完整实现，Danbooru/Gelbooru 在 UI 中可配置但 API 客户端未实现
-- **目标**: 为 Danbooru 和 Gelbooru 各实现独立的 API 客户端
-- **涉及文件**:
-  - 新建 `src/main/services/danbooruClient.ts`
-  - 新建 `src/main/services/gelbooruClient.ts`
-  - 修改 `src/main/ipc/handlers.ts` 根据站点类型分发请求
-- **Boorusama 参考**: `lib/boorus/danbooru/`, `lib/boorus/gelbooru/`
-- **工作量**: 大
+### ~~1. 多站点 API 完整对接~~ ✅ 已完成 (2026-03-10)
+- **实现**: 统一 `IBooruClient` 接口 + 工厂模式分发
+- **新增文件**: `booruClientInterface.ts`, `danbooruClient.ts`, `gelbooruClient.ts`, `booruClientFactory.ts`
+- **重构**: handlers.ts 和 bulkDownloadService.ts 中 19 处 MoebooruClient 替换为工厂调用
 
 ### 2. 高级搜索语法
 - **现状**: 仅支持空格/逗号分隔的 AND 标签搜索
@@ -72,12 +67,8 @@
 - **Boorusama 参考**: `lib/core/notes/`
 - **工作量**: 中
 
-### 9. 幻灯片模式 (Slideshow)
-- **现状**: 帖子详情页支持左右键导航，但无自动播放
-- **目标**: 支持自动轮播（可配置间隔、方向、是否随机）
-- **涉及文件**: `BooruPostDetailsPage.tsx` 增加 slideshow 控制面板
-- **Boorusama 参考**: `lib/core/widgets/posts/slideshow_config_page.dart`
-- **工作量**: 小
+### ~~9. 幻灯片模式 (Slideshow)~~ ✅ 已完成 (2026-03-10)
+- **实现**: 帖子详情页底部新增播放/暂停控制条，支持 2-15 秒间隔调节，自动循环播放
 
 ### 10. 视频帖子支持
 - **现状**: 仅支持图片格式（jpg/png/gif/webp/bmp）
@@ -93,19 +84,11 @@
 - **Boorusama 参考**: `lib/core/posts/versions/`
 - **工作量**: 小（仅 Danbooru）
 
-### 12. 相关标签推荐
-- **现状**: 帖子详情页有 RelatedPostsSection，但无标签关联推荐
-- **目标**: 搜索时展示相关标签，帮助发现新内容
-- **涉及文件**: `BooruPageToolbar.tsx` 搜索框下方增加推荐标签
-- **Boorusama 参考**: `lib/core/tags/related_tags/`
-- **工作量**: 小
+### ~~12. 相关标签推荐~~ ✅ 已完成 (2026-03-10)
+- **实现**: 搜索模式下从当前结果标签中统计高频标签（前 15 个），点击直接搜索
 
-### 13. 随机帖子
-- **现状**: 不支持
-- **目标**: 一键随机浏览帖子（可基于当前搜索条件）
-- **涉及文件**: `BooruPage.tsx` 增加随机按钮，IPC 增加 random API 调用
-- **Boorusama 参考**: 搜索 `order:random` 标签
-- **工作量**: 小
+### ~~13. 随机帖子~~ ✅ 已完成 (2026-03-10)
+- **实现**: BooruPage 工具栏新增闪电按钮，基于当前搜索条件附加 `order:random` 标签
 
 ---
 
@@ -243,8 +226,11 @@
 
 | 功能 | Boorusama | 本项目 |
 |------|-----------|--------|
-| 多站点配置 | 16 种 | 3 种（Moebooru 完整，其余待实现） |
+| 多站点配置 | 16 种 | 3 种（Moebooru + Danbooru + Gelbooru 完整实现） |
 | 帖子搜索 | tag + meta-tag | tag 搜索 |
+| 随机帖子 | 有 | 有（order:random） |
+| 幻灯片 | 有 | 有（2-15 秒可调） |
+| 相关标签推荐 | 有 | 有（搜索结果高频标签） |
 | 标签自动补全 | 有 | 有 |
 | 搜索历史 | 有 | 有 |
 | 帖子详情页 | 有 | 有（含标签分类、文件信息、相关帖子） |
@@ -270,5 +256,5 @@
 
 ---
 
-*最后更新: 2026-03-09*
+*最后更新: 2026-03-10*
 *基于 Boorusama commit: master 分支*

@@ -14,7 +14,7 @@ import path from 'path';
 import { BrowserWindow } from 'electron';
 import { getDatabase, run, get, all } from './database.js';
 import { getProxyConfig } from './config.js';
-import { MoebooruClient } from './moebooruClient.js';
+import { createBooruClient } from './booruClientFactory.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
 import * as booruService from './booruService.js';
 import { downloadManager } from './downloadManager.js';
@@ -838,11 +838,7 @@ async function performDryRun(
       return { success: false, error: '站点不存在' };
     }
 
-    const client = new MoebooruClient({
-      baseUrl: site.url,
-      login: site.username,
-      passwordHash: site.passwordHash
-    });
+    const client = createBooruClient(site);
 
     const tags = task.tags.split(' ').filter(t => t.trim());
     let currentPage = 1;

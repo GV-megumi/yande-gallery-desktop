@@ -1,10 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   hashPasswordSHA1,
-  TAG_TYPE_MAP,
-  RATING_MAP,
   MoebooruClient,
 } from '../../../src/main/services/moebooruClient';
+import {
+  TAG_TYPE_MAP,
+  RATING_MAP,
+} from '../../../src/main/services/booruClientInterface';
 
 describe('hashPasswordSHA1', () => {
   it('应使用盐值正确哈希密码', () => {

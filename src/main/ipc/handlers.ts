@@ -29,7 +29,9 @@ import {
   updateGalleryStats,
   scanSubfoldersAndCreateGalleries
 } from '../services/galleryService.js';
-import { MoebooruClient, hashPasswordSHA1, RATING_MAP, TAG_TYPE_MAP } from '../services/moebooruClient.js';
+import { hashPasswordSHA1 } from '../services/moebooruClient.js';
+import { createBooruClient } from '../services/booruClientFactory.js';
+import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
 import { BooruPost } from '../../shared/types.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
@@ -419,11 +421,7 @@ export function setupIPC() {
       }
 
       // 创建Moebooru客户端
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       // 从API获取数据
       const posts = await client.getPosts({ page, tags, limit: limit || 20 });
@@ -631,11 +629,7 @@ export function setupIPC() {
       }
 
       // 创建Moebooru客户端
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       // 从API搜索
       const posts = await client.getPosts({ page, tags, limit: limit || 20 });
@@ -1541,12 +1535,8 @@ export function setupIPC() {
         passwordHash
       });
 
-      // 测试认证是否有效
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: username,
-        passwordHash
-      });
+      // 测试认证是否有效（使用临时凭证创建客户端）
+      const client = createBooruClient({ ...site, username, passwordHash });
 
       const authResult = await client.testAuth();
 
@@ -1603,11 +1593,7 @@ export function setupIPC() {
         return { success: true, data: { authenticated: false, reason: '未配置认证信息' } };
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const authResult = await client.testAuth();
       return { success: true, data: { authenticated: authResult.valid, username: site.username, error: authResult.error } };
@@ -1642,11 +1628,7 @@ export function setupIPC() {
         throw new Error('需要登录才能投票');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       await client.votePost(postId, score);
       return { success: true };
@@ -1669,11 +1651,7 @@ export function setupIPC() {
         throw new Error('需要登录才能收藏');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       await client.favoritePost(postId);
       return { success: true };
@@ -1696,11 +1674,7 @@ export function setupIPC() {
         throw new Error('需要登录才能操作');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       await client.unfavoritePost(postId);
       return { success: true };
@@ -1725,11 +1699,7 @@ export function setupIPC() {
         throw new Error('需要登录才能查看喜欢列表');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const posts = await client.getServerFavorites(page, limit);
       console.log('[IPC] 获取服务端喜欢列表成功:', posts.length, '张');
@@ -1784,11 +1754,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const users: any = await client.getFavoriteUsers(postId);
       console.log('[IPC] 获取收藏用户成功:', users);
@@ -1819,11 +1785,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const posts = await client.getPopularRecent(period);
       console.log('[IPC] 获取热门图片成功:', posts.length, '张');
@@ -1879,11 +1841,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const posts = await client.getPopularByDay(date);
 
@@ -1937,11 +1895,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const posts = await client.getPopularByWeek(date);
 
@@ -1995,11 +1949,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const posts = await client.getPopularByMonth(date);
 
@@ -2055,11 +2005,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const comments = await client.getComments(postId);
 
@@ -2094,11 +2040,7 @@ export function setupIPC() {
         throw new Error('需要登录才能评论');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const result = await client.createComment(postId, body);
       return { success: true, data: result };
@@ -2119,11 +2061,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const pools = await client.getPools({ page });
 
@@ -2154,11 +2092,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const poolData = await client.getPool(poolId, page);
 
@@ -2225,11 +2159,7 @@ export function setupIPC() {
         throw new Error('站点不存在');
       }
 
-      const client = new MoebooruClient({
-        baseUrl: site.url,
-        login: site.username,
-        passwordHash: site.passwordHash
-      });
+      const client = createBooruClient(site);
 
       const pools = await client.getPools({ query, page });
 

@@ -138,10 +138,7 @@ describe('IPC_CHANNELS', () => {
 
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
-    // 确保通道数量不会意外增减
-    // 数据库(4) + 图片(2) + 系统(3) + Booru站点(5) + Booru图片(3) + Booru收藏(3)
-    // + Booru下载(10) + Booru搜索历史(3) + Booru图片缓存(3) + Booru标签分类(1)
-    // + 批量下载(16) + 收藏标签(6) + 收藏标签分组(3) = 62
-    expect(keys.length).toBe(62);
+    // 确保通道数量不会意外增减（随功能增加而更新）
+    expect(keys.length).toBe(91);
   });
 });

@@ -1,6 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import crypto from 'crypto';
 import { getProxyConfig } from './config.js';
+import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, RateLimiter } from './booruClientInterface.js';
 
 // Moebooru API配置
 export interface MoebooruConfig {
@@ -95,58 +96,11 @@ export function hashPasswordSHA1(salt: string, password: string): string {
 }
 
 /**
- * 简单令牌桶限流器
- * 控制单位时间内的最大请求数，防止触发服务端 429
- */
-class RateLimiter {
-  private tokens: number;
-  private readonly maxTokens: number;
-  private readonly refillIntervalMs: number;
-  private lastRefill: number;
-
-  /**
-   * @param maxRequests 最大突发请求数
-   * @param perMs 令牌补充周期（毫秒）
-   */
-  constructor(maxRequests: number = 5, perMs: number = 1000) {
-    this.maxTokens = maxRequests;
-    this.tokens = maxRequests;
-    this.refillIntervalMs = perMs;
-    this.lastRefill = Date.now();
-  }
-
-  /** 等待一个可用令牌 */
-  async acquire(): Promise<void> {
-    this.refill();
-    if (this.tokens > 0) {
-      this.tokens--;
-      return;
-    }
-    // 等待下一个令牌补充
-    const waitMs = this.refillIntervalMs - (Date.now() - this.lastRefill);
-    if (waitMs > 0) {
-      await new Promise(resolve => setTimeout(resolve, waitMs));
-    }
-    this.refill();
-    this.tokens = Math.max(0, this.tokens - 1);
-  }
-
-  private refill(): void {
-    const now = Date.now();
-    const elapsed = now - this.lastRefill;
-    if (elapsed >= this.refillIntervalMs) {
-      const periods = Math.floor(elapsed / this.refillIntervalMs);
-      this.tokens = Math.min(this.maxTokens, this.tokens + periods);
-      this.lastRefill += periods * this.refillIntervalMs;
-    }
-  }
-}
-
-/**
  * Moebooru API客户端
  * 参考: example/Boorusama-master/packages/booru_clients/lib/src/moebooru/moebooru_client.dart
  */
-export class MoebooruClient {
+export class MoebooruClient implements IBooruClient {
+  readonly siteType = 'moebooru' as const;
   private client: AxiosInstance;
   private config: MoebooruConfig;
   // 请求限流器：最多 2 请求/秒（Yande.re 限制 2 req/s，Konachan 限制 1 req/s）

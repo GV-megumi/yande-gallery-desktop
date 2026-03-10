@@ -49,7 +49,11 @@
   - `imageService.ts` - 本地图片服务
   - `galleryService.ts` - 图库/图集服务
   - `thumbnailService.ts` - 缩略图生成和管理
-  - `moebooruClient.ts` - Moebooru API 客户端
+  - `booruClientInterface.ts` - Booru 客户端统一接口和共享工具（IBooruClient、RateLimiter）
+  - `moebooruClient.ts` - Moebooru API 客户端（Yande.re、Konachan）
+  - `danbooruClient.ts` - Danbooru API 客户端（Danbooru、Safebooru）
+  - `gelbooruClient.ts` - Gelbooru API 客户端（Gelbooru）
+  - `booruClientFactory.ts` - 客户端工厂，根据站点类型自动分发
   - `booruService.ts` - Booru 数据库操作
   - `downloadManager.ts` - 下载队列管理器
   - `filenameGenerator.ts` - 文件名生成器
@@ -141,7 +145,11 @@ yande-gallery-desktop/
 │   │   │   ├── imageService.ts  # 图片服务
 │   │   │   ├── galleryService.ts # 图库服务
 │   │   │   ├── thumbnailService.ts # 缩略图服务
+│   │   │   ├── booruClientInterface.ts # Booru 客户端统一接口
 │   │   │   ├── moebooruClient.ts # Moebooru API 客户端
+│   │   │   ├── danbooruClient.ts # Danbooru API 客户端
+│   │   │   ├── gelbooruClient.ts # Gelbooru API 客户端
+│   │   │   ├── booruClientFactory.ts # 客户端工厂
 │   │   │   ├── booruService.ts  # Booru 数据库操作
 │   │   │   ├── downloadManager.ts # 下载管理器
 │   │   │   ├── bulkDownloadService.ts # 批量下载服务
@@ -394,7 +402,38 @@ booru:
 // 结果: 'yande_12345_a1b2c3d4.png'
 ```
 
-### 5. Moebooru API 客户端 (moebooruClient)
+### 5. Booru 多站点架构
+
+#### 策略模式
+所有 Booru API 客户端实现统一的 `IBooruClient` 接口（定义在 `booruClientInterface.ts`），通过 `createBooruClient(site)` 工厂函数按站点类型自动分发：
+
+| 站点类型 | 客户端 | 典型站点 | 认证方式 |
+|---------|--------|---------|---------|
+| `moebooru` | `MoebooruClient` | Yande.re、Konachan | SHA1 密码哈希 |
+| `danbooru` | `DanbooruClient` | Danbooru、Safebooru | HTTP Basic Auth (login + API key) |
+| `gelbooru` | `GelbooruClient` | Gelbooru | api_key + user_id 查询参数 |
+
+#### 统一接口 (IBooruClient)
+```typescript
+interface IBooruClient {
+  getPosts(params): Promise<BooruPostData[]>;
+  getPopularRecent(period): Promise<BooruPostData[]>;
+  favoritePost(id): Promise<void>;
+  votePost(id, score): Promise<void>;
+  getTags(params): Promise<BooruTagData[]>;
+  getComments(postId): Promise<BooruCommentData[]>;
+  getPools(params): Promise<BooruPoolData[]>;
+  testAuth(): Promise<{ valid: boolean; error?: string }>;
+  // ... 完整接口见 booruClientInterface.ts
+}
+```
+
+#### 共享工具
+- `RateLimiter` — 令牌桶限流器，各客户端共享
+- `TAG_TYPE_MAP` — 标签类型数字到文字的映射
+- `RATING_MAP` — 评级字符到文字的映射
+
+### 5.1 Moebooru API 客户端 (moebooruClient)
 
 #### 支持的 API
 
@@ -1276,7 +1315,10 @@ npm run rebuild
 
 ### 第三阶段 (进行中) 🚧
 - [ ] 收藏夹同步到服务器
-- [ ] 多站点支持完善（Danbooru、Gelbooru）
+- [x] 多站点支持完善（Danbooru、Gelbooru API 客户端 + 工厂模式分发）
+- [x] 随机帖子浏览
+- [x] 幻灯片自动播放模式
+- [x] 搜索结果相关标签推荐
 - [ ] 标签自动完成优化
 - [ ] 相似图片推荐
 - [ ] 下载历史和统计
@@ -1318,6 +1360,6 @@ MIT License - 允许自由使用、修改和分发
 
 ---
 
-**最后更新**：2026 年 3 月 6 日
+**最后更新**：2026 年 3 月 10 日
 **作者**：Claude Code
-**版本**：1.0.0（已完成批量下载、收藏管理、详情页、标签搜索、下载管理增强等功能）
+**版本**：1.1.0（新增多站点 API 对接、随机帖子、幻灯片模式、相关标签推荐）

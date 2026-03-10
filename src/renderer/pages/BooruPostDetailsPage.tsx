@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Modal, Space, Button } from 'antd';
-import { LeftOutlined, RightOutlined, CloseOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { Modal, Space, Button, Tooltip, Slider } from 'antd';
+import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { InformationSection } from '../components/BooruPostDetails/InformationSection';
 import { Toolbar } from '../components/BooruPostDetails/Toolbar';
@@ -57,6 +57,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [previewQuality, setPreviewQuality] = useState<'auto' | 'low' | 'medium' | 'high' | 'original'>('auto');
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isCaching, setIsCaching] = useState(false);
+
+  // 幻灯片模式
+  const [slideshowActive, setSlideshowActive] = useState(false);
+  const [slideshowInterval, setSlideshowInterval] = useState(5); // 秒
+  const slideshowTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // 当前显示的图片
   const currentPost = posts.length > 0 && currentIndex >= 0 && currentIndex < posts.length
@@ -317,6 +322,35 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     };
   }, [open, currentIndex, posts.length]);
 
+  // 幻灯片自动播放
+  useEffect(() => {
+    if (slideshowActive && open && posts.length > 1) {
+      slideshowTimerRef.current = setInterval(() => {
+        setCurrentIndex(prev => {
+          if (prev < posts.length - 1) {
+            return prev + 1;
+          }
+          // 到最后一张时循环回第一张
+          return 0;
+        });
+      }, slideshowInterval * 1000);
+    }
+
+    return () => {
+      if (slideshowTimerRef.current) {
+        clearInterval(slideshowTimerRef.current);
+        slideshowTimerRef.current = null;
+      }
+    };
+  }, [slideshowActive, open, posts.length, slideshowInterval]);
+
+  // 关闭详情页时停止幻灯片
+  useEffect(() => {
+    if (!open) {
+      setSlideshowActive(false);
+    }
+  }, [open]);
+
   // 图片缩放
   const handleWheel = (e: React.WheelEvent) => {
     if (e.ctrlKey || e.metaKey) {
@@ -538,6 +572,49 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   });
                 }}
               />
+            )}
+
+            {/* 幻灯片控制条 — 底部中央悬浮 */}
+            {posts.length > 1 && (
+              <div style={{
+                position: 'absolute',
+                bottom: 16,
+                left: '50%',
+                transform: 'translateX(-50%)',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: 'rgba(0, 0, 0, 0.6)',
+                borderRadius: 24,
+                padding: '6px 16px',
+                zIndex: 10,
+                backdropFilter: 'blur(8px)',
+              }}>
+                <Tooltip title={slideshowActive ? '暂停' : '自动播放'}>
+                  <Button
+                    type="text"
+                    size="small"
+                    icon={slideshowActive ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
+                    onClick={(e) => { e.stopPropagation(); setSlideshowActive(!slideshowActive); }}
+                    style={{ color: '#fff', fontSize: 18 }}
+                  />
+                </Tooltip>
+                <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 12, whiteSpace: 'nowrap' }}>
+                  {slideshowInterval}s
+                </span>
+                <Slider
+                  min={2}
+                  max={15}
+                  step={1}
+                  value={slideshowInterval}
+                  onChange={(val) => setSlideshowInterval(val)}
+                  style={{ width: 80, margin: 0 }}
+                  tooltip={{ formatter: (val) => `${val}秒` }}
+                />
+                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
+                  {currentIndex + 1}/{posts.length}
+                </span>
+              </div>
             )}
           </div>
 
