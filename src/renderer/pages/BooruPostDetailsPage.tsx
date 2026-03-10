@@ -1,6 +1,16 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { Modal, Space, Button, Tooltip, Slider } from 'antd';
 import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
+
+// 检测是否为视频格式
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi']);
+function isVideoPost(post: { fileExt?: string; fileUrl?: string } | null): boolean {
+  if (!post) return false;
+  if (post.fileExt && VIDEO_EXTENSIONS.has(post.fileExt.toLowerCase())) return true;
+  const url = post.fileUrl || '';
+  const ext = url.split('.').pop()?.split('?')[0]?.toLowerCase() || '';
+  return VIDEO_EXTENSIONS.has(ext);
+}
 import { BooruPost, BooruSite } from '../../shared/types';
 import { InformationSection } from '../components/BooruPostDetails/InformationSection';
 import { Toolbar } from '../components/BooruPostDetails/Toolbar';
@@ -8,6 +18,8 @@ import { TagsSection } from '../components/BooruPostDetails/TagsSection';
 import { FileDetailsSection } from '../components/BooruPostDetails/FileDetailsSection';
 import { RelatedPostsSection } from '../components/BooruPostDetails/RelatedPostsSection';
 import { CommentSection } from '../components/BooruPostDetails/CommentSection';
+import { NotesOverlay } from '../components/BooruPostDetails/NotesOverlay';
+import { PostHistorySection } from '../components/BooruPostDetails/PostHistorySection';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
 interface BooruPostDetailsPageProps {
@@ -21,6 +33,7 @@ interface BooruPostDetailsPageProps {
   onDownload?: (post: BooruPost) => void;
   onTagClick?: (tag: string) => void;
   onArtistClick?: (artistName: string) => void;
+  onCharacterClick?: (characterName: string) => void;
   /** 服务端喜欢状态判断（传入当前 post 是否已喜欢） */
   isServerFavorited?: (post: BooruPost) => boolean;
   /** 服务端喜欢切换回调 */
@@ -48,6 +61,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   onDownload,
   onTagClick,
   onArtistClick,
+  onCharacterClick,
   isServerFavorited,
   onToggleServerFavorite
 }) => {
@@ -122,6 +136,13 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
         const url = currentPost.sampleUrl || currentPost.previewUrl || '';
         console.log('[BooruPostDetailsPage] 没有原图URL，使用:', url ? 'sampleUrl/previewUrl' : '无');
         setImageUrl(url);
+        return;
+      }
+
+      // 视频帖子直接使用原图 URL，不走缓存（视频文件过大）
+      if (isVideoPost(currentPost)) {
+        console.log('[BooruPostDetailsPage] 视频帖子，直接使用原图URL');
+        setImageUrl(currentPost.fileUrl);
         return;
       }
 
@@ -533,7 +554,29 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               </button>
             )}
 
-            {imageUrl && (
+            {imageUrl && isVideoPost(currentPost) ? (
+              /* 视频播放器 */
+              <video
+                key={imageUrl}
+                src={imageUrl}
+                controls
+                autoPlay
+                loop
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '100%',
+                  objectFit: 'contain',
+                  userSelect: 'none',
+                }}
+                onError={() => {
+                  console.error('[BooruPostDetailsPage] 视频加载失败:', imageUrl);
+                }}
+                onLoadedData={() => {
+                  console.log('[BooruPostDetailsPage] 视频加载成功:', currentPost?.postId);
+                }}
+              />
+            ) : imageUrl ? (
+              /* 图片查看器 */
               <img
                 src={imageUrl}
                 alt={`Post ${currentPost?.postId || ''}`}
@@ -574,6 +617,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   });
                 }}
               />
+            ) : null}
+
+            {/* 注释叠加层（仅图片帖子显示） */}
+            {!isVideoPost(currentPost) && (
+              <NotesOverlay post={currentPost} site={site} />
             )}
 
             {/* 幻灯片控制条 — 底部中央悬浮 */}
@@ -651,6 +699,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 site={site}
                 onTagClick={onTagClick}
                 onArtistClick={onArtistClick}
+                onCharacterClick={onCharacterClick}
               />
 
               {/* 文件详情 */}
@@ -678,6 +727,14 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 post={currentPost}
                 site={site}
               />
+
+              {/* 版本历史（Danbooru 专属） */}
+              {site?.type === 'danbooru' && (
+                <PostHistorySection
+                  post={currentPost}
+                  site={site}
+                />
+              )}
             </div>
           </div>
         </div>

@@ -481,6 +481,53 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_image_tags_tagId ON image_tags(tagId)');
     console.log('[database] 性能优化索引创建成功');
 
+    // === 收藏夹分组相关表 ===
+    console.log('[database] 开始创建收藏夹分组相关表...');
+
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_favorite_groups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER,
+        name TEXT NOT NULL,
+        color TEXT,
+        sortOrder INTEGER DEFAULT 0,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    // 为 booru_favorites 添加 groupId 字段（数据库迁移）
+    try {
+      await run(database, 'ALTER TABLE booru_favorites ADD COLUMN groupId INTEGER REFERENCES booru_favorite_groups(id) ON DELETE SET NULL');
+      console.log('[database] 已添加 groupId 字段到 booru_favorites');
+    } catch (error: any) {
+      if (!error.message.includes('duplicate column')) {
+        console.warn('[database] 添加 groupId 字段失败（可能已存在）:', error.message);
+      }
+    }
+
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_groups_siteId ON booru_favorite_groups(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_groupId ON booru_favorites(groupId)');
+    console.log('[database] 收藏夹分组相关表创建成功');
+
+    // === 保存的搜索表 ===
+    console.log('[database] 开始创建保存的搜索表...');
+
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_saved_searches (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        siteId INTEGER,
+        name TEXT NOT NULL,
+        query TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        FOREIGN KEY (siteId) REFERENCES booru_sites(id) ON DELETE CASCADE
+      )
+    `);
+
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_saved_searches_siteId ON booru_saved_searches(siteId)');
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_saved_searches_createdAt ON booru_saved_searches(createdAt DESC)');
+    console.log('[database] 保存的搜索表创建成功');
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [

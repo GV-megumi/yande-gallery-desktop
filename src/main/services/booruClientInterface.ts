@@ -77,6 +77,39 @@ export interface BooruTagSummaryData {
   data: string;
 }
 
+/** 统一的帖子注释格式（Moebooru/Danbooru 支持） */
+export interface BooruNoteData {
+  id: number;
+  post_id: number;
+  x: number;           // 注释框左上角 X 坐标（相对于原图宽度的百分比，0-100）
+  y: number;           // 注释框左上角 Y 坐标（相对于原图高度的百分比，0-100）
+  width: number;       // 注释框宽度（百分比）
+  height: number;      // 注释框高度（百分比）
+  body: string;        // 注释内容（可含 HTML）
+  creator: string;     // 创建者用户名
+  created_at: string;
+  updated_at?: string;
+  is_active?: boolean;
+}
+
+/** 统一的帖子版本历史格式（Danbooru 专属） */
+export interface BooruPostVersionData {
+  id: number;
+  post_id: number;
+  version: number;
+  updater_name: string;
+  created_at: string;
+  tags_added: string[];
+  tags_removed: string[];
+  rating?: string;
+  rating_changed?: boolean;
+  source?: string;
+  source_changed?: boolean;
+  parent_id?: number;
+  parent_changed?: boolean;
+  description_changed?: boolean;
+}
+
 /** 统一的艺术家格式 */
 export interface BooruArtistData {
   id: number;
@@ -198,6 +231,16 @@ export interface IBooruClient {
 
   /** 按名称获取艺术家信息（外部链接、别名等） */
   getArtist(name: string): Promise<BooruArtistData | null>;
+
+  // --- 注释相关 ---
+
+  /** 获取帖子的注释列表（Moebooru/Danbooru 支持，其他返回空数组） */
+  getNotes(postId: number): Promise<BooruNoteData[]>;
+
+  // --- 版本历史 ---
+
+  /** 获取帖子的版本历史（Danbooru 专属，其他返回空数组） */
+  getPostVersions(postId: number): Promise<BooruPostVersionData[]>;
 
   // --- 认证/测试 ---
 

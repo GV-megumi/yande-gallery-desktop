@@ -25,6 +25,8 @@ import {
   BooruPoolDetailData,
   BooruTagSummaryData,
   BooruArtistData,
+  BooruNoteData,
+  BooruPostVersionData,
   TAG_TYPE_MAP,
   RateLimiter,
 } from './booruClientInterface.js';
@@ -685,6 +687,71 @@ export class DanbooruClient implements IBooruClient {
         return { valid: false, error: '用户名或 API Key 错误' };
       }
       return { valid: false, error: '网络错误: ' + error.message };
+    }
+  }
+
+  /**
+   * 获取帖子注释（Danbooru: /notes.json?search[post_id]=xxx）
+   */
+  async getNotes(postId: number): Promise<BooruNoteData[]> {
+    try {
+      console.log('[DanbooruClient] 获取注释, postId:', postId);
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/notes.json', {
+        params: { 'search[post_id]': postId }
+      });
+      const notes: any[] = Array.isArray(response.data) ? response.data : [];
+      return notes
+        .filter((n: any) => n.is_active !== false)
+        .map((n: any) => ({
+          id: n.id,
+          post_id: n.post_id,
+          x: n.x,
+          y: n.y,
+          width: n.width,
+          height: n.height,
+          body: n.body || '',
+          creator: n.creator_name || '',
+          created_at: n.created_at || new Date().toISOString(),
+          updated_at: n.updated_at || undefined,
+          is_active: n.is_active !== false,
+        }));
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取注释失败:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 获取帖子版本历史（Danbooru: /post_versions.json?search[post_id]=xxx）
+   */
+  async getPostVersions(postId: number): Promise<BooruPostVersionData[]> {
+    try {
+      console.log('[DanbooruClient] 获取版本历史, postId:', postId);
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/post_versions.json', {
+        params: { 'search[post_id]': postId, limit: 50 }
+      });
+      const versions: any[] = Array.isArray(response.data) ? response.data : [];
+      return versions.map((v: any) => ({
+        id: v.id,
+        post_id: v.post_id,
+        version: v.version,
+        updater_name: v.updater_name || v.updater?.name || '未知',
+        created_at: v.updated_at || v.created_at || new Date().toISOString(),
+        tags_added: v.added_tags || [],
+        tags_removed: v.removed_tags || [],
+        rating: v.rating,
+        rating_changed: v.rating_changed || false,
+        source: v.source,
+        source_changed: v.source_changed || false,
+        parent_id: v.parent_id,
+        parent_changed: v.parent_changed || false,
+        description_changed: v.description_changed || false,
+      }));
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取版本历史失败:', error.message);
+      return [];
     }
   }
 

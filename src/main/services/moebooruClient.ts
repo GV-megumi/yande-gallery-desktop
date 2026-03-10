@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import crypto from 'crypto';
 import { getProxyConfig } from './config.js';
-import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, RateLimiter } from './booruClientInterface.js';
+import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, BooruNoteData, BooruPostVersionData, RateLimiter } from './booruClientInterface.js';
 
 // Moebooru API配置
 export interface MoebooruConfig {
@@ -976,6 +976,48 @@ export class MoebooruClient implements IBooruClient {
       console.error('[MoebooruClient] 认证测试异常:', msg);
       return { valid: false, error: '网络错误: ' + msg };
     }
+  }
+
+  /**
+   * 获取帖子注释（Moebooru 支持 /note.json?post_id=xxx）
+   */
+  async getNotes(postId: number): Promise<BooruNoteData[]> {
+    try {
+      console.log('[MoebooruClient] 获取注释, postId:', postId);
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/note.json', {
+        params: { post_id: postId, ...this.getAuthParams() }
+      });
+      const notes: any[] = Array.isArray(response.data) ? response.data : [];
+      return notes
+        .filter((n: any) => n.is_active !== false)
+        .map((n: any) => {
+          // Moebooru 注释坐标为绝对像素，需转换为百分比（由调用方根据图片尺寸换算）
+          return {
+            id: n.id,
+            post_id: n.post_id,
+            x: n.x,
+            y: n.y,
+            width: n.width,
+            height: n.height,
+            body: n.body || '',
+            creator: n.creator || '',
+            created_at: n.created_at ? String(n.created_at) : new Date().toISOString(),
+            updated_at: n.updated_at ? String(n.updated_at) : undefined,
+            is_active: n.is_active !== false,
+          };
+        });
+    } catch (error: any) {
+      console.error('[MoebooruClient] 获取注释失败:', error.message);
+      return [];
+    }
+  }
+
+  /**
+   * 获取帖子版本历史（Moebooru 不支持，返回空数组）
+   */
+  async getPostVersions(_postId: number): Promise<BooruPostVersionData[]> {
+    return [];
   }
 
   /**

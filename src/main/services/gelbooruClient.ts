@@ -27,6 +27,8 @@ import {
   BooruPoolDetailData,
   BooruTagSummaryData,
   BooruArtistData,
+  BooruNoteData,
+  BooruPostVersionData,
 } from './booruClientInterface.js';
 
 // Gelbooru API 返回的原始 Post 格式
@@ -653,6 +655,14 @@ export class GelbooruClient implements IBooruClient {
   async getArtist(_name: string): Promise<BooruArtistData | null> {
     console.log('[GelbooruClient] Gelbooru 不支持艺术家 API');
     return null;
+  }
+
+  async getNotes(_postId: number): Promise<BooruNoteData[]> {
+    return [];
+  }
+
+  async getPostVersions(_postId: number): Promise<BooruPostVersionData[]> {
+    return [];
   }
 
   // ========= 认证/测试 =========

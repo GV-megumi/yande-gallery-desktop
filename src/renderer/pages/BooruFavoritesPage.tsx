@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography, notification } from 'antd';
-import { BookOutlined } from '@ant-design/icons';
+import { Button, Empty, App, Typography, notification, Input, Modal, Popconfirm } from 'antd';
+import { BookOutlined, PlusOutlined, EditOutlined, DeleteOutlined, FolderOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -37,6 +37,14 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+
+  // 收藏夹分组状态
+  const [groups, setGroups] = useState<any[]>([]);
+  const [selectedGroupId, setSelectedGroupId] = useState<number | 'all' | 'ungrouped'>('all');
+  const [groupModalVisible, setGroupModalVisible] = useState(false);
+  const [editingGroup, setEditingGroup] = useState<any | null>(null);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [groupColor, setGroupColor] = useState('#1677ff');
 
   // 用 ref 持有最新的 posts 长度，避免 onSuccess 回调中的闭包过期
   const postsLengthRef = useRef(posts.length);
@@ -148,6 +156,52 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
   };
 
+  // 加载收藏夹分组
+  const loadGroups = useCallback(async () => {
+    if (!selectedSiteId) return;
+    try {
+      const result = await window.electronAPI.booru.getFavoriteGroups(selectedSiteId);
+      if (result.success) {
+        setGroups(result.data || []);
+      }
+    } catch (error) {
+      console.error('[BooruFavoritesPage] 加载分组失败:', error);
+    }
+  }, [selectedSiteId]);
+
+  // 创建/更新分组
+  const handleSaveGroup = async () => {
+    if (!newGroupName.trim()) return;
+    try {
+      if (editingGroup) {
+        await window.electronAPI.booru.updateFavoriteGroup(editingGroup.id, { name: newGroupName.trim(), color: groupColor });
+        message.success('分组已更新');
+      } else {
+        await window.electronAPI.booru.createFavoriteGroup(newGroupName.trim(), selectedSiteId || undefined, groupColor);
+        message.success('分组已创建');
+      }
+      setGroupModalVisible(false);
+      setEditingGroup(null);
+      setNewGroupName('');
+      loadGroups();
+    } catch (error) {
+      message.error('操作失败');
+    }
+  };
+
+  // 删除分组
+  const handleDeleteGroup = async (groupId: number) => {
+    try {
+      await window.electronAPI.booru.deleteFavoriteGroup(groupId);
+      message.success('分组已删除');
+      if (selectedGroupId === groupId) setSelectedGroupId('all');
+      loadGroups();
+      loadFavorites(1);
+    } catch (error) {
+      message.error('删除失败');
+    }
+  };
+
   // 加载收藏列表
   const loadFavorites = async (page: number = 1) => {
     if (!selectedSiteId) {
@@ -155,7 +209,12 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       return;
     }
 
-    console.log(`[BooruFavoritesPage] 加载收藏列表，站点: ${selectedSiteId}, 页码: ${page}`);
+    // 计算 groupId 参数
+    const groupIdParam = selectedGroupId === 'all' ? undefined
+      : selectedGroupId === 'ungrouped' ? null
+      : selectedGroupId;
+
+    console.log(`[BooruFavoritesPage] 加载收藏列表，站点: ${selectedSiteId}, 页码: ${page}, 分组: ${selectedGroupId}`);
     setLoading(true);
 
     try {
@@ -164,7 +223,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         return;
       }
 
-      const result = await window.electronAPI.booru.getFavorites(selectedSiteId, page, appearanceConfig.itemsPerPage);
+      const result = await window.electronAPI.booru.getFavorites(selectedSiteId, page, appearanceConfig.itemsPerPage, groupIdParam);
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruFavoritesPage] 加载收藏成功:', data.length, '张图片');
@@ -286,12 +345,20 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     return () => unsubscribe();
   }, [selectedSiteId, currentPage]);
 
-  // 当站点切换时，加载收藏
+  // 当站点切换时，加载收藏和分组
+  useEffect(() => {
+    if (selectedSiteId) {
+      loadGroups();
+      loadFavorites(1);
+    }
+  }, [selectedSiteId]);
+
+  // 当选中分组变化时，重新加载收藏
   useEffect(() => {
     if (selectedSiteId) {
       loadFavorites(1);
     }
-  }, [selectedSiteId]);
+  }, [selectedGroupId]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
 
@@ -306,13 +373,92 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     return sortedPosts.filter(post => post.rating === ratingFilter);
   }, [sortedPosts, ratingFilter]);
 
+  // 创建/编辑分组的弹窗
+  const GroupModal = (
+    <Modal
+      open={groupModalVisible}
+      title={editingGroup ? '编辑分组' : '新建分组'}
+      onOk={handleSaveGroup}
+      onCancel={() => { setGroupModalVisible(false); setEditingGroup(null); setNewGroupName(''); }}
+      okText="保存"
+      cancelText="取消"
+      width={340}
+    >
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12, paddingTop: 8 }}>
+        <Input
+          placeholder="分组名称"
+          value={newGroupName}
+          onChange={e => setNewGroupName(e.target.value)}
+          onPressEnter={handleSaveGroup}
+          autoFocus
+        />
+      </div>
+    </Modal>
+  );
+
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
+      {GroupModal}
       {/* 页面标题 */}
       <div style={{ marginBottom: spacing.xl }}>
         <Title level={3} style={{ margin: 0 }}>
           <BookOutlined /> 我的收藏
         </Title>
+      </div>
+
+      {/* 分组筛选栏 */}
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: spacing.md, alignItems: 'center' }}>
+        <Button
+          type={selectedGroupId === 'all' ? 'primary' : 'default'}
+          size="small"
+          onClick={() => setSelectedGroupId('all')}
+        >
+          全部
+        </Button>
+        <Button
+          type={selectedGroupId === 'ungrouped' ? 'primary' : 'default'}
+          size="small"
+          icon={<FolderOutlined />}
+          onClick={() => setSelectedGroupId('ungrouped')}
+        >
+          未分组
+        </Button>
+        {groups.map(g => (
+          <div key={g.id} style={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Button
+              type={selectedGroupId === g.id ? 'primary' : 'default'}
+              size="small"
+              icon={<FolderOutlined />}
+              onClick={() => setSelectedGroupId(g.id)}
+              style={g.color ? { borderColor: g.color, color: selectedGroupId === g.id ? undefined : g.color } : undefined}
+            >
+              {g.name}
+            </Button>
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              style={{ padding: '0 4px', opacity: 0.5 }}
+              onClick={() => { setEditingGroup(g); setNewGroupName(g.name); setGroupColor(g.color || '#1677ff'); setGroupModalVisible(true); }}
+            />
+            <Popconfirm
+              title="确定删除该分组？收藏不会被删除"
+              onConfirm={() => handleDeleteGroup(g.id)}
+              okText="删除"
+              cancelText="取消"
+            >
+              <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ padding: '0 4px', opacity: 0.5 }} />
+            </Popconfirm>
+          </div>
+        ))}
+        <Button
+          type="dashed"
+          size="small"
+          icon={<PlusOutlined />}
+          onClick={() => { setEditingGroup(null); setNewGroupName(''); setGroupModalVisible(true); }}
+        >
+          新建分组
+        </Button>
       </div>
 
       {/* 工具栏 */}

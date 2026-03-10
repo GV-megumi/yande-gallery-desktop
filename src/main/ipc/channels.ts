@@ -54,6 +54,7 @@ export const IPC_CHANNELS = {
   BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
   BOORU_CACHE_IMAGE: 'booru:cache-image',
   BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
+  BOORU_CLEAR_CACHE: 'booru:clear-cache',
 
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
@@ -136,5 +137,24 @@ export const IPC_CHANNELS = {
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
   BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
-  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags'
+  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
+
+  // === 帖子注释 ===
+  BOORU_GET_NOTES: 'booru:get-notes',
+
+  // === 帖子版本历史 ===
+  BOORU_GET_POST_VERSIONS: 'booru:get-post-versions',
+
+  // === 收藏夹分组 ===
+  BOORU_GET_FAVORITE_GROUPS: 'booru:get-favorite-groups',
+  BOORU_CREATE_FAVORITE_GROUP: 'booru:create-favorite-group',
+  BOORU_UPDATE_FAVORITE_GROUP: 'booru:update-favorite-group',
+  BOORU_DELETE_FAVORITE_GROUP: 'booru:delete-favorite-group',
+  BOORU_MOVE_FAVORITE_TO_GROUP: 'booru:move-favorite-to-group',
+
+  // === 保存的搜索 ===
+  BOORU_GET_SAVED_SEARCHES: 'booru:get-saved-searches',
+  BOORU_ADD_SAVED_SEARCH: 'booru:add-saved-search',
+  BOORU_UPDATE_SAVED_SEARCH: 'booru:update-saved-search',
+  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search'
 } as const;

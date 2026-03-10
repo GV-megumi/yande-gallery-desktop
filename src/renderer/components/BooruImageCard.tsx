@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { Card, Image, Tag, Space, Button, message, Modal } from 'antd';
-import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined, HeartOutlined, HeartFilled, InfoCircleOutlined, LinkOutlined } from '@ant-design/icons';
+import { BookOutlined, BookFilled, DownloadOutlined, EyeOutlined, ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined, SearchOutlined, HeartOutlined, HeartFilled, InfoCircleOutlined, LinkOutlined, PlayCircleFilled } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
 import { colors, radius, shadows, transitions, spacing, fontSize } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
@@ -84,6 +84,15 @@ interface BooruImageCardProps {
   onToggleServerFavorite?: (post: BooruPost) => void;
   isServerFavorited?: boolean;
 }
+
+// 检测是否为视频格式
+const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi']);
+const isVideoPost = (post: BooruPost): boolean => {
+  if (post.fileExt && VIDEO_EXTENSIONS.has(post.fileExt.toLowerCase())) return true;
+  const url = post.fileUrl || '';
+  const ext = url.split('.').pop()?.split('?')[0]?.toLowerCase() || '';
+  return VIDEO_EXTENSIONS.has(ext);
+};
 
 // 格式化标签
 const formatTags = (tags: string): string[] => {
@@ -308,6 +317,42 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             }
           }}
         />
+
+        {/* 视频帖子标识 — 中央播放图标叠加 */}
+        {isVideoPost(post) && imageLoaded && !imageError && (
+          <div style={{
+            position: 'absolute',
+            inset: 0,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            pointerEvents: 'none',
+          }}>
+            <PlayCircleFilled style={{
+              fontSize: 48,
+              color: 'rgba(255, 255, 255, 0.85)',
+              filter: 'drop-shadow(0 2px 8px rgba(0,0,0,0.6))',
+            }} />
+          </div>
+        )}
+        {/* 视频格式徽章 */}
+        {isVideoPost(post) && (
+          <div style={{
+            position: 'absolute',
+            bottom: 6,
+            left: 6,
+            background: 'rgba(0, 0, 0, 0.65)',
+            color: '#fff',
+            fontSize: 10,
+            fontWeight: 600,
+            padding: '1px 6px',
+            borderRadius: 4,
+            letterSpacing: 0.5,
+            pointerEvents: 'none',
+          }}>
+            {(post.fileExt || 'VIDEO').toUpperCase()}
+          </div>
+        )}
 
         {/* 右上角操作按钮组 — iOS 圆形毛玻璃按钮，hover 时显示，竖排 */}
         <div

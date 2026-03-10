@@ -11,6 +11,7 @@ interface TagsSectionProps {
   site: BooruSite | null;
   onTagClick?: (tag: string) => void;
   onArtistClick?: (artistName: string) => void;
+  onCharacterClick?: (characterName: string) => void;
 }
 
 /**
@@ -22,7 +23,8 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
   post,
   site,
   onTagClick,
-  onArtistClick
+  onArtistClick,
+  onCharacterClick
 }) => {
   const { message } = App.useApp();
   const [expanded, setExpanded] = useState(false);
@@ -213,6 +215,11 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
     // 艺术家标签导航到艺术家页面
     if (category === 'artist' && onArtistClick) {
       onArtistClick(tag);
+      return;
+    }
+    // 角色标签导航到角色页面
+    if (category === 'character' && onCharacterClick) {
+      onCharacterClick(tag);
       return;
     }
     if (onTagClick) {

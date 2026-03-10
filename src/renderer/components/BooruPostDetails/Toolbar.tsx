@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Space, Button, App, Tooltip, Tag, Typography } from 'antd';
+import { Space, Button, App, Tooltip, Tag, Typography, Dropdown } from 'antd';
 import {
   BookOutlined,
   BookFilled,
@@ -13,7 +13,9 @@ import {
   HeartOutlined,
   HeartFilled,
   UserOutlined,
-  LockOutlined
+  LockOutlined,
+  LinkOutlined,
+  FileImageOutlined
 } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { useLocale } from '../../locales';
@@ -161,19 +163,38 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     message.info(t('details.slideshowDev'));
   };
 
-  const handleShare = () => {
-    console.log('[Toolbar] 分享图片');
-    // 复制链接到剪贴板
-    const url = site ? `${site.url}/post/show/${post.postId}` : (post.fileUrl || post.sampleUrl || '');
-    if (url) {
-      navigator.clipboard.writeText(url).then(() => {
-        message.success(t('details.linkCopied'));
-      }).catch(err => {
-        console.error('[Toolbar] 复制失败:', err);
-        message.error(t('common.copyFailed'));
-      });
-    }
+  const copyToClipboard = (text: string, successMsg: string) => {
+    if (!text) { message.warning('链接不可用'); return; }
+    navigator.clipboard.writeText(text).then(() => {
+      message.success(successMsg);
+    }).catch(err => {
+      console.error('[Toolbar] 复制失败:', err);
+      message.error(t('common.copyFailed'));
+    });
   };
+
+  const shareMenuItems = [
+    {
+      key: 'copy-post-url',
+      icon: <LinkOutlined />,
+      label: '复制帖子链接',
+      onClick: () => {
+        const url = site ? `${site.url}/post/show/${post.postId}` : '';
+        console.log('[Toolbar] 复制帖子链接:', url);
+        copyToClipboard(url, t('details.linkCopied'));
+      }
+    },
+    {
+      key: 'copy-image-url',
+      icon: <FileImageOutlined />,
+      label: '复制图片链接',
+      onClick: () => {
+        const url = post.fileUrl || post.sampleUrl || '';
+        console.log('[Toolbar] 复制图片链接:', url);
+        copyToClipboard(url, '图片链接已复制');
+      }
+    },
+  ];
 
   // 检查站点是否支持收藏
   const supportsFavorite = site?.favoriteSupport ?? false;
@@ -259,12 +280,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         >
           {t('details.slideshow')}
         </Button>
-        <Button
-          icon={<ShareAltOutlined />}
-          onClick={handleShare}
-        >
-          {t('details.share')}
-        </Button>
+        <Dropdown menu={{ items: shareMenuItems }} trigger={['click']}>
+          <Button icon={<ShareAltOutlined />}>
+            {t('details.share')}
+          </Button>
+        </Dropdown>
       </Space>
 
       {/* 收藏用户列表 */}

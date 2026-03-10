@@ -797,14 +797,14 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20) => {
-    console.log('[IPC] 获取Booru收藏列表，站点:', siteId);
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20, groupId?: number | null) => {
+    console.log('[IPC] 获取Booru收藏列表，站点:', siteId, 'groupId:', groupId);
     try {
       // 快速修复 isFavorited 标志不一致（纯 SQL，很快）
       await booruService.repairFavoritesConsistency(siteId);
 
       // 先返回已有数据
-      const favorites = await booruService.getFavorites(siteId, page, limit);
+      const favorites = await booruService.getFavorites(siteId, page, limit, groupId);
 
       // 异步补全缺失帖子数据（不阻塞返回）
       const missingIds = await booruService.getMissingFavoritePostIds(siteId);
@@ -1327,6 +1327,19 @@ export function setupIPC() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取缓存统计失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 清除所有缓存
+  ipcMain.handle(IPC_CHANNELS.BOORU_CLEAR_CACHE, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const result = await imageCacheService.clearAllCache();
+      console.log('[IPC] 清除缓存完成:', result);
+      return { success: true, data: result };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 清除缓存失败:', errorMessage);
       return { success: false, error: errorMessage };
     }
   });
@@ -2548,6 +2561,123 @@ export function setupIPC() {
       return { success: true, data: { imported, skipped } };
     } catch (error) {
       console.error('[IPC] 导入黑名单标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // === 帖子注释 ===
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_NOTES, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    try {
+      console.log('[IPC] 获取帖子注释, siteId:', siteId, 'postId:', postId);
+      const site = await booruService.getSite(siteId);
+      if (!site) return { success: false, error: '站点不存在' };
+      const client = createBooruClient(site);
+      const notes = await client.getNotes(postId);
+      return { success: true, data: notes };
+    } catch (error) {
+      console.error('[IPC] 获取帖子注释失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // === 帖子版本历史 ===
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_POST_VERSIONS, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
+    try {
+      console.log('[IPC] 获取帖子版本历史, siteId:', siteId, 'postId:', postId);
+      const site = await booruService.getSite(siteId);
+      if (!site) return { success: false, error: '站点不存在' };
+      const client = createBooruClient(site);
+      const versions = await client.getPostVersions(postId);
+      return { success: true, data: versions };
+    } catch (error) {
+      console.error('[IPC] 获取帖子版本历史失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // === 收藏夹分组 ===
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_GROUPS, async (_event: IpcMainInvokeEvent, siteId?: number) => {
+    try {
+      const groups = await booruService.getFavoriteGroups(siteId);
+      return { success: true, data: groups };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_CREATE_FAVORITE_GROUP, async (_event: IpcMainInvokeEvent, name: string, siteId?: number, color?: string) => {
+    try {
+      const group = await booruService.createFavoriteGroup(name, siteId, color);
+      return { success: true, data: group };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_GROUP, async (_event: IpcMainInvokeEvent, id: number, updates: { name?: string; color?: string }) => {
+    try {
+      await booruService.updateFavoriteGroup(id, updates);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_DELETE_FAVORITE_GROUP, async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      await booruService.deleteFavoriteGroup(id);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, async (_event: IpcMainInvokeEvent, postId: number, groupId: number | null) => {
+    try {
+      await booruService.moveFavoriteToGroup(postId, groupId);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // === 保存的搜索 ===
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SAVED_SEARCHES, async (_event: IpcMainInvokeEvent, siteId?: number) => {
+    try {
+      const searches = await booruService.getSavedSearches(siteId);
+      return { success: true, data: searches };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_SAVED_SEARCH, async (_event: IpcMainInvokeEvent, siteId: number | null, name: string, query: string) => {
+    try {
+      const id = await booruService.addSavedSearch(siteId, name, query);
+      return { success: true, data: id };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_SAVED_SEARCH, async (_event: IpcMainInvokeEvent, id: number, updates: { name?: string; query?: string }) => {
+    try {
+      await booruService.updateSavedSearch(id, updates);
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_DELETE_SAVED_SEARCH, async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      await booruService.deleteSavedSearch(id);
+      return { success: true };
+    } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

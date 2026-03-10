@@ -14,9 +14,10 @@ import { useFavorite } from '../hooks/useFavorite';
 interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  onCharacterClick?: (characterName: string, siteId?: number | null) => void;
 }
 
-export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick }) => {
+export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick, onCharacterClick }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
@@ -806,6 +807,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick 
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
         onArtistClick={onArtistClick}
+        onCharacterClick={onCharacterClick ? (name) => onCharacterClick(name, selectedSiteId) : undefined}
       />
     </div>
   );

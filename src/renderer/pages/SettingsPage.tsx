@@ -109,6 +109,81 @@ const SettingsRow: React.FC<{
   </div>
 );
 
+/** 缓存管理分组 */
+const CacheManagementGroup: React.FC = () => {
+  const { t } = useLocale();
+  const [cacheStats, setCacheStats] = useState<{ sizeMB: number; fileCount: number } | null>(null);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [clearing, setClearing] = useState(false);
+
+  const loadStats = async () => {
+    if (!window.electronAPI) return;
+    setLoadingStats(true);
+    try {
+      const result = await window.electronAPI.booru.getCacheStats();
+      if (result.success && result.data) setCacheStats(result.data);
+    } catch (error) {
+      console.error('[CacheManagementGroup] 获取缓存统计失败:', error);
+    } finally {
+      setLoadingStats(false);
+    }
+  };
+
+  useEffect(() => { loadStats(); }, []);
+
+  const handleClearCache = async () => {
+    if (!window.electronAPI) return;
+    setClearing(true);
+    try {
+      const result = await window.electronAPI.booru.clearCache();
+      if (result.success && result.data) {
+        const d = result.data;
+        message.success(`已清除 ${d.deletedCount} 个缓存文件，释放 ${d.freedMB.toFixed(1)} MB`);
+        await loadStats();
+      } else {
+        message.error('清除缓存失败: ' + result.error);
+      }
+    } catch (error) {
+      message.error('清除缓存失败');
+    } finally {
+      setClearing(false);
+    }
+  };
+
+  return (
+    <SettingsGroup title={t('settings.cacheManagement')}>
+      <SettingsRow
+        label={t('settings.cacheSize')}
+        description={cacheStats ? `${cacheStats.fileCount} ${t('settings.cacheFiles')}` : undefined}
+        extra={
+          loadingStats ? (
+            <Spin size="small" />
+          ) : (
+            <span style={{ color: colors.textTertiary }}>
+              {cacheStats ? `${cacheStats.sizeMB.toFixed(1)} MB` : '-'}
+            </span>
+          )
+        }
+      />
+      <SettingsRow
+        label={<span style={{ color: colors.danger }}>{t('settings.clearCache')}</span>}
+        description={t('settings.clearCacheDesc')}
+        isLast
+        extra={
+          <Button
+            size="small"
+            danger
+            loading={clearing}
+            onClick={handleClearCache}
+          >
+            {t('settings.clearCache')}
+          </Button>
+        }
+      />
+    </SettingsGroup>
+  );
+};
+
 export const SettingsPage: React.FC = () => {
   const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
@@ -466,9 +541,11 @@ export const SettingsPage: React.FC = () => {
             />
           </SettingsGroup>
 
+          {/* 缓存管理 */}
+          <CacheManagementGroup />
+
           {/* 高级 */}
           <SettingsGroup title={t('settings.advanced')}>
-            <SettingsRow label={t('settings.clearCache')} onClick={() => message.info(t('settings.featureDev'))} />
             <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
             <SettingsRow
               label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}

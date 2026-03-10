@@ -42,6 +42,7 @@ const IPC_CHANNELS = {
   BOORU_GET_CACHED_IMAGE_URL: 'booru:get-cached-image-url',
   BOORU_CACHE_IMAGE: 'booru:cache-image',
   BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
+  BOORU_CLEAR_CACHE: 'booru:clear-cache',
 
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
@@ -111,7 +112,26 @@ const IPC_CHANNELS = {
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
   BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
-  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags'
+  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
+
+  // 帖子注释
+  BOORU_GET_NOTES: 'booru:get-notes',
+
+  // 帖子版本历史
+  BOORU_GET_POST_VERSIONS: 'booru:get-post-versions',
+
+  // 收藏夹分组
+  BOORU_GET_FAVORITE_GROUPS: 'booru:get-favorite-groups',
+  BOORU_CREATE_FAVORITE_GROUP: 'booru:create-favorite-group',
+  BOORU_UPDATE_FAVORITE_GROUP: 'booru:update-favorite-group',
+  BOORU_DELETE_FAVORITE_GROUP: 'booru:delete-favorite-group',
+  BOORU_MOVE_FAVORITE_TO_GROUP: 'booru:move-favorite-to-group',
+
+  // 保存的搜索
+  BOORU_GET_SAVED_SEARCHES: 'booru:get-saved-searches',
+  BOORU_ADD_SAVED_SEARCH: 'booru:add-saved-search',
+  BOORU_UPDATE_SAVED_SEARCH: 'booru:update-saved-search',
+  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -194,8 +214,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page, limit, fetchTagCategories),
 
     // 收藏
-    getFavorites: (siteId: number, page: number = 1, limit: number = 20) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit),
+    getFavorites: (siteId: number, page: number = 1, limit: number = 20, groupId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit, groupId),
     addFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
     removeFavorite: (postId: number, syncToServer: boolean = false) =>
@@ -236,6 +256,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_CACHE_IMAGE, url, md5, extension),
     getCacheStats: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_CACHE_STATS),
+    clearCache: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_CACHE),
 
     // 标签分类
     getTagsCategories: (siteId: number, tagNames: string[]) =>
@@ -351,6 +373,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
     importBlacklistedTags: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS),
 
+    // 帖子注释
+    getNotes: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_NOTES, siteId, postId),
+
+    // 帖子版本历史
+    getPostVersions: (siteId: number, postId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_POST_VERSIONS, siteId, postId),
+
+    // 收藏夹分组
+    getFavoriteGroups: (siteId?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_GROUPS, siteId),
+    createFavoriteGroup: (name: string, siteId?: number, color?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CREATE_FAVORITE_GROUP, name, siteId, color),
+    updateFavoriteGroup: (id: number, updates: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_GROUP, id, updates),
+    deleteFavoriteGroup: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_FAVORITE_GROUP, id),
+    moveFavoriteToGroup: (postId: number, groupId: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, postId, groupId),
+
+    // 保存的搜索
+    getSavedSearches: (siteId?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SAVED_SEARCHES, siteId),
+    addSavedSearch: (siteId: number | null, name: string, query: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_SAVED_SEARCH, siteId, name, query),
+    updateSavedSearch: (id: number, updates: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_SAVED_SEARCH, id, updates),
+    deleteSavedSearch: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_SAVED_SEARCH, id),
+
     onDownloadProgress: (callback: (data: any) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on('booru:download-progress', subscription);
@@ -459,6 +511,7 @@ declare global {
         getCachedImageUrl: (md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
+        clearCache: () => Promise<{ success: boolean; data?: { deletedCount: number; freedMB: number }; error?: string }>;
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         autocompleteTags: (siteId: number, query: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; count: number; type: number }>; error?: string }>;
         getArtist: (siteId: number, name: string) => Promise<{ success: boolean; data?: { id: number; name: string; aliases: string[]; urls: string[]; group_name?: string; is_banned?: boolean } | null; error?: string }>;

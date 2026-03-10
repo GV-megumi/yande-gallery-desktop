@@ -9,7 +9,8 @@ import {
   AppstoreOutlined, CloudOutlined, BookOutlined,
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
   SunOutlined, MoonOutlined, StopOutlined,
-  FireOutlined, DatabaseOutlined, HeartOutlined
+  FireOutlined, DatabaseOutlined, HeartOutlined,
+  SearchOutlined, SmileOutlined
 } from '@ant-design/icons';
 import { GalleryPage } from './pages/GalleryPage';
 import { SettingsPage } from './pages/SettingsPage';
@@ -24,6 +25,8 @@ import { BlacklistedTagsPage } from './pages/BlacklistedTagsPage';
 import { BooruPopularPage } from './pages/BooruPopularPage';
 import { BooruPoolsPage } from './pages/BooruPoolsPage';
 import { BooruArtistPage } from './pages/BooruArtistPage';
+import { BooruCharacterPage } from './pages/BooruCharacterPage';
+import { BooruSavedSearchesPage } from './pages/BooruSavedSearchesPage';
 import { BooruServerFavoritesPage } from './pages/BooruServerFavoritesPage';
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
@@ -80,6 +83,7 @@ function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
     { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: t('menu.blacklist') },
     { key: 'downloads', icon: <CloudDownloadOutlined style={{ color: iconColors.downloads }} />, label: t('menu.downloads') },
     { key: 'bulk-download', icon: <CloudDownloadOutlined style={{ color: iconColors.bulkDownload }} />, label: t('menu.bulkDownload') },
+    { key: 'saved-searches', icon: <SearchOutlined style={{ color: '#5856D6' }} />, label: t('menu.savedSearches') },
   ];
 }
 
@@ -90,6 +94,7 @@ export const AppContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [tagSearchPage, setTagSearchPage] = useState<{ tag: string; siteId?: number | null } | null>(null);
   const [artistPage, setArtistPage] = useState<{ name: string; siteId?: number | null } | null>(null);
+  const [characterPage, setCharacterPage] = useState<{ name: string; siteId?: number | null } | null>(null);
   const { isDark, themeMode, setThemeMode } = useTheme();
   const { t } = useLocale();
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
@@ -128,7 +133,7 @@ export const AppContent: React.FC = () => {
     { key: SHORTCUT_KEYS.OPEN_SETTINGS, handler: openSettings, description: t('shortcuts.openSettings') },
     { key: SHORTCUT_KEYS.FOCUS_SEARCH, handler: focusSearch, description: t('shortcuts.focusSearch'), enableInInput: true },
     { key: SHORTCUT_KEYS.SHOW_SHORTCUTS, handler: () => setShortcutsModalOpen(true), description: t('shortcuts.showShortcuts') },
-    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (artistPage) handleBackFromArtist(); else if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
+    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (characterPage) handleBackFromCharacter(); else if (artistPage) handleBackFromArtist(); else if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
   ]);
 
   // 初始化数据库
@@ -191,8 +196,30 @@ export const AppContent: React.FC = () => {
     setArtistPage(null);
   };
 
+  const navigateToCharacter = (name: string, siteId?: number | null) => {
+    console.log('[App] 导航到角色页面:', name, siteId);
+    setArtistPage(null);
+    setTagSearchPage(null);
+    setCharacterPage({ name, siteId });
+  };
+
+  const handleBackFromCharacter = () => {
+    console.log('[App] 从角色页面返回');
+    setCharacterPage(null);
+  };
+
+  const handleSavedSearchRun = (query: string, siteId?: number | null) => {
+    console.log('[App] 执行保存的搜索:', query, siteId);
+    setSelectedBooruSubKey('posts');
+    // 通过 navigateToTagSearch 导航到 posts 页面
+    navigateToTagSearch(query, siteId);
+  };
+
   // 计算页面标题
   const pageTitle = useMemo(() => {
+    if (characterPage) {
+      return { main: '角色', sub: characterPage.name.replace(/_/g, ' ') };
+    }
     if (artistPage) {
       return { main: '艺术家', sub: artistPage.name.replace(/_/g, ' ') };
     }
@@ -210,7 +237,7 @@ export const AppContent: React.FC = () => {
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, artistPage, t, gallerySubMenuItems, booruSubMenuItems]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, artistPage, characterPage, t, gallerySubMenuItems, booruSubMenuItems]);
 
   const renderContent = () => {
     if (loading) {
@@ -218,6 +245,16 @@ export const AppContent: React.FC = () => {
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
           <h2 style={{ color: colors.textTertiary, fontWeight: 400, fontSize: fontSize.lg }}>{t('app.initializing')}</h2>
         </div>
+      );
+    }
+    if (characterPage) {
+      return (
+        <BooruCharacterPage
+          characterName={characterPage.name}
+          initialSiteId={characterPage.siteId}
+          onBack={handleBackFromCharacter}
+          onTagClick={navigateToTagSearch}
+        />
       );
     }
     if (artistPage) {
@@ -245,7 +282,7 @@ export const AppContent: React.FC = () => {
         if (selectedSubKey === 'settings') return <SettingsPage />;
         return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
       case 'booru':
-        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
         if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
         if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
@@ -254,11 +291,12 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
         if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
+        if (selectedBooruSubKey === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
         if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
         if (selectedBooruSubKey === 'settings') return <SettingsPage />;
-        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
       default:
-        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
     }
   };
 
@@ -480,7 +518,7 @@ export const AppContent: React.FC = () => {
         {/* 内容区 */}
         <Content
           className="ios-page-enter"
-          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}-${artistPage?.name || ''}`}
+          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}-${artistPage?.name || ''}-${characterPage?.name || ''}`}
           style={{
             margin: 0,
             padding: `${spacing.xl}px ${spacing.xl}px`,

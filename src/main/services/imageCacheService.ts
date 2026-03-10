@@ -341,3 +341,38 @@ export async function getCacheStats(): Promise<{ sizeMB: number; fileCount: numb
   };
 }
 
+/**
+ * 清除所有缓存文件
+ */
+export async function clearAllCache(): Promise<{ deletedCount: number; freedMB: number }> {
+  const cacheDir = getConfigCachePath();
+  let deletedCount = 0;
+  let freedBytes = 0;
+
+  try {
+    await fs.access(cacheDir);
+  } catch {
+    return { deletedCount: 0, freedMB: 0 };
+  }
+
+  async function deleteFiles(dir: string): Promise<void> {
+    const entries = await fs.readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await deleteFiles(fullPath);
+        try { await fs.rmdir(fullPath); } catch { /* 忽略非空目录错误 */ }
+      } else {
+        const stat = await fs.stat(fullPath);
+        freedBytes += stat.size;
+        await fs.unlink(fullPath);
+        deletedCount++;
+      }
+    }
+  }
+
+  await deleteFiles(cacheDir);
+  console.log(`[imageCacheService] 清除缓存完成：删除 ${deletedCount} 个文件，释放 ${(freedBytes / 1024 / 1024).toFixed(1)} MB`);
+  return { deletedCount, freedMB: freedBytes / (1024 * 1024) };
+}
+

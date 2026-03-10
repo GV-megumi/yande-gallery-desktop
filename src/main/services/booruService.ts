@@ -597,22 +597,34 @@ export async function removeFromFavorites(postId: number): Promise<void> {
 /**
  * 获取收藏列表
  */
-export async function getFavorites(siteId: number, page: number = 1, limit: number = 20): Promise<BooruPost[]> {
-  console.log('[booruService] 获取收藏列表:', { siteId, page, limit });
+export async function getFavorites(siteId: number, page: number = 1, limit: number = 20, groupId?: number | null): Promise<any[]> {
+  console.log('[booruService] 获取收藏列表:', { siteId, page, limit, groupId });
   try {
     const db = await getDatabase();
     const offset = (page - 1) * limit;
 
-    const posts = await all<BooruPost>(
+    // 构建 groupId 过滤条件
+    let groupFilter = '';
+    const params: any[] = [siteId];
+    if (groupId === null) {
+      // null = 未分组
+      groupFilter = 'AND f.groupId IS NULL';
+    } else if (groupId != null) {
+      groupFilter = 'AND f.groupId = ?';
+      params.push(groupId);
+    }
+    params.push(limit, offset);
+
+    const posts = await all<any>(
       db,
       `
-        SELECT p.* FROM booru_posts p
+        SELECT p.*, f.groupId as favoriteGroupId FROM booru_posts p
         INNER JOIN booru_favorites f ON p.postId = f.postId AND p.siteId = f.siteId
-        WHERE f.siteId = ?
+        WHERE f.siteId = ? ${groupFilter}
         ORDER BY f.createdAt DESC
         LIMIT ? OFFSET ?
       `,
-      [siteId, limit, offset]
+      params
     );
 
     // 转换布尔值
@@ -1567,6 +1579,114 @@ export async function removeBlacklistedTag(id: number): Promise<void> {
   }
 }
 
+// ========= 收藏夹分组 =========
+
+/**
+ * 获取收藏夹分组列表
+ */
+export async function getFavoriteGroups(siteId?: number): Promise<any[]> {
+  const db = await getDatabase();
+  const sql = siteId != null
+    ? 'SELECT * FROM booru_favorite_groups WHERE siteId = ? OR siteId IS NULL ORDER BY sortOrder ASC, name ASC'
+    : 'SELECT * FROM booru_favorite_groups ORDER BY sortOrder ASC, name ASC';
+  const params = siteId != null ? [siteId] : [];
+  return all(db, sql, params);
+}
+
+/**
+ * 创建收藏夹分组
+ */
+export async function createFavoriteGroup(name: string, siteId?: number, color?: string): Promise<any> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await run(db,
+    'INSERT INTO booru_favorite_groups (name, siteId, color, sortOrder, createdAt) VALUES (?, ?, ?, 0, ?)',
+    [name, siteId ?? null, color ?? null, now]
+  );
+  return get(db, 'SELECT * FROM booru_favorite_groups WHERE name = ? ORDER BY createdAt DESC LIMIT 1', [name]);
+}
+
+/**
+ * 更新收藏夹分组
+ */
+export async function updateFavoriteGroup(id: number, updates: { name?: string; color?: string }): Promise<void> {
+  const db = await getDatabase();
+  const sets: string[] = [];
+  const params: any[] = [];
+  if (updates.name != null) { sets.push('name = ?'); params.push(updates.name); }
+  if (updates.color != null) { sets.push('color = ?'); params.push(updates.color); }
+  if (sets.length === 0) return;
+  params.push(id);
+  await run(db, `UPDATE booru_favorite_groups SET ${sets.join(', ')} WHERE id = ?`, params);
+}
+
+/**
+ * 删除收藏夹分组（不删除收藏，将收藏移到未分组）
+ */
+export async function deleteFavoriteGroup(id: number): Promise<void> {
+  const db = await getDatabase();
+  await run(db, 'UPDATE booru_favorites SET groupId = NULL WHERE groupId = ?', [id]);
+  await run(db, 'DELETE FROM booru_favorite_groups WHERE id = ?', [id]);
+}
+
+/**
+ * 将收藏移入分组（groupId 为 null 表示移出分组）
+ */
+export async function moveFavoriteToGroup(postId: number, groupId: number | null): Promise<void> {
+  const db = await getDatabase();
+  await run(db, 'UPDATE booru_favorites SET groupId = ? WHERE postId = ?', [groupId, postId]);
+}
+
+// ========= 保存的搜索 =========
+
+/**
+ * 获取保存的搜索列表
+ */
+export async function getSavedSearches(siteId?: number): Promise<any[]> {
+  const db = await getDatabase();
+  const sql = siteId != null
+    ? 'SELECT * FROM booru_saved_searches WHERE siteId = ? ORDER BY createdAt DESC'
+    : 'SELECT * FROM booru_saved_searches ORDER BY createdAt DESC';
+  const params = siteId != null ? [siteId] : [];
+  return all(db, sql, params);
+}
+
+/**
+ * 添加保存的搜索
+ */
+export async function addSavedSearch(siteId: number | null, name: string, query: string): Promise<number> {
+  const db = await getDatabase();
+  const now = new Date().toISOString();
+  await run(db,
+    'INSERT INTO booru_saved_searches (siteId, name, query, createdAt) VALUES (?, ?, ?, ?)',
+    [siteId, name, query, now]
+  );
+  const row = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+  return row?.id ?? 0;
+}
+
+/**
+ * 更新保存的搜索
+ */
+export async function updateSavedSearch(id: number, updates: { name?: string; query?: string }): Promise<void> {
+  const db = await getDatabase();
+  const sets: string[] = [];
+  const params: any[] = [];
+  if (updates.name != null) { sets.push('name = ?'); params.push(updates.name); }
+  if (updates.query != null) { sets.push('query = ?'); params.push(updates.query); }
+  if (sets.length === 0) return;
+  params.push(id);
+  await run(db, `UPDATE booru_saved_searches SET ${sets.join(', ')} WHERE id = ?`, params);
+}
+
+/**
+ * 删除保存的搜索
+ */
+export async function deleteSavedSearch(id: number): Promise<void> {
+  const db = await getDatabase();
+  await run(db, 'DELETE FROM booru_saved_searches WHERE id = ?', [id]);
+}
+
 // ========= 批量导出 =========
 
 export default {
@@ -1629,6 +1749,22 @@ export default {
   getActiveBlacklistTagNames,
   toggleBlacklistedTag,
   updateBlacklistedTag,
-  removeBlacklistedTag
+  removeBlacklistedTag,
+
+  // 站点快捷查询（alias）
+  getSite: getBooruSiteById,
+
+  // 收藏夹分组
+  getFavoriteGroups,
+  createFavoriteGroup,
+  updateFavoriteGroup,
+  deleteFavoriteGroup,
+  moveFavoriteToGroup,
+
+  // 保存的搜索
+  getSavedSearches,
+  addSavedSearch,
+  updateSavedSearch,
+  deleteSavedSearch
 };
 
