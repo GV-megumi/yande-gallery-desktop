@@ -13,34 +13,37 @@
 - **新增文件**: `booruClientInterface.ts`, `danbooruClient.ts`, `gelbooruClient.ts`, `booruClientFactory.ts`
 - **重构**: handlers.ts 和 bulkDownloadService.ts 中 19 处 MoebooruClient 替换为工厂调用
 
-### 2. 高级搜索语法
-- **现状**: 仅支持空格/逗号分隔的 AND 标签搜索
-- **目标**: 支持 OR (`~`)、NOT (`-`) 操作符和复合表达式
-- **示例**: `cat_ears -rating:explicit ~blue_eyes ~green_eyes`
-- **涉及文件**: `moebooruClient.ts`（直接传递给 API），前端搜索栏增加语法提示
-- **Boorusama 参考**: `lib/core/tags/tag_expression.dart`
-- **工作量**: 中
+### ~~2. 高级搜索语法~~ ✅ 已完成 (2026-03-10)
+- **实现**:
+  - Booru API 原生支持 `-tag` (NOT)、`~tag` (OR)、meta-tags (rating:、score:、order:) 等语法
+  - 新增标签自动补全 IPC (`BOORU_AUTOCOMPLETE_TAGS`) —— 输入时从站点 API 实时搜索匹配标签
+  - 搜索栏增加语法帮助弹窗 (`SearchSyntaxHelp`)，列出标签操作符、Meta-tags、组合示例
+  - 自动补全支持操作符前缀（输入 `-blu` 会剥离 `-` 搜索 `blu` 并在选择后保留 `-` 前缀）
+  - 标签自动补全显示标签类型（艺术家/版权/角色/通用）和帖子数量，按类型着色
 
-### 3. 高级帖子过滤器
-- **现状**: 仅支持 rating 过滤
-- **目标**: 增加评分范围、日期范围、尺寸范围、状态（active/deleted）等过滤条件
-- **涉及文件**: `BooruPageToolbar.tsx` 增加过滤面板，IPC 层传递过滤参数
-- **Boorusama 参考**: `lib/core/posts/listing/post_listing_config.dart`
-- **工作量**: 中
+### ~~3. 高级帖子过滤器~~ ✅ 已完成 (2026-03-10)
+- **实现**:
+  - 新增 `AdvancedFilterPanel` 组件，提供评分范围、宽度/高度范围、排序方式过滤
+  - 过滤条件自动转换为 Booru meta-tags（如 `score:>=100` `width:>=1920` `order:score`）
+  - 过滤按钮显示活跃条件数量，带 Popover 弹出面板
+  - 过滤条件变更后自动重新搜索，支持与标签搜索组合使用
 
-### 4. 标签详情页
-- **现状**: 标签仅在帖子详情页展示，点击后直接搜索
-- **目标**: 增加标签详情页，展示标签类型、帖子数量、相关标签、别名
-- **涉及文件**: 新建 `src/renderer/pages/BooruTagDetailPage.tsx`
-- **Boorusama 参考**: `lib/core/tags/details/tag_details_page.dart`
-- **工作量**: 中
+### ~~4. 标签详情页~~ ✅ 已完成 (2026-03-10)
+- **实现**:
+  - 增强 `BooruTagSearchPage`，在标签搜索页面顶部显示标签详情卡片
+  - 展示标签名称、类型（艺术家/版权/角色/通用/元数据）、帖子数量
+  - 标签类型使用彩色 Tag 标识，数据通过标签自动补全 API 获取
+  - 显示相关标签推荐（从当前搜索结果高频标签中统计），点击可跳转搜索
 
-### 5. 艺术家页面
-- **现状**: 帖子详情页展示 artist 标签，但无独立艺术家页面
-- **目标**: 增加艺术家详情页（作品列表、外部链接、别名）
-- **涉及文件**: 新建 `src/renderer/pages/BooruArtistPage.tsx`，IPC 增加 artist API 调用
-- **Boorusama 参考**: `lib/core/artists/artist_page.dart`
-- **工作量**: 中
+### ~~5. 艺术家页面~~ ✅ 已完成 (2026-03-10)
+- **实现**:
+  - 新增 `BooruArtistData` 统一类型和 `getArtist()` 接口方法
+  - Moebooru: `GET /artist.json?name=xxx` 获取艺术家信息（外部链接、别名）
+  - Danbooru: `GET /artists.json?search[name]=xxx` + `/artists/{id}.json` 获取详情和 URLs
+  - Gelbooru: 不支持艺术家 API（返回 null）
+  - 新增 `BooruArtistPage.tsx`：展示艺术家外部链接（Pixiv/Twitter/FANBOX 等自动识别）、别名、社团，以及作品列表
+  - 帖子详情页标签区域点击艺术家标签时自动导航到艺术家页面
+  - 新增 IPC 通道 `booru:get-artist`
 
 ---
 

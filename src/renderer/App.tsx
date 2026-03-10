@@ -23,6 +23,7 @@ import { FavoriteTagsPage } from './pages/FavoriteTagsPage';
 import { BlacklistedTagsPage } from './pages/BlacklistedTagsPage';
 import { BooruPopularPage } from './pages/BooruPopularPage';
 import { BooruPoolsPage } from './pages/BooruPoolsPage';
+import { BooruArtistPage } from './pages/BooruArtistPage';
 import { BooruServerFavoritesPage } from './pages/BooruServerFavoritesPage';
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
@@ -88,6 +89,7 @@ export const AppContent: React.FC = () => {
   const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
   const [loading, setLoading] = useState(true);
   const [tagSearchPage, setTagSearchPage] = useState<{ tag: string; siteId?: number | null } | null>(null);
+  const [artistPage, setArtistPage] = useState<{ name: string; siteId?: number | null } | null>(null);
   const { isDark, themeMode, setThemeMode } = useTheme();
   const { t } = useLocale();
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
@@ -126,7 +128,7 @@ export const AppContent: React.FC = () => {
     { key: SHORTCUT_KEYS.OPEN_SETTINGS, handler: openSettings, description: t('shortcuts.openSettings') },
     { key: SHORTCUT_KEYS.FOCUS_SEARCH, handler: focusSearch, description: t('shortcuts.focusSearch'), enableInInput: true },
     { key: SHORTCUT_KEYS.SHOW_SHORTCUTS, handler: () => setShortcutsModalOpen(true), description: t('shortcuts.showShortcuts') },
-    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
+    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (artistPage) handleBackFromArtist(); else if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
   ]);
 
   // 初始化数据库
@@ -169,6 +171,7 @@ export const AppContent: React.FC = () => {
 
   const navigateToTagSearch = (tag: string, siteId?: number | null) => {
     console.log('[App] 导航到标签搜索页面:', tag, siteId);
+    setArtistPage(null); // 清除艺术家页面
     setTagSearchPage({ tag, siteId });
   };
 
@@ -177,8 +180,22 @@ export const AppContent: React.FC = () => {
     setTagSearchPage(null);
   };
 
+  const navigateToArtist = (name: string, siteId?: number | null) => {
+    console.log('[App] 导航到艺术家页面:', name, siteId);
+    setTagSearchPage(null); // 清除标签搜索页面
+    setArtistPage({ name, siteId });
+  };
+
+  const handleBackFromArtist = () => {
+    console.log('[App] 从艺术家页面返回');
+    setArtistPage(null);
+  };
+
   // 计算页面标题
   const pageTitle = useMemo(() => {
+    if (artistPage) {
+      return { main: '艺术家', sub: artistPage.name.replace(/_/g, ' ') };
+    }
     if (tagSearchPage) {
       return { main: t('pageTitle.tagSearch'), sub: tagSearchPage.tag.replace(/_/g, ' ') };
     }
@@ -193,7 +210,7 @@ export const AppContent: React.FC = () => {
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, t, gallerySubMenuItems, booruSubMenuItems]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, artistPage, t, gallerySubMenuItems, booruSubMenuItems]);
 
   const renderContent = () => {
     if (loading) {
@@ -203,12 +220,23 @@ export const AppContent: React.FC = () => {
         </div>
       );
     }
+    if (artistPage) {
+      return (
+        <BooruArtistPage
+          artistName={artistPage.name}
+          initialSiteId={artistPage.siteId}
+          onBack={handleBackFromArtist}
+          onTagClick={navigateToTagSearch}
+        />
+      );
+    }
     if (tagSearchPage) {
       return (
         <BooruTagSearchPage
           initialTag={tagSearchPage.tag}
           initialSiteId={tagSearchPage.siteId}
           onBack={handleBackFromTagSearch}
+          onArtistClick={navigateToArtist}
         />
       );
     }
@@ -217,20 +245,20 @@ export const AppContent: React.FC = () => {
         if (selectedSubKey === 'settings') return <SettingsPage />;
         return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
       case 'booru':
-        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
+        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
         if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
         if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
         if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
         if (selectedBooruSubKey === 'settings') return <SettingsPage />;
-        return <BooruPage onTagClick={navigateToTagSearch} />;
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
       default:
-        return <BooruPage onTagClick={navigateToTagSearch} />;
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
     }
   };
 
@@ -452,7 +480,7 @@ export const AppContent: React.FC = () => {
         {/* 内容区 */}
         <Content
           className="ios-page-enter"
-          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}`}
+          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}-${artistPage?.name || ''}`}
           style={{
             margin: 0,
             padding: `${spacing.xl}px ${spacing.xl}px`,

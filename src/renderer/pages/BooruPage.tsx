@@ -6,15 +6,17 @@ import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
+import { AdvancedFilterPanel, FilterConfig, filterConfigToMetaTags } from '../components/AdvancedFilterPanel';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { useFavorite } from '../hooks/useFavorite';
 
 interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  onArtistClick?: (artistName: string, siteId?: number | null) => void;
 }
 
-export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
+export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
@@ -26,6 +28,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [isSearchMode, setIsSearchMode] = useState(false);
+  // 高级过滤配置（转换为 meta-tags 追加到搜索查询）
+  const [filterConfig, setFilterConfig] = useState<FilterConfig>({});
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -247,13 +251,18 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
   };
 
   // 搜索Booru图片
-  const searchPosts = async (query: string, page: number = 1) => {
+  const searchPosts = async (query: string, page: number = 1, filterOverride?: FilterConfig) => {
     if (!selectedSiteId) {
       message.warning('请先选择站点');
       return;
     }
 
-    if (!query.trim()) {
+    // 使用 filterOverride（如果提供）或当前 filterConfig
+    const activeFilter = filterOverride ?? filterConfig;
+    const filterMetaTags = filterConfigToMetaTags(activeFilter);
+
+    // 如果没有查询文本且没有过滤条件，提示用户输入
+    if (!query.trim() && filterMetaTags.length === 0) {
       message.info('请输入搜索关键词');
       return;
     }
@@ -271,8 +280,11 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         return;
       }
 
+      // 合并搜索标签和高级过滤 meta-tags
+      const allTags = [...query.split(' ').filter(t => t.trim()), ...filterMetaTags];
+      console.log('[BooruPage] 搜索标签（含过滤器 meta-tags）:', allTags);
       // 图片浏览界面需要标签分类，所以传递 fetchTagCategories: true
-      const result = await window.electronAPI.booru.searchPosts(selectedSiteId, query.split(' ').filter(t => t.trim()), page, appearanceConfig.itemsPerPage, true);
+      const result = await window.electronAPI.booru.searchPosts(selectedSiteId, allTags, page, appearanceConfig.itemsPerPage, true);
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 搜索成功:', data.length, '张图片, 配置每页数量:', appearanceConfig.itemsPerPage);
@@ -327,13 +339,15 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
     setIsSearchMode(false);
     setSearchQuery('');
     setSelectedTags([]);
+    setFilterConfig({});
   };
 
   // 处理搜索
   const handleSearch = (value: string) => {
     const query = value.trim();
-    if (!query) {
-      // 如果搜索为空，重新加载当前页
+    const hasFilters = filterConfigToMetaTags(filterConfig).length > 0;
+    if (!query && !hasFilters) {
+      // 如果搜索为空且无过滤条件，重新加载当前页
       setIsSearchMode(false);
       loadPosts(1);
       return;
@@ -586,13 +600,26 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         selectedTags={selectedTags}
         onRemoveTag={handleRemoveTag}
         extraActions={
-          <Tooltip title="随机浏览">
-            <Button
-              icon={<ThunderboltOutlined />}
-              onClick={handleRandomPosts}
+          <>
+            <AdvancedFilterPanel
+              filterConfig={filterConfig}
+              onFilterChange={(config) => {
+                setFilterConfig(config);
+                // 过滤条件变化后自动重新搜索（传入新配置避免状态延迟）
+                if (isSearchMode && searchQuery.trim()) {
+                  searchPosts(searchQuery, 1, config);
+                }
+              }}
               disabled={!selectedSiteId || loading}
             />
-          </Tooltip>
+            <Tooltip title="随机浏览">
+              <Button
+                icon={<ThunderboltOutlined />}
+                onClick={handleRandomPosts}
+                disabled={!selectedSiteId || loading}
+              />
+            </Tooltip>
+          </>
         }
       />
 
@@ -806,6 +833,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick }) => {
         }}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        onArtistClick={onArtistClick}
       />
     </div>
   );

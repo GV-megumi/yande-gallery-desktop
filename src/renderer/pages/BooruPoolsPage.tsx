@@ -11,13 +11,14 @@ const { Search } = Input;
 
 interface BooruPoolsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  onArtistClick?: (artistName: string, siteId?: number | null) => void;
 }
 
 /**
  * Booru Pool（图集）浏览页面
  * 支持搜索和浏览 Pool 列表，点击查看 Pool 详情
  */
-export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) => {
+export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onArtistClick }) => {
   const { message } = App.useApp();
   const [pools, setPools] = useState<BooruPool[]>([]);
   const [loading, setLoading] = useState(false);
@@ -334,6 +335,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick }) =>
           onTagClick={onTagClick}
           isServerFavorited={(p) => serverFavorites.has(p.postId)}
           onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
+          onArtistClick={onArtistClick}
         />
       </div>
     );

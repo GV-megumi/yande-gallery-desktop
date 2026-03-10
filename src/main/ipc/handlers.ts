@@ -800,8 +800,77 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20) => {
     console.log('[IPC] 获取Booru收藏列表，站点:', siteId);
     try {
+      // 快速修复 isFavorited 标志不一致（纯 SQL，很快）
+      await booruService.repairFavoritesConsistency(siteId);
+
+      // 先返回已有数据
       const favorites = await booruService.getFavorites(siteId, page, limit);
-      return { success: true, data: favorites };
+
+      // 异步补全缺失帖子数据（不阻塞返回）
+      const missingIds = await booruService.getMissingFavoritePostIds(siteId);
+      if (missingIds.length > 0) {
+        console.log('[IPC] 发现', missingIds.length, '个收藏缺失帖子数据，后台从 API 获取');
+        // fire-and-forget：后台获取，不阻塞响应
+        (async () => {
+          try {
+            const site = await booruService.getBooruSiteById(siteId);
+            if (!site) return;
+            const client = createBooruClient(site);
+            let repairedCount = 0;
+            const deletedIds: number[] = [];
+            for (const postId of missingIds) {
+              try {
+                const posts = await client.getPosts({ tags: [`id:${postId}`], limit: 1 });
+                if (posts.length > 0 && posts[0].file_url) {
+                  const p = posts[0];
+                  await booruService.saveBooruPost({
+                    siteId,
+                    postId: p.id,
+                    md5: p.md5,
+                    fileUrl: p.file_url,
+                    previewUrl: p.preview_url,
+                    sampleUrl: p.sample_url,
+                    width: p.width,
+                    height: p.height,
+                    fileSize: p.file_size,
+                    fileExt: p.file_url?.split('.').pop() || 'jpg',
+                    rating: p.rating === 's' ? 'safe' : p.rating === 'q' ? 'questionable' : 'explicit',
+                    score: p.score,
+                    source: p.source,
+                    tags: p.tags,
+                    downloaded: false,
+                    isFavorited: true,
+                  });
+                  repairedCount++;
+                  console.log('[IPC] 后台补全收藏帖子成功:', postId);
+                } else {
+                  // 帖子已被删除（API 返回空或无 file_url），从收藏中清理
+                  console.warn('[IPC] 帖子已被删除，从收藏中移除:', postId);
+                  await booruService.removeFromFavorites(postId);
+                  deletedIds.push(postId);
+                }
+              } catch (fetchErr) {
+                console.warn('[IPC] 后台获取帖子失败:', postId, fetchErr);
+              }
+            }
+            console.log('[IPC] 后台补全完成: 修复', repairedCount, '个, 删除', deletedIds.length, '个已失效收藏');
+            // 通知前端补全结果
+            const windows = BrowserWindow.getAllWindows();
+            for (const win of windows) {
+              win.webContents.send('booru:favorites-repair-done', {
+                siteId,
+                repairedCount,
+                deletedCount: deletedIds.length,
+                deletedIds,
+              });
+            }
+          } catch (err) {
+            console.warn('[IPC] 后台补全收藏帖子异常:', err);
+          }
+        })();
+      }
+
+      return { success: true, data: favorites, missingCount: missingIds.length };
     } catch (error) {
       console.error('[IPC] 获取Booru收藏列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -1384,6 +1453,57 @@ export function setupIPC() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取标签分类失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // ========= 标签自动补全 =========
+
+  // 根据输入前缀从 Booru 站点 API 搜索匹配的标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_AUTOCOMPLETE_TAGS, async (_event: IpcMainInvokeEvent, siteId: number, query: string, limit: number = 10) => {
+    try {
+      if (!query || query.trim().length === 0) {
+        return { success: true, data: [] };
+      }
+      console.log('[IPC] 标签自动补全:', { siteId, query, limit });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const tags = await client.getTags({ query: query.trim(), limit });
+      // 返回简化的标签数据
+      const result = tags.map(tag => ({
+        name: tag.name,
+        count: tag.count,
+        type: tag.type,
+      }));
+      console.log('[IPC] 标签自动补全成功:', result.length, '个匹配');
+      return { success: true, data: result };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 标签自动补全失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // ========= 艺术家 =========
+
+  // 获取艺术家信息
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_ARTIST, async (_event: IpcMainInvokeEvent, siteId: number, name: string) => {
+    try {
+      console.log('[IPC] 获取艺术家信息:', { siteId, name });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const artist = await client.getArtist(name);
+      console.log('[IPC] 艺术家信息获取结果:', artist ? artist.name : 'null');
+      return { success: true, data: artist };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取艺术家失败:', errorMessage);
       return { success: false, error: errorMessage };
     }
   });

@@ -10,6 +10,7 @@ interface TagsSectionProps {
   post: BooruPost;
   site: BooruSite | null;
   onTagClick?: (tag: string) => void;
+  onArtistClick?: (artistName: string) => void;
 }
 
 /**
@@ -20,7 +21,8 @@ interface TagsSectionProps {
 export const TagsSection: React.FC<TagsSectionProps> = ({
   post,
   site,
-  onTagClick
+  onTagClick,
+  onArtistClick
 }) => {
   const { message } = App.useApp();
   const [expanded, setExpanded] = useState(false);
@@ -207,6 +209,12 @@ export const TagsSection: React.FC<TagsSectionProps> = ({
 
   const handleTagClick = (tag: string) => {
     console.log('[TagsSection] 点击标签:', tag);
+    const category = tagCategories[tag] || 'general';
+    // 艺术家标签导航到艺术家页面
+    if (category === 'artist' && onArtistClick) {
+      onArtistClick(tag);
+      return;
+    }
     if (onTagClick) {
       onTagClick(tag);
     }

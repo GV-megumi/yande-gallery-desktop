@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography } from 'antd';
+import { Button, Empty, App, Typography, notification } from 'antd';
 import { BookOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
@@ -15,6 +15,7 @@ const { Title } = Typography;
 
 interface BooruFavoritesPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  onArtistClick?: (artistName: string, siteId?: number | null) => void;
 }
 
 /**
@@ -22,7 +23,8 @@ interface BooruFavoritesPageProps {
  * 展示、管理和下载收藏的图片
  */
 export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
-  onTagClick
+  onTagClick,
+  onArtistClick
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -166,7 +168,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruFavoritesPage] 加载收藏成功:', data.length, '张图片');
-        
+
         setPosts(data);
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
@@ -174,6 +176,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         // 所有收藏的图片都是已收藏状态
         const favoriteIds = new Set(data.map(p => p.id));
         setFavorites(favoriteIds);
+
       } else {
         console.error('[BooruFavoritesPage] 加载收藏失败:', result.error);
         message.error('加载收藏失败: ' + result.error);
@@ -250,6 +253,38 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     loadAppearanceConfig();
     loadSites();
   }, []);
+
+  // 监听后台收藏修复完成事件
+  useEffect(() => {
+    if (!window.electronAPI?.booru?.onFavoritesRepairDone) return;
+    const unsubscribe = window.electronAPI.booru.onFavoritesRepairDone((data) => {
+      console.log('[BooruFavoritesPage] 收藏修复完成:', data);
+      if (data.siteId !== selectedSiteId) return;
+
+      // 补全数据：普通提示
+      if (data.repairedCount > 0) {
+        message.success(`已补全 ${data.repairedCount} 个收藏的数据，点击刷新查看`);
+      }
+
+      // 删除已失效收藏：常驻弹窗提醒
+      if (data.deletedCount > 0) {
+        notification.warning({
+          message: '收藏清理通知',
+          description: `检测到 ${data.deletedCount} 个收藏的原帖已被站点删除，已自动清理 (ID: ${data.deletedIds.join(', ')})`,
+          duration: 0, // 常驻，需手动关闭
+          btn: (
+            <Button type="primary" size="small" onClick={() => {
+              loadFavorites(currentPage);
+              notification.destroy();
+            }}>
+              刷新列表
+            </Button>
+          ),
+        });
+      }
+    });
+    return () => unsubscribe();
+  }, [selectedSiteId, currentPage]);
 
   // 当站点切换时，加载收藏
   useEffect(() => {
@@ -369,6 +404,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         onTagClick={handleTagClick}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        onArtistClick={onArtistClick}
       />
     </div>
   );

@@ -26,6 +26,7 @@ import {
   RateLimiter,
   BooruPoolDetailData,
   BooruTagSummaryData,
+  BooruArtistData,
 } from './booruClientInterface.js';
 
 // Gelbooru API 返回的原始 Post 格式
@@ -641,6 +642,17 @@ export class GelbooruClient implements IBooruClient {
       console.error('[GelbooruClient] 获取 Pool 详情失败:', error.message);
       throw error;
     }
+  }
+
+  // ========= 艺术家 =========
+
+  /**
+   * 获取艺术家信息
+   * Gelbooru 不支持独立的艺术家 API，返回 null
+   */
+  async getArtist(_name: string): Promise<BooruArtistData | null> {
+    console.log('[GelbooruClient] Gelbooru 不支持艺术家 API');
+    return null;
   }
 
   // ========= 认证/测试 =========

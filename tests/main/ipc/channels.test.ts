@@ -139,6 +139,6 @@ describe('IPC_CHANNELS', () => {
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(91);
+    expect(keys.length).toBe(93);
   });
 });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography, Tooltip } from 'antd';
+import { Button, Empty, App, Typography, Tooltip, Tag, Card, Descriptions, Spin } from 'antd';
 import { LeftOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
@@ -8,15 +8,32 @@ import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
-import { spacing } from '../styles/tokens';
+import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 
-const { Title } = Typography;
+const { Title, Text } = Typography;
+
+/** 标签类型名称和颜色 */
+const TAG_TYPE_INFO: Record<number, { name: string; color: string }> = {
+  0: { name: '通用', color: colors.textSecondary },
+  1: { name: '艺术家', color: '#FF3B30' },
+  3: { name: '版权', color: '#AF52DE' },
+  4: { name: '角色', color: '#34C759' },
+  5: { name: '元数据', color: '#FF9500' },
+};
+
+/** 标签详情信息 */
+interface TagInfo {
+  name: string;
+  count: number;
+  type: number;
+}
 
 interface BooruTagSearchPageProps {
   initialTag: string;
   initialSiteId?: number | null;
   onBack?: () => void;
+  onArtistClick?: (artistName: string, siteId?: number | null) => void;
 }
 
 /**
@@ -27,7 +44,8 @@ interface BooruTagSearchPageProps {
 export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   initialTag,
   initialSiteId = null,
-  onBack
+  onBack,
+  onArtistClick
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -67,6 +85,10 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     margin: 20
   });
 
+  // 标签详情信息
+  const [tagInfo, setTagInfo] = useState<TagInfo | null>(null);
+  const [tagInfoLoading, setTagInfoLoading] = useState(false);
+
   // 当前搜索标签的收藏状态
   const [isTagFavorited, setIsTagFavorited] = useState(false);
 
@@ -102,12 +124,58 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   }, [isTagFavorited, selectedSiteId, searchTag]);
 
-  // 搜索标签变化时检查收藏状态
+  // 加载标签详情信息（类型、帖子数量）
+  const loadTagInfo = useCallback(async (tag: string) => {
+    if (!selectedSiteId || !window.electronAPI?.booru?.autocompleteTags) return;
+    setTagInfoLoading(true);
+    try {
+      const result = await window.electronAPI.booru.autocompleteTags(selectedSiteId, tag, 5);
+      if (result.success && result.data) {
+        // 查找精确匹配的标签
+        const exactMatch = result.data.find(t => t.name === tag);
+        if (exactMatch) {
+          setTagInfo(exactMatch);
+        } else if (result.data.length > 0) {
+          // 如果没有精确匹配，使用第一个结果
+          setTagInfo(result.data[0]);
+        } else {
+          setTagInfo(null);
+        }
+      }
+    } catch (error) {
+      console.error('[BooruTagSearchPage] 加载标签信息失败:', error);
+    } finally {
+      setTagInfoLoading(false);
+    }
+  }, [selectedSiteId]);
+
+  // 搜索标签变化时加载标签信息和检查收藏状态
   useEffect(() => {
     if (searchTag) {
       checkTagFavoriteStatus(searchTag);
+      loadTagInfo(searchTag);
     }
-  }, [searchTag, selectedSiteId, checkTagFavoriteStatus]);
+  }, [searchTag, selectedSiteId, checkTagFavoriteStatus, loadTagInfo]);
+
+  // 相关标签推荐：从当前帖子标签中统计高频标签（排除当前搜索标签）
+  const relatedTags = useMemo(() => {
+    if (posts.length === 0) return [];
+    const excludeTags = new Set([searchTag.toLowerCase(), 'highres', 'absurdres', 'commentary_request', 'tagme']);
+    const tagCount = new Map<string, number>();
+    for (const post of posts) {
+      const postTags = post.tags.split(' ').filter(t => t.trim());
+      for (const tag of postTags) {
+        const lower = tag.toLowerCase();
+        if (!excludeTags.has(lower)) {
+          tagCount.set(tag, (tagCount.get(tag) || 0) + 1);
+        }
+      }
+    }
+    return Array.from(tagCount.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 20)
+      .map(([tag, count]) => ({ tag, count }));
+  }, [posts, searchTag]);
 
   // 服务端喜欢状态管理
   const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
@@ -341,6 +409,18 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     searchTagPosts(tag, 1);
   };
 
+  // 处理艺术家点击：如果提供了 onArtistClick 回调则使用它，否则在当前页面搜索该艺术家标签
+  const handleArtistClick = useCallback((artistName: string) => {
+    console.log('[BooruTagSearchPage] 点击艺术家:', artistName);
+    if (onArtistClick) {
+      onArtistClick(artistName, selectedSiteId);
+    } else {
+      // 在当前页面更新搜索标签为艺术家名称
+      setSearchTag(artistName);
+      searchTagPosts(artistName, 1);
+    }
+  }, [onArtistClick, selectedSiteId]);
+
   // 处理图片预览
   const handlePreview = (post: BooruPost) => {
     console.log('[BooruTagSearchPage] 预览图片:', post.postId);
@@ -406,7 +486,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   return (
     <div ref={contentRef} style={{ padding: appearanceConfig.margin }}>
       {/* 页面标题和返回按钮 */}
-      <div style={{ marginBottom: spacing.xl, display: 'flex', alignItems: 'center', gap: spacing.lg }}>
+      <div style={{ marginBottom: spacing.md, display: 'flex', alignItems: 'center', gap: spacing.lg }}>
         {onBack && (
           <Button icon={<LeftOutlined />} onClick={onBack}>
             返回
@@ -424,6 +504,55 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
             onClick={handleToggleTagFavorite}
           />
         </Tooltip>
+      </div>
+
+      {/* 标签详情信息卡片 */}
+      <div style={{
+        padding: `${spacing.md}px ${spacing.lg}px`,
+        marginBottom: spacing.md,
+        background: colors.bgGroupedSecondary,
+        borderRadius: radius.lg,
+        border: `1px solid ${colors.border}`,
+      }}>
+        {tagInfoLoading ? (
+          <Spin size="small" />
+        ) : tagInfo ? (
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.xs }}>
+              <Text strong style={{ fontSize: fontSize.lg }}>
+                {tagInfo.name.replace(/_/g, ' ')}
+              </Text>
+              <Tag color={TAG_TYPE_INFO[tagInfo.type]?.color || colors.textSecondary}>
+                {TAG_TYPE_INFO[tagInfo.type]?.name || `类型 ${tagInfo.type}`}
+              </Tag>
+              <Text type="secondary" style={{ fontSize: fontSize.sm }}>
+                {tagInfo.count.toLocaleString()} 张帖子
+              </Text>
+            </div>
+          </div>
+        ) : (
+          <Text type="secondary" style={{ fontSize: fontSize.sm }}>
+            标签信息加载中...
+          </Text>
+        )}
+
+        {/* 相关标签推荐 */}
+        {relatedTags.length > 0 && (
+          <div style={{ marginTop: spacing.sm }}>
+            <Text type="secondary" style={{ fontSize: fontSize.xs, marginRight: spacing.sm }}>
+              相关标签:
+            </Text>
+            {relatedTags.map(({ tag, count }) => (
+              <Tag
+                key={tag}
+                style={{ cursor: 'pointer', marginBottom: 2, fontSize: fontSize.xs }}
+                onClick={() => handleTagClick(tag)}
+              >
+                {tag.replace(/_/g, ' ')} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
+              </Tag>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* 工具栏 */}
@@ -517,6 +646,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         onTagClick={handleTagClick}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        onArtistClick={handleArtistClick}
       />
     </div>
   );

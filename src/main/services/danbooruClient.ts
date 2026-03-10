@@ -24,6 +24,7 @@ import {
   BooruPoolData,
   BooruPoolDetailData,
   BooruTagSummaryData,
+  BooruArtistData,
   TAG_TYPE_MAP,
   RateLimiter,
 } from './booruClientInterface.js';
@@ -595,6 +596,65 @@ export class DanbooruClient implements IBooruClient {
     } catch (error: any) {
       console.error('[DanbooruClient] 获取 Pool 详情失败:', error.message);
       throw error;
+    }
+  }
+
+  // ========= 艺术家 =========
+
+  /**
+   * 获取艺术家信息
+   * Danbooru API: GET /artists.json?search[name]=xxx
+   */
+  async getArtist(name: string): Promise<BooruArtistData | null> {
+    try {
+      console.log('[DanbooruClient] 获取艺术家信息:', name);
+      await this.rateLimiter.acquire();
+
+      const response = await this.client.get('/artists.json', {
+        params: { 'search[name]': name }
+      });
+
+      const artists = Array.isArray(response.data) ? response.data : [];
+      const artist = artists.find((a: any) => a.name === name) || artists[0];
+
+      if (!artist) {
+        console.log('[DanbooruClient] 未找到艺术家:', name);
+        return null;
+      }
+
+      // Danbooru artist 有 urls 子资源，需额外请求
+      let urls: string[] = [];
+      try {
+        await this.rateLimiter.acquire();
+        const urlsResponse = await this.client.get(`/artists/${artist.id}.json`);
+        if (urlsResponse.data?.urls) {
+          urls = urlsResponse.data.urls
+            .filter((u: any) => u.is_active !== false)
+            .map((u: any) => u.url || u.normalized_url)
+            .filter((u: string) => u);
+        }
+      } catch {
+        // 忽略 URL 获取失败
+      }
+
+      // 获取别名
+      const aliases: string[] = [];
+      if (artist.other_names && Array.isArray(artist.other_names)) {
+        aliases.push(...artist.other_names);
+      }
+
+      console.log('[DanbooruClient] 艺术家信息获取成功:', artist.name, 'urls:', urls.length);
+      return {
+        id: artist.id,
+        name: artist.name,
+        aliases,
+        urls,
+        group_name: artist.group_name || undefined,
+        is_banned: artist.is_banned || false,
+      };
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取艺术家失败:', error.message);
+      return null;
     }
   }
 

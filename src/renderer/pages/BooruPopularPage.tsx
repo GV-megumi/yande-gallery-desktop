@@ -11,6 +11,7 @@ const { Option } = Select;
 
 interface BooruPopularPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  onArtistClick?: (artistName: string, siteId?: number | null) => void;
 }
 
 type PeriodType = 'recent' | 'day' | 'week' | 'month';
@@ -19,7 +20,7 @@ type PeriodType = 'recent' | 'day' | 'week' | 'month';
  * Booru 热门图片页面
  * 支持查看近期热门和按日期查看热门
  */
-export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }) => {
+export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, onArtistClick }) => {
   const { message } = App.useApp();
   const [posts, setPosts] = useState<BooruPost[]>([]);
   const [loading, setLoading] = useState(false);
@@ -253,6 +254,7 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick }
         onTagClick={onTagClick}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
+        onArtistClick={onArtistClick}
       />
     </div>
   );

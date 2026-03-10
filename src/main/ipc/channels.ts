@@ -58,6 +58,12 @@ export const IPC_CHANNELS = {
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
 
+  // Booru 标签自动补全
+  BOORU_AUTOCOMPLETE_TAGS: 'booru:autocomplete-tags',
+
+  // Booru 艺术家
+  BOORU_GET_ARTIST: 'booru:get-artist',
+
   // === 批量下载相关通道 ===
   BULK_DOWNLOAD_CREATE_TASK: 'bulk-download:create-task',
   BULK_DOWNLOAD_GET_TASKS: 'bulk-download:get-tasks',

@@ -77,6 +77,16 @@ export interface BooruTagSummaryData {
   data: string;
 }
 
+/** 统一的艺术家格式 */
+export interface BooruArtistData {
+  id: number;
+  name: string;
+  aliases: string[];        // 别名列表
+  urls: string[];           // 外部链接（Pixiv、Twitter 等）
+  group_name?: string;      // 所属组/社团
+  is_banned?: boolean;
+}
+
 /** 客户端配置 */
 export interface BooruClientConfig {
   baseUrl: string;
@@ -183,6 +193,11 @@ export interface IBooruClient {
 
   /** 获取 Pool 详情 */
   getPool(id: number, page?: number): Promise<BooruPoolDetailData>;
+
+  // --- 艺术家相关 ---
+
+  /** 按名称获取艺术家信息（外部链接、别名等） */
+  getArtist(name: string): Promise<BooruArtistData | null>;
 
   // --- 认证/测试 ---
 

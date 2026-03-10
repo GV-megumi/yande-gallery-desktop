@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import crypto from 'crypto';
 import { getProxyConfig } from './config.js';
-import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, RateLimiter } from './booruClientInterface.js';
+import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, RateLimiter } from './booruClientInterface.js';
 
 // Moebooru API配置
 export interface MoebooruConfig {
@@ -844,6 +844,69 @@ export class MoebooruClient implements IBooruClient {
     } catch (error) {
       console.error('[MoebooruClient] 获取服务端喜欢列表失败:', error);
       throw error;
+    }
+  }
+
+  /**
+   * 获取艺术家信息
+   * Moebooru API: GET /artist.json?name=xxx
+   * 返回艺术家的别名和外部链接
+   */
+  async getArtist(name: string): Promise<BooruArtistData | null> {
+    try {
+      console.log('[MoebooruClient] 获取艺术家信息:', name);
+      await this.rateLimiter.acquire();
+
+      const response = await this.client.get('/artist.json', {
+        params: {
+          name,
+          ...this.getAuthParams()
+        }
+      });
+
+      const artists = Array.isArray(response.data) ? response.data : [];
+      // 精确匹配名称
+      const artist = artists.find((a: any) => a.name === name) || artists[0];
+
+      if (!artist) {
+        console.log('[MoebooruClient] 未找到艺术家:', name);
+        return null;
+      }
+
+      // Moebooru artist 响应格式: { id, name, alias_id, group_id, urls: string (换行分隔) }
+      const urls: string[] = artist.urls
+        ? (typeof artist.urls === 'string' ? artist.urls.split('\n') : Array.isArray(artist.urls) ? artist.urls : [])
+            .map((u: string) => u.trim())
+            .filter((u: string) => u.length > 0)
+        : [];
+
+      // 获取别名（通过 alias_id 或搜索）
+      const aliases: string[] = [];
+      if (artist.alias_id) {
+        try {
+          const aliasResponse = await this.client.get('/artist.json', {
+            params: { id: artist.alias_id, ...this.getAuthParams() }
+          });
+          if (Array.isArray(aliasResponse.data) && aliasResponse.data.length > 0) {
+            aliases.push(aliasResponse.data[0].name);
+          }
+        } catch {
+          // 忽略别名查询失败
+        }
+      }
+
+      console.log('[MoebooruClient] 艺术家信息获取成功:', artist.name, 'urls:', urls.length);
+      return {
+        id: artist.id,
+        name: artist.name,
+        aliases,
+        urls,
+        group_name: artist.group_name || undefined,
+        is_banned: false,
+      };
+    } catch (error: any) {
+      console.error('[MoebooruClient] 获取艺术家失败:', error.message);
+      return null;
     }
   }
 

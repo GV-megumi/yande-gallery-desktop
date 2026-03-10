@@ -20,6 +20,7 @@ interface BooruPostDetailsPageProps {
   onToggleFavorite?: (post: BooruPost) => void;
   onDownload?: (post: BooruPost) => void;
   onTagClick?: (tag: string) => void;
+  onArtistClick?: (artistName: string) => void;
   /** 服务端喜欢状态判断（传入当前 post 是否已喜欢） */
   isServerFavorited?: (post: BooruPost) => boolean;
   /** 服务端喜欢切换回调 */
@@ -46,6 +47,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   onToggleFavorite,
   onDownload,
   onTagClick,
+  onArtistClick,
   isServerFavorited,
   onToggleServerFavorite
 }) => {
@@ -648,6 +650,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 post={currentPost}
                 site={site}
                 onTagClick={onTagClick}
+                onArtistClick={onArtistClick}
               />
 
               {/* 文件详情 */}

@@ -608,7 +608,7 @@ export async function getFavorites(siteId: number, page: number = 1, limit: numb
       `
         SELECT p.* FROM booru_posts p
         INNER JOIN booru_favorites f ON p.postId = f.postId AND p.siteId = f.siteId
-        WHERE p.siteId = ? AND p.isFavorited = 1
+        WHERE f.siteId = ?
         ORDER BY f.createdAt DESC
         LIMIT ? OFFSET ?
       `,
@@ -627,6 +627,61 @@ export async function getFavorites(siteId: number, page: number = 1, limit: numb
   } catch (error) {
     console.error('[booruService] 获取收藏列表失败:', error);
     throw error;
+  }
+}
+
+/**
+ * 获取收藏中缺失帖子数据的 postId 列表
+ * 这些 postId 在 booru_favorites 中存在，但在 booru_posts 中没有对应记录
+ */
+export async function getMissingFavoritePostIds(siteId: number): Promise<number[]> {
+  console.log('[booruService] 检查缺失的收藏帖子数据, siteId:', siteId);
+  try {
+    const db = await getDatabase();
+    const rows = await all<{ postId: number }>(
+      db,
+      `
+        SELECT f.postId FROM booru_favorites f
+        LEFT JOIN booru_posts p ON f.postId = p.postId AND f.siteId = p.siteId
+        WHERE f.siteId = ? AND p.postId IS NULL
+      `,
+      [siteId]
+    );
+    const ids = rows.map(r => r.postId);
+    console.log('[booruService] 缺失帖子数据的收藏数量:', ids.length);
+    return ids;
+  } catch (error) {
+    console.error('[booruService] 获取缺失收藏帖子失败:', error);
+    return [];
+  }
+}
+
+/**
+ * 修复收藏数据一致性
+ * 1. 确保 booru_favorites 中的帖子在 booru_posts 中 isFavorited = 1
+ * 2. 确保不在 booru_favorites 中的帖子 isFavorited = 0
+ */
+export async function repairFavoritesConsistency(siteId: number): Promise<number> {
+  console.log('[booruService] 修复收藏数据一致性, siteId:', siteId);
+  try {
+    const db = await getDatabase();
+
+    // 把在 booru_favorites 中但 isFavorited != 1 的帖子修复
+    const result = await run(db, `
+      UPDATE booru_posts SET isFavorited = 1
+      WHERE siteId = ? AND postId IN (
+        SELECT f.postId FROM booru_favorites f WHERE f.siteId = ?
+      ) AND (isFavorited IS NULL OR isFavorited != 1)
+    `, [siteId, siteId]);
+
+    const fixed = (result as any)?.changes || 0;
+    if (fixed > 0) {
+      console.log('[booruService] 修复了', fixed, '条 isFavorited 标志');
+    }
+    return fixed;
+  } catch (error) {
+    console.error('[booruService] 修复收藏一致性失败:', error);
+    return 0;
   }
 }
 

@@ -46,6 +46,12 @@ const IPC_CHANNELS = {
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
 
+  // Booru 标签自动补全
+  BOORU_AUTOCOMPLETE_TAGS: 'booru:autocomplete-tags',
+
+  // Booru 艺术家
+  BOORU_GET_ARTIST: 'booru:get-artist',
+
   // 收藏标签管理
   BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
@@ -194,6 +200,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
     removeFavorite: (postId: number, syncToServer: boolean = false) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, postId, syncToServer),
+    // 监听收藏后台修复完成事件
+    onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => {
+      const subscription = (_event: any, data: any) => callback(data);
+      ipcRenderer.on('booru:favorites-repair-done', subscription);
+      return () => ipcRenderer.removeListener('booru:favorites-repair-done', subscription);
+    },
 
     // 下载
     addToDownload: (postId: number, siteId: number) =>
@@ -228,6 +240,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 标签分类
     getTagsCategories: (siteId: number, tagNames: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAGS_CATEGORIES, siteId, tagNames),
+
+    // 标签自动补全
+    autocompleteTags: (siteId: number, query: string, limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_AUTOCOMPLETE_TAGS, siteId, query, limit),
+
+    // 艺术家
+    getArtist: (siteId: number, name: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ARTIST, siteId, name),
 
     // 收藏标签管理
     addFavoriteTag: (siteId: number | null, tagName: string, options?: any) =>
@@ -424,6 +444,7 @@ declare global {
         searchPosts: (siteId: number, tags: string[], page?: number, limit?: number, fetchTagCategories?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
+        onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => () => void;
         removeFavorite: (postId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
         addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; error?: string }>;
@@ -439,6 +460,8 @@ declare global {
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
+        autocompleteTags: (siteId: number, query: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; count: number; type: number }>; error?: string }>;
+        getArtist: (siteId: number, name: string) => Promise<{ success: boolean; data?: { id: number; name: string; aliases: string[]; urls: string[]; group_name?: string; is_banned?: boolean } | null; error?: string }>;
         addFavoriteTag: (siteId: number | null, tagName: string, options?: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;
