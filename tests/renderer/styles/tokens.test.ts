@@ -45,22 +45,22 @@ describe('主题切换 (setDarkMode / isDarkMode)', () => {
 });
 
 describe('colors Proxy 动态切换', () => {
-  it('亮色模式下 primary 应为 iOS 蓝', () => {
+  it('亮色模式下 primary 应为品牌蓝紫', () => {
     setDarkMode(false);
-    expect(colors.primary).toBe('#007AFF');
+    expect(colors.primary).toBe('#4F46E5');
   });
 
-  it('暗色模式下 primary 应为暗色 iOS 蓝', () => {
+  it('暗色模式下 primary 应为亮蓝紫', () => {
     setDarkMode(true);
-    expect(colors.primary).toBe('#0A84FF');
+    expect(colors.primary).toBe('#818CF8');
   });
 
   it('切换模式后 textPrimary 应立即变化', () => {
     setDarkMode(false);
-    expect(colors.textPrimary).toBe('#000000');
+    expect(colors.textPrimary).toBe('#111827');
 
     setDarkMode(true);
-    expect(colors.textPrimary).toBe('#FFFFFF');
+    expect(colors.textPrimary).toBe('#F9FAFB');
   });
 
   it('切换模式后 bgBase 应立即变化', () => {
@@ -68,7 +68,7 @@ describe('colors Proxy 动态切换', () => {
     expect(colors.bgBase).toBe('#FFFFFF');
 
     setDarkMode(true);
-    expect(colors.bgBase).toBe('#1C1C1E');
+    expect(colors.bgBase).toBe('#0F1117');
   });
 
   it('亮色和暗色的 ratingSafe 应不同', () => {
