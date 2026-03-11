@@ -744,6 +744,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
                 const next = currentPage + 1;
                 isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
               }}
+              onPageChange={(page) => {
+                isSearchMode ? searchPosts(searchQuery, page) : loadPosts(page);
+              }}
             />
 
             <BooruGridLayout
@@ -775,6 +778,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
               onNext={() => {
                 const next = currentPage + 1;
                 isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
+              }}
+              onPageChange={(page) => {
+                isSearchMode ? searchPosts(searchQuery, page) : loadPosts(page);
               }}
             />
           </>

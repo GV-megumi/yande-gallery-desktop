@@ -4,6 +4,7 @@ import { createGallery, getGalleries } from './galleryService.js';
 import { normalizePath } from '../utils/path.js';
 import { downloadManager } from './downloadManager.js';
 import * as bulkDownloadService from './bulkDownloadService.js';
+import { cleanExpiredTags } from './booruService.js';
 
 /**
  * 初始化应用（加载配置 + 初始化数据库 + 初始化图库）
@@ -83,6 +84,16 @@ function resumeDownloadsInBackground(): void {
       }
     } catch (error) {
       console.error('[init] 恢复批量下载会话失败:', error);
+    }
+
+    // 清理过期标签缓存（超过 60 天未访问的标签）
+    try {
+      const cleaned = await cleanExpiredTags(60);
+      if (cleaned > 0) {
+        console.log(`[init] 已清理 ${cleaned} 条过期标签缓存`);
+      }
+    } catch (error) {
+      console.error('[init] 清理过期标签缓存失败:', error);
     }
   }, 2000);
 }

@@ -292,6 +292,7 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
               position="top"
               onPrevious={() => loadServerFavorites(Math.max(1, currentPage - 1))}
               onNext={() => loadServerFavorites(currentPage + 1)}
+              onPageChange={(page) => loadServerFavorites(page)}
             />
 
             <BooruGridLayout
@@ -318,6 +319,7 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
               position="bottom"
               onPrevious={() => loadServerFavorites(Math.max(1, currentPage - 1))}
               onNext={() => loadServerFavorites(currentPage + 1)}
+              onPageChange={(page) => loadServerFavorites(page)}
             />
           </>
         )}

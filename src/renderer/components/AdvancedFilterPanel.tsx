@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback } from 'react';
-import { Popover, Button, InputNumber, Select, Space, Tag, Divider } from 'antd';
+import { Popover, Button, InputNumber, Select, Space, Tag, Divider, Tooltip } from 'antd';
 import { FilterOutlined } from '@ant-design/icons';
 import { colors, fontSize, spacing } from '../styles/tokens';
 
@@ -248,14 +248,14 @@ export const AdvancedFilterPanel: React.FC<AdvancedFilterPanelProps> = ({
       placement="bottomRight"
       overlayStyle={{ zIndex: 1050 }}
     >
-      <Button
-        icon={<FilterOutlined />}
-        disabled={disabled}
-        type={activeCount > 0 ? 'primary' : 'default'}
-        ghost={activeCount > 0}
-      >
-        过滤{activeCount > 0 ? ` (${activeCount})` : ''}
-      </Button>
+      <Tooltip title={`高级过滤${activeCount > 0 ? ` (${activeCount})` : ''}`}>
+        <Button
+          icon={<FilterOutlined />}
+          disabled={disabled}
+          type={activeCount > 0 ? 'primary' : 'default'}
+          ghost={activeCount > 0}
+        />
+      </Tooltip>
     </Popover>
   );
 };

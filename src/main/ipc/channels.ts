@@ -56,6 +56,10 @@ export const IPC_CHANNELS = {
   BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
   BOORU_CLEAR_CACHE: 'booru:clear-cache',
 
+  // Booru 标签缓存管理
+  BOORU_GET_TAG_CACHE_STATS: 'booru:get-tag-cache-stats',
+  BOORU_CLEAN_EXPIRED_TAGS: 'booru:clean-expired-tags',
+
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
 

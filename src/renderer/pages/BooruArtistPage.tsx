@@ -567,6 +567,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
               position="top"
               onPrevious={() => searchArtistPosts(artistName, Math.max(1, currentPage - 1))}
               onNext={() => searchArtistPosts(artistName, currentPage + 1)}
+              onPageChange={(page) => searchArtistPosts(artistName, page)}
             />
             <BooruGridLayout
               posts={filteredSortedPosts}
@@ -591,6 +592,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
               position="bottom"
               onPrevious={() => searchArtistPosts(artistName, Math.max(1, currentPage - 1))}
               onNext={() => searchArtistPosts(artistName, currentPage + 1)}
+              onPageChange={(page) => searchArtistPosts(artistName, page)}
             />
           </>
         )}

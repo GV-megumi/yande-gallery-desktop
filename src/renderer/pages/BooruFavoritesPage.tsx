@@ -503,6 +503,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               position="top"
               onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
               onNext={() => loadFavorites(currentPage + 1)}
+              onPageChange={(page) => loadFavorites(page)}
             />
 
             <BooruGridLayout
@@ -529,6 +530,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               position="bottom"
               onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
               onNext={() => loadFavorites(currentPage + 1)}
+              onPageChange={(page) => loadFavorites(page)}
             />
           </>
         )}

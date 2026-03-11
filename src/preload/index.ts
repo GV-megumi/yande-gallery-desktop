@@ -44,6 +44,10 @@ const IPC_CHANNELS = {
   BOORU_GET_CACHE_STATS: 'booru:get-cache-stats',
   BOORU_CLEAR_CACHE: 'booru:clear-cache',
 
+  // Booru 标签缓存管理
+  BOORU_GET_TAG_CACHE_STATS: 'booru:get-tag-cache-stats',
+  BOORU_CLEAN_EXPIRED_TAGS: 'booru:clean-expired-tags',
+
   // Booru 标签分类
   BOORU_GET_TAGS_CATEGORIES: 'booru:get-tags-categories',
 
@@ -258,6 +262,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_CACHE_STATS),
     clearCache: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_CACHE),
+
+    // 标签缓存管理
+    getTagCacheStats: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAG_CACHE_STATS),
+    cleanExpiredTags: (expireDays?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAN_EXPIRED_TAGS, expireDays),
 
     // 标签分类
     getTagsCategories: (siteId: number, tagNames: string[]) =>
@@ -512,6 +522,8 @@ declare global {
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;
         clearCache: () => Promise<{ success: boolean; data?: { deletedCount: number; freedMB: number }; error?: string }>;
+        getTagCacheStats: () => Promise<{ success: boolean; data?: { totalCount: number; expiredCount: number; oldestDate: string | null }; error?: string }>;
+        cleanExpiredTags: (expireDays?: number) => Promise<{ success: boolean; data?: { cleaned: number }; error?: string }>;
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         autocompleteTags: (siteId: number, query: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; count: number; type: number }>; error?: string }>;
         getArtist: (siteId: number, name: string) => Promise<{ success: boolean; data?: { id: number; name: string; aliases: string[]; urls: string[]; group_name?: string; is_banned?: boolean } | null; error?: string }>;

@@ -599,6 +599,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               position="top"
               onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
               onNext={() => searchTagPosts(searchTag, currentPage + 1)}
+              onPageChange={(page) => searchTagPosts(searchTag, page)}
             />
 
             <BooruGridLayout
@@ -625,6 +626,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               position="bottom"
               onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
               onNext={() => searchTagPosts(searchTag, currentPage + 1)}
+              onPageChange={(page) => searchTagPosts(searchTag, page)}
             />
           </>
         )}

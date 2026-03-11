@@ -1,7 +1,6 @@
 /**
- * Booru 动态网格布局组件
- * 按 ID 排序，每行显示多张图片，每行高度取该行图片的最大高度
- * 提取自 BooruPage、BooruFavoritesPage、BooruTagSearchPage 的重复实现
+ * Booru 瀑布流网格布局 — JS 分列 Masonry（先左右后上下）
+ * 按行将每张图片分配到当前最短的列，保持自然浏览顺序
  */
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
@@ -9,7 +8,7 @@ import { BooruImageCard } from './BooruImageCard';
 import { BooruPost, BooruSite } from '../../shared/types';
 
 export interface BooruGridLayoutProps {
-  /** posts 应由调用方预先排序好，本组件不再内部排序 */
+  /** posts 应由调用方预先排序好 */
   posts: BooruPost[];
   gridSize: number;
   spacing: number;
@@ -24,6 +23,15 @@ export interface BooruGridLayoutProps {
   onToggleServerFavorite?: (post: BooruPost) => void;
   serverFavorites?: Set<number>;
 }
+
+/** 根据帖子元数据估算图片在指定列宽下的渲染高度 */
+const estimateHeight = (post: BooruPost, colWidth: number): number => {
+  if (post.width && post.height && post.width > 0) {
+    return (post.height / post.width) * colWidth;
+  }
+  // 没有尺寸信息时使用默认比例 3:4
+  return colWidth * 1.33;
+};
 
 export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   posts,
@@ -40,91 +48,106 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   onToggleServerFavorite,
   serverFavorites
 }) => {
-  // 计算每行能放多少张图片（根据容器宽度和 gridSize）
   const containerRef = useRef<HTMLDivElement>(null);
-  const [itemsPerRow, setItemsPerRow] = useState(5);
-  const [imageHeights, setImageHeights] = useState<Record<number, number>>({});
+  const [columnCount, setColumnCount] = useState(5);
+  const [containerWidth, setContainerWidth] = useState(0);
+  // 记录上一次 posts 引用，仅在 posts 真正变化时播放入场动画
+  const prevPostsRef = useRef<BooruPost[]>(posts);
+  const shouldAnimate = prevPostsRef.current !== posts;
+  useEffect(() => { prevPostsRef.current = posts; }, [posts]);
 
+  // 根据容器宽度和 gridSize 计算列数（rAF 防抖避免连续 resize 频繁重算）
   useEffect(() => {
-    const updateItemsPerRow = () => {
+    let rafId = 0;
+    const updateColumns = () => {
       if (containerRef.current) {
-        const containerWidth = containerRef.current.clientWidth;
-        // 计算每行能放多少张：容器宽度 / (gridSize + spacing)
-        const calculated = Math.floor((containerWidth + spacing) / (gridSize + spacing));
-        setItemsPerRow(Math.max(1, calculated));
+        const w = containerRef.current.clientWidth;
+        const cols = Math.max(2, Math.floor((w + spacing) / (gridSize + spacing)));
+        setColumnCount(cols);
+        setContainerWidth(w);
       }
     };
 
-    updateItemsPerRow();
-    window.addEventListener('resize', updateItemsPerRow);
-    return () => window.removeEventListener('resize', updateItemsPerRow);
+    updateColumns();
+    const observer = new ResizeObserver(() => {
+      cancelAnimationFrame(rafId);
+      rafId = requestAnimationFrame(updateColumns);
+    });
+    if (containerRef.current) observer.observe(containerRef.current);
+    return () => { observer.disconnect(); cancelAnimationFrame(rafId); };
   }, [gridSize, spacing]);
 
-  // 处理图片加载完成，记录高度
-  const handleImageLoad = (postId: number, height: number) => {
-    setImageHeights(prev => ({ ...prev, [postId]: height }));
-  };
+  // 实际列宽
+  const colWidth = useMemo(() => {
+    if (!containerWidth) return gridSize;
+    const totalGap = spacing * (columnCount - 1);
+    return (containerWidth - totalGap) / columnCount;
+  }, [containerWidth, columnCount, spacing, gridSize]);
 
-  // 将图片分组为行
-  const rows = useMemo(() => {
-    const result: BooruPost[][] = [];
-    for (let i = 0; i < posts.length; i += itemsPerRow) {
-      result.push(posts.slice(i, i + itemsPerRow));
+  // 将 posts 分配到各列（贪心：每次放到最短列）
+  const columns = useMemo(() => {
+    const cols: BooruPost[][] = Array.from({ length: columnCount }, () => []);
+    const heights = new Array(columnCount).fill(0);
+
+    for (const post of posts) {
+      // 找到当前最短的列
+      let minIdx = 0;
+      for (let i = 1; i < columnCount; i++) {
+        if (heights[i] < heights[minIdx]) minIdx = i;
+      }
+      cols[minIdx].push(post);
+      heights[minIdx] += estimateHeight(post, colWidth) + spacing;
     }
-    return result;
-  }, [posts, itemsPerRow]);
+
+    return cols;
+  }, [posts, columnCount, colWidth, spacing]);
 
   return (
-    <div ref={containerRef} style={{ width: '100%' }}>
-      {rows.map((row, rowIndex) => {
-        // 计算该行的最大高度
-        // 如果该行的所有图片都已加载，使用实际高度；否则使用默认高度（gridSize 的 1.5 倍）
-        const rowHeights = row.map(post => {
-          const height = imageHeights[post.postId];
-          return height || (gridSize * 1.5);
-        });
-        const maxHeight = Math.max(...rowHeights);
-
-        return (
-          <div
-            key={rowIndex}
-            style={{
-              display: 'flex',
-              gap: `${spacing}px`,
-              marginBottom: `${spacing}px`,
-              minHeight: `${maxHeight}px`
-            }}
-          >
-            {row.map(post => (
-              <div
-                key={post.id}
-                style={{
-                  width: `${gridSize}px`,
-                  flexShrink: 0,
-                  borderRadius: `${borderRadius}px`,
-                  overflow: 'hidden',
-                  height: '100%'
-                }}
-              >
-                <BooruImageCard
-                  post={post}
-                  siteName={selectedSite?.name || ''}
-                  siteUrl={selectedSite?.url}
-                  onPreview={onPreview}
-                  onDownload={onDownload}
-                  onToggleFavorite={onToggleFavorite}
-                  isFavorited={favorites.has(post.postId) || !!post.isFavorited}
-                  previewUrl={getPreviewUrl(post)}
-                  onImageLoad={handleImageLoad}
-                  onTagClick={onTagClick}
-                  onToggleServerFavorite={onToggleServerFavorite}
-                  isServerFavorited={serverFavorites?.has(post.postId)}
-                />
-              </div>
-            ))}
-          </div>
-        );
-      })}
+    <div
+      ref={containerRef}
+      style={{
+        display: 'flex',
+        gap: `${spacing}px`,
+        width: '100%',
+        alignItems: 'flex-start',
+      }}
+    >
+      {columns.map((colPosts, colIdx) => (
+        <div
+          key={colIdx}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            gap: `${spacing}px`,
+          }}
+        >
+          {colPosts.map((post, index) => (
+            <div
+              key={post.id}
+              className={shouldAnimate ? 'ios-card-appear' : undefined}
+              style={shouldAnimate ? {
+                animationDelay: `${Math.min((colIdx + index * columnCount) * 0.03, 0.5)}s`,
+              } : undefined}
+            >
+              <BooruImageCard
+                post={post}
+                siteName={selectedSite?.name || ''}
+                siteUrl={selectedSite?.url}
+                onPreview={onPreview}
+                onDownload={onDownload}
+                onToggleFavorite={onToggleFavorite}
+                isFavorited={favorites.has(post.postId) || !!post.isFavorited}
+                previewUrl={getPreviewUrl(post)}
+                onTagClick={onTagClick}
+                onToggleServerFavorite={onToggleServerFavorite}
+                isServerFavorited={serverFavorites?.has(post.postId)}
+              />
+            </div>
+          ))}
+        </div>
+      ))}
     </div>
   );
 });

@@ -340,6 +340,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
               position="top"
               onPrevious={() => searchCharacterPosts(characterName, Math.max(1, currentPage - 1))}
               onNext={() => searchCharacterPosts(characterName, currentPage + 1)}
+              onPageChange={(page) => searchCharacterPosts(characterName, page)}
             />
             <BooruGridLayout
               posts={filteredPosts}
@@ -364,6 +365,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
               position="bottom"
               onPrevious={() => searchCharacterPosts(characterName, Math.max(1, currentPage - 1))}
               onNext={() => searchCharacterPosts(characterName, currentPage + 1)}
+              onPageChange={(page) => searchCharacterPosts(characterName, page)}
             />
           </>
         )}

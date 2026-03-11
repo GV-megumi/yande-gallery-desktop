@@ -39,7 +39,7 @@ import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../ser
 import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
 import * as imageCacheService from '../services/imageCacheService.js';
-import { runInTransaction, getDatabase } from '../services/database.js';
+import { runInTransaction, getDatabase, all, run } from '../services/database.js';
 
 /**
  * 安全解析 created_at 字段
@@ -64,6 +64,120 @@ function parseCreatedAt(value: any): string {
   }
 
   return new Date().toISOString();
+}
+
+/**
+ * 批量查询帖子中的 artist 标签
+ * 先从 booru_tags 表查找已有分类，不足时通过 API 补全
+ * @param siteId 站点 ID
+ * @param posts 帖子列表
+ * @param client 可选的 Booru 客户端，用于从 API 获取缺失的标签分类
+ * @returns Map<postId, artistName>
+ */
+async function resolveArtistTags(
+  siteId: number,
+  posts: BooruPost[],
+  client?: { getTagsByNames(names: string[]): Promise<any[]> }
+): Promise<Map<number, string>> {
+  const result = new Map<number, string>();
+  if (posts.length === 0) return result;
+
+  const excludeTags = new Set(['banned_artist', 'voice_actor']);
+
+  try {
+    const db = await getDatabase();
+
+    // 收集所有帖子的所有唯一标签
+    const allTags = new Set<string>();
+    for (const post of posts) {
+      if (post.tags) {
+        for (const tag of post.tags.split(/\s+/)) {
+          if (tag) allTags.add(tag);
+        }
+      }
+    }
+
+    if (allTags.size === 0) return result;
+
+    const tagArray = Array.from(allTags);
+
+    // 分批查询数据库，避免 SQL IN 子句过大（SQLite 变量上限 999）
+    const SQL_BATCH = 200;
+    const artistSet = new Set<string>();
+    const knownSet = new Set<string>();
+
+    for (let i = 0; i < tagArray.length; i += SQL_BATCH) {
+      const batch = tagArray.slice(i, i + SQL_BATCH);
+      const placeholders = batch.map(() => '?').join(',');
+
+      // 两个查询互不依赖，并行执行
+      const [artistRows, knownRows] = await Promise.all([
+        all<{ name: string }>(db,
+          `SELECT name FROM booru_tags WHERE siteId = ? AND category = 'artist' AND name IN (${placeholders})`,
+          [siteId, ...batch]
+        ),
+        all<{ name: string }>(db,
+          `SELECT DISTINCT name FROM booru_tags WHERE siteId = ? AND name IN (${placeholders})`,
+          [siteId, ...batch]
+        ),
+      ]);
+      for (const r of artistRows) artistSet.add(r.name);
+      for (const r of knownRows) knownSet.add(r.name);
+
+      // 刷新已访问标签的 updatedAt（标签缓存过期清理用）
+      if (knownRows.length > 0) {
+        const now = new Date().toISOString();
+        const knownPlaceholders = knownRows.map(() => '?').join(',');
+        await run(db,
+          `UPDATE booru_tags SET updatedAt = ? WHERE siteId = ? AND name IN (${knownPlaceholders})`,
+          [now, siteId, ...knownRows.map(r => r.name)]
+        );
+      }
+    }
+
+    const unknownTags = tagArray.filter(t => !knownSet.has(t));
+
+    // 如果有未入库的标签且提供了客户端，通过 API 补全
+    if (unknownTags.length > 0 && client) {
+      try {
+        const batchSize = 50;
+        for (let i = 0; i < unknownTags.length; i += batchSize) {
+          const batch = unknownTags.slice(i, i + batchSize);
+          const tagInfos = await client.getTagsByNames(batch);
+          const tagsToSave = tagInfos.map((tag: any) => ({
+            name: tag.name,
+            category: TAG_TYPE_MAP[tag.type] || 'general',
+            postCount: tag.count || 0
+          }));
+          if (tagsToSave.length > 0) {
+            await booruService.saveBooruTags(siteId, tagsToSave);
+            // 将新发现的 artist 标签加入集合
+            for (const t of tagsToSave) {
+              if (t.category === 'artist') artistSet.add(t.name);
+            }
+          }
+        }
+      } catch (error) {
+        console.warn('[IPC] API 补全标签分类失败:', error);
+      }
+    }
+
+    // 为每个帖子找到第一个匹配的 artist 标签
+    for (const post of posts) {
+      if (!post.tags) continue;
+      const tags = post.tags.split(/\s+/);
+      for (const tag of tags) {
+        if (tag && artistSet.has(tag) && !excludeTags.has(tag)) {
+          result.set(post.postId, tag);
+          break;
+        }
+      }
+    }
+  } catch (error) {
+    console.error('[IPC] 批量查询 artist 标签失败:', error);
+  }
+
+  return result;
 }
 
 export function setupIPC() {
@@ -533,16 +647,18 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
-      
+
+      // 批量查询所有帖子中的 artist 标签
+      const artistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       // 过滤掉 null 值并转换格式
       const formattedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => {
-          // 确保 URL 是字符串且有效
           const fileUrl = post.fileUrl ? String(post.fileUrl).trim() : '';
           const previewUrl = post.previewUrl ? String(post.previewUrl).trim() : '';
           const sampleUrl = post.sampleUrl ? String(post.sampleUrl).trim() : '';
-          
+
           // 调试：打印第一个 post 的 URL
           if (post.postId === dbPosts[0]?.postId) {
             console.log('[IPC] 从数据库读取的 URL:', {
@@ -553,12 +669,12 @@ export function setupIPC() {
               fileUrl: fileUrl.substring(0, 150),
               previewUrl: previewUrl.substring(0, 150),
               sampleUrl: sampleUrl.substring(0, 150),
-              fileUrlFull: fileUrl, // 完整 URL（用于调试）
-              previewUrlFull: previewUrl, // 完整 URL（用于调试）
-              sampleUrlFull: sampleUrl // 完整 URL（用于调试）
+              fileUrlFull: fileUrl,
+              previewUrlFull: previewUrl,
+              sampleUrlFull: sampleUrl
             });
           }
-          
+
           return {
             id: post.id,
             siteId: post.siteId,
@@ -579,6 +695,7 @@ export function setupIPC() {
             isFavorited: post.isFavorited,
             localPath: post.localPath,
             localImageId: post.localImageId,
+            author: artistMap.get(post.postId) || undefined,
             createdAt: post.createdAt,
             updatedAt: post.updatedAt
           };
@@ -755,16 +872,18 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
-      
+
+      // 批量查询所有帖子中的 artist 标签
+      const searchArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       // 过滤掉 null 值并转换格式
       const formattedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => {
-          // 确保 URL 是字符串且有效
           const fileUrl = post.fileUrl ? String(post.fileUrl).trim() : '';
           const previewUrl = post.previewUrl ? String(post.previewUrl).trim() : '';
           const sampleUrl = post.sampleUrl ? String(post.sampleUrl).trim() : '';
-          
+
           return {
             id: post.id,
             siteId: post.siteId,
@@ -781,6 +900,7 @@ export function setupIPC() {
             score: post.score,
             source: post.source,
             tags: post.tags,
+            author: searchArtistMap.get(post.postId) || undefined,
             downloaded: post.downloaded,
             isFavorited: post.isFavorited,
             localPath: post.localPath,
@@ -1344,6 +1464,33 @@ export function setupIPC() {
     }
   });
 
+  // === 标签缓存管理 ===
+
+  // 获取标签缓存统计
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_TAG_CACHE_STATS, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const stats = await booruService.getTagCacheStats();
+      return { success: true, data: stats };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取标签缓存统计失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 手动清理过期标签缓存
+  ipcMain.handle(IPC_CHANNELS.BOORU_CLEAN_EXPIRED_TAGS, async (_event: IpcMainInvokeEvent, expireDays?: number) => {
+    try {
+      const cleaned = await booruService.cleanExpiredTags(expireDays || 60);
+      console.log(`[IPC] 手动清理过期标签完成，删除 ${cleaned} 条`);
+      return { success: true, data: { cleaned } };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 清理过期标签失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
   // === 收藏标签管理 ===
 
   // 添加收藏标签
@@ -1864,10 +2011,15 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
+
+      // 批量查询所有帖子中的 artist 标签
+      const favArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          author: favArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
 
@@ -1951,10 +2103,15 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
+
+      // 批量查询所有帖子中的 artist 标签
+      const popularArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          author: popularArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
 
@@ -2005,10 +2162,15 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
+
+      // 批量查询所有帖子中的 artist 标签
+      const dayArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          author: dayArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
 
@@ -2059,10 +2221,15 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
+
+      // 批量查询所有帖子中的 artist 标签
+      const weekArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          author: weekArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
 
@@ -2113,10 +2280,15 @@ export function setupIPC() {
       const dbPosts = await Promise.all(
         savedPostIds.map(id => booruService.getBooruPostById(id))
       );
+
+      // 批量查询所有帖子中的 artist 标签
+      const monthArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          author: monthArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
 
@@ -2570,7 +2742,7 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_NOTES, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
     try {
       console.log('[IPC] 获取帖子注释, siteId:', siteId, 'postId:', postId);
-      const site = await booruService.getSite(siteId);
+      const site = await booruService.getBooruSiteById(siteId);
       if (!site) return { success: false, error: '站点不存在' };
       const client = createBooruClient(site);
       const notes = await client.getNotes(postId);
@@ -2586,7 +2758,7 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_POST_VERSIONS, async (_event: IpcMainInvokeEvent, siteId: number, postId: number) => {
     try {
       console.log('[IPC] 获取帖子版本历史, siteId:', siteId, 'postId:', postId);
-      const site = await booruService.getSite(siteId);
+      const site = await booruService.getBooruSiteById(siteId);
       if (!site) return { success: false, error: '站点不存在' };
       const client = createBooruClient(site);
       const versions = await client.getPostVersions(postId);

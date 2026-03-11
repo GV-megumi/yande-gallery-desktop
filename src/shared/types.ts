@@ -82,6 +82,7 @@ export interface BooruPost {
   score?: number;
   source?: string;
   tags: string;
+  author?: string;
   downloaded: boolean;
   localPath?: string;
   localImageId?: number;

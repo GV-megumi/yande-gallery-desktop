@@ -930,9 +930,9 @@ export async function saveBooruTags(siteId: number, tags: Array<{ name: string; 
     await runInTransaction(db, async () => {
       for (const tag of tags) {
         await run(db, `
-          INSERT OR REPLACE INTO booru_tags (siteId, name, category, postCount, createdAt)
-          VALUES (?, ?, ?, ?, ?)
-        `, [siteId, tag.name, tag.category || null, tag.postCount || 0, now]);
+          INSERT OR REPLACE INTO booru_tags (siteId, name, category, postCount, createdAt, updatedAt)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `, [siteId, tag.name, tag.category || null, tag.postCount || 0, now, now]);
       }
     });
 
@@ -940,6 +940,71 @@ export async function saveBooruTags(siteId: number, tags: Array<{ name: string; 
   } catch (error) {
     console.error('[booruService] 保存标签失败:', error);
     throw error;
+  }
+}
+
+/**
+ * 清理过期标签缓存
+ * 删除 updatedAt 超过指定天数的标签记录
+ * @param expireDays 过期天数（默认 60）
+ * @returns 删除的记录数
+ */
+export async function cleanExpiredTags(expireDays: number = 60): Promise<number> {
+  try {
+    const db = await getDatabase();
+    const cutoff = new Date(Date.now() - expireDays * 24 * 60 * 60 * 1000).toISOString();
+
+    // 先统计数量
+    const countRow = await get<{ cnt: number }>(db,
+      `SELECT COUNT(*) as cnt FROM booru_tags WHERE updatedAt < ? AND updatedAt != ''`,
+      [cutoff]
+    );
+    const toDelete = countRow?.cnt || 0;
+
+    if (toDelete === 0) {
+      console.log('[booruService] 没有需要清理的过期标签');
+      return 0;
+    }
+
+    // 执行删除
+    const result = await runWithChanges(db,
+      `DELETE FROM booru_tags WHERE updatedAt < ? AND updatedAt != ''`,
+      [cutoff]
+    );
+
+    console.log(`[booruService] 已清理 ${result.changes} 条过期标签（超过 ${expireDays} 天未访问）`);
+    return result.changes;
+  } catch (error) {
+    console.error('[booruService] 清理过期标签失败:', error);
+    return 0;
+  }
+}
+
+/**
+ * 获取标签缓存统计信息
+ */
+export async function getTagCacheStats(): Promise<{ totalCount: number; expiredCount: number; oldestDate: string | null }> {
+  try {
+    const db = await getDatabase();
+    const cutoff = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString();
+
+    const total = await get<{ cnt: number }>(db, 'SELECT COUNT(*) as cnt FROM booru_tags');
+    const expired = await get<{ cnt: number }>(db,
+      `SELECT COUNT(*) as cnt FROM booru_tags WHERE updatedAt < ? AND updatedAt != ''`,
+      [cutoff]
+    );
+    const oldest = await get<{ oldest: string | null }>(db,
+      `SELECT MIN(updatedAt) as oldest FROM booru_tags WHERE updatedAt != ''`
+    );
+
+    return {
+      totalCount: total?.cnt || 0,
+      expiredCount: expired?.cnt || 0,
+      oldestDate: oldest?.oldest || null,
+    };
+  } catch (error) {
+    console.error('[booruService] 获取标签缓存统计失败:', error);
+    return { totalCount: 0, expiredCount: 0, oldestDate: null };
   }
 }
 

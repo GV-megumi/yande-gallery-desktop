@@ -38,25 +38,31 @@ type MenuItem = {
   label: string;
 };
 
-/** iOS 风格图标包裹器：彩色背景 + 白色图标 */
+/** 侧边栏图标：小圆角方块 + 品牌色 */
 const IconBadge: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, icon }) => (
   <span style={{
     display: 'inline-flex',
     alignItems: 'center',
     justifyContent: 'center',
-    width: 28,
-    height: 28,
-    borderRadius: 7,
+    width: 26,
+    height: 26,
+    borderRadius: 6,
     background: color,
     color: '#FFFFFF',
-    fontSize: 15,
+    fontSize: 13,
     flexShrink: 0,
   }}>
     {icon}
   </span>
 );
 
-/** 创建主菜单项（依赖翻译） */
+/** 侧边栏小圆点图标（子菜单用） */
+const DotIcon: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, icon }) => (
+  <span style={{ color, fontSize: 15, display: 'inline-flex', alignItems: 'center' }}>
+    {icon}
+  </span>
+);
+
 function buildMainMenuItems(t: (path: string) => string): MenuItem[] {
   return [
     { key: 'gallery', icon: <IconBadge color={iconColors.gallery} icon={<PictureOutlined />} />, label: t('menu.gallery') },
@@ -66,24 +72,24 @@ function buildMainMenuItems(t: (path: string) => string): MenuItem[] {
 
 function buildGallerySubMenuItems(t: (path: string) => string): MenuItem[] {
   return [
-    { key: 'recent', icon: <ClockCircleOutlined style={{ color: iconColors.recent }} />, label: t('menu.recent') },
-    { key: 'all', icon: <AppstoreOutlined style={{ color: iconColors.all }} />, label: t('menu.all') },
-    { key: 'galleries', icon: <FolderOutlined style={{ color: iconColors.galleries }} />, label: t('menu.galleries') }
+    { key: 'recent', icon: <DotIcon color={iconColors.recent} icon={<ClockCircleOutlined />} />, label: t('menu.recent') },
+    { key: 'all', icon: <DotIcon color={iconColors.all} icon={<AppstoreOutlined />} />, label: t('menu.all') },
+    { key: 'galleries', icon: <DotIcon color={iconColors.galleries} icon={<FolderOutlined />} />, label: t('menu.galleries') }
   ];
 }
 
 function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
   return [
-    { key: 'posts', icon: <CloudOutlined style={{ color: iconColors.posts }} />, label: t('menu.posts') },
-    { key: 'popular', icon: <FireOutlined style={{ color: iconColors.popular }} />, label: t('menu.popular') },
-    { key: 'pools', icon: <DatabaseOutlined style={{ color: iconColors.pools }} />, label: t('menu.pools') },
-    { key: 'favorites', icon: <BookOutlined style={{ color: iconColors.favorites }} />, label: t('menu.favorites') },
-    { key: 'server-favorites', icon: <HeartOutlined style={{ color: iconColors.serverFavorites }} />, label: t('menu.serverFavorites') },
-    { key: 'favorite-tags', icon: <StarOutlined style={{ color: iconColors.favoriteTags }} />, label: t('menu.favoriteTags') },
-    { key: 'blacklisted-tags', icon: <StopOutlined style={{ color: '#FF3B30' }} />, label: t('menu.blacklist') },
-    { key: 'downloads', icon: <CloudDownloadOutlined style={{ color: iconColors.downloads }} />, label: t('menu.downloads') },
-    { key: 'bulk-download', icon: <CloudDownloadOutlined style={{ color: iconColors.bulkDownload }} />, label: t('menu.bulkDownload') },
-    { key: 'saved-searches', icon: <SearchOutlined style={{ color: '#5856D6' }} />, label: t('menu.savedSearches') },
+    { key: 'posts', icon: <DotIcon color={iconColors.posts} icon={<CloudOutlined />} />, label: t('menu.posts') },
+    { key: 'popular', icon: <DotIcon color={iconColors.popular} icon={<FireOutlined />} />, label: t('menu.popular') },
+    { key: 'pools', icon: <DotIcon color={iconColors.pools} icon={<DatabaseOutlined />} />, label: t('menu.pools') },
+    { key: 'favorites', icon: <DotIcon color={iconColors.favorites} icon={<BookOutlined />} />, label: t('menu.favorites') },
+    { key: 'server-favorites', icon: <DotIcon color={iconColors.serverFavorites} icon={<HeartOutlined />} />, label: t('menu.serverFavorites') },
+    { key: 'favorite-tags', icon: <DotIcon color={iconColors.favoriteTags} icon={<StarOutlined />} />, label: t('menu.favoriteTags') },
+    { key: 'blacklisted-tags', icon: <DotIcon color="#EF4444" icon={<StopOutlined />} />, label: t('menu.blacklist') },
+    { key: 'downloads', icon: <DotIcon color={iconColors.downloads} icon={<CloudDownloadOutlined />} />, label: t('menu.downloads') },
+    { key: 'bulk-download', icon: <DotIcon color={iconColors.bulkDownload} icon={<CloudDownloadOutlined />} />, label: t('menu.bulkDownload') },
+    { key: 'saved-searches', icon: <DotIcon color="#6366F1" icon={<SearchOutlined />} />, label: t('menu.savedSearches') },
   ];
 }
 
@@ -99,33 +105,24 @@ export const AppContent: React.FC = () => {
   const { t } = useLocale();
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
 
-  // 使用 useMemo 缓存菜单项，语言变化时重新生成
   const mainMenuItems = useMemo(() => buildMainMenuItems(t), [t]);
   const gallerySubMenuItems = useMemo(() => buildGallerySubMenuItems(t), [t]);
   const booruSubMenuItems = useMemo(() => buildBooruSubMenuItems(t), [t]);
 
-  // 全局快捷键
   const toggleTheme = useCallback(() => {
     setThemeMode(isDark ? 'light' : 'dark');
   }, [isDark, setThemeMode]);
 
   const openSettings = useCallback(() => {
-    if (selectedKey === 'gallery') {
-      setSelectedSubKey('settings');
-    } else {
-      setSelectedBooruSubKey('settings');
-    }
+    if (selectedKey === 'gallery') setSelectedSubKey('settings');
+    else setSelectedBooruSubKey('settings');
   }, [selectedKey]);
 
   const focusSearch = useCallback(() => {
-    // 查找页面中的搜索输入框并聚焦
     const searchInput = document.querySelector<HTMLInputElement>(
       '.ant-input-search input, .ant-input-affix-wrapper input, input[type="search"]'
     );
-    if (searchInput) {
-      searchInput.focus();
-      searchInput.select();
-    }
+    if (searchInput) { searchInput.focus(); searchInput.select(); }
   }, []);
 
   useKeyboardShortcuts([
@@ -136,13 +133,11 @@ export const AppContent: React.FC = () => {
     { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (characterPage) handleBackFromCharacter(); else if (artistPage) handleBackFromArtist(); else if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
   ]);
 
-  // 初始化数据库
   useEffect(() => {
-    console.log('[App] 应用启动，开始初始化数据库');
+    console.log('[App] 应用启动，初始化数据库');
     const initDatabase = async () => {
       try {
         if (window.electronAPI) {
-          console.log('[App] 调用 db.init() 初始化数据库');
           const result = await window.electronAPI.db.init();
           if (result.success) {
             console.log('[App] 数据库初始化成功');
@@ -150,82 +145,57 @@ export const AppContent: React.FC = () => {
             console.error('[App] 数据库初始化失败:', result.error);
             message.error('数据库初始化失败: ' + result.error);
           }
-        } else {
-          console.error('[App] electronAPI 不可用，无法初始化数据库');
         }
       } catch (error) {
         console.error('Failed to initialize database:', error);
         message.error('数据库初始化失败');
       } finally {
         setLoading(false);
-        console.log('[App] 应用初始化完成');
       }
     };
     initDatabase();
   }, []);
 
-  // 当主菜单切换时，设置默认子菜单
   useEffect(() => {
-    if (selectedKey === 'gallery' && !selectedSubKey) {
-      setSelectedSubKey('recent');
-    }
-    if (selectedKey === 'booru' && !selectedBooruSubKey) {
-      setSelectedBooruSubKey('posts');
-    }
+    if (selectedKey === 'gallery' && !selectedSubKey) setSelectedSubKey('recent');
+    if (selectedKey === 'booru' && !selectedBooruSubKey) setSelectedBooruSubKey('posts');
   }, [selectedKey, selectedSubKey, selectedBooruSubKey]);
 
   const navigateToTagSearch = (tag: string, siteId?: number | null) => {
-    console.log('[App] 导航到标签搜索页面:', tag, siteId);
-    setArtistPage(null); // 清除艺术家页面
+    console.log('[App] 导航到标签搜索:', tag, siteId);
+    setArtistPage(null);
     setTagSearchPage({ tag, siteId });
   };
 
-  const handleBackFromTagSearch = () => {
-    console.log('[App] 从标签搜索页面返回');
-    setTagSearchPage(null);
-  };
+  const handleBackFromTagSearch = () => { setTagSearchPage(null); };
 
   const navigateToArtist = (name: string, siteId?: number | null) => {
-    console.log('[App] 导航到艺术家页面:', name, siteId);
-    setTagSearchPage(null); // 清除标签搜索页面
+    console.log('[App] 导航到艺术家:', name, siteId);
+    setTagSearchPage(null);
     setArtistPage({ name, siteId });
   };
 
-  const handleBackFromArtist = () => {
-    console.log('[App] 从艺术家页面返回');
-    setArtistPage(null);
-  };
+  const handleBackFromArtist = () => { setArtistPage(null); };
 
   const navigateToCharacter = (name: string, siteId?: number | null) => {
-    console.log('[App] 导航到角色页面:', name, siteId);
+    console.log('[App] 导航到角色:', name, siteId);
     setArtistPage(null);
     setTagSearchPage(null);
     setCharacterPage({ name, siteId });
   };
 
-  const handleBackFromCharacter = () => {
-    console.log('[App] 从角色页面返回');
-    setCharacterPage(null);
-  };
+  const handleBackFromCharacter = () => { setCharacterPage(null); };
 
   const handleSavedSearchRun = (query: string, siteId?: number | null) => {
     console.log('[App] 执行保存的搜索:', query, siteId);
     setSelectedBooruSubKey('posts');
-    // 通过 navigateToTagSearch 导航到 posts 页面
     navigateToTagSearch(query, siteId);
   };
 
-  // 计算页面标题
   const pageTitle = useMemo(() => {
-    if (characterPage) {
-      return { main: '角色', sub: characterPage.name.replace(/_/g, ' ') };
-    }
-    if (artistPage) {
-      return { main: '艺术家', sub: artistPage.name.replace(/_/g, ' ') };
-    }
-    if (tagSearchPage) {
-      return { main: t('pageTitle.tagSearch'), sub: tagSearchPage.tag.replace(/_/g, ' ') };
-    }
+    if (characterPage) return { main: '角色', sub: characterPage.name.replace(/_/g, ' ') };
+    if (artistPage) return { main: '艺术家', sub: artistPage.name.replace(/_/g, ' ') };
+    if (tagSearchPage) return { main: t('pageTitle.tagSearch'), sub: tagSearchPage.tag.replace(/_/g, ' ') };
     switch (selectedKey) {
       case 'gallery':
         if (selectedSubKey === 'settings') return { main: t('pageTitle.settings') };
@@ -248,34 +218,13 @@ export const AppContent: React.FC = () => {
       );
     }
     if (characterPage) {
-      return (
-        <BooruCharacterPage
-          characterName={characterPage.name}
-          initialSiteId={characterPage.siteId}
-          onBack={handleBackFromCharacter}
-          onTagClick={navigateToTagSearch}
-        />
-      );
+      return <BooruCharacterPage characterName={characterPage.name} initialSiteId={characterPage.siteId} onBack={handleBackFromCharacter} onTagClick={navigateToTagSearch} />;
     }
     if (artistPage) {
-      return (
-        <BooruArtistPage
-          artistName={artistPage.name}
-          initialSiteId={artistPage.siteId}
-          onBack={handleBackFromArtist}
-          onTagClick={navigateToTagSearch}
-        />
-      );
+      return <BooruArtistPage artistName={artistPage.name} initialSiteId={artistPage.siteId} onBack={handleBackFromArtist} onTagClick={navigateToTagSearch} />;
     }
     if (tagSearchPage) {
-      return (
-        <BooruTagSearchPage
-          initialTag={tagSearchPage.tag}
-          initialSiteId={tagSearchPage.siteId}
-          onBack={handleBackFromTagSearch}
-          onArtistClick={navigateToArtist}
-        />
-      );
+      return <BooruTagSearchPage initialTag={tagSearchPage.tag} initialSiteId={tagSearchPage.siteId} onBack={handleBackFromTagSearch} onArtistClick={navigateToArtist} />;
     }
     switch (selectedKey) {
       case 'gallery':
@@ -302,7 +251,7 @@ export const AppContent: React.FC = () => {
 
   return (
     <Layout style={{ height: '100vh', overflow: 'hidden', background: colors.bgLight }}>
-      {/* ===== iPadOS 风格侧边栏 ===== */}
+      {/* 侧边栏 */}
       <Sider
         width={layout.sidebarWidth}
         theme={isDark ? 'dark' : 'light'}
@@ -311,27 +260,63 @@ export const AppContent: React.FC = () => {
           flexDirection: 'column',
           height: '100vh',
           overflow: 'hidden',
-          background: isDark ? colors.bgBase : '#FFFFFF',
-          borderRight: `0.5px solid ${colors.separator}`,
+          background: colors.sidebarBg,
+          borderRight: `1px solid ${colors.separator}`,
         }}
       >
-        {/* 应用标识区 */}
+        {/* Logo 区域 */}
         <div style={{
-          padding: '20px 16px 8px',
+          padding: '20px 16px 12px',
           flexShrink: 0,
         }}>
           <div style={{
-            fontSize: 18,
-            fontWeight: 700,
-            letterSpacing: '-0.3px',
-            color: colors.textPrimary,
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
           }}>
-            Yande Gallery
+            {/* Logo 图标 */}
+            <div style={{
+              width: 32,
+              height: 32,
+              borderRadius: 8,
+              background: `linear-gradient(135deg, ${colors.primary}, ${colors.accent})`,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: '#FFFFFF',
+              fontSize: 16,
+              fontWeight: 700,
+              flexShrink: 0,
+            }}>
+              Y
+            </div>
+            <div>
+              <div style={{
+                fontSize: 15,
+                fontWeight: 700,
+                letterSpacing: '-0.3px',
+                color: colors.textPrimary,
+                lineHeight: '18px',
+                fontFamily: 'var(--font-display, sans-serif)',
+              }}>
+                Yande Gallery
+              </div>
+              <div style={{
+                fontSize: 10,
+                color: colors.textTertiary,
+                letterSpacing: '0.5px',
+                textTransform: 'uppercase' as const,
+                fontWeight: 600,
+                lineHeight: '12px',
+                marginTop: 2,
+              }}>
+                Desktop
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* 主菜单 */}
+        {/* 主导航 */}
         <Menu
           mode="inline"
           selectedKeys={[selectedKey]}
@@ -342,23 +327,24 @@ export const AppContent: React.FC = () => {
             if (key === 'gallery') setSelectedSubKey('recent');
           }}
           style={{
-            borderBottom: `0.5px solid ${colors.separator}`,
+            borderBottom: `1px solid ${colors.separator}`,
             flexShrink: 0,
             background: 'transparent',
             borderRight: 'none',
+            paddingBottom: spacing.xs,
           }}
         />
 
-        {/* 子菜单 — 独立滚动 */}
+        {/* 子菜单 */}
         {selectedKey === 'gallery' && (
           <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{
-              padding: `${spacing.sm}px ${spacing.xl}px 4px`,
-              fontSize: fontSize.xs,
-              fontWeight: 600,
+              padding: `${spacing.md}px ${spacing.lg}px ${spacing.xs}px`,
+              fontSize: 10,
+              fontWeight: 700,
               color: colors.textTertiary,
               textTransform: 'uppercase' as const,
-              letterSpacing: '0.5px',
+              letterSpacing: '1px',
             }}>
               {t('menu.browse')}
             </div>
@@ -367,23 +353,20 @@ export const AppContent: React.FC = () => {
               selectedKeys={[selectedSubKey]}
               items={gallerySubMenuItems}
               onClick={({ key }) => {
-                console.log(`[App] 图库子菜单切换: ${key}`);
+                console.log(`[App] 图库子菜单: ${key}`);
                 setSelectedSubKey(key);
               }}
               style={{ background: 'transparent', borderRight: 'none' }}
             />
             <div style={{ flex: 1 }} />
-            <div style={{ borderTop: `0.5px solid ${colors.separator}`, paddingTop: spacing.xs }}>
+            <div style={{ borderTop: `1px solid ${colors.separator}`, paddingTop: spacing.xs }}>
               <Menu
                 mode="inline"
                 selectedKeys={[selectedSubKey]}
                 items={[
-                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: t('menu.settings') }
+                  { key: 'settings', icon: <DotIcon color={iconColors.settings} icon={<SettingOutlined />} />, label: t('menu.settings') }
                 ]}
-                onClick={({ key }) => {
-                  console.log(`[App] 图库子菜单切换: ${key}`);
-                  setSelectedSubKey(key);
-                }}
+                onClick={({ key }) => setSelectedSubKey(key)}
                 style={{ background: 'transparent', borderRight: 'none' }}
               />
             </div>
@@ -392,52 +375,46 @@ export const AppContent: React.FC = () => {
         {selectedKey === 'booru' && (
           <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
             <div style={{
-              padding: `${spacing.sm}px ${spacing.xl}px 4px`,
-              fontSize: fontSize.xs,
-              fontWeight: 600,
+              padding: `${spacing.md}px ${spacing.lg}px ${spacing.xs}px`,
+              fontSize: 10,
+              fontWeight: 700,
               color: colors.textTertiary,
               textTransform: 'uppercase' as const,
-              letterSpacing: '0.5px',
+              letterSpacing: '1px',
             }}>
-              Booru
+              BOORU
             </div>
             <Menu
               mode="inline"
               selectedKeys={[selectedBooruSubKey]}
               items={booruSubMenuItems}
               onClick={({ key }) => {
-                console.log(`[App] Booru子菜单切换: ${key}`);
+                console.log(`[App] Booru子菜单: ${key}`);
                 setSelectedBooruSubKey(key);
               }}
               style={{ background: 'transparent', borderRight: 'none' }}
             />
             <div style={{ flex: 1 }} />
-            <div style={{ borderTop: `0.5px solid ${colors.separator}`, paddingTop: spacing.xs }}>
+            <div style={{ borderTop: `1px solid ${colors.separator}`, paddingTop: spacing.xs }}>
               <Menu
                 mode="inline"
                 selectedKeys={[selectedBooruSubKey]}
                 items={[
-                  { key: 'booru-settings', icon: <CloudOutlined style={{ color: iconColors.booruSettings }} />, label: t('menu.siteConfig') },
-                  { key: 'settings', icon: <SettingOutlined style={{ color: iconColors.settings }} />, label: t('menu.settings') },
+                  { key: 'booru-settings', icon: <DotIcon color={iconColors.booruSettings} icon={<CloudOutlined />} />, label: t('menu.siteConfig') },
+                  { key: 'settings', icon: <DotIcon color={iconColors.settings} icon={<SettingOutlined />} />, label: t('menu.settings') },
                 ]}
-                onClick={({ key }) => {
-                  console.log(`[App] Booru子菜单切换: ${key}`);
-                  setSelectedBooruSubKey(key);
-                }}
+                onClick={({ key }) => setSelectedBooruSubKey(key)}
                 style={{ background: 'transparent', borderRight: 'none' }}
               />
             </div>
           </div>
         )}
 
-        {/* 底部：主题切换 */}
+        {/* 底部主题切换 */}
         <div style={{
           flexShrink: 0,
-          padding: `${spacing.md}px ${spacing.lg}px`,
-          borderTop: `0.5px solid ${colors.separator}`,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
+          padding: `${spacing.sm}px ${spacing.md}px`,
+          borderTop: `1px solid ${colors.separator}`,
         }}>
           <button
             onClick={toggleTheme}
@@ -445,22 +422,23 @@ export const AppContent: React.FC = () => {
               display: 'inline-flex',
               alignItems: 'center',
               justifyContent: 'center',
-              gap: 8,
+              gap: 6,
               width: '100%',
               padding: '8px 12px',
               borderRadius: radius.sm,
               border: 'none',
-              background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
               color: colors.textSecondary,
-              fontSize: fontSize.md,
+              fontSize: fontSize.sm,
+              fontWeight: 500,
               cursor: 'pointer',
               transition: 'all 0.2s ease',
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.10)' : 'rgba(0, 0, 0, 0.08)';
+              e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)';
             }}
             onMouseLeave={(e) => {
-              e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)';
+              e.currentTarget.style.background = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)';
             }}
           >
             {isDark ? <SunOutlined /> : <MoonOutlined />}
@@ -469,7 +447,7 @@ export const AppContent: React.FC = () => {
         </div>
       </Sider>
 
-      {/* ===== 主内容区 ===== */}
+      {/* 主内容区 */}
       <Layout style={{
         height: '100vh',
         overflow: 'hidden',
@@ -477,62 +455,72 @@ export const AppContent: React.FC = () => {
         flexDirection: 'column',
         background: colors.bgLight,
       }}>
-        {/* iOS 风格标题栏 */}
+        {/* 标题栏 */}
         <div style={{
-          padding: `0 ${spacing.xxl}px`,
+          padding: `0 ${spacing.xl}px`,
           height: layout.headerHeight,
           display: 'flex',
           alignItems: 'center',
           flexShrink: 0,
           background: isDark
-            ? 'rgba(28, 28, 30, 0.72)'
-            : 'rgba(255, 255, 255, 0.72)',
+            ? 'rgba(15, 17, 23, 0.80)'
+            : 'rgba(248, 248, 252, 0.80)',
           backdropFilter: 'blur(20px) saturate(180%)',
           WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-          borderBottom: `0.5px solid ${colors.separator}`,
+          borderBottom: `1px solid ${colors.separator}`,
           zIndex: 10,
         }}>
           <span style={{
-            fontSize: fontSize.heading,
+            fontSize: fontSize.xl,
             fontWeight: 700,
             letterSpacing: '-0.3px',
             color: colors.textPrimary,
-            fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
+            fontFamily: 'var(--font-display, sans-serif)',
           }}>
             {pageTitle.main}
           </span>
           {pageTitle.sub && (
-            <span style={{
-              fontSize: fontSize.heading,
-              fontWeight: 700,
-              letterSpacing: '-0.3px',
-              color: colors.textTertiary,
-              marginLeft: 8,
-              fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", sans-serif',
-            }}>
-              · {pageTitle.sub}
-            </span>
+            <>
+              <span style={{
+                fontSize: fontSize.xl,
+                fontWeight: 700,
+                color: colors.textQuaternary,
+                margin: '0 8px',
+                fontFamily: 'var(--font-display, sans-serif)',
+              }}>
+                /
+              </span>
+              <span style={{
+                fontSize: fontSize.xl,
+                fontWeight: 700,
+                letterSpacing: '-0.3px',
+                color: colors.textTertiary,
+                fontFamily: 'var(--font-display, sans-serif)',
+              }}>
+                {pageTitle.sub}
+              </span>
+            </>
           )}
         </div>
 
         {/* 内容区 */}
         <Content
-          className="ios-page-enter"
+          className="ios-page-enter noise-bg"
           key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}-${artistPage?.name || ''}-${characterPage?.name || ''}`}
           style={{
             margin: 0,
-            padding: `${spacing.xl}px ${spacing.xl}px`,
+            padding: `${spacing.lg}px ${spacing.lg}px`,
             overflowY: 'auto',
             overflowX: 'hidden',
             flex: 1,
             height: 0,
+            position: 'relative',
           }}
         >
           {renderContent()}
         </Content>
       </Layout>
 
-      {/* 快捷键帮助弹窗 */}
       <ShortcutsModal open={shortcutsModalOpen} onClose={() => setShortcutsModalOpen(false)} />
     </Layout>
   );

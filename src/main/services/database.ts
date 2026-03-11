@@ -510,6 +510,18 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_groupId ON booru_favorites(groupId)');
     console.log('[database] 收藏夹分组相关表创建成功');
 
+    // 为 booru_tags 添加 updatedAt 字段（数据库迁移 — 标签缓存过期清理用）
+    try {
+      await run(database, "ALTER TABLE booru_tags ADD COLUMN updatedAt TEXT NOT NULL DEFAULT ''");
+      // 迁移：将已有记录的 updatedAt 设为 createdAt
+      await run(database, 'UPDATE booru_tags SET updatedAt = createdAt WHERE updatedAt = \'\'');
+      console.log('[database] 已添加 updatedAt 字段到 booru_tags');
+    } catch (error: any) {
+      if (!error.message.includes('duplicate column')) {
+        console.warn('[database] 添加 updatedAt 字段失败（可能已存在）:', error.message);
+      }
+    }
+
     // === 保存的搜索表 ===
     console.log('[database] 开始创建保存的搜索表...');
 
