@@ -15,6 +15,33 @@ import { networkScheduler } from './networkScheduler.js';
 // 正在进行中的缓存请求映射（防止同一图片并发下载）
 const inFlightRequests = new Map<string, Promise<string>>();
 
+/** 并发信号量：限制同时进行的缓存下载数量 */
+const MAX_CACHE_CONCURRENCY = 8;
+let activeCacheDownloads = 0;
+const waitQueue: Array<() => void> = [];
+
+/** 获取并发许可 */
+function acquireCacheSlot(): Promise<void> {
+  if (activeCacheDownloads < MAX_CACHE_CONCURRENCY) {
+    activeCacheDownloads++;
+    return Promise.resolve();
+  }
+  return new Promise<void>(resolve => waitQueue.push(resolve));
+}
+
+/** 释放并发许可 */
+function releaseCacheSlot(): void {
+  activeCacheDownloads--;
+  if (waitQueue.length > 0) {
+    activeCacheDownloads++;
+    const next = waitQueue.shift()!;
+    next();
+  }
+}
+
+/** 缓存大小增量追踪器（避免每次遍历目录） */
+let trackedCacheSize = -1; // -1 表示未初始化
+
 /**
  * 获取缓存文件路径
  */
@@ -26,21 +53,22 @@ function getCacheFilePath(md5: string, extension: string): string {
 }
 
 /**
- * 获取缓存目录大小（MB）
+ * 全量计算缓存目录大小（仅在首次调用或重置时使用）
  */
-async function getCacheSize(): Promise<number> {
+async function calculateFullCacheSize(): Promise<number> {
   const cacheDir = getConfigCachePath();
   try {
     await fs.access(cacheDir);
   } catch {
-    return 0; // 目录不存在，返回 0
+    return 0;
   }
 
   let totalSize = 0;
-  
+
   async function calculateSize(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
+    // 并行 stat 同一目录下的文件
+    const statPromises = entries.map(async (entry) => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await calculateSize(fullPath);
@@ -48,11 +76,23 @@ async function getCacheSize(): Promise<number> {
         const stats = await fs.stat(fullPath);
         totalSize += stats.size;
       }
-    }
+    });
+    await Promise.all(statPromises);
   }
 
   await calculateSize(cacheDir);
-  return totalSize / (1024 * 1024); // 转换为 MB
+  return totalSize;
+}
+
+/**
+ * 获取缓存目录大小（MB）—— 使用增量追踪，避免每次全量扫描
+ */
+async function getCacheSize(): Promise<number> {
+  if (trackedCacheSize < 0) {
+    trackedCacheSize = await calculateFullCacheSize();
+    console.log(`[imageCacheService] 初始化缓存大小: ${(trackedCacheSize / (1024 * 1024)).toFixed(2)} MB`);
+  }
+  return trackedCacheSize / (1024 * 1024);
 }
 
 // 单个缓存文件的最大尺寸限制（默认 200MB）
@@ -87,20 +127,18 @@ async function cleanCache(targetSizeMB?: number): Promise<void> {
 
   async function collectFiles(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
+    // 并行 stat 同目录文件
+    const statPromises = entries.map(async (entry) => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await collectFiles(fullPath);
       } else {
         const stats = await fs.stat(fullPath);
-        files.push({
-          path: fullPath,
-          mtime: stats.mtimeMs,
-          size: stats.size
-        });
+        files.push({ path: fullPath, mtime: stats.mtimeMs, size: stats.size });
         totalSize += stats.size;
       }
-    }
+    });
+    await Promise.all(statPromises);
   }
 
   await collectFiles(cacheDir);
@@ -119,22 +157,32 @@ async function cleanCache(targetSizeMB?: number): Promise<void> {
   // 按修改时间排序（最旧的在前 — LRU）
   files.sort((a, b) => a.mtime - b.mtime);
 
-  // 逐个删除最旧的文件，直到缓存低于目标大小
+  // 并行删除最旧的文件，每批最多 20 个
   let deletedCount = 0;
   let deletedSize = 0;
+  const DELETE_BATCH = 20;
 
-  for (const file of files) {
-    if (totalSize - deletedSize <= targetBytes) {
-      break; // 已经低于目标，停止驱逐
-    }
-    try {
-      await fs.unlink(file.path);
-      deletedCount++;
-      deletedSize += file.size;
-    } catch (error) {
-      console.error('[imageCacheService] 删除缓存文件失败:', file.path, error);
+  for (let i = 0; i < files.length; i += DELETE_BATCH) {
+    if (totalSize - deletedSize <= targetBytes) break;
+
+    const batch = files.slice(i, i + DELETE_BATCH).filter(() => totalSize - deletedSize > targetBytes);
+    const results = await Promise.allSettled(
+      batch.map(async (file) => {
+        await fs.unlink(file.path);
+        return file.size;
+      })
+    );
+
+    for (const result of results) {
+      if (result.status === 'fulfilled') {
+        deletedCount++;
+        deletedSize += result.value;
+      }
     }
   }
+
+  // 更新增量追踪器
+  trackedCacheSize = totalSize - deletedSize;
 
   console.log(`[imageCacheService] LRU 缓存清理完成: 删除了 ${deletedCount} 个文件，释放 ${(deletedSize / (1024 * 1024)).toFixed(2)} MB，剩余 ${((totalSize - deletedSize) / (1024 * 1024)).toFixed(2)} MB`);
 }
@@ -147,10 +195,9 @@ async function checkAndCleanCache(): Promise<void> {
   const maxCacheSizeMB = config.booru?.appearance?.maxCacheSizeMB || 500; // 默认 500MB
 
   const currentSize = await getCacheSize();
-  console.log(`[imageCacheService] 当前缓存大小: ${currentSize.toFixed(2)} MB，限制: ${maxCacheSizeMB} MB`);
 
   if (currentSize > maxCacheSizeMB) {
-    console.log(`[imageCacheService] 缓存超过限制，开始清理...`);
+    console.log(`[imageCacheService] 缓存超过限制 (${currentSize.toFixed(2)}/${maxCacheSizeMB} MB)，开始清理...`);
     await cleanCache();
   }
 }
@@ -179,7 +226,6 @@ export async function cacheImage(url: string, md5: string, extension: string): P
   // 检查缓存是否已存在
   const existingPath = await getCachedImagePath(md5, extension);
   if (existingPath) {
-    console.log(`[imageCacheService] 缓存已存在: ${md5}.${extension}`);
     return existingPath;
   }
 
@@ -190,6 +236,9 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     console.log(`[imageCacheService] 复用进行中的缓存请求: ${cacheKey}`);
     return existing;
   }
+
+  // 获取并发许可
+  await acquireCacheSlot();
 
   // 通知网络调度器：浏览请求开始
   networkScheduler.incrementBrowsing();
@@ -204,6 +253,8 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     inFlightRequests.delete(cacheKey);
     // 通知网络调度器：浏览请求结束
     networkScheduler.decrementBrowsing();
+    // 释放并发许可
+    releaseCacheSlot();
   }
 }
 
@@ -264,6 +315,14 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
     await pipeline(response.data, writer);
     console.log(`[imageCacheService] 图片缓存成功: ${cachePath}`);
 
+    // 增量更新缓存大小追踪
+    try {
+      const stat = await fs.stat(cachePath);
+      if (trackedCacheSize >= 0) {
+        trackedCacheSize += stat.size;
+      }
+    } catch { /* 忽略 */ }
+
     return cachePath;
   } catch (error) {
     // 如果下载失败，尝试删除可能的部分文件
@@ -289,11 +348,7 @@ export async function getCachedImageUrl(md5: string, extension: string): Promise
   }
 
   // 转换为 app:// URL
-  // Windows 下需要将路径转换为 app://盘符/路径 格式
-  // 例如：M:\yande\yande-gallery-desktop\data\cache\87\874a52b20a5c1ba31141bd964f40ea3b.png
-  // 转换为：app://m/data/cache/87/874a52b20a5c1ba31141bd964f40ea3b.png
   if (process.platform === 'win32') {
-    // Windows 路径：M:\path\to\file.png
     const match = cachePath.match(/^([A-Z]):\\(.+)$/i);
     if (match) {
       const driveLetter = match[1].toLowerCase();
@@ -301,7 +356,7 @@ export async function getCachedImageUrl(md5: string, extension: string): Promise
       return `app://${driveLetter}/${pathPart}`;
     }
   }
-  
+
   // Unix 路径
   return `app://${cachePath}`;
 }
@@ -322,7 +377,7 @@ export async function getCacheStats(): Promise<{ sizeMB: number; fileCount: numb
 
   async function countFiles(dir: string): Promise<void> {
     const entries = await fs.readdir(dir, { withFileTypes: true });
-    for (const entry of entries) {
+    const statPromises = entries.map(async (entry) => {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await countFiles(fullPath);
@@ -331,10 +386,15 @@ export async function getCacheStats(): Promise<{ sizeMB: number; fileCount: numb
         totalSize += stats.size;
         fileCount++;
       }
-    }
+    });
+    await Promise.all(statPromises);
   }
 
   await countFiles(cacheDir);
+
+  // 同步增量追踪器
+  trackedCacheSize = totalSize;
+
   return {
     sizeMB: totalSize / (1024 * 1024),
     fileCount
@@ -372,7 +432,10 @@ export async function clearAllCache(): Promise<{ deletedCount: number; freedMB: 
   }
 
   await deleteFiles(cacheDir);
+
+  // 重置增量追踪器
+  trackedCacheSize = 0;
+
   console.log(`[imageCacheService] 清除缓存完成：删除 ${deletedCount} 个文件，释放 ${(freedBytes / 1024 / 1024).toFixed(1)} MB`);
   return { deletedCount, freedMB: freedBytes / (1024 * 1024) };
 }
-

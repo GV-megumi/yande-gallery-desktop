@@ -327,33 +327,27 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           >
             {onToggleServerFavorite && (
               <button
-                className={`overlay-btn${heartAnim ? ` ${heartAnim}` : ''}`}
+                className={`overlay-btn ${isServerFavorited ? 'overlay-btn-heart-active' : 'overlay-btn-dark'}${heartAnim ? ` ${heartAnim}` : ''}`}
                 onClick={(e) => { e.stopPropagation(); handleToggleServerFavorite(); }}
                 title={isServerFavorited ? '取消喜欢' : '喜欢'}
                 style={{ ...overlayBtnBase, background: isServerFavorited ? colors.heartActive : 'rgba(0,0,0,0.40)' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = isServerFavorited ? 'rgba(236,72,153,1)' : 'rgba(0,0,0,0.60)'}
-                onMouseLeave={(e) => e.currentTarget.style.background = isServerFavorited ? (colors.heartActive as string) : 'rgba(0,0,0,0.40)'}
               >
                 {isServerFavorited ? <HeartFilled /> : <HeartOutlined />}
               </button>
             )}
             <button
-              className={`overlay-btn${favAnim ? ` ${favAnim}` : ''}`}
+              className={`overlay-btn ${isFavorited ? 'overlay-btn-fav-active' : 'overlay-btn-dark'}${favAnim ? ` ${favAnim}` : ''}`}
               onClick={(e) => { e.stopPropagation(); handleToggleFavorite(); }}
               title={isFavorited ? '取消收藏' : '收藏'}
               style={{ ...overlayBtnBase, background: isFavorited ? colors.bookmarkActive : 'rgba(0,0,0,0.40)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = isFavorited ? 'rgba(245,158,11,1)' : 'rgba(0,0,0,0.60)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = isFavorited ? (colors.bookmarkActive as string) : 'rgba(0,0,0,0.40)'}
             >
               {isFavorited ? <BookFilled /> : <BookOutlined />}
             </button>
             <button
-              className="overlay-btn"
+              className="overlay-btn overlay-btn-dark"
               onClick={(e) => { e.stopPropagation(); handleDownload(); }}
               title="下载"
               style={{ ...overlayBtnBase, background: 'rgba(0,0,0,0.40)' }}
-              onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.60)'}
-              onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(0,0,0,0.40)'}
             >
               <DownloadOutlined />
             </button>

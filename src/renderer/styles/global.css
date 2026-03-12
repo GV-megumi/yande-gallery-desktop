@@ -270,6 +270,17 @@ html.dark .ios-skeleton-shimmer {
   transition: transform 0.1s ease !important;
 }
 
+/* --- Overlay 按钮 hover 效果（替代 JS DOM 操作） --- */
+.overlay-btn-dark:hover {
+  background: rgba(0,0,0,0.60) !important;
+}
+.overlay-btn-fav-active:hover {
+  background: rgba(245,158,11,1) !important;
+}
+.overlay-btn-heart-active:hover {
+  background: rgba(236,72,153,1) !important;
+}
+
 /* --- 收藏心跳 --- */
 @keyframes heartbeat {
   0% { transform: scale(1); }
@@ -379,6 +390,11 @@ html.dark .ant-switch-checked {
 /* Modal */
 .ant-modal-content {
   border-radius: 16px !important;
+}
+
+/* Modal 挂起隐藏：导航栈中被覆盖的页面，其 Modal portal 需要隐藏 */
+.modal-suspended-hidden {
+  display: none !important;
 }
 
 /* Dropdown */

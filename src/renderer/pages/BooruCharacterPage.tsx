@@ -21,6 +21,7 @@ interface BooruCharacterPageProps {
   initialSiteId?: number | null;
   onBack?: () => void;
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  suspended?: boolean;
 }
 
 /**
@@ -31,7 +32,8 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   characterName,
   initialSiteId = null,
   onBack,
-  onTagClick
+  onTagClick,
+  suspended = false
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -42,7 +44,8 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
-  const hasSearchedRef = useRef(false);
+  // 标记站点是否已加载完成（用于自动搜索的依赖判断）
+  const [sitesLoaded, setSitesLoaded] = useState(false);
 
   // 标签收藏状态
   const [isTagFavorited, setIsTagFavorited] = useState(false);
@@ -125,7 +128,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
     }
   };
 
-  // 加载站点列表
+  // 加载站点列表（只负责加载站点数据，不触发搜索）
   const loadSites = async () => {
     try {
       if (!window.electronAPI) return;
@@ -141,10 +144,8 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
         }
         if (targetSiteId) {
           setSelectedSiteId(targetSiteId);
-          if (characterName && !hasSearchedRef.current) {
-            setTimeout(() => searchCharacterPosts(characterName, 1, result.data), 100);
-          }
         }
+        setSitesLoaded(true);
       }
     } catch (error) {
       console.error('[BooruCharacterPage] 加载站点列表失败:', error);
@@ -152,15 +153,13 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   };
 
   // 搜索角色作品
-  const searchCharacterPosts = async (name: string, page: number, siteList?: BooruSite[]) => {
+  const searchCharacterPosts = async (name: string, page: number) => {
     if (!selectedSiteId) return;
-    const siteListToUse = siteList || sites;
-    const site = siteListToUse.find(s => s.id === selectedSiteId);
+    const site = sites.find(s => s.id === selectedSiteId);
     if (!site) return;
 
     console.log(`[BooruCharacterPage] 搜索角色作品: ${name}, 页码: ${page}`);
     setLoading(true);
-    hasSearchedRef.current = true;
 
     try {
       if (!window.electronAPI) { setLoading(false); return; }
@@ -251,10 +250,21 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
     return getBooruPreviewUrl(post, appearanceConfig.previewQuality as any, selectedSite);
   };
 
+  // 初始化：加载配置和站点列表
   useEffect(() => {
     loadAppearanceConfig();
     loadSites();
   }, []);
+
+  // 自动搜索：站点加载完成后立即搜索
+  const hasSearchedRef = useRef(false);
+  useEffect(() => {
+    if (sitesLoaded && selectedSiteId && characterName && !suspended && !hasSearchedRef.current) {
+      console.log('[BooruCharacterPage] 自动搜索角色:', characterName, '站点:', selectedSiteId);
+      hasSearchedRef.current = true;
+      searchCharacterPosts(characterName, 1);
+    }
+  }, [sitesLoaded, selectedSiteId, characterName, suspended]);
 
   useEffect(() => {
     if (selectedSiteId) checkTagFavoriteStatus();
@@ -302,8 +312,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
           setSelectedSiteId(siteId);
           setPosts([]);
           setCurrentPage(1);
-          hasSearchedRef.current = false;
-          setTimeout(() => searchCharacterPosts(characterName, 1), 100);
+          hasSearchedRef.current = false; // 重置搜索标记，让自动搜索 effect 重新触发
         }}
         onRatingChange={setRatingFilter}
         onRefresh={() => searchCharacterPosts(characterName, currentPage)}
@@ -384,6 +393,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
         onTagClick={handleTagClick}
         isServerFavorited={(p: BooruPost) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        suspended={suspended}
       />
     </div>
   );

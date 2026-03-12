@@ -16,6 +16,7 @@ const { Title } = Typography;
 interface BooruFavoritesPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  suspended?: boolean;
 }
 
 /**
@@ -24,7 +25,8 @@ interface BooruFavoritesPageProps {
  */
 export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   onTagClick,
-  onArtistClick
+  onArtistClick,
+  suspended = false
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -553,6 +555,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
         onArtistClick={onArtistClick}
+        suspended={suspended}
       />
     </div>
   );

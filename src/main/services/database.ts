@@ -357,31 +357,18 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 添加进度字段（如果不存在）- 数据库迁移
-    try {
+    // 添加进度字段（如果不存在）- 使用 PRAGMA 检查避免锁表
+    if (!(await columnExists(database, 'bulk_download_records', 'progress'))) {
       await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN progress INTEGER DEFAULT 0');
       console.log('[database] 已添加 progress 字段到 bulk_download_records');
-    } catch (error: any) {
-      // 字段可能已存在，忽略错误
-      if (!error.message.includes('duplicate column')) {
-        console.warn('[database] 添加 progress 字段失败（可能已存在）:', error.message);
-      }
     }
-    try {
+    if (!(await columnExists(database, 'bulk_download_records', 'downloadedBytes'))) {
       await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN downloadedBytes INTEGER DEFAULT 0');
       console.log('[database] 已添加 downloadedBytes 字段到 bulk_download_records');
-    } catch (error: any) {
-      if (!error.message.includes('duplicate column')) {
-        console.warn('[database] 添加 downloadedBytes 字段失败（可能已存在）:', error.message);
-      }
     }
-    try {
+    if (!(await columnExists(database, 'bulk_download_records', 'totalBytes'))) {
       await run(database, 'ALTER TABLE bulk_download_records ADD COLUMN totalBytes INTEGER DEFAULT 0');
       console.log('[database] 已添加 totalBytes 字段到 bulk_download_records');
-    } catch (error: any) {
-      if (!error.message.includes('duplicate column')) {
-        console.warn('[database] 添加 totalBytes 字段失败（可能已存在）:', error.message);
-      }
     }
 
     // 创建批量下载相关索引
@@ -479,6 +466,12 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_localImageId ON booru_posts(localImageId)');
     // image_tags 反向查询优化
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_image_tags_tagId ON image_tags(tagId)');
+    // 下载页过滤：按站点 + 下载状态
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_downloaded ON booru_posts(siteId, downloaded)');
+    // 评级过滤
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_rating ON booru_posts(siteId, rating)');
+    // 收藏列表分页
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_site_created ON booru_favorites(siteId, createdAt DESC)');
     console.log('[database] 性能优化索引创建成功');
 
     // === 收藏夹分组相关表 ===
@@ -496,30 +489,21 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 为 booru_favorites 添加 groupId 字段（数据库迁移）
-    try {
+    // 为 booru_favorites 添加 groupId 字段
+    if (!(await columnExists(database, 'booru_favorites', 'groupId'))) {
       await run(database, 'ALTER TABLE booru_favorites ADD COLUMN groupId INTEGER REFERENCES booru_favorite_groups(id) ON DELETE SET NULL');
       console.log('[database] 已添加 groupId 字段到 booru_favorites');
-    } catch (error: any) {
-      if (!error.message.includes('duplicate column')) {
-        console.warn('[database] 添加 groupId 字段失败（可能已存在）:', error.message);
-      }
     }
 
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_groups_siteId ON booru_favorite_groups(siteId)');
     await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_groupId ON booru_favorites(groupId)');
     console.log('[database] 收藏夹分组相关表创建成功');
 
-    // 为 booru_tags 添加 updatedAt 字段（数据库迁移 — 标签缓存过期清理用）
-    try {
+    // 为 booru_tags 添加 updatedAt 字段（标签缓存过期清理用）
+    if (!(await columnExists(database, 'booru_tags', 'updatedAt'))) {
       await run(database, "ALTER TABLE booru_tags ADD COLUMN updatedAt TEXT NOT NULL DEFAULT ''");
-      // 迁移：将已有记录的 updatedAt 设为 createdAt
       await run(database, 'UPDATE booru_tags SET updatedAt = createdAt WHERE updatedAt = \'\'');
       console.log('[database] 已添加 updatedAt 字段到 booru_tags');
-    } catch (error: any) {
-      if (!error.message.includes('duplicate column')) {
-        console.warn('[database] 添加 updatedAt 字段失败（可能已存在）:', error.message);
-      }
     }
 
     // === 保存的搜索表 ===
@@ -622,6 +606,14 @@ export function closeDatabase(): Promise<void> {
 /**
  * 封装 db.run 为 Promise
  */
+/**
+ * 检查表中是否存在指定列（使用 PRAGMA table_info，零开销）
+ */
+export async function columnExists(db: sqlite3.Database, table: string, column: string): Promise<boolean> {
+  const rows = await all<{ name: string }>(db, `PRAGMA table_info(${table})`);
+  return rows.some(r => r.name === column);
+}
+
 export function run(db: sqlite3.Database, sql: string, params: any[] = []): Promise<void> {
   return new Promise((resolve, reject) => {
     db.run(sql, params, function (err) {

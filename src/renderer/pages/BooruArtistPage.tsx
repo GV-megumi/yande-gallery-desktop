@@ -54,6 +54,7 @@ interface BooruArtistPageProps {
   initialSiteId?: number | null;
   onBack?: () => void;
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  suspended?: boolean;
 }
 
 /**
@@ -64,7 +65,8 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
   artistName,
   initialSiteId = null,
   onBack,
-  onTagClick
+  onTagClick,
+  suspended = false
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -76,7 +78,8 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
   const [hasMore, setHasMore] = useState(true);
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
-  const hasSearchedRef = useRef(false);
+  // 标记站点是否已加载完成（用于自动搜索的依赖判断）
+  const [sitesLoaded, setSitesLoaded] = useState(false);
 
   // 艺术家信息
   const [artistInfo, setArtistInfo] = useState<ArtistInfo | null>(null);
@@ -189,7 +192,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
     }
   };
 
-  // 加载站点列表
+  // 加载站点列表（只负责加载站点数据，不触发搜索）
   const loadSites = async () => {
     try {
       if (!window.electronAPI) return;
@@ -206,12 +209,8 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
 
         if (targetSiteId) {
           setSelectedSiteId(targetSiteId);
-          if (artistName && !hasSearchedRef.current) {
-            setTimeout(() => {
-              searchArtistPosts(artistName, 1, result.data);
-            }, 100);
-          }
         }
+        setSitesLoaded(true);
       }
     } catch (error) {
       console.error('[BooruArtistPage] 加载站点列表异常:', error);
@@ -219,16 +218,14 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
   };
 
   // 搜索艺术家作品
-  const searchArtistPosts = async (name: string, page: number, siteList?: BooruSite[]) => {
+  const searchArtistPosts = async (name: string, page: number) => {
     if (!selectedSiteId) return;
 
-    const siteListToUse = siteList || sites;
-    const site = siteListToUse.find(s => s.id === selectedSiteId);
+    const site = sites.find(s => s.id === selectedSiteId);
     if (!site) return;
 
     console.log(`[BooruArtistPage] 搜索艺术家作品: ${name}, 页码: ${page}`);
     setLoading(true);
-    hasSearchedRef.current = true;
 
     try {
       if (!window.electronAPI) { setLoading(false); return; }
@@ -344,11 +341,21 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
     return sortedPosts.filter(post => post.rating === ratingFilter);
   }, [sortedPosts, ratingFilter]);
 
-  // 初始化
+  // 初始化：加载配置和站点列表
   useEffect(() => {
     loadSites();
     loadAppearanceConfig();
   }, []);
+
+  // 自动搜索：站点加载完成后立即搜索
+  const hasSearchedRef = useRef(false);
+  useEffect(() => {
+    if (sitesLoaded && selectedSiteId && artistName && !suspended && !hasSearchedRef.current) {
+      console.log('[BooruArtistPage] 自动搜索艺术家:', artistName, '站点:', selectedSiteId);
+      hasSearchedRef.current = true;
+      searchArtistPosts(artistName, 1);
+    }
+  }, [sitesLoaded, selectedSiteId, artistName, suspended]);
 
   // 站点变化时加载艺术家信息和收藏状态
   useEffect(() => {
@@ -530,7 +537,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
           setPosts([]);
           setCurrentPage(1);
           setHasMore(true);
-          setTimeout(() => searchArtistPosts(artistName, 1), 100);
+          hasSearchedRef.current = false; // 重置搜索标记，让自动搜索 effect 重新触发
         }}
         onRatingChange={setRatingFilter}
         onRefresh={() => searchArtistPosts(artistName, currentPage)}
@@ -614,6 +621,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
         onTagClick={handleTagClick}
         isServerFavorited={(p: BooruPost) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        suspended={suspended}
       />
     </div>
   );

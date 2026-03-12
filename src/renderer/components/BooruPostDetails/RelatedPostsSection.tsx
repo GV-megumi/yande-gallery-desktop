@@ -15,7 +15,7 @@ interface RelatedPostsSectionProps {
  * 显示相关图片
  * 参考 Boorusama 的 MoebooruRelatedPostsSection
  */
-export const RelatedPostsSection: React.FC<RelatedPostsSectionProps> = ({
+export const RelatedPostsSection: React.FC<RelatedPostsSectionProps> = React.memo(({
   post,
   site,
   onPostClick
@@ -26,21 +26,9 @@ export const RelatedPostsSection: React.FC<RelatedPostsSectionProps> = ({
   // 加载相关帖子
   useEffect(() => {
     if (!post || !site) return;
-
     // TODO: 实现加载相关帖子的逻辑
-    // 可以通过以下方式获取相关帖子：
-    // 1. 使用相同的标签搜索
-    // 2. 使用 parent_id 或 has_children 字段
-    // 3. 调用 Booru API 的相关帖子接口
-
     console.log('[RelatedPostsSection] 加载相关帖子:', post.postId);
-    setLoading(true);
-
-    // 模拟加载
-    setTimeout(() => {
-      setRelatedPosts([]);
-      setLoading(false);
-    }, 500);
+    setRelatedPosts([]);
   }, [post, site]);
 
   if (loading) {
@@ -78,12 +66,7 @@ export const RelatedPostsSection: React.FC<RelatedPostsSectionProps> = ({
                 onPostClick(relatedPost);
               }
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.opacity = '0.8';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.opacity = '1';
-            }}
+            className="card-ios-hover"
           >
             <img
               src={relatedPost.previewUrl || relatedPost.sampleUrl || ''}
@@ -99,5 +82,7 @@ export const RelatedPostsSection: React.FC<RelatedPostsSectionProps> = ({
       </Space>
     </div>
   );
-};
+});
+
+RelatedPostsSection.displayName = 'RelatedPostsSection';
 

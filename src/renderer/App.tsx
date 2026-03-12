@@ -93,14 +93,19 @@ function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
   ];
 }
 
+/** 导航栈条目类型（参考 Boorusama 的 GoRouter push/pop 机制） */
+type NavigationEntry =
+  | { type: 'tag-search'; tag: string; siteId?: number | null }
+  | { type: 'artist'; name: string; siteId?: number | null }
+  | { type: 'character'; name: string; siteId?: number | null };
+
 export const AppContent: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState('gallery');
   const [selectedSubKey, setSelectedSubKey] = useState('recent');
   const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
   const [loading, setLoading] = useState(true);
-  const [tagSearchPage, setTagSearchPage] = useState<{ tag: string; siteId?: number | null } | null>(null);
-  const [artistPage, setArtistPage] = useState<{ name: string; siteId?: number | null } | null>(null);
-  const [characterPage, setCharacterPage] = useState<{ name: string; siteId?: number | null } | null>(null);
+  // 导航栈：支持嵌套页面（详情→标签搜索→详情→标签搜索→...）
+  const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([]);
   const { isDark, themeMode, setThemeMode } = useTheme();
   const { t } = useLocale();
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
@@ -130,7 +135,7 @@ export const AppContent: React.FC = () => {
     { key: SHORTCUT_KEYS.OPEN_SETTINGS, handler: openSettings, description: t('shortcuts.openSettings') },
     { key: SHORTCUT_KEYS.FOCUS_SEARCH, handler: focusSearch, description: t('shortcuts.focusSearch'), enableInInput: true },
     { key: SHORTCUT_KEYS.SHOW_SHORTCUTS, handler: () => setShortcutsModalOpen(true), description: t('shortcuts.showShortcuts') },
-    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (characterPage) handleBackFromCharacter(); else if (artistPage) handleBackFromArtist(); else if (tagSearchPage) handleBackFromTagSearch(); }, description: t('shortcuts.goBack') },
+    { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (navigationStack.length > 0) popNavigation(); }, description: t('shortcuts.goBack') },
   ]);
 
   useEffect(() => {
@@ -161,30 +166,28 @@ export const AppContent: React.FC = () => {
     if (selectedKey === 'booru' && !selectedBooruSubKey) setSelectedBooruSubKey('posts');
   }, [selectedKey, selectedSubKey, selectedBooruSubKey]);
 
-  const navigateToTagSearch = (tag: string, siteId?: number | null) => {
-    console.log('[App] 导航到标签搜索:', tag, siteId);
-    setArtistPage(null);
-    setTagSearchPage({ tag, siteId });
-  };
+  // 导航栈操作：push 压栈（保留下层页面），pop 弹栈（返回上一页）
+  const pushNavigation = useCallback((entry: NavigationEntry) => {
+    console.log('[App] 导航栈 push:', entry.type, entry.type === 'tag-search' ? entry.tag : entry.name);
+    setNavigationStack(prev => [...prev, entry]);
+  }, []);
 
-  const handleBackFromTagSearch = () => { setTagSearchPage(null); };
+  const popNavigation = useCallback(() => {
+    console.log('[App] 导航栈 pop');
+    setNavigationStack(prev => prev.slice(0, -1));
+  }, []);
 
-  const navigateToArtist = (name: string, siteId?: number | null) => {
-    console.log('[App] 导航到艺术家:', name, siteId);
-    setTagSearchPage(null);
-    setArtistPage({ name, siteId });
-  };
+  const navigateToTagSearch = useCallback((tag: string, siteId?: number | null) => {
+    pushNavigation({ type: 'tag-search', tag, siteId });
+  }, [pushNavigation]);
 
-  const handleBackFromArtist = () => { setArtistPage(null); };
+  const navigateToArtist = useCallback((name: string, siteId?: number | null) => {
+    pushNavigation({ type: 'artist', name, siteId });
+  }, [pushNavigation]);
 
-  const navigateToCharacter = (name: string, siteId?: number | null) => {
-    console.log('[App] 导航到角色:', name, siteId);
-    setArtistPage(null);
-    setTagSearchPage(null);
-    setCharacterPage({ name, siteId });
-  };
-
-  const handleBackFromCharacter = () => { setCharacterPage(null); };
+  const navigateToCharacter = useCallback((name: string, siteId?: number | null) => {
+    pushNavigation({ type: 'character', name, siteId });
+  }, [pushNavigation]);
 
   const handleSavedSearchRun = (query: string, siteId?: number | null) => {
     console.log('[App] 执行保存的搜索:', query, siteId);
@@ -192,10 +195,18 @@ export const AppContent: React.FC = () => {
     navigateToTagSearch(query, siteId);
   };
 
+  // 导航栈顶部条目（当前显示的叠加页面）
+  const topNavEntry = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
+
   const pageTitle = useMemo(() => {
-    if (characterPage) return { main: '角色', sub: characterPage.name.replace(/_/g, ' ') };
-    if (artistPage) return { main: '艺术家', sub: artistPage.name.replace(/_/g, ' ') };
-    if (tagSearchPage) return { main: t('pageTitle.tagSearch'), sub: tagSearchPage.tag.replace(/_/g, ' ') };
+    // 导航栈有内容时，显示栈顶页面的标题
+    if (topNavEntry) {
+      switch (topNavEntry.type) {
+        case 'character': return { main: '角色', sub: topNavEntry.name.replace(/_/g, ' ') };
+        case 'artist': return { main: '艺术家', sub: topNavEntry.name.replace(/_/g, ' ') };
+        case 'tag-search': return { main: t('pageTitle.tagSearch'), sub: topNavEntry.tag.replace(/_/g, ' ') };
+      }
+    }
     switch (selectedKey) {
       case 'gallery':
         if (selectedSubKey === 'settings') return { main: t('pageTitle.settings') };
@@ -207,7 +218,72 @@ export const AppContent: React.FC = () => {
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, tagSearchPage, artistPage, characterPage, t, gallerySubMenuItems, booruSubMenuItems]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems]);
+
+  /** 渲染导航栈中的单个条目 */
+  const renderNavigationEntry = (entry: NavigationEntry, index: number) => {
+    const isSuspended = index < navigationStack.length - 1;
+    switch (entry.type) {
+      case 'tag-search':
+        return (
+          <BooruTagSearchPage
+            initialTag={entry.tag}
+            initialSiteId={entry.siteId}
+            onBack={popNavigation}
+            onTagClick={navigateToTagSearch}
+            onArtistClick={navigateToArtist}
+            onCharacterClick={navigateToCharacter}
+            suspended={isSuspended}
+          />
+        );
+      case 'artist':
+        return (
+          <BooruArtistPage
+            artistName={entry.name}
+            initialSiteId={entry.siteId}
+            onBack={popNavigation}
+            onTagClick={navigateToTagSearch}
+            suspended={isSuspended}
+          />
+        );
+      case 'character':
+        return (
+          <BooruCharacterPage
+            characterName={entry.name}
+            initialSiteId={entry.siteId}
+            onBack={popNavigation}
+            onTagClick={navigateToTagSearch}
+            suspended={isSuspended}
+          />
+        );
+    }
+  };
+
+  /** 渲染基础页面（底层页面） */
+  const renderBasePage = () => {
+    const baseSuspended = navigationStack.length > 0;
+    switch (selectedKey) {
+      case 'gallery':
+        if (selectedSubKey === 'settings') return <SettingsPage />;
+        return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
+      case 'booru':
+        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
+        if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
+        if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
+        if (selectedBooruSubKey === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
+        if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
+        if (selectedBooruSubKey === 'settings') return <SettingsPage />;
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
+      default:
+        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
+    }
+  };
 
   const renderContent = () => {
     if (loading) {
@@ -217,36 +293,25 @@ export const AppContent: React.FC = () => {
         </div>
       );
     }
-    if (characterPage) {
-      return <BooruCharacterPage characterName={characterPage.name} initialSiteId={characterPage.siteId} onBack={handleBackFromCharacter} onTagClick={navigateToTagSearch} />;
-    }
-    if (artistPage) {
-      return <BooruArtistPage artistName={artistPage.name} initialSiteId={artistPage.siteId} onBack={handleBackFromArtist} onTagClick={navigateToTagSearch} />;
-    }
-    if (tagSearchPage) {
-      return <BooruTagSearchPage initialTag={tagSearchPage.tag} initialSiteId={tagSearchPage.siteId} onBack={handleBackFromTagSearch} onArtistClick={navigateToArtist} />;
-    }
-    switch (selectedKey) {
-      case 'gallery':
-        if (selectedSubKey === 'settings') return <SettingsPage />;
-        return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
-      case 'booru':
-        if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
-        if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
-        if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
-        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
-        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} />;
-        if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
-        if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
-        if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
-        if (selectedBooruSubKey === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
-        if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
-        if (selectedBooruSubKey === 'settings') return <SettingsPage />;
-        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
-      default:
-        return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} />;
-    }
+
+    const basePage = renderBasePage();
+    const hasStack = navigationStack.length > 0;
+
+    // 始终保持一致的 React 树结构，避免基础页面因树结构变化而被卸载/重新挂载
+    // 导航栈非空时，基础页面用 display:none 隐藏但保持挂载（保留状态）
+    return (
+      <>
+        <div style={hasStack ? { display: 'none' } : undefined}>{basePage}</div>
+        {navigationStack.map((entry, index) => {
+          const isTop = index === navigationStack.length - 1;
+          return (
+            <div key={`nav-${entry.type}-${index}`} style={isTop ? undefined : { display: 'none' }}>
+              {renderNavigationEntry(entry, index)}
+            </div>
+          );
+        })}
+      </>
+    );
   };
 
   return (
@@ -324,6 +389,7 @@ export const AppContent: React.FC = () => {
           onClick={({ key }) => {
             console.log(`[App] 主菜单切换: ${key}`);
             setSelectedKey(key);
+            setNavigationStack([]); // 切换主菜单时清空导航栈
             if (key === 'gallery') setSelectedSubKey('recent');
           }}
           style={{
@@ -391,6 +457,7 @@ export const AppContent: React.FC = () => {
               onClick={({ key }) => {
                 console.log(`[App] Booru子菜单: ${key}`);
                 setSelectedBooruSubKey(key);
+                setNavigationStack([]); // 切换子菜单时清空导航栈
               }}
               style={{ background: 'transparent', borderRight: 'none' }}
             />
@@ -506,7 +573,7 @@ export const AppContent: React.FC = () => {
         {/* 内容区 */}
         <Content
           className="ios-page-enter noise-bg"
-          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}-${tagSearchPage?.tag || ''}-${artistPage?.name || ''}-${characterPage?.name || ''}`}
+          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}`}
           style={{
             margin: 0,
             padding: `${spacing.lg}px ${spacing.lg}px`,

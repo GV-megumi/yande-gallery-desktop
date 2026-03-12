@@ -1,10 +1,31 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, Image, Tag, Button, Modal, Descriptions, Space, message } from 'antd';
 import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows, transitions, layout as layoutTokens } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
+
+// --- 静态样式常量（避免每次渲染创建新对象） ---
+const cardWrapperStyle: React.CSSProperties = {
+  borderRadius: radius.md,
+  overflow: 'hidden',
+  boxShadow: shadows.card,
+  background: colors.bgBase,
+  border: `1px solid ${colors.borderCard}`,
+  position: 'relative',
+  cursor: 'pointer',
+};
+const imageWrapperStyle: React.CSSProperties = { width: '100%', position: 'relative', overflow: 'hidden' };
+const imgStyle: React.CSSProperties = { width: '100%', height: 'auto', display: 'block', cursor: 'pointer' };
+const infoBtnStyle: React.CSSProperties = {
+  position: 'absolute', top: 6, right: 6, width: 28, height: 28,
+  borderRadius: radius.round, background: 'rgba(0, 0, 0, 0.35)',
+  backdropFilter: 'blur(8px)', color: '#FFFFFF', zIndex: zIndex.sticky,
+  display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none',
+};
+const containerStyle: React.CSSProperties = { position: 'relative' };
+const previewImgStyle: React.CSSProperties = { display: 'none' };
 
 export interface ImageGridProps {
   images: any[];
@@ -79,37 +100,39 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
     const loadThumbnails = async () => {
       const thumbnails: Record<number, string | null> = {};
+      let pendingSinceLastFlush = 0;
 
-      // 批量加载缩略图，但限制并发数量以避免过载
-      const batchSize = 10; // 每次处理10张图片
-      for (let i = 0; i < images.length; i += batchSize) {
-        if (cancelled) return; // 检查是否已取消
+      // 批量加载缩略图，限制并发数量以避免过载
+      const concurrency = 10; // 每次并发10张
+      const flushInterval = 100; // 每100张刷新一次UI
+      for (let i = 0; i < images.length; i += concurrency) {
+        if (cancelled) return;
 
-        const batch = images.slice(i, i + batchSize);
+        const batch = images.slice(i, i + concurrency);
 
         await Promise.all(
           batch.map(async (image) => {
             if (!image.filepath || cancelled) return;
-
             try {
               const result = await window.electronAPI.image.getThumbnail(image.filepath);
               if (cancelled) return;
               if (result.success && result.data) {
                 thumbnails[image.id] = result.data;
               } else {
-                console.warn(`[ImageGrid] 缩略图加载失败: ${image.filename} (ID: ${image.id}), 错误: ${result.error}`);
                 thumbnails[image.id] = null;
               }
             } catch (error) {
-              console.error(`[ImageGrid] 获取缩略图异常: ${image.filename} (ID: ${image.id})`, error);
               thumbnails[image.id] = null;
             }
           })
         );
 
-        // 每批处理完后更新状态，让用户看到渐进式加载
-        if (!cancelled) {
-          setThumbnailPaths((prev) => ({ ...prev, ...thumbnails }));
+        pendingSinceLastFlush += batch.length;
+
+        // 每 flushInterval 张或最后一批时刷新UI（减少 setState 次数）
+        if (!cancelled && (pendingSinceLastFlush >= flushInterval || i + concurrency >= images.length)) {
+          setThumbnailPaths({ ...thumbnails });
+          pendingSinceLastFlush = 0;
         }
       }
 
@@ -126,10 +149,10 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     };
   }, [images]);
 
-  const handleImageInfo = (image: any) => {
+  const handleImageInfo = useCallback((image: any) => {
     console.log(`[ImageGrid] 查看图片信息: ${image.filename} (ID: ${image.id})`);
     setSelectedImage(image);
-  };
+  }, []);
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {
@@ -234,23 +257,9 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
       <ContextMenu items={imageContextItems}>
       <div
         className="card-ios-hover"
-        style={{
-          borderRadius: radius.md,
-          overflow: 'hidden',
-          boxShadow: shadows.card,
-          background: colors.bgBase,
-          border: `1px solid ${colors.borderCard}`,
-          position: 'relative',
-          cursor: 'pointer',
-        }}
+        style={cardWrapperStyle}
       >
-          <div
-            style={{
-              width: '100%',
-              position: 'relative',
-              overflow: 'hidden',
-            }}
-          >
+          <div style={imageWrapperStyle}>
             {isThumbnailLoading ? (
               // 缩略图加载中：shimmer 骨架屏
               <div
@@ -269,7 +278,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                 src={displaySrc}
                 alt={image.filename}
                 className="image-fade-in"
-                style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer' }}
+                style={imgStyle}
                 onLoad={(e) => {
                   (e.target as HTMLImageElement).classList.add('loaded');
                 }}
@@ -313,22 +322,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                   e.stopPropagation();
                   handleImageInfo(image);
                 }}
-                style={{
-                  position: 'absolute',
-                  top: 6,
-                  right: 6,
-                  width: 28,
-                  height: 28,
-                  borderRadius: radius.round,
-                  background: 'rgba(0, 0, 0, 0.35)',
-                  backdropFilter: 'blur(8px)',
-                  color: '#FFFFFF',
-                  zIndex: zIndex.sticky,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: 'none',
-                }}
+                style={infoBtnStyle}
               />
             )}
           </div>
@@ -339,10 +333,10 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
   return (
     <>
-      <div style={{ position: 'relative' }}>
+      <div style={containerStyle}>
         {/* 单图预览组件（替代 Image.PreviewGroup，避免 2000+ 隐藏预览节点的内存开销） */}
         <Image
-          style={{ display: 'none' }}
+          style={previewImgStyle}
           preview={{
             visible: previewVisible,
             src: previewImage,

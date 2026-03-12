@@ -33,7 +33,12 @@ interface BooruTagSearchPageProps {
   initialTag: string;
   initialSiteId?: number | null;
   onBack?: () => void;
+  /** 标签点击回调：从详情弹窗中点击标签时，push 到导航栈打开新的标签搜索页 */
+  onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  onCharacterClick?: (characterName: string, siteId?: number | null) => void;
+  /** 页面被导航栈覆盖时为 true，此时暂停详情弹窗的显示 */
+  suspended?: boolean;
 }
 
 /**
@@ -45,7 +50,10 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   initialTag,
   initialSiteId = null,
   onBack,
-  onArtistClick
+  onTagClick,
+  onArtistClick,
+  onCharacterClick,
+  suspended = false
 }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -59,7 +67,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const hasSearchedRef = useRef(false); // 标记是否已经搜索过
+  // 挂起时保存/恢复详情弹窗状态（导航栈机制）
 
   // 收藏状态管理
   const { favorites, toggleFavorite, setFavorites } = useFavorite({
@@ -230,7 +238,10 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
-  // 加载站点列表
+  // 标记站点是否已加载完成（用于自动搜索的依赖判断）
+  const [sitesLoaded, setSitesLoaded] = useState(false);
+
+  // 加载站点列表（只负责加载站点数据，不触发搜索）
   const loadSites = async () => {
     console.log('[BooruTagSearchPage] 加载站点列表');
     try {
@@ -242,38 +253,22 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
       const result = await window.electronAPI.booru.getSites();
       if (result.success && result.data) {
         console.log('[BooruTagSearchPage] 加载站点列表成功:', result.data.length, '个站点');
-        setSites(result.data);
-        
+        const siteList = result.data;
+        setSites(siteList);
+
         // 确定要使用的站点ID
         let targetSiteId: number | null = null;
         if (initialSiteId) {
-          const siteExists = result.data.some(s => s.id === initialSiteId);
-          if (siteExists) {
-            targetSiteId = initialSiteId;
-          } else if (result.data.length > 0) {
-            targetSiteId = result.data[0].id;
-          }
-        } else if (result.data.length > 0) {
-          targetSiteId = result.data[0].id;
+          const siteExists = siteList.some(s => s.id === initialSiteId);
+          targetSiteId = siteExists ? initialSiteId : (siteList[0]?.id ?? null);
+        } else {
+          targetSiteId = siteList[0]?.id ?? null;
         }
-        
-        // 设置站点ID
+
         if (targetSiteId) {
-          console.log('[BooruTagSearchPage] 设置站点ID:', targetSiteId, '当前标签:', searchTag, '已搜索:', hasSearchedRef.current);
-          const siteIdChanged = targetSiteId !== selectedSiteId;
           setSelectedSiteId(targetSiteId);
-          
-          // 如果标签已经设置好且还没有搜索过，立即触发搜索
-          // 或者如果站点ID发生了变化，也需要重新搜索
-          // 直接传入站点列表，避免状态更新延迟问题
-          if (searchTag && (!hasSearchedRef.current || siteIdChanged)) {
-            console.log('[BooruTagSearchPage] 站点加载完成，立即搜索标签:', searchTag, '使用站点列表:', result.data.length);
-            // 直接使用 result.data，不等待状态更新
-            setTimeout(() => {
-              searchTagPosts(searchTag, 1, result.data);
-            }, 100);
-          }
         }
+        setSitesLoaded(true);
       } else {
         console.error('[BooruTagSearchPage] 加载站点列表失败:', result.error);
       }
@@ -283,7 +278,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   };
 
   // 搜索标签
-  const searchTagPosts = async (tag: string, page: number, siteList?: BooruSite[]) => {
+  const searchTagPosts = async (tag: string, page: number) => {
     if (!selectedSiteId) {
       message.warning('请先选择站点');
       return;
@@ -294,21 +289,14 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
       return;
     }
 
-    // 优先使用传入的站点列表，否则使用状态中的站点列表
-    const siteListToUse = siteList || sites;
-    const site = siteListToUse.find(s => s.id === selectedSiteId);
+    const site = sites.find(s => s.id === selectedSiteId);
     if (!site) {
-      console.warn('[BooruTagSearchPage] 站点未找到，等待站点加载完成', {
-        selectedSiteId,
-        siteListLength: siteListToUse.length,
-        siteIds: siteListToUse.map(s => s.id)
-      });
+      console.warn('[BooruTagSearchPage] 站点未找到', { selectedSiteId });
       return;
     }
 
     console.log(`[BooruTagSearchPage] 搜索标签图片，站点: ${site.name}, 标签: "${tag}", 页码: ${page}`);
     setLoading(true);
-    hasSearchedRef.current = true; // 标记已搜索
 
     try {
       if (!window.electronAPI) {
@@ -369,10 +357,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     setPosts([]);
     setCurrentPage(1);
     setHasMore(true);
-    // 切换站点后重新搜索
-    if (searchTag) {
-      searchTagPosts(searchTag, 1);
-    }
+    // 重置搜索标记，让自动搜索 effect 重新触发
+    lastSearchedTagRef.current = '';
   };
 
   // 处理收藏切换（委托给 useFavorite Hook）
@@ -401,13 +387,25 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
-  // 处理标签点击（在新页面中打开另一个标签搜索）
-  const handleTagClick = (tag: string) => {
-    console.log('[BooruTagSearchPage] 点击标签:', tag);
-    // 更新当前搜索标签
+  // 处理标签点击：在当前页面更新搜索（用于相关标签推荐）
+  const handleTagClickInPlace = (tag: string) => {
+    console.log('[BooruTagSearchPage] 点击标签（页内搜索）:', tag);
+    lastSearchedTagRef.current = tag; // 标记为已搜索，避免 effect 重复触发
     setSearchTag(tag);
     searchTagPosts(tag, 1);
   };
+
+  // 处理详情弹窗中的标签点击：push 到导航栈打开新页面
+  const handleTagClickFromDetails = useCallback((tag: string) => {
+    console.log('[BooruTagSearchPage] 点击标签（导航到新页面）:', tag);
+    if (onTagClick) {
+      onTagClick(tag, selectedSiteId);
+    } else {
+      // 没有导航回调时，在当前页面搜索
+      setSearchTag(tag);
+      searchTagPosts(tag, 1);
+    }
+  }, [onTagClick, selectedSiteId]);
 
   // 处理艺术家点击：如果提供了 onArtistClick 回调则使用它，否则在当前页面搜索该艺术家标签
   const handleArtistClick = useCallback((artistName: string) => {
@@ -415,11 +413,21 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     if (onArtistClick) {
       onArtistClick(artistName, selectedSiteId);
     } else {
-      // 在当前页面更新搜索标签为艺术家名称
       setSearchTag(artistName);
       searchTagPosts(artistName, 1);
     }
   }, [onArtistClick, selectedSiteId]);
+
+  // 处理角色点击
+  const handleCharacterClick = useCallback((characterName: string) => {
+    console.log('[BooruTagSearchPage] 点击角色:', characterName);
+    if (onCharacterClick) {
+      onCharacterClick(characterName, selectedSiteId);
+    } else {
+      setSearchTag(characterName);
+      searchTagPosts(characterName, 1);
+    }
+  }, [onCharacterClick, selectedSiteId]);
 
   // 处理图片预览
   const handlePreview = (post: BooruPost) => {
@@ -433,42 +441,26 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     return getBooruPreviewUrl(post, appearanceConfig.previewQuality);
   };
 
-  // 初始化
+  // 初始化：加载配置和站点列表
   useEffect(() => {
     console.log('[BooruTagSearchPage] 初始化页面，标签:', initialTag, '站点ID:', initialSiteId);
-    hasSearchedRef.current = false; // 重置搜索标记
     loadAppearanceConfig();
     loadSites();
-  }, [initialTag, initialSiteId]); // 当 initialTag 或 initialSiteId 变化时重新初始化
+  }, []); // 只在挂载时执行一次
 
-  // 当站点和标签准备好后，自动搜索（仅在首次加载时）
+  // 自动搜索：站点加载完成后立即搜索
+  // 使用 ref 跟踪已搜索的标签，避免重复搜索
+  const lastSearchedTagRef = useRef<string>('');
   useEffect(() => {
-    if (selectedSiteId && searchTag && !hasSearchedRef.current) {
-      console.log('[BooruTagSearchPage] 自动搜索标签:', searchTag, '站点:', selectedSiteId);
-      // 延迟搜索，确保状态更新完成
-      const timer = setTimeout(() => {
+    if (sitesLoaded && selectedSiteId && searchTag && !suspended) {
+      // 避免重复搜索相同的标签
+      if (lastSearchedTagRef.current !== searchTag) {
+        console.log('[BooruTagSearchPage] 自动搜索标签:', searchTag, '站点:', selectedSiteId);
+        lastSearchedTagRef.current = searchTag;
         searchTagPosts(searchTag, 1);
-      }, 200);
-      return () => clearTimeout(timer);
-    }
-  }, [selectedSiteId, searchTag]);
-
-  // 当初始标签变化时，更新搜索
-  useEffect(() => {
-    if (initialTag && initialTag !== searchTag) {
-      console.log('[BooruTagSearchPage] 初始标签变化:', initialTag);
-      hasSearchedRef.current = false; // 重置搜索标记
-      setSearchTag(initialTag);
-      // 如果站点已经准备好，立即搜索；否则等待站点准备好的 useEffect 触发搜索
-      if (selectedSiteId) {
-        // 延迟搜索，确保状态更新完成
-        const timer = setTimeout(() => {
-          searchTagPosts(initialTag, 1);
-        }, 200);
-        return () => clearTimeout(timer);
       }
     }
-  }, [initialTag, selectedSiteId]);
+  }, [sitesLoaded, selectedSiteId, searchTag, suspended]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
 
@@ -546,7 +538,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               <Tag
                 key={tag}
                 style={{ cursor: 'pointer', marginBottom: 2, fontSize: fontSize.xs }}
-                onClick={() => handleTagClick(tag)}
+                onClick={() => handleTagClickInPlace(tag)}
               >
                 {tag.replace(/_/g, ' ')} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
               </Tag>
@@ -613,7 +605,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
-              onTagClick={handleTagClick}
+              onTagClick={handleTagClickInPlace}
               onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
               serverFavorites={serverFavorites}
             />
@@ -645,10 +637,12 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         }}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
-        onTagClick={handleTagClick}
+        onTagClick={handleTagClickFromDetails}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
         onArtistClick={handleArtistClick}
+        onCharacterClick={handleCharacterClick}
+        suspended={suspended}
       />
     </div>
   );

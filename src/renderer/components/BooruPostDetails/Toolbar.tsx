@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Space, Button, App, Tooltip, Tag, Typography, Dropdown } from 'antd';
 import {
   BookOutlined,
@@ -35,7 +35,7 @@ interface ToolbarProps {
  * 工具栏组件
  * 显示：收藏、投票、服务端收藏、下载、分享等操作按钮
  */
-export const Toolbar: React.FC<ToolbarProps> = ({
+export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   post,
   site,
   onToggleFavorite,
@@ -77,22 +77,22 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     loadFavoriteUsers();
   }, [site, post.postId]);
 
-  const handleToggleFavorite = () => {
+  const handleToggleFavorite = useCallback(() => {
     console.log('[Toolbar] 切换本地收藏状态:', post.id, '当前:', post.isFavorited);
     if (onToggleFavorite) {
       onToggleFavorite(post);
     }
-  };
+  }, [onToggleFavorite, post]);
 
-  const handleDownload = () => {
+  const handleDownload = useCallback(() => {
     console.log('[Toolbar] 下载图片:', post.postId);
     if (onDownload) {
       onDownload(post);
     }
-  };
+  }, [onDownload, post]);
 
   // 投票
-  const handleVote = async (score: 1 | 0 | -1) => {
+  const handleVote = useCallback(async (score: 1 | 0 | -1) => {
     if (!isLoggedIn || !site) {
       message.warning(t('details.loginRequiredVote'));
       return;
@@ -116,10 +116,10 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     } finally {
       setVotingLoading(false);
     }
-  };
+  }, [isLoggedIn, site, voteState, post.postId, message, t]);
 
   // 服务端收藏/取消收藏
-  const handleServerFavorite = async () => {
+  const handleServerFavorite = useCallback(async () => {
     // 如果有外部回调，优先使用（由父组件统一管理状态）
     if (onToggleServerFavorite) {
       onToggleServerFavorite(post);
@@ -156,14 +156,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     } finally {
       setServerFavLoading(false);
     }
-  };
+  }, [onToggleServerFavorite, isLoggedIn, site, serverFavorited, post, message, t]);
 
-  const handleSlideshow = () => {
+  const handleSlideshow = useCallback(() => {
     console.log('[Toolbar] 开始幻灯片播放');
     message.info(t('details.slideshowDev'));
-  };
+  }, [message, t]);
 
-  const copyToClipboard = (text: string, successMsg: string) => {
+  const copyToClipboard = useCallback((text: string, successMsg: string) => {
     if (!text) { message.warning('链接不可用'); return; }
     navigator.clipboard.writeText(text).then(() => {
       message.success(successMsg);
@@ -171,9 +171,9 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       console.error('[Toolbar] 复制失败:', err);
       message.error(t('common.copyFailed'));
     });
-  };
+  }, [message, t]);
 
-  const shareMenuItems = [
+  const shareMenuItems = useMemo(() => [
     {
       key: 'copy-post-url',
       icon: <LinkOutlined />,
@@ -194,7 +194,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         copyToClipboard(url, '图片链接已复制');
       }
     },
-  ];
+  ], [site, post.postId, post.fileUrl, post.sampleUrl, copyToClipboard, t]);
 
   // 检查站点是否支持收藏
   const supportsFavorite = site?.favoriteSupport ?? false;
@@ -316,4 +316,6 @@ export const Toolbar: React.FC<ToolbarProps> = ({
       )}
     </div>
   );
-};
+});
+
+Toolbar.displayName = 'Toolbar';

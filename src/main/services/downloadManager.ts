@@ -25,6 +25,23 @@ class DownloadManager {
   private isPaused: boolean = false;
   private hasResumedOnStartup: boolean = false; // 标记是否已经在启动时恢复过
 
+  /** 缓存窗口引用，避免每次广播都调用 getAllWindows() */
+  private cachedWindows: BrowserWindow[] = [];
+  private cachedWindowsTime: number = 0;
+  private static readonly WINDOW_CACHE_TTL = 5000; // 5秒缓存过期
+
+  /** 获取缓存的窗口列表 */
+  private getWindows(): BrowserWindow[] {
+    const now = Date.now();
+    if (now - this.cachedWindowsTime > DownloadManager.WINDOW_CACHE_TTL || this.cachedWindows.length === 0) {
+      this.cachedWindows = BrowserWindow.getAllWindows();
+      this.cachedWindowsTime = now;
+    }
+    // 过滤已销毁的窗口
+    this.cachedWindows = this.cachedWindows.filter(w => !w.isDestroyed());
+    return this.cachedWindows;
+  }
+
   constructor() {
     // 从配置加载最大并发数
     try {
@@ -241,8 +258,7 @@ class DownloadManager {
    */
   private broadcastQueueStatus() {
     const status = this.getQueueStatus();
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
+    for (const win of this.getWindows()) {
       win.webContents.send('booru:download-queue-status', status);
     }
   }
@@ -488,8 +504,7 @@ class DownloadManager {
    * 广播进度
    */
   private broadcastProgress(id: number, progress: number, downloaded: number, total: number) {
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
+    for (const win of this.getWindows()) {
       win.webContents.send('booru:download-progress', {
         id,
         progress,
@@ -503,8 +518,7 @@ class DownloadManager {
    * 广播状态变更
    */
   private broadcastStatus(id: number, status: string, error?: string) {
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
+    for (const win of this.getWindows()) {
       win.webContents.send('booru:download-status', {
         id,
         status,

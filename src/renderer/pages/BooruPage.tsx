@@ -15,9 +15,11 @@ interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
   onCharacterClick?: (characterName: string, siteId?: number | null) => void;
+  /** 页面被导航栈覆盖时为 true，此时暂停详情弹窗的显示 */
+  suspended?: boolean;
 }
 
-export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick, onCharacterClick }) => {
+export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick, onCharacterClick, suspended = false }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
@@ -34,6 +36,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  // 挂起时保存/恢复详情弹窗状态（导航栈机制）
   // 请求计数器：用于丢弃快速切换站点时的过期响应
   const loadRequestIdRef = useRef(0);
   // 收藏状态管理
@@ -812,8 +815,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         }}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-        onArtistClick={onArtistClick}
+        onArtistClick={onArtistClick ? (name) => onArtistClick(name, selectedSiteId) : undefined}
         onCharacterClick={onCharacterClick ? (name) => onCharacterClick(name, selectedSiteId) : undefined}
+        suspended={suspended}
       />
     </div>
   );

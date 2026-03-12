@@ -12,7 +12,9 @@ interface LazyLoadFooterProps {
 /**
  * 懒加载底部组件，显示加载更多按钮
  */
-export const LazyLoadFooter: React.FC<LazyLoadFooterProps> = ({
+const footerStyle: React.CSSProperties = { marginTop: spacing.xl, textAlign: 'center' };
+
+export const LazyLoadFooter: React.FC<LazyLoadFooterProps> = React.memo(({
   current,
   total,
   onLoadMore,
@@ -23,11 +25,13 @@ export const LazyLoadFooter: React.FC<LazyLoadFooterProps> = ({
   }
 
   return (
-    <div style={{ marginTop: spacing.xl, textAlign: 'center' }}>
+    <div style={footerStyle}>
       <Button onClick={onLoadMore}>
         加载更多（{current}/{total}）
       </Button>
     </div>
   );
-};
+});
+
+LazyLoadFooter.displayName = 'LazyLoadFooter';
 

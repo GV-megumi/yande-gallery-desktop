@@ -24,51 +24,45 @@ import { getConfig, getThumbnailsPath } from './config.js';
  * 缩略图生成任务队列管理器
  * 限制同时生成的缩略图数量，避免 CPU/IO 过载
  */
+type ThumbnailResult = { success: boolean; data?: string; error?: string };
+
 class ThumbnailQueue {
   private queue: Array<{
     imagePath: string;
-    resolve: (value: { success: boolean; data?: string; error?: string }) => void;
+    resolve: (value: ThumbnailResult) => void;
     reject: (error: Error) => void;
   }> = [];
-  private running: Map<string, Promise<{ success: boolean; data?: string; error?: string }>> = new Map(); // 正在处理的任务
-  private maxConcurrent: number = 3; // 最大并发数，可以根据 CPU 核心数调整
+  /** O(1) 查找队列中是否已有相同路径的任务 */
+  private queuedPaths: Map<string, { resolve: (value: ThumbnailResult) => void; reject: (error: Error) => void }> = new Map();
+  private running: Map<string, Promise<ThumbnailResult>> = new Map();
+  private maxConcurrent: number = 3;
 
   /**
    * 添加任务到队列
    */
-  async enqueue(imagePath: string): Promise<{ success: boolean; data?: string; error?: string }> {
+  async enqueue(imagePath: string): Promise<ThumbnailResult> {
     // 如果已经在运行中，直接返回正在运行的 Promise
     const existingTask = this.running.get(imagePath);
     if (existingTask) {
-      console.log(`[ThumbnailQueue] 图片已在生成中，等待完成: ${imagePath}`);
       return existingTask;
     }
 
-    // 检查队列中是否已经有相同的任务
-    const existingInQueue = this.queue.find(task => task.imagePath === imagePath);
+    // 检查队列中是否已经有相同的任务（O(1) 查找）
+    const existingInQueue = this.queuedPaths.get(imagePath);
     if (existingInQueue) {
-      console.log(`[ThumbnailQueue] 图片已在队列中，等待处理: ${imagePath}`);
-      // 返回一个新的 Promise，等待队列中的任务完成
       return new Promise((resolve, reject) => {
-        // 创建一个包装的 resolve/reject，当原任务完成时也完成这个 Promise
         const originalResolve = existingInQueue.resolve;
         const originalReject = existingInQueue.reject;
-        
-        existingInQueue.resolve = (value) => {
-          originalResolve(value);
-          resolve(value);
-        };
-        
-        existingInQueue.reject = (error) => {
-          originalReject(error);
-          reject(error);
-        };
+        existingInQueue.resolve = (value) => { originalResolve(value); resolve(value); };
+        existingInQueue.reject = (error) => { originalReject(error); reject(error); };
       });
     }
 
     // 创建新任务
-    return new Promise<{ success: boolean; data?: string; error?: string }>((resolve, reject) => {
-      this.queue.push({ imagePath, resolve, reject });
+    return new Promise<ThumbnailResult>((resolve, reject) => {
+      const task = { imagePath, resolve, reject };
+      this.queue.push(task);
+      this.queuedPaths.set(imagePath, task);
       this.processQueue();
     });
   }
@@ -92,6 +86,8 @@ class ThumbnailQueue {
     if (!task) return;
 
     const { imagePath, resolve, reject } = task;
+    // 从查找 Map 中移除
+    this.queuedPaths.delete(imagePath);
 
     // 创建任务 Promise
     const taskPromise = (async () => {

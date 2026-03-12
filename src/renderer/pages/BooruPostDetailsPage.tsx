@@ -38,6 +38,8 @@ interface BooruPostDetailsPageProps {
   isServerFavorited?: (post: BooruPost) => boolean;
   /** 服务端喜欢切换回调 */
   onToggleServerFavorite?: (post: BooruPost) => void;
+  /** 页面挂起时隐藏 Modal（不触发关闭/打开动画） */
+  suspended?: boolean;
 }
 
 /**
@@ -63,7 +65,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   onArtistClick,
   onCharacterClick,
   isServerFavorited,
-  onToggleServerFavorite
+  onToggleServerFavorite,
+  suspended = false
 }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [imageScale, setImageScale] = useState(1);
@@ -414,10 +417,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       onCancel={onClose}
       width="100%"
       style={{ top: 0, paddingBottom: 0 }}
-      styles={{ 
+      styles={{
         body: { padding: 0, height: 'calc(100vh - 55px)', overflow: 'hidden' },
         mask: { backgroundColor: 'rgba(0, 0, 0, 0.9)' }
       }}
+      rootClassName={suspended ? 'modal-suspended-hidden' : undefined}
       closable={false}
       footer={null}
     >
