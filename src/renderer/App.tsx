@@ -10,7 +10,8 @@ import {
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
   SunOutlined, MoonOutlined, StopOutlined,
   FireOutlined, DatabaseOutlined, HeartOutlined,
-  SearchOutlined, SmileOutlined
+  SearchOutlined, SmileOutlined, GoogleOutlined,
+  HddOutlined, CameraOutlined
 } from '@ant-design/icons';
 
 // 页面级组件：使用 React.lazy 实现代码分割
@@ -30,6 +31,8 @@ const BooruArtistPage = React.lazy(() => import('./pages/BooruArtistPage').then(
 const BooruCharacterPage = React.lazy(() => import('./pages/BooruCharacterPage').then(m => ({ default: m.BooruCharacterPage })));
 const BooruSavedSearchesPage = React.lazy(() => import('./pages/BooruSavedSearchesPage').then(m => ({ default: m.BooruSavedSearchesPage })));
 const BooruServerFavoritesPage = React.lazy(() => import('./pages/BooruServerFavoritesPage').then(m => ({ default: m.BooruServerFavoritesPage })));
+const GoogleDrivePage = React.lazy(() => import('./pages/GoogleDrivePage').then(m => ({ default: m.GoogleDrivePage })));
+const GooglePhotosPage = React.lazy(() => import('./pages/GooglePhotosPage').then(m => ({ default: m.GooglePhotosPage })));
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
 const { Content, Sider } = Layout;
@@ -69,6 +72,14 @@ function buildMainMenuItems(t: (path: string) => string): MenuItem[] {
   return [
     { key: 'gallery', icon: <IconBadge color={iconColors.gallery} icon={<PictureOutlined />} />, label: t('menu.gallery') },
     { key: 'booru', icon: <IconBadge color={iconColors.booru} icon={<CloudOutlined />} />, label: t('menu.booru') },
+    { key: 'google', icon: <IconBadge color={iconColors.google} icon={<GoogleOutlined />} />, label: 'Google' },
+  ];
+}
+
+function buildGoogleSubMenuItems(): MenuItem[] {
+  return [
+    { key: 'gdrive', icon: <DotIcon color={iconColors.gdrive} icon={<HddOutlined />} />, label: 'Drive' },
+    { key: 'gphotos', icon: <DotIcon color={iconColors.gphotos} icon={<CameraOutlined />} />, label: 'Photos' },
   ];
 }
 
@@ -105,6 +116,7 @@ export const AppContent: React.FC = () => {
   const [selectedKey, setSelectedKey] = useState('gallery');
   const [selectedSubKey, setSelectedSubKey] = useState('recent');
   const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
+  const [selectedGoogleSubKey, setSelectedGoogleSubKey] = useState('gdrive');
   const [loading, setLoading] = useState(true);
   // 导航栈：支持嵌套页面（详情→标签搜索→详情→标签搜索→...）
   const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([]);
@@ -115,6 +127,7 @@ export const AppContent: React.FC = () => {
   const mainMenuItems = useMemo(() => buildMainMenuItems(t), [t]);
   const gallerySubMenuItems = useMemo(() => buildGallerySubMenuItems(t), [t]);
   const booruSubMenuItems = useMemo(() => buildBooruSubMenuItems(t), [t]);
+  const googleSubMenuItems = useMemo(() => buildGoogleSubMenuItems(), []);
 
   const toggleTheme = useCallback(() => {
     setThemeMode(isDark ? 'light' : 'dark');
@@ -166,7 +179,8 @@ export const AppContent: React.FC = () => {
   useEffect(() => {
     if (selectedKey === 'gallery' && !selectedSubKey) setSelectedSubKey('recent');
     if (selectedKey === 'booru' && !selectedBooruSubKey) setSelectedBooruSubKey('posts');
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey]);
+    if (selectedKey === 'google' && !selectedGoogleSubKey) setSelectedGoogleSubKey('gdrive');
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
 
   // 导航栈操作：push 压栈（保留下层页面），pop 弹栈（返回上一页）
   const pushNavigation = useCallback((entry: NavigationEntry) => {
@@ -217,10 +231,12 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'booru-settings') return { main: t('pageTitle.booru'), sub: t('menu.siteConfig') };
         if (selectedBooruSubKey === 'settings') return { main: t('pageTitle.settings') };
         return { main: t('pageTitle.booru'), sub: booruSubMenuItems.find(i => i.key === selectedBooruSubKey)?.label };
+      case 'google':
+        return { main: 'Google', sub: googleSubMenuItems.find(i => i.key === selectedGoogleSubKey)?.label };
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems, googleSubMenuItems]);
 
   /** 渲染导航栈中的单个条目 */
   const renderNavigationEntry = (entry: NavigationEntry, index: number) => {
@@ -282,6 +298,10 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
         if (selectedBooruSubKey === 'settings') return <SettingsPage />;
         return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
+      case 'google':
+        if (selectedGoogleSubKey === 'gdrive') return <GoogleDrivePage />;
+        if (selectedGoogleSubKey === 'gphotos') return <GooglePhotosPage />;
+        return <GoogleDrivePage />;
       default:
         return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
     }
@@ -404,6 +424,7 @@ export const AppContent: React.FC = () => {
             setSelectedKey(key);
             setNavigationStack([]); // 切换主菜单时清空导航栈
             if (key === 'gallery') setSelectedSubKey('recent');
+            if (key === 'google') setSelectedGoogleSubKey('gdrive');
           }}
           style={{
             borderBottom: `1px solid ${colors.separator}`,
@@ -487,6 +508,31 @@ export const AppContent: React.FC = () => {
                 style={{ background: 'transparent', borderRight: 'none' }}
               />
             </div>
+          </div>
+        )}
+        {selectedKey === 'google' && (
+          <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{
+              padding: `${spacing.md}px ${spacing.lg}px ${spacing.xs}px`,
+              fontSize: 10,
+              fontWeight: 700,
+              color: colors.textTertiary,
+              textTransform: 'uppercase' as const,
+              letterSpacing: '1px',
+            }}>
+              GOOGLE
+            </div>
+            <Menu
+              mode="inline"
+              selectedKeys={[selectedGoogleSubKey]}
+              items={googleSubMenuItems}
+              onClick={({ key }) => {
+                console.log(`[App] Google子菜单: ${key}`);
+                setSelectedGoogleSubKey(key);
+              }}
+              style={{ background: 'transparent', borderRight: 'none' }}
+            />
+            <div style={{ flex: 1 }} />
           </div>
         )}
 

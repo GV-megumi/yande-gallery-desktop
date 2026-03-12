@@ -380,6 +380,9 @@ export const iconColors = {
   popular: '#EF4444',
   pools: '#6366F1',
   serverFavorites: '#EC4899',
+  google: '#4285F4',
+  gdrive: '#0F9D58',
+  gphotos: '#FBBC04',
 } as const;
 
 // ============================================================

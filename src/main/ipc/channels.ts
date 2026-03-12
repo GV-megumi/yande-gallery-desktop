@@ -160,5 +160,33 @@ export const IPC_CHANNELS = {
   BOORU_GET_SAVED_SEARCHES: 'booru:get-saved-searches',
   BOORU_ADD_SAVED_SEARCH: 'booru:add-saved-search',
   BOORU_UPDATE_SAVED_SEARCH: 'booru:update-saved-search',
-  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search'
+  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search',
+
+  // === Google 认证 ===
+  GOOGLE_AUTH_LOGIN: 'google:auth-login',
+  GOOGLE_AUTH_LOGOUT: 'google:auth-logout',
+  GOOGLE_AUTH_STATUS: 'google:auth-status',
+
+  // === Google Drive ===
+  GDRIVE_LIST_FILES: 'gdrive:list-files',
+  GDRIVE_SEARCH: 'gdrive:search',
+  GDRIVE_GET_FILE: 'gdrive:get-file',
+  GDRIVE_DOWNLOAD: 'gdrive:download',
+  GDRIVE_UPLOAD: 'gdrive:upload',
+  GDRIVE_DELETE: 'gdrive:delete',
+  GDRIVE_CREATE_FOLDER: 'gdrive:create-folder',
+  GDRIVE_MOVE: 'gdrive:move',
+  GDRIVE_GET_STORAGE: 'gdrive:get-storage',
+  GDRIVE_GET_THUMBNAIL: 'gdrive:get-thumbnail',
+
+  // === Google Photos ===
+  GPHOTOS_LIST_ALBUMS: 'gphotos:list-albums',
+  GPHOTOS_GET_ALBUM_PHOTOS: 'gphotos:get-album',
+  GPHOTOS_LIST_PHOTOS: 'gphotos:list-photos',
+  GPHOTOS_SEARCH: 'gphotos:search',
+  GPHOTOS_GET_PHOTO: 'gphotos:get-photo',
+  GPHOTOS_DOWNLOAD: 'gphotos:download',
+  GPHOTOS_UPLOAD: 'gphotos:upload',
+  GPHOTOS_BATCH_UPLOAD: 'gphotos:batch-upload',
+  GPHOTOS_CREATE_ALBUM: 'gphotos:create-album'
 } as const;

@@ -104,6 +104,22 @@ export interface AppConfig {
       password?: string;
     };
   };
+  google?: {
+    clientId: string;
+    clientSecret: string;
+    drive: {
+      enabled: boolean;
+      defaultViewMode: 'grid' | 'list';
+      imageOnly: boolean;
+      downloadPath: string;
+    };
+    photos: {
+      enabled: boolean;
+      downloadPath: string;
+      uploadAlbumName: string;
+      thumbnailSize: number;
+    };
+  };
   booru?: {
     appearance: {
       gridSize: number; // 图片网格大小（像素）

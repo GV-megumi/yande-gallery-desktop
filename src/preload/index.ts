@@ -135,7 +135,35 @@ const IPC_CHANNELS = {
   BOORU_GET_SAVED_SEARCHES: 'booru:get-saved-searches',
   BOORU_ADD_SAVED_SEARCH: 'booru:add-saved-search',
   BOORU_UPDATE_SAVED_SEARCH: 'booru:update-saved-search',
-  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search'
+  BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search',
+
+  // === Google 认证 ===
+  GOOGLE_AUTH_LOGIN: 'google:auth-login',
+  GOOGLE_AUTH_LOGOUT: 'google:auth-logout',
+  GOOGLE_AUTH_STATUS: 'google:auth-status',
+
+  // === Google Drive ===
+  GDRIVE_LIST_FILES: 'gdrive:list-files',
+  GDRIVE_SEARCH: 'gdrive:search',
+  GDRIVE_GET_FILE: 'gdrive:get-file',
+  GDRIVE_DOWNLOAD: 'gdrive:download',
+  GDRIVE_UPLOAD: 'gdrive:upload',
+  GDRIVE_DELETE: 'gdrive:delete',
+  GDRIVE_CREATE_FOLDER: 'gdrive:create-folder',
+  GDRIVE_MOVE: 'gdrive:move',
+  GDRIVE_GET_STORAGE: 'gdrive:get-storage',
+  GDRIVE_GET_THUMBNAIL: 'gdrive:get-thumbnail',
+
+  // === Google Photos ===
+  GPHOTOS_LIST_ALBUMS: 'gphotos:list-albums',
+  GPHOTOS_GET_ALBUM_PHOTOS: 'gphotos:get-album',
+  GPHOTOS_LIST_PHOTOS: 'gphotos:list-photos',
+  GPHOTOS_SEARCH: 'gphotos:search',
+  GPHOTOS_GET_PHOTO: 'gphotos:get-photo',
+  GPHOTOS_DOWNLOAD: 'gphotos:download',
+  GPHOTOS_UPLOAD: 'gphotos:upload',
+  GPHOTOS_BATCH_UPLOAD: 'gphotos:batch-upload',
+  GPHOTOS_CREATE_ALBUM: 'gphotos:create-album'
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -480,6 +508,59 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on('bulk-download:record-status', subscription);
       return () => ipcRenderer.removeListener('bulk-download:record-status', subscription);
     }
+  },
+
+  // Google 认证
+  google: {
+    login: () => ipcRenderer.invoke(IPC_CHANNELS.GOOGLE_AUTH_LOGIN),
+    logout: () => ipcRenderer.invoke(IPC_CHANNELS.GOOGLE_AUTH_LOGOUT),
+    getAuthStatus: () => ipcRenderer.invoke(IPC_CHANNELS.GOOGLE_AUTH_STATUS),
+  },
+
+  // Google Drive
+  gdrive: {
+    listFiles: (folderId?: string, pageSize?: number, pageToken?: string, mimeType?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_LIST_FILES, folderId, pageSize, pageToken, mimeType),
+    search: (query: string, pageSize?: number, pageToken?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_SEARCH, query, pageSize, pageToken),
+    getFile: (fileId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_GET_FILE, fileId),
+    download: (fileId: string, localPath?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_DOWNLOAD, fileId, localPath),
+    upload: (localPath: string, folderId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_UPLOAD, localPath, folderId),
+    delete: (fileId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_DELETE, fileId),
+    createFolder: (name: string, parentId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_CREATE_FOLDER, name, parentId),
+    move: (fileId: string, newParentId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_MOVE, fileId, newParentId),
+    getStorage: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_GET_STORAGE),
+    getThumbnail: (fileId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_GET_THUMBNAIL, fileId),
+  },
+
+  // Google Photos
+  gphotos: {
+    listAlbums: (pageSize?: number, pageToken?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_LIST_ALBUMS, pageSize, pageToken),
+    getAlbumPhotos: (albumId: string, pageSize?: number, pageToken?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_GET_ALBUM_PHOTOS, albumId, pageSize, pageToken),
+    listPhotos: (pageSize?: number, pageToken?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_LIST_PHOTOS, pageSize, pageToken),
+    search: (filters: any, pageSize?: number, pageToken?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_SEARCH, filters, pageSize, pageToken),
+    getPhoto: (mediaItemId: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_GET_PHOTO, mediaItemId),
+    download: (mediaItemId: string, localPath?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_DOWNLOAD, mediaItemId, localPath),
+    upload: (localPath: string, albumId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_UPLOAD, localPath, albumId),
+    batchUpload: (localPaths: string[], albumId?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_BATCH_UPLOAD, localPaths, albumId),
+    createAlbum: (title: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_CREATE_ALBUM, title),
   }
 });
 
@@ -635,6 +716,34 @@ declare global {
         updateGalleryFolders: (folders: any[]) => Promise<{ success: boolean; error?: string }>;
         reload: () => Promise<{ success: boolean; data?: any; error?: string }>;
         onConfigChanged: (callback: (config: any) => void) => () => void;
+      };
+      google: {
+        login: () => Promise<{ success: boolean; email?: string; error?: string }>;
+        logout: () => Promise<{ success: boolean; error?: string }>;
+        getAuthStatus: () => Promise<{ success: boolean; data?: { isLoggedIn: boolean; email?: string; expiresAt?: number }; error?: string }>;
+      };
+      gdrive: {
+        listFiles: (folderId?: string, pageSize?: number, pageToken?: string, mimeType?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        search: (query: string, pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getFile: (fileId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        download: (fileId: string, localPath?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        upload: (localPath: string, folderId?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        delete: (fileId: string) => Promise<{ success: boolean; error?: string }>;
+        createFolder: (name: string, parentId?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        move: (fileId: string, newParentId: string) => Promise<{ success: boolean; error?: string }>;
+        getStorage: () => Promise<{ success: boolean; data?: { totalGB: number; usedGB: number; trashedGB: number }; error?: string }>;
+        getThumbnail: (fileId: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
+      };
+      gphotos: {
+        listAlbums: (pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getAlbumPhotos: (albumId: string, pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        listPhotos: (pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        search: (filters: any, pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getPhoto: (mediaItemId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        download: (mediaItemId: string, localPath?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
+        upload: (localPath: string, albumId?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        batchUpload: (localPaths: string[], albumId?: string) => Promise<{ success: boolean; data?: { success: string[]; failed: string[] }; error?: string }>;
+        createAlbum: (title: string) => Promise<{ success: boolean; data?: any; error?: string }>;
       };
     };
   }
