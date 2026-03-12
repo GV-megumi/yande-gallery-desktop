@@ -644,12 +644,11 @@ export function setupIPC() {
       console.log('[IPC] 获取Booru图片成功，数量:', posts.length);
 
       // 从数据库重新查询，获取包含 id 和正确 isFavorited 的数据
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const artistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const artistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       // 过滤掉 null 值并转换格式
       const formattedPosts = dbPosts
@@ -869,12 +868,11 @@ export function setupIPC() {
       }
 
       // 从数据库重新查询，获取包含 id 和正确 isFavorited 的数据
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const searchArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const searchArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       // 过滤掉 null 值并转换格式
       const formattedPosts = dbPosts
@@ -2008,12 +2006,11 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const favArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const favArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
@@ -2100,12 +2097,11 @@ export function setupIPC() {
       }
 
       // 从数据库重新查询，获取正确的 isFavorited 状态
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const popularArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const popularArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
@@ -2159,12 +2155,11 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const dayArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const dayArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
@@ -2218,12 +2213,11 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const weekArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const weekArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
@@ -2277,12 +2271,11 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量查询所有帖子中的 artist 标签
-      const monthArtistMap = await resolveArtistTags(siteId, dbPosts.filter((p): p is BooruPost => p !== null), client);
+      const monthArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
       const mappedPosts = dbPosts
         .filter((post): post is BooruPost => post !== null)
@@ -2425,9 +2418,8 @@ export function setupIPC() {
         savedPostIds.push(dbId);
       }
 
-      const dbPosts = await Promise.all(
-        savedPostIds.map(id => booruService.getBooruPostById(id))
-      );
+      // 批量查询替代 N+1 单条查询，减少数据库往返
+      const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
       const posts = dbPosts
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({

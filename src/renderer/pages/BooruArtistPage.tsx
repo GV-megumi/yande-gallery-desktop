@@ -54,6 +54,8 @@ interface BooruArtistPageProps {
   initialSiteId?: number | null;
   onBack?: () => void;
   onTagClick?: (tag: string, siteId?: number | null) => void;
+  /** 详情页内的标签点击回调（如打开子窗口），未提供时使用页面内搜索 */
+  onDetailTagClick?: (tag: string, siteId?: number | null) => void;
   suspended?: boolean;
 }
 
@@ -66,6 +68,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
   initialSiteId = null,
   onBack,
   onTagClick,
+  onDetailTagClick,
   suspended = false
 }) => {
   const { message } = App.useApp();
@@ -611,14 +614,21 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
         post={selectedPost}
         site={selectedSite}
         posts={sortedPosts}
-        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.postId === selectedPost.postId) : 0}
         onClose={() => {
           setDetailsPageOpen(false);
           setSelectedPost(null);
         }}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
-        onTagClick={handleTagClick}
+        onTagClick={(tag: string) => {
+          console.log('[BooruArtistPage] 详情页标签点击，打开子窗口:', tag);
+          if (onDetailTagClick) {
+            onDetailTagClick(tag, selectedSiteId);
+          } else {
+            window.electronAPI?.window.openTagSearch(tag, selectedSiteId);
+          }
+        }}
         isServerFavorited={(p: BooruPost) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
         suspended={suspended}

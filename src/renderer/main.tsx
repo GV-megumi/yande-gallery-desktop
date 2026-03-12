@@ -4,6 +4,7 @@ import { ConfigProvider, theme as antTheme } from 'antd';
 import antdZhCN from 'antd/locale/zh_CN';
 import antdEnUS from 'antd/locale/en_US';
 import { App } from './App';
+import { SubWindowApp } from './SubWindowApp';
 import { ThemeContext, useThemeProvider } from './hooks/useTheme';
 import { LocaleContext, useLocaleProvider } from './locales';
 import { setDarkMode } from './styles/tokens';
@@ -15,6 +16,14 @@ if (!window.electronAPI) {
   console.error('electronAPI is not available');
 } else {
   console.log('[main] electronAPI 可用，准备启动应用');
+}
+
+// 检测是否为子窗口（通过 URL hash 判断）
+const SUB_WINDOW_TYPES = ['tag-search', 'artist', 'character'];
+const hashType = window.location.hash.replace('#', '').split('?')[0];
+const isSubWindow = SUB_WINDOW_TYPES.includes(hashType);
+if (isSubWindow) {
+  console.log('[main] 检测到子窗口模式, 类型:', hashType);
 }
 
 /**
@@ -224,7 +233,7 @@ const ThemedApp: React.FC = () => {
           locale={antdLocale}
           theme={currentTheme}
         >
-          <App />
+          {isSubWindow ? <SubWindowApp /> : <App />}
         </ConfigProvider>
       </LocaleContext.Provider>
     </ThemeContext.Provider>

@@ -42,6 +42,11 @@ function releaseCacheSlot(): void {
 /** 缓存大小增量追踪器（避免每次遍历目录） */
 let trackedCacheSize = -1; // -1 表示未初始化
 
+// 内存中追踪缓存大小，避免每次都遍历文件系统
+let memoryCacheSizeMB = -1; // -1 表示尚未初始化
+let lastCacheSizeCheckTime = 0;
+const CACHE_SIZE_CHECK_INTERVAL = 5 * 60 * 1000; // 每 5 分钟最多重新扫描一次
+
 /**
  * 获取缓存文件路径
  */
@@ -93,6 +98,26 @@ async function getCacheSize(): Promise<number> {
     console.log(`[imageCacheService] 初始化缓存大小: ${(trackedCacheSize / (1024 * 1024)).toFixed(2)} MB`);
   }
   return trackedCacheSize / (1024 * 1024);
+}
+
+/**
+ * 获取缓存大小（优先使用内存中的追踪值，避免频繁遍历文件系统）
+ * 仅在首次调用或距上次扫描超过 CACHE_SIZE_CHECK_INTERVAL 时才真正遍历目录
+ */
+async function getCacheSizeFast(): Promise<number> {
+  const now = Date.now();
+  if (memoryCacheSizeMB >= 0 && (now - lastCacheSizeCheckTime) < CACHE_SIZE_CHECK_INTERVAL) {
+    // 使用内存中的缓存大小值，跳过文件系统遍历
+    return memoryCacheSizeMB;
+  }
+
+  // 需要重新扫描：首次调用、超时、或被重置
+  console.log('[imageCacheService] 重新扫描缓存目录大小...');
+  const realSize = await getCacheSize();
+  memoryCacheSizeMB = realSize;
+  lastCacheSizeCheckTime = now;
+  console.log('[imageCacheService] 缓存目录扫描完成: ' + realSize.toFixed(2) + ' MB');
+  return realSize;
 }
 
 // 单个缓存文件的最大尺寸限制（默认 200MB）
@@ -185,6 +210,10 @@ async function cleanCache(targetSizeMB?: number): Promise<void> {
   trackedCacheSize = totalSize - deletedSize;
 
   console.log(`[imageCacheService] LRU 缓存清理完成: 删除了 ${deletedCount} 个文件，释放 ${(deletedSize / (1024 * 1024)).toFixed(2)} MB，剩余 ${((totalSize - deletedSize) / (1024 * 1024)).toFixed(2)} MB`);
+
+  // 清理后重置内存追踪值，强制下次重新扫描
+  memoryCacheSizeMB = -1;
+  lastCacheSizeCheckTime = 0;
 }
 
 /**
@@ -194,7 +223,9 @@ async function checkAndCleanCache(): Promise<void> {
   const config = getConfig();
   const maxCacheSizeMB = config.booru?.appearance?.maxCacheSizeMB || 500; // 默认 500MB
 
-  const currentSize = await getCacheSize();
+  // 使用快速缓存大小获取（优先内存值，超时才重新扫描）
+  const currentSize = await getCacheSizeFast();
+  console.log(`[imageCacheService] 当前缓存大小: ${currentSize.toFixed(2)} MB，限制: ${maxCacheSizeMB} MB`);
 
   if (currentSize > maxCacheSizeMB) {
     console.log(`[imageCacheService] 缓存超过限制 (${currentSize.toFixed(2)}/${maxCacheSizeMB} MB)，开始清理...`);
@@ -315,13 +346,17 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
     await pipeline(response.data, writer);
     console.log(`[imageCacheService] 图片缓存成功: ${cachePath}`);
 
-    // 增量更新缓存大小追踪
+    // 增量更新两个缓存大小追踪器（避免下次检查时重新遍历目录）
     try {
       const stat = await fs.stat(cachePath);
       if (trackedCacheSize >= 0) {
         trackedCacheSize += stat.size;
       }
-    } catch { /* 忽略 */ }
+      if (memoryCacheSizeMB >= 0) {
+        const fileSizeMB = stat.size / (1024 * 1024);
+        memoryCacheSizeMB += fileSizeMB;
+      }
+    } catch { /* stat 失败时不影响主流程，下次检查时会重新扫描 */ }
 
     return cachePath;
   } catch (error) {
@@ -437,5 +472,9 @@ export async function clearAllCache(): Promise<{ deletedCount: number; freedMB: 
   trackedCacheSize = 0;
 
   console.log(`[imageCacheService] 清除缓存完成：删除 ${deletedCount} 个文件，释放 ${(freedBytes / 1024 / 1024).toFixed(1)} MB`);
+  // 清除后重置内存追踪值，强制下次重新扫描
+  memoryCacheSizeMB = -1;
+  lastCacheSizeCheckTime = 0;
+
   return { deletedCount, freedMB: freedBytes / (1024 * 1024) };
 }

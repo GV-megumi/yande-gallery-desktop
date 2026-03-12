@@ -29,7 +29,19 @@ export async function getDatabase(): Promise<sqlite3.Database> {
       } else {
         console.log('[database] 连接成功:', dbPath);
         db = database;
-        resolve(database);
+        // SQLite PRAGMA 性能优化配置（批量执行，统一错误处理）
+        // 必须在 resolve 之前完成，否则后续查询可能在 PRAGMA 生效前执行
+        database.exec(
+          'PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=-8000; PRAGMA foreign_keys=ON; PRAGMA temp_store=MEMORY;',
+          (err) => {
+            if (err) {
+              console.error('[database] PRAGMA 设置失败:', err);
+            } else {
+              console.log('[database] PRAGMA 性能优化已启用');
+            }
+            resolve(database);
+          }
+        );
       }
     });
   });
@@ -112,15 +124,19 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 创建索引
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_filename ON images (filename)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_createdAt ON images (createdAt DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_updatedAt ON images (updatedAt DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_images_filepath ON images (filepath)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_folderPath ON galleries (folderPath)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC)');
+    // 批量创建基础索引（减少数据库往返次数）
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_images_filename ON images (filename);
+        CREATE INDEX IF NOT EXISTS idx_images_createdAt ON images (createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_images_updatedAt ON images (updatedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_images_filepath ON images (filepath);
+        CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name);
+        CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded);
+        CREATE INDEX IF NOT EXISTS idx_galleries_folderPath ON galleries (folderPath);
+        CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC);
+      `, (err) => err ? reject(err) : resolve());
+    });
 
     // === Booru 相关表开始 ===
     console.log('[database] 开始创建 Booru 相关表...');
@@ -247,28 +263,32 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 创建 Booru 相关索引
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_sites_type ON booru_sites(type)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_sites_active ON booru_sites(active)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_siteId ON booru_posts(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_postId ON booru_posts(postId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_downloaded ON booru_posts(downloaded)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_isFavorited ON booru_posts(isFavorited)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_rating ON booru_posts(rating)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_md5 ON booru_posts(md5)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_siteId ON booru_tags(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_name ON booru_tags(name)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_category ON booru_tags(category)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_tags_postCount ON booru_tags(postCount DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_post_tags_postId ON booru_post_tags(postId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_post_tags_tagId ON booru_post_tags(tagId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_siteId ON booru_favorites(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_createdAt ON booru_favorites(createdAt DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_status ON booru_download_queue(status)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_siteId ON booru_download_queue(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_download_queue_priority ON booru_download_queue(priority DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_search_history_siteId ON booru_search_history(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_search_history_createdAt ON booru_search_history(createdAt DESC)');
+    // 批量创建 Booru 相关索引
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_booru_sites_type ON booru_sites(type);
+        CREATE INDEX IF NOT EXISTS idx_booru_sites_active ON booru_sites(active);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_siteId ON booru_posts(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_postId ON booru_posts(postId);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_downloaded ON booru_posts(downloaded);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_isFavorited ON booru_posts(isFavorited);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_rating ON booru_posts(rating);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_md5 ON booru_posts(md5);
+        CREATE INDEX IF NOT EXISTS idx_booru_tags_siteId ON booru_tags(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_tags_name ON booru_tags(name);
+        CREATE INDEX IF NOT EXISTS idx_booru_tags_category ON booru_tags(category);
+        CREATE INDEX IF NOT EXISTS idx_booru_tags_postCount ON booru_tags(postCount DESC);
+        CREATE INDEX IF NOT EXISTS idx_booru_post_tags_postId ON booru_post_tags(postId);
+        CREATE INDEX IF NOT EXISTS idx_booru_post_tags_tagId ON booru_post_tags(tagId);
+        CREATE INDEX IF NOT EXISTS idx_booru_favorites_siteId ON booru_favorites(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_favorites_createdAt ON booru_favorites(createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_booru_download_queue_status ON booru_download_queue(status);
+        CREATE INDEX IF NOT EXISTS idx_booru_download_queue_siteId ON booru_download_queue(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_download_queue_priority ON booru_download_queue(priority DESC);
+        CREATE INDEX IF NOT EXISTS idx_booru_search_history_siteId ON booru_search_history(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_search_history_createdAt ON booru_search_history(createdAt DESC);
+      `, (err) => err ? reject(err) : resolve());
+    });
 
     console.log('[database] Booru相关表创建成功');
     // === Booru 相关表结束 ===
@@ -371,17 +391,21 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       console.log('[database] 已添加 totalBytes 字段到 bulk_download_records');
     }
 
-    // 创建批量下载相关索引
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_siteId ON bulk_download_tasks(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_createdAt ON bulk_download_tasks(createdAt DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_taskId ON bulk_download_sessions(taskId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_status ON bulk_download_sessions(status)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_startedAt ON bulk_download_sessions(startedAt DESC)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_deletedAt ON bulk_download_sessions(deletedAt) WHERE deletedAt IS NULL');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_sessionId ON bulk_download_records(sessionId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_status ON bulk_download_records(status)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_page ON bulk_download_records(page, pageIndex)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_download_records_downloadId ON bulk_download_records(sessionId, downloadId)');
+    // 批量创建批量下载相关索引
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_siteId ON bulk_download_tasks(siteId);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_tasks_createdAt ON bulk_download_tasks(createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_taskId ON bulk_download_sessions(taskId);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_status ON bulk_download_sessions(status);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_startedAt ON bulk_download_sessions(startedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_sessions_deletedAt ON bulk_download_sessions(deletedAt) WHERE deletedAt IS NULL;
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_records_sessionId ON bulk_download_records(sessionId);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_records_status ON bulk_download_records(status);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_records_page ON bulk_download_records(page, pageIndex);
+        CREATE INDEX IF NOT EXISTS idx_bulk_download_records_downloadId ON bulk_download_records(sessionId, downloadId);
+      `, (err) => err ? reject(err) : resolve());
+    });
 
     console.log('[database] 批量下载相关表创建成功');
     // === 批量下载相关表结束 ===
@@ -417,11 +441,15 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 创建收藏标签相关索引
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_siteId ON booru_favorite_tags(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_tagName ON booru_favorite_tags(tagName)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_sortOrder ON booru_favorite_tags(sortOrder)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tag_labels_sortOrder ON booru_favorite_tag_labels(sortOrder)');
+    // 批量创建收藏标签相关索引
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_favorite_tags_siteId ON booru_favorite_tags(siteId);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tags_tagName ON booru_favorite_tags(tagName);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tags_sortOrder ON booru_favorite_tags(sortOrder);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tag_labels_sortOrder ON booru_favorite_tag_labels(sortOrder);
+      `, (err) => err ? reject(err) : resolve());
+    });
 
     console.log('[database] 收藏标签相关表创建成功');
     // === 收藏标签相关表结束 ===
@@ -444,10 +472,14 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 创建黑名单标签相关索引
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_siteId ON booru_blacklisted_tags(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_active ON booru_blacklisted_tags(isActive)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_tagName ON booru_blacklisted_tags(tagName)');
+    // 批量创建黑名单标签相关索引
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_siteId ON booru_blacklisted_tags(siteId);
+        CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_active ON booru_blacklisted_tags(isActive);
+        CREATE INDEX IF NOT EXISTS idx_blacklisted_tags_tagName ON booru_blacklisted_tags(tagName);
+      `, (err) => err ? reject(err) : resolve());
+    });
 
     console.log('[database] 黑名单标签相关表创建成功');
     // === 黑名单标签相关表结束 ===
@@ -455,23 +487,22 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     // === 性能优化索引 ===
     console.log('[database] 创建性能优化索引...');
     // 复合索引：分页浏览和排序场景
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_created ON booru_posts(siteId, createdAt DESC)');
-    // 收藏状态查询
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_postId ON booru_favorites(postId)');
-    // 批量下载进度统计（覆盖索引）
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_bulk_records_session_status ON bulk_download_records(sessionId, status)');
-    // 收藏标签复合查询
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_tags_site_tag ON booru_favorite_tags(siteId, tagName)');
-    // booru_posts JOIN images 表
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_localImageId ON booru_posts(localImageId)');
-    // image_tags 反向查询优化
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_image_tags_tagId ON image_tags(tagId)');
-    // 下载页过滤：按站点 + 下载状态
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_downloaded ON booru_posts(siteId, downloaded)');
-    // 评级过滤
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_posts_site_rating ON booru_posts(siteId, rating)');
-    // 收藏列表分页
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_site_created ON booru_favorites(siteId, createdAt DESC)');
+    // 收藏状态查询、批量下载进度统计（覆盖索引）、收藏标签复合查询
+    // booru_posts JOIN images 表、image_tags 反向查询优化
+    // 下载页过滤：按站点 + 下载状态、评级过滤、收藏列表分页
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_site_created ON booru_posts(siteId, createdAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_booru_favorites_postId ON booru_favorites(postId);
+        CREATE INDEX IF NOT EXISTS idx_bulk_records_session_status ON bulk_download_records(sessionId, status);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tags_site_tag ON booru_favorite_tags(siteId, tagName);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_localImageId ON booru_posts(localImageId);
+        CREATE INDEX IF NOT EXISTS idx_image_tags_tagId ON image_tags(tagId);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_site_downloaded ON booru_posts(siteId, downloaded);
+        CREATE INDEX IF NOT EXISTS idx_booru_posts_site_rating ON booru_posts(siteId, rating);
+        CREATE INDEX IF NOT EXISTS idx_booru_favorites_site_created ON booru_favorites(siteId, createdAt DESC);
+      `, (err) => err ? reject(err) : resolve());
+    });
     console.log('[database] 性能优化索引创建成功');
 
     // === 收藏夹分组相关表 ===
@@ -495,8 +526,12 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       console.log('[database] 已添加 groupId 字段到 booru_favorites');
     }
 
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_favorite_groups_siteId ON booru_favorite_groups(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_booru_favorites_groupId ON booru_favorites(groupId)');
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_favorite_groups_siteId ON booru_favorite_groups(siteId);
+        CREATE INDEX IF NOT EXISTS idx_booru_favorites_groupId ON booru_favorites(groupId);
+      `, (err) => err ? reject(err) : resolve());
+    });
     console.log('[database] 收藏夹分组相关表创建成功');
 
     // 为 booru_tags 添加 updatedAt 字段（标签缓存过期清理用）
@@ -520,8 +555,12 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_saved_searches_siteId ON booru_saved_searches(siteId)');
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_saved_searches_createdAt ON booru_saved_searches(createdAt DESC)');
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_saved_searches_siteId ON booru_saved_searches(siteId);
+        CREATE INDEX IF NOT EXISTS idx_saved_searches_createdAt ON booru_saved_searches(createdAt DESC);
+      `, (err) => err ? reject(err) : resolve());
+    });
     console.log('[database] 保存的搜索表创建成功');
 
     // 插入默认站点（如果不存在）

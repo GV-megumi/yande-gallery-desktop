@@ -33,10 +33,10 @@ interface BooruTagSearchPageProps {
   initialTag: string;
   initialSiteId?: number | null;
   onBack?: () => void;
-  /** 标签点击回调：从详情弹窗中点击标签时，push 到导航栈打开新的标签搜索页 */
-  onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
   onCharacterClick?: (characterName: string, siteId?: number | null) => void;
+  /** 详情页内的标签点击回调（如打开子窗口），未提供时使用页面内搜索 */
+  onDetailTagClick?: (tag: string, siteId?: number | null) => void;
   /** 页面被导航栈覆盖时为 true，此时暂停详情弹窗的显示 */
   suspended?: boolean;
 }
@@ -50,9 +50,9 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   initialTag,
   initialSiteId = null,
   onBack,
-  onTagClick,
   onArtistClick,
   onCharacterClick,
+  onDetailTagClick,
   suspended = false
 }) => {
   const { message } = App.useApp();
@@ -395,18 +395,6 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     searchTagPosts(tag, 1);
   };
 
-  // 处理详情弹窗中的标签点击：push 到导航栈打开新页面
-  const handleTagClickFromDetails = useCallback((tag: string) => {
-    console.log('[BooruTagSearchPage] 点击标签（导航到新页面）:', tag);
-    if (onTagClick) {
-      onTagClick(tag, selectedSiteId);
-    } else {
-      // 没有导航回调时，在当前页面搜索
-      setSearchTag(tag);
-      searchTagPosts(tag, 1);
-    }
-  }, [onTagClick, selectedSiteId]);
-
   // 处理艺术家点击：如果提供了 onArtistClick 回调则使用它，否则在当前页面搜索该艺术家标签
   const handleArtistClick = useCallback((artistName: string) => {
     console.log('[BooruTagSearchPage] 点击艺术家:', artistName);
@@ -630,14 +618,20 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         post={selectedPost}
         site={selectedSite || null}
         posts={sortedPosts}
-        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.postId === selectedPost.postId) : 0}
         onClose={() => {
           setDetailsPageOpen(false);
           setSelectedPost(null);
         }}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
-        onTagClick={handleTagClickFromDetails}
+        onTagClick={(tag: string) => {
+          if (onDetailTagClick) {
+            onDetailTagClick(tag, selectedSiteId);
+          } else {
+            window.electronAPI?.window.openTagSearch(tag, selectedSiteId);
+          }
+        }}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
         onArtistClick={handleArtistClick}

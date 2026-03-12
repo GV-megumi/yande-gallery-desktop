@@ -49,43 +49,42 @@
 
 ## P1 - 中优先级（功能增强）
 
-### 6. 收藏夹分组
-- **现状**: 所有收藏放在一个列表中
-- **目标**: 支持创建多个收藏分组，将帖子归入不同分组
-- **涉及文件**: 数据库增加 `favorite_groups` 表，`booruService.ts` 增加分组 CRUD
-- **Boorusama 参考**: `lib/core/favorites/favorite_groups/`
-- **工作量**: 中
+### ~~6. 收藏夹分组~~ ✅ 已完成 (2026-03-12)
+- **实现**:
+  - 数据库新增 `booru_favorite_groups` 表，`booru_favorites` 表增加 `groupId` 字段
+  - `booruService.ts` 实现分组 CRUD（创建/编辑/删除/移动收藏到分组）
+  - `BooruFavoritesPage.tsx` 增加分组筛选栏（全部/未分组/各分组按钮）
+  - 支持新建/编辑/删除分组，支持按分组筛选收藏列表
 
-### 7. 保存的搜索 (Saved Searches)
-- **现状**: 有搜索历史，但无法主动保存搜索条件
-- **目标**: 支持保存搜索条件并定期查看新增帖子（类似 RSS 订阅）
-- **涉及文件**: 新建 `src/renderer/pages/BooruSavedSearchesPage.tsx`，数据库增加 `saved_searches` 表
-- **Boorusama 参考**: `lib/core/saved_searches/`
-- **工作量**: 中
+### ~~7. 保存的搜索 (Saved Searches)~~ ✅ 已完成 (2026-03-12)
+- **实现**:
+  - 数据库新增 `booru_saved_searches` 表
+  - `booruService.ts` 实现 CRUD（创建/编辑/删除/列表查询）
+  - 新建 `BooruSavedSearchesPage.tsx`，支持按站点筛选、新建/编辑/删除保存的搜索
+  - 支持一键执行搜索（跳转到 BooruPage 并带入标签）
 
-### 8. 帖子笔记/注释 (Notes)
-- **现状**: 不支持
-- **目标**: 在图片上显示翻译注释（从 Booru API 获取），支持鼠标悬停显示
-- **涉及文件**: `BooruPostDetailsPage.tsx` 增加 note 层叠渲染，IPC 增加 notes API
-- **Boorusama 参考**: `lib/core/notes/`
-- **工作量**: 中
+### ~~8. 帖子笔记/注释 (Notes)~~ ✅ 已完成 (2026-03-12)
+- **实现**:
+  - `IBooruClient` 接口新增 `getNotes()` 方法，Moebooru/Danbooru 实现，Gelbooru 返回空数组
+  - IPC 通道 `booru:get-notes`，Preload API `booru.getNotes()`
+  - 新建 `NotesOverlay.tsx` 组件：在图片上渲染注释框，坐标按原图像素转百分比定位
+  - 鼠标悬停显示注释内容（支持 HTML 解析），可隐藏注释层
 
 ### ~~9. 幻灯片模式 (Slideshow)~~ ✅ 已完成 (2026-03-10)
 - **实现**: 帖子详情页底部新增播放/暂停控制条，支持 2-15 秒间隔调节，自动循环播放
 
-### 10. 视频帖子支持
-- **现状**: 仅支持图片格式（jpg/png/gif/webp/bmp）
-- **目标**: 支持 MP4/WebM 视频帖子的预览和播放
-- **涉及文件**: `BooruImageCard.tsx` 增加视频类型判断，`BooruPostDetailsPage.tsx` 增加 `<video>` 播放器
-- **Boorusama 参考**: `lib/core/videos/`
-- **工作量**: 中
+### ~~10. 视频帖子支持~~ ✅ 已完成 (2026-03-12)
+- **实现**:
+  - `BooruImageCard.tsx` 增加视频格式检测（MP4/WebM/MKV/MOV/AVI），视频帖子显示格式标签
+  - `BooruPostDetailsPage.tsx` 增加 `<video>` 播放器（controls, loop），视频帖子不走图片缓存
+  - 视频帖子预览使用缩略图，详情页直接播放原始视频 URL
 
-### 11. 帖子版本历史
-- **现状**: 不支持
-- **目标**: 查看帖子的标签编辑历史、元数据变更记录（Danbooru 支持）
-- **涉及文件**: 新建 `PostHistorySection.tsx`，IPC 增加 post_versions API
-- **Boorusama 参考**: `lib/core/posts/versions/`
-- **工作量**: 小（仅 Danbooru）
+### ~~11. 帖子版本历史~~ ✅ 已完成 (2026-03-12)
+- **实现**:
+  - `IBooruClient` 接口新增 `getPostVersions()` 方法（Danbooru 实现，其他返回空数组）
+  - IPC 通道 `booru:get-post-versions`，Preload API `booru.getPostVersions()`
+  - 新建 `PostHistorySection.tsx`：可展开/折叠的版本历史 Timeline
+  - 展示标签增删（绿色/红色 Tag）、评级变更、来源变更，按版本号排列
 
 ### ~~12. 相关标签推荐~~ ✅ 已完成 (2026-03-10)
 - **实现**: 搜索模式下从当前结果标签中统计高频标签（前 15 个），点击直接搜索
@@ -211,9 +210,9 @@
 ## 实现建议
 
 ### 开发顺序建议
-1. **先完成 P0**: 多站点 API -> 高级搜索语法 -> 高级过滤器 -> 标签详情页 -> 艺术家页面
-2. **再做 P1 中的小任务**: 随机帖子、幻灯片、相关标签推荐（快速见效）
-3. **然后做 P1 中的中等任务**: 收藏分组、保存的搜索、视频支持、帖子笔记
+1. ~~**先完成 P0**: 多站点 API -> 高级搜索语法 -> 高级过滤器 -> 标签详情页 -> 艺术家页面~~ ✅ 全部完成
+2. ~~**再做 P1 中的小任务**: 随机帖子、幻灯片、相关标签推荐~~ ✅ 全部完成
+3. ~~**然后做 P1 中的中等任务**: 收藏分组、保存的搜索、视频支持、帖子笔记、版本历史~~ ✅ 全部完成
 4. **P2 按需实现**: 根据使用频率决定优先级
 
 ### 架构建议
@@ -259,5 +258,5 @@
 
 ---
 
-*最后更新: 2026-03-10*
+*最后更新: 2026-03-12*
 *基于 Boorusama commit: master 分支*

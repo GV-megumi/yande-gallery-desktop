@@ -64,6 +64,189 @@ const getDateGroupKey = (image: any, mode: 'day' | 'month' | 'year'): string => 
   return `${y}年${m}月${d}日`;
 };
 
+// ==================== ImageCard 子组件 ====================
+
+/** ImageCard 的 props 接口 */
+interface ImageCardProps {
+  image: any;
+  thumbnailPath: string | null | undefined;
+  onImageInfo: (image: any) => void;
+  onPreviewClick: (previewSrc: string) => void;
+  onSetCover?: (imageId: number) => void;
+  currentGallery?: any;
+}
+
+/**
+ * 独立的图片卡片组件，使用 React.memo 避免不必要的重渲染。
+ * 从 ImageGrid 的 renderCard 中提取而来。
+ */
+const ImageCard: React.FC<ImageCardProps> = React.memo(({
+  image,
+  thumbnailPath,
+  onImageInfo,
+  onPreviewClick,
+  onSetCover,
+  currentGallery,
+}) => {
+  // 判断缩略图状态：undefined=加载中，string=已加载，null=加载失败
+  const isThumbnailLoading = thumbnailPath === undefined;
+  const hasThumbnail = typeof thumbnailPath === 'string';
+  const thumbnailFailed = thumbnailPath === null;
+
+  // 计算图片的宽高比（用于创建占位符）
+  const aspectRatio = image.width && image.height
+    ? (image.height / image.width) * 100
+    : 75; // 默认 4:3 比例 (3/4 * 100 = 75)
+
+  // 确定显示的图片源：优先使用缩略图，失败时使用原图
+  const displaySrc = hasThumbnail
+    ? getImageUrl(thumbnailPath)  // 使用缩略图
+    : (thumbnailFailed ? getImageUrl(image.filepath) : undefined); // 缩略图加载失败，使用原图
+
+  // 预览时始终使用原图
+  const previewSrc = getImageUrl(image.filepath);
+
+  // 构建右键菜单项，使用 useMemo 缓存
+  const imageContextItems = useMemo(() => {
+    const items: any[] = [
+      { key: 'info', label: '查看信息', icon: <TagsOutlined />, onClick: () => onImageInfo(image) },
+      { key: 'showInFolder', label: '打开文件所在目录', icon: <FolderOpenOutlined />, onClick: () => {
+        if (image.filepath && window.electronAPI) {
+          console.log('[ImageGrid] 打开文件所在目录:', image.filepath);
+          window.electronAPI.system.showItem(image.filepath);
+        }
+      }},
+      { key: 'copyPath', label: '复制文件路径', icon: <CopyOutlined />, onClick: () => {
+        if (image.filepath) {
+          navigator.clipboard.writeText(image.filepath);
+          message.success('已复制文件路径');
+        }
+      }},
+    ];
+    // 图集模式下添加「设为封面」
+    if (onSetCover && currentGallery) {
+      const isCurrent = currentGallery.coverImageId === image.id;
+      items.push(
+        { type: 'divider' },
+        { key: 'setCover', label: isCurrent ? '当前封面' : '设为封面', icon: <PicOutlined />, disabled: isCurrent, onClick: () => {
+          console.log(`[ImageGrid] 右键设置封面: 图片ID ${image.id}`);
+          onSetCover(image.id);
+        }}
+      );
+    }
+    return items;
+  }, [image, onImageInfo, onSetCover, currentGallery]);
+
+  return (
+    <ContextMenu items={imageContextItems}>
+    <div
+      className="card-ios-hover"
+      style={{
+        borderRadius: radius.md,
+        overflow: 'hidden',
+        boxShadow: shadows.card,
+        background: colors.bgBase,
+        border: `1px solid ${colors.borderCard}`,
+        position: 'relative',
+        cursor: 'pointer',
+      }}
+    >
+        <div
+          style={{
+            width: '100%',
+            position: 'relative',
+            overflow: 'hidden',
+          }}
+        >
+          {isThumbnailLoading ? (
+            // 缩略图加载中：shimmer 骨架屏
+            <div
+              className="ios-skeleton-shimmer"
+              style={{
+                width: '100%',
+                paddingBottom: `${aspectRatio}%`,
+                display: 'block',
+                position: 'relative',
+                borderRadius: 0,
+              }}
+            />
+          ) : displaySrc ? (
+            // 有图片源，点击打开预览
+            <img
+              src={displaySrc}
+              alt={image.filename}
+              className="image-fade-in"
+              style={{ width: '100%', height: 'auto', display: 'block', cursor: 'pointer' }}
+              onLoad={(e) => {
+                (e.target as HTMLImageElement).classList.add('loaded');
+              }}
+              onClick={() => {
+                onPreviewClick(previewSrc);
+              }}
+            />
+          ) : (
+            // 兜底占位
+            <div
+              style={{
+                width: '100%',
+                paddingBottom: `${aspectRatio}%`,
+                backgroundColor: colors.bgDark,
+                display: 'block',
+                position: 'relative'
+              }}
+            >
+              <div
+                style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  color: colors.textTertiary,
+                  fontSize: fontSize.sm
+                }}
+              >
+                加载失败
+              </div>
+            </div>
+          )}
+          {/* 右上角信息按钮 -- 圆形 */}
+          {!isThumbnailLoading && (
+            <Button
+              type="text"
+              size="small"
+              icon={<TagsOutlined />}
+              onClick={(e) => {
+                e.stopPropagation();
+                onImageInfo(image);
+              }}
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                width: 28,
+                height: 28,
+                borderRadius: radius.round,
+                background: 'rgba(0, 0, 0, 0.35)',
+                backdropFilter: 'blur(8px)',
+                color: '#FFFFFF',
+                zIndex: zIndex.sticky,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                border: 'none',
+              }}
+            />
+          )}
+        </div>
+    </div>
+    </ContextMenu>
+  );
+});
+
+ImageCard.displayName = 'ImageCard';
+
+// ==================== ImageGrid 主组件 ====================
+
 export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   images,
   onReload,
@@ -149,9 +332,16 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     };
   }, [images]);
 
+  // 使用 useCallback 包裹回调，确保 ImageCard 的 React.memo 能正确跳过重渲染
   const handleImageInfo = useCallback((image: any) => {
     console.log(`[ImageGrid] 查看图片信息: ${image.filename} (ID: ${image.id})`);
     setSelectedImage(image);
+  }, []);
+
+  // 点击预览回调
+  const handlePreviewClick = useCallback((previewSrc: string) => {
+    setPreviewImage(previewSrc);
+    setPreviewVisible(true);
   }, []);
 
   // 先按批次分组，再在每个批次内按时间分组
@@ -203,133 +393,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     return finalGroups;
   }, [images, groupBy, sortBy, batchSize]);
 
-  const renderCard = (image: any) => {
-    // 获取该图片的缩略图路径
-    const thumbnailPath = thumbnailPaths[image.id];
-    
-    // 判断缩略图状态：undefined=加载中，string=已加载，null=加载失败
-    const isThumbnailLoading = thumbnailPath === undefined;
-    const hasThumbnail = typeof thumbnailPath === 'string';
-    const thumbnailFailed = thumbnailPath === null;
 
-    // 计算图片的宽高比（用于创建占位符）
-    const aspectRatio = image.width && image.height 
-      ? (image.height / image.width) * 100 
-      : 75; // 默认 4:3 比例 (3/4 * 100 = 75)
-
-    // 确定显示的图片源：优先使用缩略图，失败时使用原图
-    const displaySrc = hasThumbnail 
-      ? getImageUrl(thumbnailPath)  // 使用缩略图
-      : (thumbnailFailed ? getImageUrl(image.filepath) : undefined); // 缩略图加载失败，使用原图
-    
-    // 预览时始终使用原图
-    const previewSrc = getImageUrl(image.filepath);
-
-    // 构建右键菜单项
-    const imageContextItems: any[] = [
-      { key: 'info', label: '查看信息', icon: <TagsOutlined />, onClick: () => handleImageInfo(image) },
-      { key: 'showInFolder', label: '打开文件所在目录', icon: <FolderOpenOutlined />, onClick: () => {
-        if (image.filepath && window.electronAPI) {
-          console.log('[ImageGrid] 打开文件所在目录:', image.filepath);
-          window.electronAPI.system.showItem(image.filepath);
-        }
-      }},
-      { key: 'copyPath', label: '复制文件路径', icon: <CopyOutlined />, onClick: () => {
-        if (image.filepath) {
-          navigator.clipboard.writeText(image.filepath);
-          message.success('已复制文件路径');
-        }
-      }},
-    ];
-    // 图集模式下添加「设为封面」
-    if (onSetCover && currentGallery) {
-      const isCurrent = currentGallery.coverImageId === image.id;
-      imageContextItems.push(
-        { type: 'divider' },
-        { key: 'setCover', label: isCurrent ? '当前封面' : '设为封面', icon: <PicOutlined />, disabled: isCurrent, onClick: () => {
-          console.log(`[ImageGrid] 右键设置封面: 图片ID ${image.id}`);
-          onSetCover(image.id);
-        }}
-      );
-    }
-
-    return (
-      <ContextMenu items={imageContextItems}>
-      <div
-        className="card-ios-hover"
-        style={cardWrapperStyle}
-      >
-          <div style={imageWrapperStyle}>
-            {isThumbnailLoading ? (
-              // 缩略图加载中：shimmer 骨架屏
-              <div
-                className="ios-skeleton-shimmer"
-                style={{
-                  width: '100%',
-                  paddingBottom: `${aspectRatio}%`,
-                  display: 'block',
-                  position: 'relative',
-                  borderRadius: 0,
-                }}
-              />
-            ) : displaySrc ? (
-              // 有图片源，点击打开预览
-              <img
-                src={displaySrc}
-                alt={image.filename}
-                className="image-fade-in"
-                style={imgStyle}
-                onLoad={(e) => {
-                  (e.target as HTMLImageElement).classList.add('loaded');
-                }}
-                onClick={() => {
-                  setPreviewImage(previewSrc);
-                  setPreviewVisible(true);
-                }}
-              />
-            ) : (
-              // 兜底占位
-              <div
-                style={{
-                  width: '100%',
-                  paddingBottom: `${aspectRatio}%`,
-                  backgroundColor: colors.bgDark,
-                  display: 'block',
-                  position: 'relative'
-                }}
-              >
-                <div
-                  style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    color: colors.textTertiary,
-                    fontSize: fontSize.sm
-                  }}
-                >
-                  加载失败
-                </div>
-              </div>
-            )}
-            {/* 右上角信息按钮 — 圆形 */}
-            {!isThumbnailLoading && (
-              <Button
-                type="text"
-                size="small"
-                icon={<TagsOutlined />}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleImageInfo(image);
-                }}
-                style={infoBtnStyle}
-              />
-            )}
-          </div>
-      </div>
-      </ContextMenu>
-    );
-  };
 
   return (
     <>
@@ -374,8 +438,21 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                   }}
                 >
                   {group.map((image: any) => (
-                    <div key={image.id} style={{ breakInside: 'avoid', marginBottom: layoutTokens.cardGap }}>
-                      {renderCard(image)}
+                    <div
+                      key={image.id}
+                      style={{
+                        breakInside: 'avoid',
+                        marginBottom: layoutTokens.cardGap,
+                      }}
+                    >
+                      <ImageCard
+                        image={image}
+                        thumbnailPath={thumbnailPaths[image.id]}
+                        onImageInfo={handleImageInfo}
+                        onPreviewClick={handlePreviewClick}
+                        onSetCover={onSetCover}
+                        currentGallery={currentGallery}
+                      />
                     </div>
                   ))}
                 </div>
@@ -435,8 +512,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
             <Descriptions bordered column={1}>
               <Descriptions.Item label="文件名">{selectedImage.filename}</Descriptions.Item>
               <Descriptions.Item label="路径">
-                <span 
-                  style={{ 
+                <span
+                  style={{
                     color: colors.primary,
                     cursor: 'pointer',
                     textDecoration: 'underline'

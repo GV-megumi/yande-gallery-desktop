@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Modal, Space, Button, Tooltip, Slider } from 'antd';
 import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
 
@@ -27,7 +27,8 @@ interface BooruPostDetailsPageProps {
   post: BooruPost | null;
   site: BooruSite | null;
   posts?: BooruPost[]; // 用于导航到上一张/下一张
-  initialIndex?: number; // 当前图片在列表中的索引
+  /** @deprecated 不再使用，索引通过 post.postId 在 posts 中自动定位 */
+  initialIndex?: number;
   onClose: () => void;
   onToggleFavorite?: (post: BooruPost) => void;
   onDownload?: (post: BooruPost) => void;
@@ -82,22 +83,42 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [slideshowInterval, setSlideshowInterval] = useState(5); // 秒
   const slideshowTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // 当前显示的图片
-  const currentPost = posts.length > 0 && currentIndex >= 0 && currentIndex < posts.length
-    ? posts[currentIndex]
-    : post;
+  // 记录已同步的 postId，用于区分"索引未同步"和"用户手动导航"
+  const [syncedPostId, setSyncedPostId] = useState<number | null>(null);
 
-  // 更新当前索引
+  // 通过 useEffect 同步索引（弹窗打开或 post 变化时）
   useEffect(() => {
-    if (post && posts.length > 0) {
-      const index = posts.findIndex(p => p.id === post.id);
-      if (index >= 0) {
-        setCurrentIndex(index);
+    if (open && post && posts.length > 0) {
+      const idx = posts.findIndex(p => p.postId === post.postId);
+      if (idx >= 0) {
+        console.log('[BooruPostDetailsPage] 同步索引:', idx, 'postId:', post.postId);
+        setCurrentIndex(idx);
+        setSyncedPostId(post.postId);
       }
-    } else if (post) {
-      setCurrentIndex(0);
     }
-  }, [post, posts]);
+  }, [open, post?.postId, posts]);
+
+  // 弹窗关闭时重置同步状态
+  useEffect(() => {
+    if (!open) {
+      setSyncedPostId(null);
+    }
+  }, [open]);
+
+  // 当前显示的图片：
+  // - 如果索引尚未同步（syncedPostId 与 post.postId 不一致），直接使用 post prop
+  //   这避免了在 useEffect 同步前显示错误的图片（如第一张）
+  // - 同步完成后，使用 posts[currentIndex]（支持左右箭头导航）
+  const currentPost = useMemo(() => {
+    if (post && syncedPostId !== post.postId) {
+      // 索引尚未同步，直接显示点击的图片
+      return post;
+    }
+    if (posts.length > 0 && currentIndex >= 0 && currentIndex < posts.length) {
+      return posts[currentIndex];
+    }
+    return post;
+  }, [post, posts, currentIndex, syncedPostId]);
 
   // 重置图片缩放和位置
   useEffect(() => {
@@ -718,7 +739,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 site={site}
                 onPostClick={(p) => {
                   if (posts.length > 0) {
-                    const index = posts.findIndex(pp => pp.id === p.id);
+                    const index = posts.findIndex(pp => pp.postId === p.postId);
                     if (index >= 0) {
                       setCurrentIndex(index);
                     }

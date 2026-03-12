@@ -433,6 +433,51 @@ export async function getBooruPostById(postId: number): Promise<BooruPost | null
 }
 
 /**
+ * 批量获取 Booru 帖子（通过数据库 ID 列表）
+ * 替代逐个调用 getBooruPostById 的 N+1 查询模式，大幅减少数据库往返次数
+ * @param ids 数据库 ID 列表
+ * @returns 按传入 ID 顺序返回的帖子列表（不存在的 ID 会被过滤）
+ */
+export async function getBooruPostsByIds(ids: number[]): Promise<BooruPost[]> {
+  if (ids.length === 0) return [];
+  console.log('[booruService] 批量获取Booru图片, 数量:', ids.length);
+  try {
+    const db = await getDatabase();
+
+    // SQLite 单条语句最多支持 999 个绑定参数，超过时分片查询
+    const CHUNK_SIZE = 900;
+    const postMap = new Map<number, BooruPost>();
+
+    for (let i = 0; i < ids.length; i += CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const posts = await all<BooruPost>(
+        db,
+        `SELECT * FROM booru_posts WHERE id IN (${placeholders})`,
+        chunk
+      );
+
+      // 转换布尔值并建立映射
+      for (const post of posts) {
+        postMap.set(post.id, {
+          ...post,
+          downloaded: Boolean(post.downloaded),
+          isFavorited: Boolean(post.isFavorited)
+        });
+      }
+    }
+
+    // 按传入顺序返回，过滤不存在的 ID
+    const result = ids.map(id => postMap.get(id)).filter((p): p is BooruPost => p !== undefined);
+    console.log('[booruService] 批量获取成功:', result.length, '/', ids.length);
+    return result;
+  } catch (error) {
+    console.error('[booruService] 批量获取Booru图片失败:', error);
+    throw error;
+  }
+}
+
+/**
  * 根据站点ID和PostID获取Booru图片
  */
 export async function getBooruPostBySiteAndId(siteId: number, postId: number): Promise<BooruPost | null> {
@@ -476,6 +521,7 @@ export async function searchBooruPosts(siteId: number, tags: string[], page: num
     const posts = await all<BooruPost>(
       db,
       `
+        -- TODO: 性能优化 — LIKE '%keyword%' 前置通配符导致全表扫描，数据量大时应改为通过 booru_post_tags 表 JOIN 查询或 FTS5 全文搜索
         SELECT * FROM booru_posts
         WHERE siteId = ? AND tags LIKE ?
         ORDER BY updatedAt DESC

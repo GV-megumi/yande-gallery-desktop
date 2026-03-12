@@ -15,7 +15,7 @@ interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
   onCharacterClick?: (characterName: string, siteId?: number | null) => void;
-  /** 页面被导航栈覆盖时为 true，此时暂停详情弹窗的显示 */
+  /** 当叠加页面（标签搜索等）激活时为 true，抑制详情弹窗显示 */
   suspended?: boolean;
 }
 
@@ -421,9 +421,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     return map;
   }, [sortedPosts]);
 
+  // 将黑名单标签数组转为 Set，O(1) 查找替代 O(n)
+  const blacklistTagSet = useMemo(() => new Set(blacklistTagNames), [blacklistTagNames]);
+
   // 统计当前页面中每个黑名单标签命中的图片数量
   const blacklistHitStats = useMemo(() => {
-    if (!blacklistTagNames.length) return new Map<string, number>();
+    if (!blacklistTagSet.size) return new Map<string, number>();
     const hitMap = new Map<string, number>();
     const ratingFiltered = ratingFilter !== 'all'
       ? sortedPosts.filter(post => post.rating === ratingFilter)
@@ -431,13 +434,13 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     for (const post of ratingFiltered) {
       const postTags = parsedPostTags.get(post.postId) || [];
       for (const tag of postTags) {
-        if (blacklistTagNames.includes(tag)) {
+        if (blacklistTagSet.has(tag)) {
           hitMap.set(tag, (hitMap.get(tag) || 0) + 1);
         }
       }
     }
     return hitMap;
-  }, [sortedPosts, parsedPostTags, ratingFilter, blacklistTagNames]);
+  }, [sortedPosts, parsedPostTags, ratingFilter, blacklistTagSet]);
 
   // 排序后按评级筛选 + 黑名单过滤（支持按标签粒度取消隐藏）
   const filteredSortedPosts = useMemo(() => {
@@ -792,11 +795,11 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
       {/* 图片详情页面 - 使用排序后的 posts 数组，确保索引与显示顺序一致 */}
       <BooruPostDetailsPage
-        open={detailsPageOpen}
+        open={detailsPageOpen && !suspended}
         post={selectedPost}
         site={selectedSite || null}
         posts={sortedPosts}
-        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.postId === selectedPost.postId) : 0}
         onClose={() => {
           console.log('[BooruPage] 关闭详情页面');
           setDetailsPageOpen(false);
@@ -805,18 +808,20 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={(tag: string) => {
-          // 如果提供了 onTagClick prop，使用它导航到标签搜索页面
-          if (onTagClick) {
-            onTagClick(tag, selectedSiteId);
-          } else {
-            // 否则使用原来的逻辑
-            handleTagClick(tag);
-          }
+          // 从详情页点击标签 → 打开独立子窗口，避免丢失当前详情页状态
+          console.log('[BooruPage] 详情页标签点击，打开子窗口:', tag);
+          window.electronAPI?.window.openTagSearch(tag, selectedSiteId);
         }}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-        onArtistClick={onArtistClick ? (name) => onArtistClick(name, selectedSiteId) : undefined}
-        onCharacterClick={onCharacterClick ? (name) => onCharacterClick(name, selectedSiteId) : undefined}
+        onArtistClick={(name: string) => {
+          console.log('[BooruPage] 详情页艺术家点击，打开子窗口:', name);
+          window.electronAPI?.window.openArtist(name, selectedSiteId);
+        }}
+        onCharacterClick={(name: string) => {
+          console.log('[BooruPage] 详情页角色点击，打开子窗口:', name);
+          window.electronAPI?.window.openCharacter(name, selectedSiteId);
+        }}
         suspended={suspended}
       />
     </div>

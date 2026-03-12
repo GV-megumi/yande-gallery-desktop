@@ -1,4 +1,4 @@
-import { BrowserWindow, screen } from 'electron';
+import { BrowserWindow, screen, ipcMain } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -83,4 +83,107 @@ export function createWindow(): BrowserWindow {
   });
 
   return mainWindow;
+}
+
+// 子窗口管理：追踪所有打开的子窗口，限制最大数量防止资源泄漏
+const MAX_SUB_WINDOWS = 10;
+const subWindows = new Set<BrowserWindow>();
+
+/**
+ * 创建子窗口（标签搜索、艺术家、角色等独立页面）
+ * 通过 URL hash 传递页面类型和参数，子窗口渲染精简布局（无侧边栏）
+ * @param hash URL hash 参数，如 "tag-search?tag=blue_eyes&siteId=1"
+ */
+export function createSubWindow(hash: string): BrowserWindow {
+  // 清理已关闭的窗口引用
+  for (const win of subWindows) {
+    if (win.isDestroyed()) subWindows.delete(win);
+  }
+
+  // 达到上限时关闭最早打开的子窗口
+  if (subWindows.size >= MAX_SUB_WINDOWS) {
+    const oldest = subWindows.values().next().value;
+    if (oldest) {
+      if (!oldest.isDestroyed()) {
+        console.log('[Window] 子窗口数量达到上限，关闭最早的子窗口');
+        oldest.close();
+      }
+      subWindows.delete(oldest);
+    }
+  }
+
+  const primaryDisplay = screen.getPrimaryDisplay();
+  const { width, height } = primaryDisplay.workAreaSize;
+
+  const preloadPath = path.join(__dirname, '../preload/index.js');
+  const absolutePreloadPath = path.resolve(preloadPath);
+
+  const subWindow = new BrowserWindow({
+    width: Math.min(1200, Math.round(width * 0.7)),
+    height: Math.min(800, Math.round(height * 0.75)),
+    minWidth: 800,
+    minHeight: 600,
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: absolutePreloadPath,
+      webSecurity: false
+    },
+    show: false
+  });
+
+  subWindows.add(subWindow);
+  console.log('[Window] 创建子窗口, hash:', hash, '当前子窗口数:', subWindows.size);
+
+  // 窗口关闭时自动清理引用
+  subWindow.on('closed', () => {
+    subWindows.delete(subWindow);
+    console.log('[Window] 子窗口已关闭, 剩余子窗口数:', subWindows.size);
+  });
+
+  if (process.env.NODE_ENV === 'development') {
+    subWindow.loadURL(`http://localhost:5173#${hash}`);
+  } else {
+    subWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { hash });
+  }
+
+  subWindow.once('ready-to-show', () => {
+    subWindow.show();
+  });
+
+  return subWindow;
+}
+
+/**
+ * 注册子窗口相关的 IPC 处理器
+ */
+export function setupWindowIPC(): void {
+  // 打开标签搜索子窗口
+  ipcMain.handle('window:open-tag-search', async (_event, tag: string, siteId?: number | null) => {
+    const params = new URLSearchParams();
+    params.set('tag', tag);
+    if (siteId != null) params.set('siteId', String(siteId));
+    createSubWindow(`tag-search?${params.toString()}`);
+    return { success: true };
+  });
+
+  // 打开艺术家子窗口
+  ipcMain.handle('window:open-artist', async (_event, name: string, siteId?: number | null) => {
+    const params = new URLSearchParams();
+    params.set('name', name);
+    if (siteId != null) params.set('siteId', String(siteId));
+    createSubWindow(`artist?${params.toString()}`);
+    return { success: true };
+  });
+
+  // 打开角色子窗口
+  ipcMain.handle('window:open-character', async (_event, name: string, siteId?: number | null) => {
+    const params = new URLSearchParams();
+    params.set('name', name);
+    if (siteId != null) params.set('siteId', String(siteId));
+    createSubWindow(`character?${params.toString()}`);
+    return { success: true };
+  });
+
+  console.log('[Window] 子窗口 IPC 处理器注册完成');
 }

@@ -12,6 +12,7 @@ const { Search } = Input;
 interface BooruPoolsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  /** 当叠加页面激活时为 true，抑制详情弹窗显示 */
   suspended?: boolean;
 }
 
@@ -325,7 +326,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
         {/* 详情弹窗 */}
         <BooruPostDetailsPage
-          open={detailOpen}
+          open={detailOpen && !suspended}
           post={detailPost}
           site={activeSite}
           posts={poolPosts}
@@ -333,10 +334,16 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
           onClose={() => setDetailOpen(false)}
           onToggleFavorite={handleToggleFavorite}
           onDownload={handleDownload}
-          onTagClick={onTagClick}
+          onTagClick={(tag: string) => {
+            console.log('[BooruPoolsPage] 详情页标签点击，打开子窗口:', tag);
+            window.electronAPI?.window.openTagSearch(tag, activeSite?.id);
+          }}
           isServerFavorited={(p) => serverFavorites.has(p.postId)}
           onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
-          onArtistClick={onArtistClick}
+          onArtistClick={(name: string) => {
+            console.log('[BooruPoolsPage] 详情页艺术家点击，打开子窗口:', name);
+            window.electronAPI?.window.openArtist(name, activeSite?.id);
+          }}
           suspended={suspended}
         />
       </div>

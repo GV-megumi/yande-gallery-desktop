@@ -453,6 +453,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('bulk-download:resume-running-sessions')
   },
 
+  // 子窗口操作
+  window: {
+    openTagSearch: (tag: string, siteId?: number | null) => ipcRenderer.invoke('window:open-tag-search', tag, siteId),
+    openArtist: (name: string, siteId?: number | null) => ipcRenderer.invoke('window:open-artist', name, siteId),
+    openCharacter: (name: string, siteId?: number | null) => ipcRenderer.invoke('window:open-character', name, siteId),
+  },
+
   // 系统操作
   system: {
     selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
@@ -595,6 +602,11 @@ declare global {
         retryAllFailed: (sessionId: string) => Promise<{ success: boolean; error?: string }>;
         retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; error?: string }>;
         resumeRunningSessions: () => Promise<{ success: boolean; data?: { resumed: number }; error?: string }>;
+      };
+      window: {
+        openTagSearch: (tag: string, siteId?: number | null) => Promise<{ success: boolean }>;
+        openArtist: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
+        openCharacter: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
       };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;

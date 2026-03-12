@@ -16,6 +16,13 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: path.join(__dirname, 'src/renderer/index.html')
+      },
+      output: {
+        manualChunks: {
+          'vendor-react': ['react', 'react-dom'],
+          'vendor-antd': ['antd', '@ant-design/icons'],
+          'vendor-dnd': ['@dnd-kit/core', '@dnd-kit/sortable', '@dnd-kit/modifiers', '@dnd-kit/utilities'],
+        }
       }
     }
   },

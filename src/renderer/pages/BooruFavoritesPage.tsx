@@ -15,7 +15,7 @@ const { Title } = Typography;
 
 interface BooruFavoritesPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
-  onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  /** 当叠加页面激活时为 true，抑制详情弹窗显示 */
   suspended?: boolean;
 }
 
@@ -25,7 +25,6 @@ interface BooruFavoritesPageProps {
  */
 export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   onTagClick,
-  onArtistClick,
   suspended = false
 }) => {
   const { message } = App.useApp();
@@ -540,21 +539,27 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
 
       {/* 图片详情页面 */}
       <BooruPostDetailsPage
-        open={detailsPageOpen}
+        open={detailsPageOpen && !suspended}
         post={selectedPost}
         site={selectedSite || null}
         posts={sortedPosts}
-        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.id === selectedPost.id) : 0}
+        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.postId === selectedPost.postId) : 0}
         onClose={() => {
           setDetailsPageOpen(false);
           setSelectedPost(null);
         }}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
-        onTagClick={handleTagClick}
+        onTagClick={(tag: string) => {
+          console.log('[BooruFavoritesPage] 详情页标签点击，打开子窗口:', tag);
+          window.electronAPI?.window.openTagSearch(tag, selectedSiteId);
+        }}
         isServerFavorited={(p) => serverFavorites.has(p.postId)}
         onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-        onArtistClick={onArtistClick}
+        onArtistClick={(name: string) => {
+          console.log('[BooruFavoritesPage] 详情页艺术家点击，打开子窗口:', name);
+          window.electronAPI?.window.openArtist(name, selectedSiteId);
+        }}
         suspended={suspended}
       />
     </div>

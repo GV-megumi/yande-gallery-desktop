@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense } from 'react';
 import { Layout, Menu, message, App as AntApp } from 'antd';
 import { useTheme } from './hooks/useTheme';
 import { useLocale } from './locales';
@@ -12,22 +12,24 @@ import {
   FireOutlined, DatabaseOutlined, HeartOutlined,
   SearchOutlined, SmileOutlined
 } from '@ant-design/icons';
-import { GalleryPage } from './pages/GalleryPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { BooruPage } from './pages/BooruPage';
-import { BooruSettingsPage } from './pages/BooruSettingsPage';
-import BooruDownloadPage from './pages/BooruDownloadPage';
-import { BooruBulkDownloadPage } from './pages/BooruBulkDownloadPage';
-import { BooruTagSearchPage } from './pages/BooruTagSearchPage';
-import { BooruFavoritesPage } from './pages/BooruFavoritesPage';
-import { FavoriteTagsPage } from './pages/FavoriteTagsPage';
-import { BlacklistedTagsPage } from './pages/BlacklistedTagsPage';
-import { BooruPopularPage } from './pages/BooruPopularPage';
-import { BooruPoolsPage } from './pages/BooruPoolsPage';
-import { BooruArtistPage } from './pages/BooruArtistPage';
-import { BooruCharacterPage } from './pages/BooruCharacterPage';
-import { BooruSavedSearchesPage } from './pages/BooruSavedSearchesPage';
-import { BooruServerFavoritesPage } from './pages/BooruServerFavoritesPage';
+
+// 页面级组件：使用 React.lazy 实现代码分割
+const GalleryPage = React.lazy(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })));
+const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const BooruPage = React.lazy(() => import('./pages/BooruPage').then(m => ({ default: m.BooruPage })));
+const BooruSettingsPage = React.lazy(() => import('./pages/BooruSettingsPage').then(m => ({ default: m.BooruSettingsPage })));
+const BooruDownloadPage = React.lazy(() => import('./pages/BooruDownloadPage'));
+const BooruBulkDownloadPage = React.lazy(() => import('./pages/BooruBulkDownloadPage').then(m => ({ default: m.BooruBulkDownloadPage })));
+const BooruTagSearchPage = React.lazy(() => import('./pages/BooruTagSearchPage').then(m => ({ default: m.BooruTagSearchPage })));
+const BooruFavoritesPage = React.lazy(() => import('./pages/BooruFavoritesPage').then(m => ({ default: m.BooruFavoritesPage })));
+const FavoriteTagsPage = React.lazy(() => import('./pages/FavoriteTagsPage').then(m => ({ default: m.FavoriteTagsPage })));
+const BlacklistedTagsPage = React.lazy(() => import('./pages/BlacklistedTagsPage').then(m => ({ default: m.BlacklistedTagsPage })));
+const BooruPopularPage = React.lazy(() => import('./pages/BooruPopularPage').then(m => ({ default: m.BooruPopularPage })));
+const BooruPoolsPage = React.lazy(() => import('./pages/BooruPoolsPage').then(m => ({ default: m.BooruPoolsPage })));
+const BooruArtistPage = React.lazy(() => import('./pages/BooruArtistPage').then(m => ({ default: m.BooruArtistPage })));
+const BooruCharacterPage = React.lazy(() => import('./pages/BooruCharacterPage').then(m => ({ default: m.BooruCharacterPage })));
+const BooruSavedSearchesPage = React.lazy(() => import('./pages/BooruSavedSearchesPage').then(m => ({ default: m.BooruSavedSearchesPage })));
+const BooruServerFavoritesPage = React.lazy(() => import('./pages/BooruServerFavoritesPage').then(m => ({ default: m.BooruServerFavoritesPage })));
 import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
 
 const { Content, Sider } = Layout;
@@ -285,7 +287,18 @@ export const AppContent: React.FC = () => {
     }
   };
 
-  const renderContent = () => {
+  // 是否有叠加页面（导航栈非空时表示有叠加页面）
+  const hasOverlay = navigationStack.length > 0;
+
+  /** Suspense 加载中占位 */
+  const suspenseFallback = (
+    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
+      <div style={{ color: colors.textTertiary }}>加载中...</div>
+    </div>
+  );
+
+  /** 渲染基础页面内容（不含叠加页面） */
+  const renderBaseContent = () => {
     if (loading) {
       return (
         <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -572,19 +585,29 @@ export const AppContent: React.FC = () => {
 
         {/* 内容区 */}
         <Content
-          className="ios-page-enter noise-bg"
-          key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}`}
           style={{
             margin: 0,
-            padding: `${spacing.lg}px ${spacing.lg}px`,
-            overflowY: 'auto',
-            overflowX: 'hidden',
             flex: 1,
             height: 0,
             position: 'relative',
+            overflow: 'hidden',
           }}
         >
-          {renderContent()}
+          {/* 页面内容：renderBaseContent 内部管理基础页面与导航栈的显示/隐藏 */}
+          <div
+            className="ios-page-enter noise-bg"
+            key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}`}
+            style={{
+              padding: `${spacing.lg}px ${spacing.lg}px`,
+              overflowY: 'auto',
+              overflowX: 'hidden',
+              height: '100%',
+            }}
+          >
+            <Suspense fallback={suspenseFallback}>
+              {renderBaseContent()}
+            </Suspense>
+          </div>
         </Content>
       </Layout>
 

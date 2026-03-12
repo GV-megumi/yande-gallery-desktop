@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, protocol } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { createWindow } from './window.js';
+import { createWindow, setupWindowIPC } from './window.js';
 import { setupIPC } from './ipc/handlers.js';
 import { initializeApp } from './services/init.js';
 
@@ -63,6 +63,7 @@ app.whenReady().then(async () => {
 
     // 3. 设置IPC
     setupIPC();
+    setupWindowIPC();
 
     console.log('🎉 应用启动完成');
   } catch (error) {
