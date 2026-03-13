@@ -179,14 +179,6 @@ export const IPC_CHANNELS = {
   GDRIVE_GET_STORAGE: 'gdrive:get-storage',
   GDRIVE_GET_THUMBNAIL: 'gdrive:get-thumbnail',
 
-  // === Google Photos ===
-  GPHOTOS_LIST_ALBUMS: 'gphotos:list-albums',
-  GPHOTOS_GET_ALBUM_PHOTOS: 'gphotos:get-album',
-  GPHOTOS_LIST_PHOTOS: 'gphotos:list-photos',
-  GPHOTOS_SEARCH: 'gphotos:search',
-  GPHOTOS_GET_PHOTO: 'gphotos:get-photo',
-  GPHOTOS_DOWNLOAD: 'gphotos:download',
-  GPHOTOS_UPLOAD: 'gphotos:upload',
-  GPHOTOS_BATCH_UPLOAD: 'gphotos:batch-upload',
-  GPHOTOS_CREATE_ALBUM: 'gphotos:create-album'
+  // === Google Photos Picker API ===
+  GPHOTOS_PICKER_OPEN: 'gphotos:picker-open',
 } as const;

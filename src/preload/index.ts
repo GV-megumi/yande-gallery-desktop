@@ -154,16 +154,8 @@ const IPC_CHANNELS = {
   GDRIVE_GET_STORAGE: 'gdrive:get-storage',
   GDRIVE_GET_THUMBNAIL: 'gdrive:get-thumbnail',
 
-  // === Google Photos ===
-  GPHOTOS_LIST_ALBUMS: 'gphotos:list-albums',
-  GPHOTOS_GET_ALBUM_PHOTOS: 'gphotos:get-album',
-  GPHOTOS_LIST_PHOTOS: 'gphotos:list-photos',
-  GPHOTOS_SEARCH: 'gphotos:search',
-  GPHOTOS_GET_PHOTO: 'gphotos:get-photo',
-  GPHOTOS_DOWNLOAD: 'gphotos:download',
-  GPHOTOS_UPLOAD: 'gphotos:upload',
-  GPHOTOS_BATCH_UPLOAD: 'gphotos:batch-upload',
-  GPHOTOS_CREATE_ALBUM: 'gphotos:create-album'
+  // === Google Photos Picker API ===
+  GPHOTOS_PICKER_OPEN: 'gphotos:picker-open',
 } as const;
 
 // 暴露安全的API给渲染进程
@@ -541,26 +533,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GDRIVE_GET_THUMBNAIL, fileId),
   },
 
-  // Google Photos
+  // Google Photos Picker API
   gphotos: {
-    listAlbums: (pageSize?: number, pageToken?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_LIST_ALBUMS, pageSize, pageToken),
-    getAlbumPhotos: (albumId: string, pageSize?: number, pageToken?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_GET_ALBUM_PHOTOS, albumId, pageSize, pageToken),
-    listPhotos: (pageSize?: number, pageToken?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_LIST_PHOTOS, pageSize, pageToken),
-    search: (filters: any, pageSize?: number, pageToken?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_SEARCH, filters, pageSize, pageToken),
-    getPhoto: (mediaItemId: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_GET_PHOTO, mediaItemId),
-    download: (mediaItemId: string, localPath?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_DOWNLOAD, mediaItemId, localPath),
-    upload: (localPath: string, albumId?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_UPLOAD, localPath, albumId),
-    batchUpload: (localPaths: string[], albumId?: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_BATCH_UPLOAD, localPaths, albumId),
-    createAlbum: (title: string) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_CREATE_ALBUM, title),
+    pickerOpen: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.GPHOTOS_PICKER_OPEN),
   }
 });
 
@@ -735,15 +711,7 @@ declare global {
         getThumbnail: (fileId: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
       };
       gphotos: {
-        listAlbums: (pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        getAlbumPhotos: (albumId: string, pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        listPhotos: (pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        search: (filters: any, pageSize?: number, pageToken?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        getPhoto: (mediaItemId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        download: (mediaItemId: string, localPath?: string) => Promise<{ success: boolean; data?: string; error?: string }>;
-        upload: (localPath: string, albumId?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
-        batchUpload: (localPaths: string[], albumId?: string) => Promise<{ success: boolean; data?: { success: string[]; failed: string[] }; error?: string }>;
-        createAlbum: (title: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        pickerOpen: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
       };
     };
   }

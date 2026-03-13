@@ -120,6 +120,14 @@ export interface AppConfig {
       thumbnailSize: number;
     };
   };
+  ui?: {
+    menuOrder?: {
+      main?: string[];
+      gallery?: string[];
+      booru?: string[];
+      google?: string[];
+    };
+  };
   booru?: {
     appearance: {
       gridSize: number; // 图片网格大小（像素）

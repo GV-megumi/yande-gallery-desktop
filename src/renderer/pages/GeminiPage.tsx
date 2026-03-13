@@ -1,13 +1,12 @@
 /**
- * Google Photos 页面
- * 通过嵌入式浏览器（<webview>）直接访问 photos.google.com
- * 账号登录由 Google 账号页面统一管理
+ * Gemini 页面
+ * 通过嵌入式浏览器（<webview>）直接访问 gemini.google.com
  */
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Spin } from 'antd';
 
-export const GooglePhotosPage: React.FC = () => {
+export const GeminiPage: React.FC = () => {
   const [webviewLoading, setWebviewLoading] = useState(true);
   const webviewRef = useRef<any>(null);
 
@@ -43,7 +42,7 @@ export const GooglePhotosPage: React.FC = () => {
       {/* @ts-ignore */}
       <webview
         ref={webviewRef}
-        src="https://photos.google.com"
+        src="https://gemini.google.com"
         style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
         allowpopups="true"
       />

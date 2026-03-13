@@ -155,95 +155,17 @@ export function setupGoogleIPC(): void {
 
   // ============= Google Photos =============
 
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_LIST_ALBUMS, async (_, pageSize?: number, pageToken?: string) => {
+  // Picker API — 打开选择器窗口，等待用户选好后返回选中的媒体项
+  ipcMain.handle(IPC_CHANNELS.GPHOTOS_PICKER_OPEN, async () => {
     try {
-      const result = await photosService.listAlbums(pageSize, pageToken);
-      return { success: true, data: result };
+      console.log('[IPC] 打开 Google Photos Picker...');
+      const items = await photosService.openPickerAndWait();
+      return { success: true, data: items };
     } catch (error) {
-      console.error('[IPC] Photos listAlbums 失败:', error);
+      console.error('[IPC] Photos Picker 失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_GET_ALBUM_PHOTOS, async (_, albumId: string, pageSize?: number, pageToken?: string) => {
-    try {
-      const result = await photosService.getAlbumPhotos(albumId, pageSize, pageToken);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos getAlbumPhotos 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_LIST_PHOTOS, async (_, pageSize?: number, pageToken?: string) => {
-    try {
-      const result = await photosService.listPhotos(pageSize, pageToken);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos listPhotos 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_SEARCH, async (_, filters: any, pageSize?: number, pageToken?: string) => {
-    try {
-      const result = await photosService.searchPhotos(filters, pageSize, pageToken);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos search 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_GET_PHOTO, async (_, mediaItemId: string) => {
-    try {
-      const result = await photosService.getPhoto(mediaItemId);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos getPhoto 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_DOWNLOAD, async (_, mediaItemId: string, localPath?: string) => {
-    try {
-      const result = await photosService.downloadPhoto(mediaItemId, localPath);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos download 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_UPLOAD, async (_, localPath: string, albumId?: string) => {
-    try {
-      const result = await photosService.uploadPhoto(localPath, albumId);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos upload 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_BATCH_UPLOAD, async (_, localPaths: string[], albumId?: string) => {
-    try {
-      const result = await photosService.batchUploadPhotos(localPaths, albumId);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos batchUpload 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.GPHOTOS_CREATE_ALBUM, async (_, title: string) => {
-    try {
-      const result = await photosService.createAlbum(title);
-      return { success: true, data: result };
-    } catch (error) {
-      console.error('[IPC] Photos createAlbum 失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  console.log('[IPC] Google 相关处理器注册完成（认证 3 + Drive 10 + Photos 9 = 22 个通道）');
+  console.log('[IPC] Google 相关处理器注册完成（认证 3 + Drive 10 + Picker 1 = 14 个通道）');
 }

@@ -338,6 +338,11 @@ html.dark .ios-skeleton-shimmer {
   display: none !important;
 }
 
+/* Menu: 图标与文字之间增加间距 */
+.ant-menu .ant-menu-title-content {
+  margin-inline-start: 12px !important;
+}
+
 /* Menu: 项圆角 + 留白 */
 .ant-menu-inline .ant-menu-item,
 .ant-menu-inline .ant-menu-submenu-title {

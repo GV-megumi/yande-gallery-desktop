@@ -107,6 +107,8 @@ temp/
 *.db
 *.sqlite
 *.sqlite3
+*.db-shm
+*.db-wal
 
 # Downloaded images (user data)
 downloads/

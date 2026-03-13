@@ -40,7 +40,10 @@ const GOOGLE_USERINFO_URL = 'https://www.googleapis.com/oauth2/v2/userinfo';
 // 申请的 OAuth Scopes
 const SCOPES = [
   'https://www.googleapis.com/auth/drive',
-  'https://www.googleapis.com/auth/photoslibrary',
+  // 方案一：访问本应用自己创建的相册（新 OAuth client 可用）
+  'https://www.googleapis.com/auth/photoslibrary.readonly.appcreateddata',
+  // 方案二：Photos Picker API（新 OAuth client 可用，让用户选择照片）
+  'https://www.googleapis.com/auth/photospicker.mediaitems.readonly',
   'https://www.googleapis.com/auth/userinfo.email',
 ].join(' ');
 

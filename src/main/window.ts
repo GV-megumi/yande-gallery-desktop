@@ -37,7 +37,8 @@ export function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: absolutePreloadPath,
-      webSecurity: false // 禁用 webSecurity 以允许加载外部图片
+      webSecurity: false, // 禁用 webSecurity 以允许加载外部图片
+      webviewTag: true,   // 允许使用 <webview> 嵌入外部页面
     },
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false // 先不显示，等加载完成后再显示
