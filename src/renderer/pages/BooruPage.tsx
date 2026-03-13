@@ -223,6 +223,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
         // 加载收藏状态（从当前图片数据中提取）
         loadFavoritesFromPosts(data);
+        // 从 DB 持久化的 isLiked 字段恢复服务端喜欢状态
+        setServerFavorites(new Set(data.filter((p: any) => p.isLiked).map((p: any) => p.postId)));
       } else {
         console.error('[BooruPage] 加载图片失败:', result.error);
         message.error('加载图片失败: ' + result.error);
@@ -280,6 +282,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
         // 加载收藏状态（从当前图片数据中提取）
         loadFavoritesFromPosts(data);
+        // 从 DB 持久化的 isLiked 字段恢复服务端喜欢状态
+        setServerFavorites(new Set(data.filter((p: any) => p.isLiked).map((p: any) => p.postId)));
 
         // 保存搜索历史（仅首页搜索时保存）
         if (page === 1 && selectedSiteId) {

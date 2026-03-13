@@ -534,6 +534,12 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     });
     console.log('[database] 收藏夹分组相关表创建成功');
 
+    // 为 booru_posts 添加 isLiked 字段（服务端喜欢状态，跨页面持久化）
+    if (!(await columnExists(database, 'booru_posts', 'isLiked'))) {
+      await run(database, 'ALTER TABLE booru_posts ADD COLUMN isLiked INTEGER DEFAULT 0');
+      console.log('[database] 已添加 isLiked 字段到 booru_posts');
+    }
+
     // 为 booru_tags 添加 updatedAt 字段（标签缓存过期清理用）
     if (!(await columnExists(database, 'booru_tags', 'updatedAt'))) {
       await run(database, "ALTER TABLE booru_tags ADD COLUMN updatedAt TEXT NOT NULL DEFAULT ''");
@@ -562,6 +568,39 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       `, (err) => err ? reject(err) : resolve());
     });
     console.log('[database] 保存的搜索表创建成功');
+
+    // === 迁移 booru_favorites.postId 从 API post ID 到 booru_posts.id ===
+    // 旧版代码将 Moebooru API post ID 存入 booru_favorites.postId，
+    // 但 FK 约束要求存储 booru_posts.id（自动增量主键）。
+    // 此迁移将不合规的行更新为正确的 DB 主键，并删除孤儿行。
+    try {
+      const invalidCount = await get<{ cnt: number }>(
+        database,
+        'SELECT COUNT(*) as cnt FROM booru_favorites WHERE postId NOT IN (SELECT id FROM booru_posts)'
+      );
+      if (invalidCount && invalidCount.cnt > 0) {
+        console.log(`[database] 检测到 ${invalidCount.cnt} 条 booru_favorites 行存储了 API post ID，开始迁移...`);
+        // 将 API post ID 映射到对应的 booru_posts.id
+        await run(database, `
+          UPDATE booru_favorites
+          SET postId = (
+            SELECT p.id FROM booru_posts p
+            WHERE p.postId = booru_favorites.postId AND p.siteId = booru_favorites.siteId
+            LIMIT 1
+          )
+          WHERE postId NOT IN (SELECT id FROM booru_posts)
+            AND EXISTS (
+              SELECT 1 FROM booru_posts p
+              WHERE p.postId = booru_favorites.postId AND p.siteId = booru_favorites.siteId
+            )
+        `);
+        // 删除无法映射的孤儿行（对应帖子已不在 booru_posts 中）
+        await run(database, 'DELETE FROM booru_favorites WHERE postId NOT IN (SELECT id FROM booru_posts)');
+        console.log('[database] booru_favorites.postId 迁移完成');
+      }
+    } catch (migErr) {
+      console.warn('[database] booru_favorites 迁移跳过（可能数据库为空）:', migErr);
+    }
 
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');

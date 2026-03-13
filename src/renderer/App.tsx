@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, Suspense, createConte
 export const HeaderExtraContext = createContext<(node: React.ReactNode) => void>(() => {});
 /** 读取标题栏右侧插槽的 hook */
 export const useHeaderExtra = () => useContext(HeaderExtraContext);
-import { Layout, Menu, message, App as AntApp, Tooltip } from 'antd';
+import { Layout, Menu, message, App as AntApp, Tooltip, Dropdown } from 'antd';
 import { useTheme } from './hooks/useTheme';
 import { useLocale } from './locales';
 import { useKeyboardShortcuts, SHORTCUT_KEYS } from './hooks/useKeyboardShortcuts';
@@ -50,6 +50,9 @@ type MenuItem = {
   icon: React.ReactNode;
   label: string;
 };
+
+/** 固定到底部的菜单项（最多 5 个，持久化到 config.yaml） */
+type PinnedItem = { key: string; section: 'gallery' | 'booru' | 'google' };
 
 /** 侧边栏图标：小圆角方块 + 品牌色 */
 const IconBadge: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, icon }) => (
@@ -126,12 +129,19 @@ const GoogleAccountIcon = () => (
   </svg>
 );
 
+/** 带阴影的应用图标包装（仅 Google 二级菜单使用） */
+const GoogleIconWrap: React.FC<{ children: React.ReactNode }> = ({ children }) => (
+  <span style={{ fontSize: 30, display: 'inline-flex', alignItems: 'center' }}>
+    {children}
+  </span>
+);
+
 function buildGoogleSubMenuItems(): MenuItem[] {
   return [
-    { key: 'gdrive', icon: <span style={{ fontSize: 15, display: 'inline-flex', alignItems: 'center' }}><GoogleDriveIcon /></span>, label: 'Drive' },
-    { key: 'gphotos', icon: <span style={{ fontSize: 15, display: 'inline-flex', alignItems: 'center' }}><GooglePhotosIcon /></span>, label: 'Photos' },
-    { key: 'gaccount', icon: <span style={{ fontSize: 15, display: 'inline-flex', alignItems: 'center' }}><GoogleAccountIcon /></span>, label: '账号' },
-    { key: 'gemini', icon: <span style={{ fontSize: 15, display: 'inline-flex', alignItems: 'center' }}><GeminiIcon /></span>, label: 'Gemini' },
+    { key: 'gdrive',   icon: <GoogleIconWrap><GoogleDriveIcon /></GoogleIconWrap>,   label: 'Drive' },
+    { key: 'gphotos',  icon: <GoogleIconWrap><GooglePhotosIcon /></GoogleIconWrap>,  label: 'Photos' },
+    { key: 'gaccount', icon: <GoogleIconWrap><GoogleAccountIcon /></GoogleIconWrap>, label: '账号' },
+    { key: 'gemini',   icon: <GoogleIconWrap><GeminiIcon /></GoogleIconWrap>,        label: 'Gemini' },
   ];
 }
 
@@ -190,6 +200,13 @@ export const AppContent: React.FC = () => {
   const [booruOrder, setBooruOrder] = useState<string[]>([]);
   const [googleOrder, setGoogleOrder] = useState<string[]>([]);
 
+  // ── 固定到底部的菜单项（最多 5 个，持久化；本次会话开启的保留缓存） ──
+  const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
+  /** 当前活跃的固定页面 id（"section:key"），null = 查看普通内容 */
+  const [activePinnedId, setActivePinnedId] = useState<string | null>(null);
+  /** 本次会话中已挂载过的固定页面 id Set（切换后保留缓存，不卸载） */
+  const [mountedPinnedIds, setMountedPinnedIds] = useState<Set<string>>(new Set());
+
   /** 按已保存的顺序重排菜单项，未记录的新项追加到末尾 */
   const applyOrder = useCallback(<T extends { key: string }>(items: T[], order: string[]): T[] => {
     if (!order.length) return items;
@@ -222,6 +239,67 @@ export const AppContent: React.FC = () => {
       console.error('[App] 保存菜单排序失败:', err);
     }
   }, []);
+
+  /** 持久化固定菜单项到 config.yaml */
+  const savePinnedItems = useCallback(async (items: PinnedItem[]) => {
+    try {
+      const result = await window.electronAPI.config.get();
+      if (!result.success) return;
+      const newConfig = { ...result.data, ui: { ...result.data?.ui, pinnedItems: items } };
+      await window.electronAPI.config.save(newConfig);
+      console.log('[App] 固定菜单项已保存', items);
+    } catch (err) {
+      console.error('[App] 保存固定菜单项失败:', err);
+    }
+  }, []);
+
+  /** 固定一个菜单项（最多 5 个） */
+  const pinItem = useCallback((section: PinnedItem['section'], key: string) => {
+    setPinnedItems(prev => {
+      if (prev.length >= 5 || prev.some(p => p.section === section && p.key === key)) return prev;
+      const next = [...prev, { section, key }];
+      savePinnedItems(next);
+      console.log('[App] 已固定菜单项:', section, key);
+      return next;
+    });
+  }, [savePinnedItems]);
+
+  /** 取消固定一个菜单项，并清理其缓存 */
+  const unpinItem = useCallback((section: PinnedItem['section'], key: string) => {
+    const pinId = `${section}:${key}`;
+    setPinnedItems(prev => {
+      const next = prev.filter(p => !(p.section === section && p.key === key));
+      savePinnedItems(next);
+      console.log('[App] 已取消固定菜单项:', section, key);
+      return next;
+    });
+    setMountedPinnedIds(prev => { const s = new Set(prev); s.delete(pinId); return s; });
+    setActivePinnedId(cur => cur === pinId ? null : cur);
+  }, [savePinnedItems]);
+
+  /** 关闭固定页面缓存（不取消固定，只卸载缓存） */
+  const closePin = useCallback((section: PinnedItem['section'], key: string) => {
+    const pinId = `${section}:${key}`;
+    setMountedPinnedIds(prev => { const s = new Set(prev); s.delete(pinId); return s; });
+    setActivePinnedId(cur => cur === pinId ? null : cur);
+    console.log('[App] 已关闭固定页面缓存:', pinId);
+  }, []);
+
+  /** 点击固定菜单项：挂载并激活其缓存层 */
+  const handlePinnedClick = useCallback((pin: PinnedItem) => {
+    const pinId = `${pin.section}:${pin.key}`;
+    console.log('[App] 切换到固定页面:', pinId);
+    setMountedPinnedIds(prev => new Set([...prev, pinId]));
+    setActivePinnedId(pinId);
+  }, []);
+
+  /** 根据 section 取对应子菜单列表的元数据（用于固定项图标/标签） */
+  const getPinnedItemMeta = useCallback((pin: PinnedItem) => {
+    const list = pin.section === 'gallery' ? orderedGalleryItems
+      : pin.section === 'booru' ? orderedBooruItems
+      : orderedGoogleItems;
+    return list.find(i => i.key === pin.key);
+  }, [orderedGalleryItems, orderedBooruItems, orderedGoogleItems]);
 
   const toggleTheme = useCallback(() => {
     setThemeMode(isDark ? 'light' : 'dark');
@@ -297,6 +375,11 @@ export const AppContent: React.FC = () => {
             if (order.google?.length)  setGoogleOrder(order.google);
             console.log('[App] 菜单排序已加载', order);
           }
+          // 加载固定菜单项
+          if (cfgResult.data?.ui?.pinnedItems?.length) {
+            setPinnedItems((cfgResult.data.ui.pinnedItems as PinnedItem[]).slice(0, 5));
+            console.log('[App] 固定菜单项已加载', cfgResult.data.ui.pinnedItems);
+          }
         }
       } catch (error) {
         console.error('Failed to initialize database:', error);
@@ -347,6 +430,15 @@ export const AppContent: React.FC = () => {
   const topNavEntry = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
 
   const pageTitle = useMemo(() => {
+    // 固定页面激活时显示其标题
+    if (activePinnedId) {
+      const pin = pinnedItems.find(p => `${p.section}:${p.key}` === activePinnedId);
+      if (pin) {
+        const meta = (pin.section === 'gallery' ? orderedGalleryItems : pin.section === 'booru' ? orderedBooruItems : orderedGoogleItems).find(i => i.key === pin.key);
+        const sectionName = pin.section === 'gallery' ? t('pageTitle.gallery') : pin.section === 'booru' ? t('pageTitle.booru') : '应用';
+        return { main: sectionName, sub: meta?.label as string | undefined };
+      }
+    }
     // 导航栈有内容时，显示栈顶页面的标题
     if (topNavEntry) {
       switch (topNavEntry.type) {
@@ -368,7 +460,7 @@ export const AppContent: React.FC = () => {
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems, googleSubMenuItems]);
+  }, [activePinnedId, pinnedItems, selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems, googleSubMenuItems, orderedGalleryItems, orderedBooruItems, orderedGoogleItems]);
 
   /** 渲染导航栈中的单个条目 */
   const renderNavigationEntry = (entry: NavigationEntry, index: number) => {
@@ -451,10 +543,40 @@ export const AppContent: React.FC = () => {
     </div>
   );
 
-  /** 当前是否为嵌入式全屏页面（webview 等需要占满容器的场景） */
-  const isEmbedPage = selectedKey === 'google' && (selectedGoogleSubKey === 'gphotos' || selectedGoogleSubKey === 'gemini');
-  /** Google 区域隐藏顶部标题栏，内容区占满全高 */
-  const isHeaderHidden = selectedKey === 'google';
+  /** 当前是否为嵌入式全屏页面（webview 等需要占满容器的场景，仅适用于普通导航） */
+  const isEmbedPage = !activePinnedId && selectedKey === 'google' && (selectedGoogleSubKey === 'gphotos' || selectedGoogleSubKey === 'gemini');
+  /** Google 区域隐藏顶部标题栏（普通导航）；查看固定页面时始终显示标题栏 */
+  const isHeaderHidden = !activePinnedId && selectedKey === 'google';
+
+  /** 渲染固定页面（独立缓存层，props 与 renderBasePage 保持一致） */
+  const renderPageForPin = (pin: PinnedItem): React.ReactNode => {
+    const { section, key } = pin;
+    if (section === 'gallery') {
+      if (key === 'settings') return <SettingsPage />;
+      return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} />;
+    }
+    if (section === 'booru') {
+      if (key === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={false} />;
+      if (key === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={false} />;
+      if (key === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={false} />;
+      if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
+      if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
+      if (key === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
+      if (key === 'blacklisted-tags') return <BlacklistedTagsPage />;
+      if (key === 'downloads') return <BooruDownloadPage />;
+      if (key === 'bulk-download') return <BooruBulkDownloadPage />;
+      if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
+      if (key === 'booru-settings') return <BooruSettingsPage />;
+      if (key === 'settings') return <SettingsPage />;
+    }
+    if (section === 'google') {
+      if (key === 'gdrive') return <GoogleDrivePage />;
+      if (key === 'gphotos') return <GooglePhotosPage />;
+      if (key === 'gaccount') return <GoogleAccountPage />;
+      if (key === 'gemini') return <GeminiPage />;
+    }
+    return null;
+  };
 
   /** 渲染基础页面（底层页面） */
   const renderBasePage = () => {
@@ -588,6 +710,7 @@ export const AppContent: React.FC = () => {
             onSelect={(key) => {
               console.log(`[App] 主菜单切换: ${key}`);
               setSelectedKey(key); setNavigationStack([]);
+              setActivePinnedId(null);
               if (key === 'gallery') setSelectedSubKey('recent');
               if (key === 'google') setSelectedGoogleSubKey('gdrive');
             }}
@@ -611,35 +734,88 @@ export const AppContent: React.FC = () => {
             {selectedKey === 'gallery' && (
               <SortableMenu
                 items={orderedGalleryItems}
-                selectedKey={selectedSubKey}
-                onSelect={(key) => { console.log(`[App] 图库子菜单: ${key}`); setSelectedSubKey(key); }}
+                selectedKey={activePinnedId ? '' : selectedSubKey}
+                onSelect={(key) => { console.log(`[App] 图库子菜单: ${key}`); setSelectedSubKey(key); if (pinnedItems.some(p => p.section === 'gallery' && p.key === key)) { handlePinnedClick({ section: 'gallery', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setGalleryOrder(keys); saveMenuOrder('gallery', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
+                pinnedKeys={pinnedItems.filter(p => p.section === 'gallery').map(p => p.key)}
+                canAddPin={pinnedItems.length < 5}
+                onPinToggle={(key, cur) => cur ? unpinItem('gallery', key) : pinItem('gallery', key)}
               />
             )}
             {selectedKey === 'booru' && (
               <SortableMenu
                 items={orderedBooruItems}
-                selectedKey={selectedBooruSubKey}
-                onSelect={(key) => { console.log(`[App] Booru子菜单: ${key}`); setSelectedBooruSubKey(key); setNavigationStack([]); }}
+                selectedKey={activePinnedId ? '' : selectedBooruSubKey}
+                onSelect={(key) => { console.log(`[App] Booru子菜单: ${key}`); setSelectedBooruSubKey(key); setNavigationStack([]); if (pinnedItems.some(p => p.section === 'booru' && p.key === key)) { handlePinnedClick({ section: 'booru', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setBooruOrder(keys); saveMenuOrder('booru', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
+                pinnedKeys={pinnedItems.filter(p => p.section === 'booru').map(p => p.key)}
+                canAddPin={pinnedItems.length < 5}
+                onPinToggle={(key, cur) => cur ? unpinItem('booru', key) : pinItem('booru', key)}
               />
             )}
             {selectedKey === 'google' && (
               <SortableMenu
                 items={orderedGoogleItems}
-                selectedKey={selectedGoogleSubKey}
-                onSelect={(key) => { console.log(`[App] 应用子菜单: ${key}`); setSelectedGoogleSubKey(key); }}
+                selectedKey={activePinnedId ? '' : selectedGoogleSubKey}
+                onSelect={(key) => { console.log(`[App] 应用子菜单: ${key}`); setSelectedGoogleSubKey(key); if (pinnedItems.some(p => p.section === 'google' && p.key === key)) { handlePinnedClick({ section: 'google', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setGoogleOrder(keys); saveMenuOrder('google', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
+                pinnedKeys={pinnedItems.filter(p => p.section === 'google').map(p => p.key)}
+                canAddPin={pinnedItems.length < 5}
+                onPinToggle={(key, cur) => cur ? unpinItem('google', key) : pinItem('google', key)}
               />
             )}
           </div>
         </div>
+
+        {/* ── 第二·五段：固定项（最多5个，始终可见，不随一级菜单切换） ── */}
+        {pinnedItems.length > 0 && (
+          <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}`, paddingTop: 4, paddingBottom: 4 }}>
+            {pinnedItems.map(pin => {
+              const meta = getPinnedItemMeta(pin);
+              if (!meta) return null;
+              const pinId = `${pin.section}:${pin.key}`;
+              const isActive = activePinnedId === pinId;
+              const isCached = mountedPinnedIds.has(pinId);
+              const activeBg    = isDark ? 'rgba(129,140,248,0.15)' : 'rgba(79,70,229,0.08)';
+              const activeColor = isDark ? '#818CF8' : '#4F46E5';
+              const normalColor = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)';
+              const itemContent = (
+                <Dropdown
+                  trigger={['contextMenu']}
+                  menu={{
+                    items: [
+                      { key: 'close', label: '关闭', disabled: !mountedPinnedIds.has(`${pin.section}:${pin.key}`) },
+                      { key: 'unpin', label: '取消固定', danger: true },
+                    ],
+                    onClick: ({ key }) => key === 'close' ? closePin(pin.section, pin.key) : unpinItem(pin.section, pin.key),
+                  }}
+                >
+                  <div
+                    onClick={() => handlePinnedClick(pin)}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', height: 38, margin: '1px 8px', padding: isCollapsed ? 0 : '0 8px 0 12px', borderRadius: 8, cursor: 'pointer', background: isActive ? activeBg : 'transparent', color: isActive ? activeColor : normalColor, fontSize: 14, fontWeight: isActive ? 600 : 400, gap: isCollapsed ? 0 : 10, overflow: 'hidden', transition: 'background 0.15s', userSelect: 'none' as const,
+                      // 已缓存时加左侧阴影条
+                      boxShadow: isCached ? `inset 2px 0 0 0 ${isDark ? 'rgba(129,140,248,0.5)' : 'rgba(79,70,229,0.35)'}` : undefined,
+                    }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'; }}
+                    onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                  >
+                    {meta.icon}
+                    {!isCollapsed && <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{meta.label}</span>}
+                  </div>
+                </Dropdown>
+              );
+              return isCollapsed ? (
+                <Tooltip key={pinId} title={meta.label} placement="right" mouseEnterDelay={0.3}>{itemContent}</Tooltip>
+              ) : <React.Fragment key={pinId}>{itemContent}</React.Fragment>;
+            })}
+          </div>
+        )}
 
         {/* ── 第三段：设置 + 深色模式（固定底部，不随一级菜单切换） ── */}
         <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}` }}>
@@ -743,7 +919,7 @@ export const AppContent: React.FC = () => {
             overflow: 'hidden',
           }}
         >
-          {/* 普通滚动容器（嵌入页时隐藏但保持挂载以维持状态） */}
+          {/* 普通滚动容器（嵌入页或查看固定页面时隐藏，但保持挂载以维持状态） */}
           <div
             className="ios-page-enter noise-bg"
             key={`${selectedKey}-${selectedSubKey}-${selectedBooruSubKey}`}
@@ -752,15 +928,37 @@ export const AppContent: React.FC = () => {
               overflowY: 'auto',
               overflowX: 'hidden',
               height: '100%',
-              display: isEmbedPage ? 'none' : undefined,
+              display: (isEmbedPage || activePinnedId) ? 'none' : undefined,
             }}
           >
-            {!isEmbedPage && (
+            {!isEmbedPage && !activePinnedId && (
               <Suspense fallback={suspenseFallback}>
                 {renderBaseContent()}
               </Suspense>
             )}
           </div>
+
+          {/* 固定页面缓存层：首次打开后保持挂载，切换时 display:none 隐藏 */}
+          {pinnedItems
+            .filter(p => mountedPinnedIds.has(`${p.section}:${p.key}`))
+            .map(pin => {
+              const pinId = `${pin.section}:${pin.key}`;
+              const isActive = activePinnedId === pinId;
+              const isEmbed = pin.section === 'google' && (pin.key === 'gphotos' || pin.key === 'gemini');
+              if (isEmbed) {
+                return (
+                  <div key={`pinned-${pinId}`} style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, overflow: 'hidden', zIndex: 1, display: isActive ? undefined : 'none' }}>
+                    <Suspense fallback={suspenseFallback}>{renderPageForPin(pin)}</Suspense>
+                  </div>
+                );
+              }
+              return (
+                <div key={`pinned-${pinId}`} className="noise-bg" style={{ padding: `${spacing.lg}px`, overflowY: 'auto', overflowX: 'hidden', height: '100%', display: isActive ? undefined : 'none' }}>
+                  <Suspense fallback={suspenseFallback}>{renderPageForPin(pin)}</Suspense>
+                </div>
+              );
+            })
+          }
         </Content>
 
         {/* 嵌入式全屏覆盖层：

@@ -242,8 +242,6 @@ const ThemedApp: React.FC = () => {
 
 console.log('[main] 开始渲染 React 应用');
 ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ThemedApp />
-  </React.StrictMode>
+  <ThemedApp />
 );
 console.log('[main] React 应用渲染完成');

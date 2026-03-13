@@ -277,18 +277,19 @@ export async function saveBooruPost(postData: Omit<BooruPost, 'id' | 'createdAt'
     if (existing) {
       console.log('[booruService] 图片已存在，更新记录:', postData.postId);
       // 获取现有的收藏状态，避免覆盖
-      const existingPost = await get<{ isFavorited: number }>(
+      const existingPost = await get<{ isFavorited: number; isLiked: number }>(
         db,
-        'SELECT isFavorited FROM booru_posts WHERE id = ?',
+        'SELECT isFavorited, isLiked FROM booru_posts WHERE id = ?',
         [existing.id]
       );
       const preserveFavorited = existingPost?.isFavorited || 0;
-      
+      const preserveLiked = existingPost?.isLiked || 0;
+
       await run(db, `
         UPDATE booru_posts SET
           md5 = ?, fileUrl = ?, previewUrl = ?, sampleUrl = ?, width = ?, height = ?,
           fileSize = ?, fileExt = ?, rating = ?, score = ?, source = ?, tags = ?,
-          downloaded = ?, localPath = ?, localImageId = ?, isFavorited = ?, updatedAt = ?
+          downloaded = ?, localPath = ?, localImageId = ?, isFavorited = ?, isLiked = ?, updatedAt = ?
         WHERE siteId = ? AND postId = ?
       `, [
         postData.md5 || null,
@@ -307,6 +308,7 @@ export async function saveBooruPost(postData: Omit<BooruPost, 'id' | 'createdAt'
         postData.localPath || null,
         postData.localImageId || null,
         preserveFavorited, // 保留现有的收藏状态
+        preserveLiked,     // 保留现有的喜欢状态
         now,
         postData.siteId,
         postData.postId
@@ -316,8 +318,8 @@ export async function saveBooruPost(postData: Omit<BooruPost, 'id' | 'createdAt'
       await run(db, `
         INSERT INTO booru_posts
         (siteId, postId, md5, fileUrl, previewUrl, sampleUrl, width, height, fileSize, fileExt,
-         rating, score, source, tags, downloaded, localPath, localImageId, isFavorited, createdAt, updatedAt)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         rating, score, source, tags, downloaded, localPath, localImageId, isFavorited, isLiked, createdAt, updatedAt)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `, [
         postData.siteId,
         postData.postId,
@@ -337,6 +339,7 @@ export async function saveBooruPost(postData: Omit<BooruPost, 'id' | 'createdAt'
         postData.localPath || null,
         postData.localImageId || null,
         postData.isFavorited ? 1 : 0,
+        (postData as any).isLiked ? 1 : 0,
         now,
         now
       ]);
@@ -462,7 +465,8 @@ export async function getBooruPostsByIds(ids: number[]): Promise<BooruPost[]> {
         postMap.set(post.id, {
           ...post,
           downloaded: Boolean(post.downloaded),
-          isFavorited: Boolean(post.isFavorited)
+          isFavorited: Boolean(post.isFavorited),
+          isLiked: Boolean((post as any).isLiked)
         });
       }
     }
@@ -576,21 +580,32 @@ export async function markPostAsDownloaded(
 /**
  * 添加到收藏
  */
-export async function addToFavorites(postId: number, siteId: number, notes?: string): Promise<number> {
-  console.log('[booruService] 添加到收藏:', postId);
+export async function addToFavorites(apiPostId: number, siteId: number, notes?: string): Promise<number> {
+  console.log('[booruService] 添加到收藏:', apiPostId);
   try {
     const db = await getDatabase();
     const now = new Date().toISOString();
+
+    // 查找 booru_posts 的数据库主键（FK 约束要求 booru_favorites.postId 存储 booru_posts.id）
+    const dbPost = await get<{ id: number }>(
+      db,
+      'SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?',
+      [apiPostId, siteId]
+    );
+    if (!dbPost) {
+      throw new Error(`帖子 ${apiPostId} 不存在于数据库，无法添加收藏`);
+    }
+    const dbId = dbPost.id;
 
     // 检查是否已经收藏
     const existing = await get<{ id: number }>(
       db,
       'SELECT id FROM booru_favorites WHERE postId = ?',
-      [postId]
+      [dbId]
     );
 
     if (existing) {
-      console.log('[booruService] 图片已在收藏中:', postId);
+      console.log('[booruService] 图片已在收藏中:', apiPostId);
       return existing.id;
     }
 
@@ -600,10 +615,9 @@ export async function addToFavorites(postId: number, siteId: number, notes?: str
       await run(db, `
         INSERT OR IGNORE INTO booru_favorites (postId, siteId, notes, createdAt)
         VALUES (?, ?, ?, ?)
-      `, [postId, siteId, notes || null, now]);
+      `, [dbId, siteId, notes || null, now]);
 
-      // 更新图片的收藏状态（postId 是 Moebooru 的 post ID，需要用 postId 列匹配）
-      await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE postId = ? AND siteId = ?', [postId, siteId]);
+      await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE id = ?', [dbId]);
 
       await run(db, 'COMMIT');
     } catch (txError) {
@@ -614,10 +628,10 @@ export async function addToFavorites(postId: number, siteId: number, notes?: str
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
     const favoriteId = result!.id;
 
-    console.log('[booruService] 添加收藏成功:', postId);
+    console.log('[booruService] 添加收藏成功:', apiPostId);
     return favoriteId;
   } catch (error) {
-    console.error('[booruService] 添加收藏失败:', postId, error);
+    console.error('[booruService] 添加收藏失败:', apiPostId, error);
     throw error;
   }
 }
@@ -625,17 +639,25 @@ export async function addToFavorites(postId: number, siteId: number, notes?: str
 /**
  * 从收藏中移除
  */
-export async function removeFromFavorites(postId: number): Promise<void> {
-  console.log('[booruService] 从收藏中移除:', postId);
+export async function removeFromFavorites(apiPostId: number): Promise<void> {
+  console.log('[booruService] 从收藏中移除:', apiPostId);
   try {
     const db = await getDatabase();
 
-    await run(db, 'DELETE FROM booru_favorites WHERE postId = ?', [postId]);
-    await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE postId = ?', [postId]);
+    // 查找 booru_posts 的数据库主键
+    const dbPost = await get<{ id: number }>(
+      db,
+      'SELECT id FROM booru_posts WHERE postId = ?',
+      [apiPostId]
+    );
+    if (dbPost) {
+      await run(db, 'DELETE FROM booru_favorites WHERE postId = ?', [dbPost.id]);
+      await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [dbPost.id]);
+    }
 
-    console.log('[booruService] 移除收藏成功:', postId);
+    console.log('[booruService] 移除收藏成功:', apiPostId);
   } catch (error) {
-    console.error('[booruService] 移除收藏失败:', postId, error);
+    console.error('[booruService] 移除收藏失败:', apiPostId, error);
     throw error;
   }
 }
@@ -665,7 +687,7 @@ export async function getFavorites(siteId: number, page: number = 1, limit: numb
       db,
       `
         SELECT p.*, f.groupId as favoriteGroupId FROM booru_posts p
-        INNER JOIN booru_favorites f ON p.postId = f.postId AND p.siteId = f.siteId
+        INNER JOIN booru_favorites f ON p.id = f.postId
         WHERE f.siteId = ? ${groupFilter}
         ORDER BY f.createdAt DESC
         LIMIT ? OFFSET ?
@@ -693,25 +715,10 @@ export async function getFavorites(siteId: number, page: number = 1, limit: numb
  * 这些 postId 在 booru_favorites 中存在，但在 booru_posts 中没有对应记录
  */
 export async function getMissingFavoritePostIds(siteId: number): Promise<number[]> {
-  console.log('[booruService] 检查缺失的收藏帖子数据, siteId:', siteId);
-  try {
-    const db = await getDatabase();
-    const rows = await all<{ postId: number }>(
-      db,
-      `
-        SELECT f.postId FROM booru_favorites f
-        LEFT JOIN booru_posts p ON f.postId = p.postId AND f.siteId = p.siteId
-        WHERE f.siteId = ? AND p.postId IS NULL
-      `,
-      [siteId]
-    );
-    const ids = rows.map(r => r.postId);
-    console.log('[booruService] 缺失帖子数据的收藏数量:', ids.length);
-    return ids;
-  } catch (error) {
-    console.error('[booruService] 获取缺失收藏帖子失败:', error);
-    return [];
-  }
+  // FK 约束（booru_favorites.postId → booru_posts.id）保证不会有孤儿行，
+  // 因此直接返回空数组，跳过不必要的查询。
+  console.log('[booruService] getMissingFavoritePostIds: FK 保证无孤儿行，跳过检查');
+  return [];
 }
 
 /**
@@ -725,9 +732,10 @@ export async function repairFavoritesConsistency(siteId: number): Promise<number
     const db = await getDatabase();
 
     // 把在 booru_favorites 中但 isFavorited != 1 的帖子修复
+    // booru_favorites.postId 存储 booru_posts.id（数据库主键）
     const result = await run(db, `
       UPDATE booru_posts SET isFavorited = 1
-      WHERE siteId = ? AND postId IN (
+      WHERE siteId = ? AND id IN (
         SELECT f.postId FROM booru_favorites f WHERE f.siteId = ?
       ) AND (isFavorited IS NULL OR isFavorited != 1)
     `, [siteId, siteId]);
@@ -746,19 +754,35 @@ export async function repairFavoritesConsistency(siteId: number): Promise<number
 /**
  * 检查是否已收藏
  */
-export async function isFavorited(postId: number): Promise<boolean> {
+export async function isFavorited(apiPostId: number): Promise<boolean> {
   try {
     const db = await getDatabase();
+    // booru_favorites.postId 存储 booru_posts.id，需通过 join 按 API post ID 查询
     const result = await get<{ count: number }>(
       db,
-      'SELECT COUNT(*) as count FROM booru_favorites WHERE postId = ?',
-      [postId]
+      `SELECT COUNT(*) as count FROM booru_favorites f
+       JOIN booru_posts p ON f.postId = p.id
+       WHERE p.postId = ?`,
+      [apiPostId]
     );
 
     return result ? result.count > 0 : false;
   } catch (error) {
-    console.error('[booruService] 检查收藏状态失败:', postId, error);
+    console.error('[booruService] 检查收藏状态失败:', apiPostId, error);
     return false;
+  }
+}
+
+/**
+ * 设置帖子的服务端喜欢状态
+ * 在 SERVER_FAVORITE / SERVER_UNFAVORITE 及获取喜欢列表后调用
+ */
+export async function setPostLiked(siteId: number, apiPostId: number, liked: boolean): Promise<void> {
+  try {
+    const db = await getDatabase();
+    await run(db, 'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?', [liked ? 1 : 0, siteId, apiPostId]);
+  } catch (error) {
+    console.error('[booruService] 设置喜欢状态失败:', apiPostId, error);
   }
 }
 
@@ -1743,9 +1767,13 @@ export async function deleteFavoriteGroup(id: number): Promise<void> {
 /**
  * 将收藏移入分组（groupId 为 null 表示移出分组）
  */
-export async function moveFavoriteToGroup(postId: number, groupId: number | null): Promise<void> {
+export async function moveFavoriteToGroup(apiPostId: number, groupId: number | null): Promise<void> {
   const db = await getDatabase();
-  await run(db, 'UPDATE booru_favorites SET groupId = ? WHERE postId = ?', [groupId, postId]);
+  // booru_favorites.postId 存储 booru_posts.id，需先查找数据库主键
+  const dbPost = await get<{ id: number }>(db, 'SELECT id FROM booru_posts WHERE postId = ?', [apiPostId]);
+  if (dbPost) {
+    await run(db, 'UPDATE booru_favorites SET groupId = ? WHERE postId = ?', [groupId, dbPost.id]);
+  }
 }
 
 // ========= 保存的搜索 =========
@@ -1822,6 +1850,7 @@ export default {
   removeFromFavorites,
   getFavorites,
   isFavorited,
+  setPostLiked,
 
   // 下载队列管理
   addToDownloadQueue,

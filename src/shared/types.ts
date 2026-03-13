@@ -87,6 +87,8 @@ export interface BooruPost {
   localPath?: string;
   localImageId?: number;
   isFavorited: boolean;
+  /** 服务端喜欢状态（vote:3），持久化到 DB，用于跨页面恢复显示 */
+  isLiked?: boolean;
   createdAt: string;
   updatedAt: string;
 }

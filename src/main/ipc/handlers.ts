@@ -692,6 +692,7 @@ export function setupIPC() {
             tags: post.tags,
             downloaded: post.downloaded,
             isFavorited: post.isFavorited,
+            isLiked: !!(post as any).isLiked,
             localPath: post.localPath,
             localImageId: post.localImageId,
             author: artistMap.get(post.postId) || undefined,
@@ -901,6 +902,7 @@ export function setupIPC() {
             author: searchArtistMap.get(post.postId) || undefined,
             downloaded: post.downloaded,
             isFavorited: post.isFavorited,
+            isLiked: !!(post as any).isLiked,
             localPath: post.localPath,
             localImageId: post.localImageId,
             createdAt: post.createdAt,
@@ -1932,6 +1934,8 @@ export function setupIPC() {
       const client = createBooruClient(site);
 
       await client.favoritePost(postId);
+      // 持久化喜欢状态到数据库
+      await booruService.setPostLiked(siteId, postId, true);
       return { success: true };
     } catch (error) {
       console.error('[IPC] 服务端收藏失败:', error);
@@ -1955,6 +1959,8 @@ export function setupIPC() {
       const client = createBooruClient(site);
 
       await client.unfavoritePost(postId);
+      // 清除喜欢状态
+      await booruService.setPostLiked(siteId, postId, false);
       return { success: true };
     } catch (error) {
       console.error('[IPC] 取消服务端收藏失败:', error);
@@ -2009,6 +2015,11 @@ export function setupIPC() {
       // 批量查询替代 N+1 单条查询，减少数据库往返
       const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
+      // 批量设置 isLiked = 1（这些帖子均为服务端喜欢列表中的帖子）
+      for (const post of dbPosts) {
+        await booruService.setPostLiked(siteId, post.postId, true);
+      }
+
       // 批量查询所有帖子中的 artist 标签
       const favArtistMap = await resolveArtistTags(siteId, dbPosts, client);
 
@@ -2016,6 +2027,7 @@ export function setupIPC() {
         .filter((post): post is BooruPost => post !== null)
         .map(post => ({
           ...post,
+          isLiked: true,
           author: favArtistMap.get(post.postId) || undefined,
           createdAt: post.createdAt || new Date().toISOString()
         }));
