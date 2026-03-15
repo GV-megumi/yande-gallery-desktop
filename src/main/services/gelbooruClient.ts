@@ -27,6 +27,10 @@ import {
   BooruPoolDetailData,
   BooruTagSummaryData,
   BooruArtistData,
+  BooruWikiData,
+  BooruForumTopicData,
+  BooruForumPostData,
+  BooruUserProfileData,
   BooruNoteData,
   BooruPostVersionData,
 } from './booruClientInterface.js';
@@ -654,6 +658,31 @@ export class GelbooruClient implements IBooruClient {
    */
   async getArtist(_name: string): Promise<BooruArtistData | null> {
     console.log('[GelbooruClient] Gelbooru 不支持艺术家 API');
+    return null;
+  }
+
+  async getWiki(_title: string): Promise<BooruWikiData | null> {
+    console.log('[GelbooruClient] Gelbooru 不支持 Wiki API');
+    return null;
+  }
+
+  async getForumTopics(_params?: { page?: number; limit?: number }): Promise<BooruForumTopicData[]> {
+    console.log('[GelbooruClient] Gelbooru 不支持论坛 API');
+    return [];
+  }
+
+  async getForumPosts(_topicId: number, _params?: { page?: number; limit?: number }): Promise<BooruForumPostData[]> {
+    console.log('[GelbooruClient] Gelbooru 不支持论坛 API');
+    return [];
+  }
+
+  async getProfile(): Promise<BooruUserProfileData | null> {
+    console.log('[GelbooruClient] Gelbooru 不支持用户主页 API');
+    return null;
+  }
+
+  async getUserProfile(_params: { userId?: number; username?: string }): Promise<BooruUserProfileData | null> {
+    console.log('[GelbooruClient] Gelbooru 不支持用户主页 API');
     return null;
   }
 

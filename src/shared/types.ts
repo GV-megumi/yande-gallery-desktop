@@ -305,6 +305,68 @@ export interface BooruPoolDetail extends BooruPool {
   posts: BooruPost[];
 }
 
+// ========= Wiki 相关类型定义 =========
+
+// Booru Wiki 页面（当前主要用于 Danbooru）
+export interface BooruWiki {
+  id: number;
+  title: string;
+  body: string;
+  otherNames: string[];
+  createdAt?: string;
+  updatedAt?: string;
+  isLocked?: boolean;
+  isDeleted?: boolean;
+}
+
+// ========= Forum 相关类型定义 =========
+
+// Booru 论坛主题（当前主要用于 Danbooru）
+export interface BooruForumTopic {
+  id: number;
+  title: string;
+  responseCount: number;
+  isSticky?: boolean;
+  isLocked?: boolean;
+  isHidden?: boolean;
+  categoryId?: number;
+  creatorId?: number;
+  updaterId?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// Booru 论坛帖子（当前主要用于 Danbooru）
+export interface BooruForumPost {
+  id: number;
+  topicId: number;
+  body: string;
+  creatorId?: number;
+  updaterId?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  isDeleted?: boolean;
+  isHidden?: boolean;
+}
+
+// ========= User 相关类型定义 =========
+
+// Booru 用户主页（当前主要用于 Danbooru）
+export interface BooruUserProfile {
+  id: number;
+  name: string;
+  levelString?: string;
+  createdAt?: string;
+  avatarUrl?: string;
+  postUploadCount?: number;
+  postUpdateCount?: number;
+  noteUpdateCount?: number;
+  commentCount?: number;
+  forumPostCount?: number;
+  favoriteCount?: number;
+  feedbackCount?: number;
+}
+
 // ========= 投票相关类型定义 =========
 
 // 投票分数：1=up, 0=neutral, -1=down

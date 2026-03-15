@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import crypto from 'crypto';
 import { getProxyConfig } from './config.js';
-import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, BooruNoteData, BooruPostVersionData, RateLimiter } from './booruClientInterface.js';
+import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, BooruWikiData, BooruForumTopicData, BooruForumPostData, BooruUserProfileData, BooruNoteData, BooruPostVersionData, RateLimiter } from './booruClientInterface.js';
 
 // Moebooru API配置
 export interface MoebooruConfig {
@@ -908,6 +908,34 @@ export class MoebooruClient implements IBooruClient {
       console.error('[MoebooruClient] 获取艺术家失败:', error.message);
       return null;
     }
+  }
+
+  /**
+   * 获取 Wiki 页面（Moebooru 当前未实现，返回 null）
+   */
+  async getWiki(_title: string): Promise<BooruWikiData | null> {
+    console.log('[MoebooruClient] 当前站点暂不支持 Wiki API');
+    return null;
+  }
+
+  async getForumTopics(_params?: { page?: number; limit?: number }): Promise<BooruForumTopicData[]> {
+    console.log('[MoebooruClient] 当前站点暂不支持论坛 API');
+    return [];
+  }
+
+  async getForumPosts(_topicId: number, _params?: { page?: number; limit?: number }): Promise<BooruForumPostData[]> {
+    console.log('[MoebooruClient] 当前站点暂不支持论坛 API');
+    return [];
+  }
+
+  async getProfile(): Promise<BooruUserProfileData | null> {
+    console.log('[MoebooruClient] 当前站点暂不支持用户主页 API');
+    return null;
+  }
+
+  async getUserProfile(_params: { userId?: number; username?: string }): Promise<BooruUserProfileData | null> {
+    console.log('[MoebooruClient] 当前站点暂不支持用户主页 API');
+    return null;
   }
 
   /**

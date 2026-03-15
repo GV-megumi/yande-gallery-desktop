@@ -120,6 +120,62 @@ export interface BooruArtistData {
   is_banned?: boolean;
 }
 
+/** 统一的 Wiki 页面格式（当前主要用于 Danbooru） */
+export interface BooruWikiData {
+  id: number;
+  title: string;
+  body: string;
+  other_names: string[];
+  created_at?: string;
+  updated_at?: string;
+  is_locked?: boolean;
+  is_deleted?: boolean;
+}
+
+/** 统一的论坛主题格式（当前主要用于 Danbooru） */
+export interface BooruForumTopicData {
+  id: number;
+  title: string;
+  response_count: number;
+  is_sticky?: boolean;
+  is_locked?: boolean;
+  is_hidden?: boolean;
+  category_id?: number;
+  creator_id?: number;
+  updater_id?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+/** 统一的论坛帖子格式（当前主要用于 Danbooru） */
+export interface BooruForumPostData {
+  id: number;
+  topic_id: number;
+  body: string;
+  creator_id?: number;
+  updater_id?: number;
+  created_at?: string;
+  updated_at?: string;
+  is_deleted?: boolean;
+  is_hidden?: boolean;
+}
+
+/** 统一的用户主页格式（当前主要用于 Danbooru） */
+export interface BooruUserProfileData {
+  id: number;
+  name: string;
+  level_string?: string;
+  created_at?: string;
+  avatar_url?: string;
+  post_upload_count?: number;
+  post_update_count?: number;
+  note_update_count?: number;
+  comment_count?: number;
+  forum_post_count?: number;
+  favorite_count?: number;
+  feedback_count?: number;
+}
+
 /** 客户端配置 */
 export interface BooruClientConfig {
   baseUrl: string;
@@ -231,6 +287,21 @@ export interface IBooruClient {
 
   /** 按名称获取艺术家信息（外部链接、别名等） */
   getArtist(name: string): Promise<BooruArtistData | null>;
+
+  /** 按标题获取 Wiki 页面（当前 Danbooru 支持） */
+  getWiki(title: string): Promise<BooruWikiData | null>;
+
+  /** 获取论坛主题列表（当前 Danbooru 支持） */
+  getForumTopics(params?: { page?: number; limit?: number }): Promise<BooruForumTopicData[]>;
+
+  /** 获取论坛主题下的帖子列表（当前 Danbooru 支持） */
+  getForumPosts(topicId: number, params?: { page?: number; limit?: number }): Promise<BooruForumPostData[]>;
+
+  /** 获取当前登录用户主页（当前 Danbooru 支持） */
+  getProfile(): Promise<BooruUserProfileData | null>;
+
+  /** 按用户 ID 或用户名获取用户主页（当前 Danbooru 支持） */
+  getUserProfile(params: { userId?: number; username?: string }): Promise<BooruUserProfileData | null>;
 
   // --- 注释相关 ---
 
