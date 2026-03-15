@@ -57,6 +57,17 @@ const IPC_CHANNELS = {
   // Booru 艺术家
   BOORU_GET_ARTIST: 'booru:get-artist',
 
+  // Booru Wiki
+  BOORU_GET_WIKI: 'booru:get-wiki',
+
+  // Booru Forum
+  BOORU_GET_FORUM_TOPICS: 'booru:get-forum-topics',
+  BOORU_GET_FORUM_POSTS: 'booru:get-forum-posts',
+
+  // Booru User
+  BOORU_GET_PROFILE: 'booru:get-profile',
+  BOORU_GET_USER_PROFILE: 'booru:get-user-profile',
+
   // 收藏标签管理
   BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
@@ -300,6 +311,22 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 艺术家
     getArtist: (siteId: number, name: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ARTIST, siteId, name),
+
+    // Wiki
+    getWiki: (siteId: number, title: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_WIKI, siteId, title),
+
+    // Forum
+    getForumTopics: (siteId: number, page?: number, limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_TOPICS, siteId, page, limit),
+    getForumPosts: (siteId: number, topicId: number, page?: number, limit?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_POSTS, siteId, topicId, page, limit),
+
+    // User
+    getProfile: (siteId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_PROFILE, siteId),
+    getUserProfile: (siteId: number, params: { userId?: number; username?: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_USER_PROFILE, siteId, params),
 
     // 收藏标签管理
     addFavoriteTag: (siteId: number | null, tagName: string, options?: any) =>
@@ -591,6 +618,11 @@ declare global {
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         autocompleteTags: (siteId: number, query: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; count: number; type: number }>; error?: string }>;
         getArtist: (siteId: number, name: string) => Promise<{ success: boolean; data?: { id: number; name: string; aliases: string[]; urls: string[]; group_name?: string; is_banned?: boolean } | null; error?: string }>;
+        getWiki: (siteId: number, title: string) => Promise<{ success: boolean; data?: { id: number; title: string; body: string; other_names: string[]; created_at?: string; updated_at?: string; is_locked?: boolean; is_deleted?: boolean } | null; error?: string }>;
+        getForumTopics: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: Array<{ id: number; title: string; response_count: number; is_sticky?: boolean; is_locked?: boolean; is_hidden?: boolean; category_id?: number; creator_id?: number; updater_id?: number; created_at?: string; updated_at?: string }>; error?: string }>;
+        getForumPosts: (siteId: number, topicId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: Array<{ id: number; topic_id: number; body: string; creator_id?: number; updater_id?: number; created_at?: string; updated_at?: string; is_deleted?: boolean; is_hidden?: boolean }>; error?: string }>;
+        getProfile: (siteId: number) => Promise<{ success: boolean; data?: { id: number; name: string; level_string?: string; created_at?: string; avatar_url?: string; post_upload_count?: number; post_update_count?: number; note_update_count?: number; comment_count?: number; forum_post_count?: number; favorite_count?: number; feedback_count?: number } | null; error?: string }>;
+        getUserProfile: (siteId: number, params: { userId?: number; username?: string }) => Promise<{ success: boolean; data?: { id: number; name: string; level_string?: string; created_at?: string; avatar_url?: string; post_upload_count?: number; post_update_count?: number; note_update_count?: number; comment_count?: number; forum_post_count?: number; favorite_count?: number; feedback_count?: number } | null; error?: string }>;
         addFavoriteTag: (siteId: number | null, tagName: string, options?: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;

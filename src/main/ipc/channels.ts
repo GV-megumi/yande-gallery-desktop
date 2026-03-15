@@ -69,6 +69,17 @@ export const IPC_CHANNELS = {
   // Booru 艺术家
   BOORU_GET_ARTIST: 'booru:get-artist',
 
+  // Booru Wiki
+  BOORU_GET_WIKI: 'booru:get-wiki',
+
+  // Booru Forum
+  BOORU_GET_FORUM_TOPICS: 'booru:get-forum-topics',
+  BOORU_GET_FORUM_POSTS: 'booru:get-forum-posts',
+
+  // Booru User
+  BOORU_GET_PROFILE: 'booru:get-profile',
+  BOORU_GET_USER_PROFILE: 'booru:get-user-profile',
+
   // === 批量下载相关通道 ===
   BULK_DOWNLOAD_CREATE_TASK: 'bulk-download:create-task',
   BULK_DOWNLOAD_GET_TASKS: 'bulk-download:get-tasks',

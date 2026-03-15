@@ -1668,6 +1668,97 @@ export function setupIPC() {
     }
   });
 
+  // 获取 Wiki 页面
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_WIKI, async (_event: IpcMainInvokeEvent, siteId: number, title: string) => {
+    try {
+      console.log('[IPC] 获取 Wiki:', { siteId, title });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const wiki = await client.getWiki(title);
+      console.log('[IPC] Wiki 获取结果:', wiki ? wiki.title : 'null');
+      return { success: true, data: wiki };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取 Wiki 失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取论坛主题列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FORUM_TOPICS, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20) => {
+    try {
+      console.log('[IPC] 获取论坛主题:', { siteId, page, limit });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const topics = await client.getForumTopics({ page, limit });
+      return { success: true, data: topics };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取论坛主题失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取论坛帖子列表
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FORUM_POSTS, async (_event: IpcMainInvokeEvent, siteId: number, topicId: number, page: number = 1, limit: number = 20) => {
+    try {
+      console.log('[IPC] 获取论坛帖子:', { siteId, topicId, page, limit });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const posts = await client.getForumPosts(topicId, { page, limit });
+      return { success: true, data: posts };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取论坛帖子失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取当前登录用户主页
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_PROFILE, async (_event: IpcMainInvokeEvent, siteId: number) => {
+    try {
+      console.log('[IPC] 获取当前用户主页:', { siteId });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const profile = await client.getProfile();
+      return { success: true, data: profile };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取当前用户主页失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  // 获取指定用户主页
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_USER_PROFILE, async (_event: IpcMainInvokeEvent, siteId: number, params: { userId?: number; username?: string }) => {
+    try {
+      console.log('[IPC] 获取指定用户主页:', { siteId, params });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const profile = await client.getUserProfile(params || {});
+      return { success: true, data: profile };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取指定用户主页失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
   // ========= 搜索历史 =========
 
   // 添加搜索历史
