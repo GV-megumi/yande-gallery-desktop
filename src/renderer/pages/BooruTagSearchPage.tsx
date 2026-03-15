@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography, Tooltip, Tag, Card, Descriptions, Spin } from 'antd';
-import { LeftOutlined, StarOutlined, StarFilled } from '@ant-design/icons';
+import { Button, Empty, App, Typography, Tooltip, Tag, Spin } from 'antd';
+import { LeftOutlined, StarOutlined, StarFilled, BookOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -10,6 +10,7 @@ import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
+import { canOpenWikiTitleQuery } from '../utils/booruQuery';
 
 const { Title, Text } = Typography;
 
@@ -33,7 +34,9 @@ interface BooruTagSearchPageProps {
   initialTag: string;
   initialSiteId?: number | null;
   onBack?: () => void;
+  onTagClick?: (tag: string, siteId?: number | null) => void;
   onArtistClick?: (artistName: string, siteId?: number | null) => void;
+  onWikiClick?: (title: string, siteId?: number | null) => void;
   onCharacterClick?: (characterName: string, siteId?: number | null) => void;
   /** 详情页内的标签点击回调（如打开子窗口），未提供时使用页面内搜索 */
   onDetailTagClick?: (tag: string, siteId?: number | null) => void;
@@ -50,7 +53,9 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   initialTag,
   initialSiteId = null,
   onBack,
+  onTagClick,
   onArtistClick,
+  onWikiClick,
   onCharacterClick,
   onDetailTagClick,
   suspended = false
@@ -99,6 +104,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
 
   // 当前搜索标签的收藏状态
   const [isTagFavorited, setIsTagFavorited] = useState(false);
+  const canOpenWiki = useMemo(() => canOpenWikiTitleQuery(searchTag), [searchTag]);
 
   // 检查当前搜索标签是否已收藏
   const checkTagFavoriteStatus = useCallback(async (tag: string) => {
@@ -484,6 +490,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
             onClick={handleToggleTagFavorite}
           />
         </Tooltip>
+        {onWikiClick && canOpenWiki && (
+          <Tooltip title="查看 Wiki 页面">
+            <Button
+              type="text"
+              icon={<BookOutlined style={{ fontSize: 18 }} />}
+              onClick={() => onWikiClick(searchTag, selectedSiteId)}
+            />
+          </Tooltip>
+        )}
       </div>
 
       {/* 标签详情信息卡片 */}
