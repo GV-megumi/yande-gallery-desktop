@@ -50,6 +50,8 @@ const enUS: LocaleMessages = {
     posts: 'Browse Posts',
     popular: 'Popular',
     pools: 'Pools',
+    forums: 'Forums',
+    userProfile: 'User Profile',
     favorites: 'Favorites',
     serverFavorites: 'Liked',
     favoriteTags: 'Favorite Tags',

@@ -16,7 +16,7 @@ import {
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
   SunOutlined, MoonOutlined, StopOutlined,
   FireOutlined, DatabaseOutlined, HeartOutlined,
-  SearchOutlined, SmileOutlined,
+  SearchOutlined, SmileOutlined, MessageOutlined,
   HddOutlined, CameraOutlined, UserOutlined
 } from '@ant-design/icons';
 
@@ -35,7 +35,10 @@ const BooruPopularPage = React.lazy(() => import('./pages/BooruPopularPage').the
 const BooruPoolsPage = React.lazy(() => import('./pages/BooruPoolsPage').then(m => ({ default: m.BooruPoolsPage })));
 const BooruArtistPage = React.lazy(() => import('./pages/BooruArtistPage').then(m => ({ default: m.BooruArtistPage })));
 const BooruCharacterPage = React.lazy(() => import('./pages/BooruCharacterPage').then(m => ({ default: m.BooruCharacterPage })));
+const BooruWikiPage = React.lazy(() => import('./pages/BooruWikiPage').then(m => ({ default: m.BooruWikiPage })));
+const BooruUserPage = React.lazy(() => import('./pages/BooruUserPage').then(m => ({ default: m.BooruUserPage })));
 const BooruSavedSearchesPage = React.lazy(() => import('./pages/BooruSavedSearchesPage').then(m => ({ default: m.BooruSavedSearchesPage })));
+const BooruForumPage = React.lazy(() => import('./pages/BooruForumPage').then(m => ({ default: m.BooruForumPage })));
 const BooruServerFavoritesPage = React.lazy(() => import('./pages/BooruServerFavoritesPage').then(m => ({ default: m.BooruServerFavoritesPage })));
 const GoogleDrivePage = React.lazy(() => import('./pages/GoogleDrivePage').then(m => ({ default: m.GoogleDrivePage })));
 const GooglePhotosPage = React.lazy(() => import('./pages/GooglePhotosPage').then(m => ({ default: m.GooglePhotosPage })));
@@ -158,6 +161,8 @@ function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
     { key: 'posts', icon: <DotIcon color={iconColors.posts} icon={<CloudOutlined />} />, label: t('menu.posts') },
     { key: 'popular', icon: <DotIcon color={iconColors.popular} icon={<FireOutlined />} />, label: t('menu.popular') },
     { key: 'pools', icon: <DotIcon color={iconColors.pools} icon={<DatabaseOutlined />} />, label: t('menu.pools') },
+    { key: 'forums', icon: <DotIcon color="#0EA5E9" icon={<MessageOutlined />} />, label: t('menu.forums') },
+    { key: 'user-profile', icon: <DotIcon color={iconColors.favorites} icon={<UserOutlined />} />, label: t('menu.userProfile') },
     { key: 'favorites', icon: <DotIcon color={iconColors.favorites} icon={<BookOutlined />} />, label: t('menu.favorites') },
     { key: 'server-favorites', icon: <DotIcon color={iconColors.serverFavorites} icon={<HeartOutlined />} />, label: t('menu.serverFavorites') },
     { key: 'favorite-tags', icon: <DotIcon color={iconColors.favoriteTags} icon={<StarOutlined />} />, label: t('menu.favoriteTags') },
@@ -173,6 +178,8 @@ function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
 type NavigationEntry =
   | { type: 'tag-search'; tag: string; siteId?: number | null }
   | { type: 'artist'; name: string; siteId?: number | null }
+  | { type: 'wiki'; name: string; siteId?: number | null }
+  | { type: 'user'; userId?: number; username?: string; siteId?: number | null }
   | { type: 'character'; name: string; siteId?: number | null };
 
 export const AppContent: React.FC = () => {
@@ -399,7 +406,12 @@ export const AppContent: React.FC = () => {
 
   // 导航栈操作：push 压栈（保留下层页面），pop 弹栈（返回上一页）
   const pushNavigation = useCallback((entry: NavigationEntry) => {
-    console.log('[App] 导航栈 push:', entry.type, entry.type === 'tag-search' ? entry.tag : entry.name);
+    const label = entry.type === 'tag-search'
+      ? entry.tag
+      : entry.type === 'user'
+        ? (entry.username || (entry.userId ? `#${entry.userId}` : 'user'))
+        : entry.name;
+    console.log('[App] 导航栈 push:', entry.type, label);
     setNavigationStack(prev => [...prev, entry]);
   }, []);
 
@@ -414,6 +426,14 @@ export const AppContent: React.FC = () => {
 
   const navigateToArtist = useCallback((name: string, siteId?: number | null) => {
     pushNavigation({ type: 'artist', name, siteId });
+  }, [pushNavigation]);
+
+  const navigateToWiki = useCallback((name: string, siteId?: number | null) => {
+    pushNavigation({ type: 'wiki', name, siteId });
+  }, [pushNavigation]);
+
+  const navigateToUser = useCallback((params: { userId?: number; username?: string }, siteId?: number | null) => {
+    pushNavigation({ type: 'user', userId: params.userId, username: params.username, siteId });
   }, [pushNavigation]);
 
   const navigateToCharacter = useCallback((name: string, siteId?: number | null) => {
@@ -444,6 +464,8 @@ export const AppContent: React.FC = () => {
       switch (topNavEntry.type) {
         case 'character': return { main: '角色', sub: topNavEntry.name.replace(/_/g, ' ') };
         case 'artist': return { main: '艺术家', sub: topNavEntry.name.replace(/_/g, ' ') };
+        case 'wiki': return { main: 'Wiki', sub: topNavEntry.name.replace(/_/g, ' ') };
+        case 'user': return { main: '用户', sub: topNavEntry.username || (topNavEntry.userId ? `#${topNavEntry.userId}` : '主页') };
         case 'tag-search': return { main: t('pageTitle.tagSearch'), sub: topNavEntry.tag.replace(/_/g, ' ') };
       }
     }
@@ -474,6 +496,7 @@ export const AppContent: React.FC = () => {
             onBack={popNavigation}
             onTagClick={navigateToTagSearch}
             onArtistClick={navigateToArtist}
+            onWikiClick={navigateToWiki}
             onCharacterClick={navigateToCharacter}
             suspended={isSuspended}
           />
@@ -496,6 +519,26 @@ export const AppContent: React.FC = () => {
             onBack={popNavigation}
             onTagClick={navigateToTagSearch}
             suspended={isSuspended}
+          />
+        );
+      case 'wiki':
+        return (
+          <BooruWikiPage
+            wikiTitle={entry.name}
+            initialSiteId={entry.siteId}
+            onBack={popNavigation}
+            onTagClick={navigateToTagSearch}
+            onWikiClick={navigateToWiki}
+          />
+        );
+      case 'user':
+        return (
+          <BooruUserPage
+            userId={entry.userId}
+            username={entry.username}
+            initialSiteId={entry.siteId}
+            onBack={popNavigation}
+            onTagClick={navigateToTagSearch}
           />
         );
     }
@@ -559,6 +602,8 @@ export const AppContent: React.FC = () => {
       if (key === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={false} />;
       if (key === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={false} />;
       if (key === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={false} />;
+      if (key === 'forums') return <BooruForumPage onUserClick={navigateToUser} suspended={false} />;
+      if (key === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
       if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
       if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
       if (key === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
@@ -589,8 +634,10 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
         if (selectedBooruSubKey === 'popular') return <BooruPopularPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
         if (selectedBooruSubKey === 'pools') return <BooruPoolsPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
-        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
-        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'forums') return <BooruForumPage onUserClick={navigateToUser} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
+        if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
         if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
         if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;

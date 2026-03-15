@@ -48,6 +48,8 @@ const zhCN = {
     posts: '图片浏览',
     popular: '热门图片',
     pools: 'Pool 图集',
+    forums: '论坛浏览',
+    userProfile: '用户主页',
     favorites: '我的收藏',
     serverFavorites: '我的喜欢',
     favoriteTags: '收藏标签',
