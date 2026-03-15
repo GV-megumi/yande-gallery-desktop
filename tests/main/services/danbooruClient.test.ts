@@ -212,6 +212,78 @@ describe('DanbooruClient', () => {
     });
   });
 
+  describe('forum support', () => {
+    it('getForumTopics 应在请求失败时抛出错误', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockRejectedValue(new Error('network error'));
+      (client as any).client = { get: mockGet };
+
+      await expect(client.getForumTopics()).rejects.toThrow('network error');
+    });
+
+    it('getForumPosts 应在请求失败时抛出错误', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockRejectedValue(new Error('network error'));
+      (client as any).client = { get: mockGet };
+
+      await expect(client.getForumPosts(123)).rejects.toThrow('network error');
+    });
+  });
+
+  describe('user profile support', () => {
+    it('getProfile 未登录时应返回 null', async () => {
+      const client = createClient({ login: undefined, apiKey: undefined });
+      const result = await client.getProfile();
+      expect(result).toBeNull();
+    });
+
+    it('getUserProfile 请求失败时应抛出错误', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockRejectedValue(new Error('network error'));
+      (client as any).client = { get: mockGet };
+
+      await expect(client.getUserProfile({ username: 'test_user' })).rejects.toThrow('network error');
+    });
+
+    it('getUserProfile 用户名查询只应接受精确匹配', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockResolvedValue({
+        data: [
+          { id: 1, name: 'test_user_alt' },
+          { id: 2, name: 'another_user' },
+        ],
+      });
+      (client as any).client = { get: mockGet };
+
+      const result = await client.getUserProfile({ username: 'test_user' });
+      expect(result).toBeNull();
+    });
+
+    it('getUserProfile 用户名查询命中精确匹配时应返回对应用户', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockResolvedValue({
+        data: [
+          { id: 1, name: 'test_user_alt' },
+          { id: 2, name: 'test_user', level_string: 'Member' },
+        ],
+      });
+      (client as any).client = { get: mockGet };
+
+      const result = await client.getUserProfile({ username: 'test_user' });
+      expect(result).toMatchObject({ id: 2, name: 'test_user', level_string: 'Member' });
+    });
+  });
+
+  describe('wiki support', () => {
+    it('getWiki 请求失败时应抛出错误', async () => {
+      const client = createClient();
+      const mockGet = vi.fn().mockRejectedValue(new Error('network error'));
+      (client as any).client = { get: mockGet };
+
+      await expect(client.getWiki('test_wiki')).rejects.toThrow('network error');
+    });
+  });
+
   describe('parseTagSummary', () => {
     it('应返回空 Map（Danbooru 不支持）', () => {
       const client = createClient();

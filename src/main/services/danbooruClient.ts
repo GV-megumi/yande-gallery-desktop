@@ -25,6 +25,10 @@ import {
   BooruPoolDetailData,
   BooruTagSummaryData,
   BooruArtistData,
+  BooruWikiData,
+  BooruForumTopicData,
+  BooruForumPostData,
+  BooruUserProfileData,
   BooruNoteData,
   BooruPostVersionData,
   TAG_TYPE_MAP,
@@ -95,6 +99,59 @@ interface DanbooruRawPool {
   created_at: string;
   updated_at: string;
   post_ids: number[];
+}
+
+// Danbooru Wiki 原始格式
+interface DanbooruRawWiki {
+  id: number;
+  title: string;
+  body: string;
+  other_names?: string[] | string;
+  is_locked?: boolean;
+  is_deleted?: boolean;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface DanbooruRawForumTopic {
+  id: number;
+  title: string;
+  response_count: number;
+  is_sticky?: boolean;
+  is_locked?: boolean;
+  is_hidden?: boolean;
+  category_id?: number;
+  creator_id?: number;
+  updater_id?: number;
+  created_at?: string;
+  updated_at?: string;
+}
+
+interface DanbooruRawForumPost {
+  id: number;
+  topic_id: number;
+  body: string;
+  creator_id?: number;
+  updater_id?: number;
+  created_at?: string;
+  updated_at?: string;
+  is_deleted?: boolean;
+  is_hidden?: boolean;
+}
+
+interface DanbooruRawUser {
+  id: number;
+  name: string;
+  level_string?: string;
+  created_at?: string;
+  avatar_url?: string;
+  post_upload_count?: number;
+  post_update_count?: number;
+  note_update_count?: number;
+  comment_count?: number;
+  forum_post_count?: number;
+  favorite_count?: number;
+  feedback_count?: number;
 }
 
 /**
@@ -657,6 +714,186 @@ export class DanbooruClient implements IBooruClient {
     } catch (error: any) {
       console.error('[DanbooruClient] 获取艺术家失败:', error.message);
       return null;
+    }
+  }
+
+  /**
+   * 获取 Wiki 页面
+   * Danbooru API: GET /wiki_pages/{title}.json
+   */
+  async getWiki(title: string): Promise<BooruWikiData | null> {
+    try {
+      console.log('[DanbooruClient] 获取 Wiki:', title);
+      await this.rateLimiter.acquire();
+
+      const response = await this.client.get(`/wiki_pages/${encodeURIComponent(title)}.json`);
+      const wiki: DanbooruRawWiki | null = response.data || null;
+
+      if (!wiki?.id) {
+        console.log('[DanbooruClient] 未找到 Wiki:', title);
+        return null;
+      }
+
+      const otherNames = Array.isArray(wiki.other_names)
+        ? wiki.other_names
+        : typeof wiki.other_names === 'string'
+          ? wiki.other_names.split(/\n|,/).map(name => name.trim()).filter(Boolean)
+          : [];
+
+      console.log('[DanbooruClient] Wiki 获取成功:', wiki.title);
+      return {
+        id: wiki.id,
+        title: wiki.title,
+        body: wiki.body || '',
+        other_names: otherNames,
+        created_at: wiki.created_at,
+        updated_at: wiki.updated_at,
+        is_locked: wiki.is_locked,
+        is_deleted: wiki.is_deleted,
+      };
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        console.log('[DanbooruClient] Wiki 不存在:', title);
+        return null;
+      }
+      console.error('[DanbooruClient] 获取 Wiki 失败:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取论坛主题列表
+   * Danbooru API: GET /forum_topics.json
+   */
+  async getForumTopics(params?: { page?: number; limit?: number }): Promise<BooruForumTopicData[]> {
+    try {
+      const queryParams = {
+        page: params?.page || 1,
+        limit: params?.limit || 20,
+        'search[order]': 'sticky',
+      };
+      console.log('[DanbooruClient] 获取论坛主题:', queryParams);
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/forum_topics.json', { params: queryParams });
+      const topics: DanbooruRawForumTopic[] = Array.isArray(response.data) ? response.data : [];
+      return topics.map(topic => ({
+        id: topic.id,
+        title: topic.title,
+        response_count: topic.response_count || 0,
+        is_sticky: topic.is_sticky || false,
+        is_locked: topic.is_locked || false,
+        is_hidden: topic.is_hidden || false,
+        category_id: topic.category_id,
+        creator_id: topic.creator_id,
+        updater_id: topic.updater_id,
+        created_at: topic.created_at,
+        updated_at: topic.updated_at,
+      }));
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取论坛主题失败:', error.message);
+      throw error;
+    }
+  }
+
+  /**
+   * 获取论坛主题帖子列表
+   * Danbooru API: GET /forum_posts.json?search[topic_id]=xxx
+   */
+  async getForumPosts(topicId: number, params?: { page?: number; limit?: number }): Promise<BooruForumPostData[]> {
+    try {
+      const queryParams = {
+        page: params?.page || 1,
+        limit: params?.limit || 20,
+        'search[topic_id]': topicId,
+      };
+      console.log('[DanbooruClient] 获取论坛帖子:', queryParams);
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/forum_posts.json', { params: queryParams });
+      const posts: DanbooruRawForumPost[] = Array.isArray(response.data) ? response.data : [];
+      return posts.map(post => ({
+        id: post.id,
+        topic_id: post.topic_id,
+        body: post.body || '',
+        creator_id: post.creator_id,
+        updater_id: post.updater_id,
+        created_at: post.created_at,
+        updated_at: post.updated_at,
+        is_deleted: post.is_deleted || false,
+        is_hidden: post.is_hidden || false,
+      }));
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取论坛帖子失败:', error.message);
+      throw error;
+    }
+  }
+
+  private convertUserProfile(user: DanbooruRawUser): BooruUserProfileData {
+    return {
+      id: user.id,
+      name: user.name,
+      level_string: user.level_string,
+      created_at: user.created_at,
+      avatar_url: user.avatar_url,
+      post_upload_count: user.post_upload_count || 0,
+      post_update_count: user.post_update_count || 0,
+      note_update_count: user.note_update_count || 0,
+      comment_count: user.comment_count || 0,
+      forum_post_count: user.forum_post_count || 0,
+      favorite_count: user.favorite_count || 0,
+      feedback_count: user.feedback_count || 0,
+    };
+  }
+
+  async getProfile(): Promise<BooruUserProfileData | null> {
+    try {
+      if (!this.config.login || !this.config.apiKey) {
+        console.log('[DanbooruClient] 未登录，无法获取当前用户主页');
+        return null;
+      }
+
+      console.log('[DanbooruClient] 获取当前用户主页');
+      await this.rateLimiter.acquire();
+      const response = await this.client.get('/profile.json');
+      if (!response.data?.id) {
+        return null;
+      }
+      return this.convertUserProfile(response.data as DanbooruRawUser);
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取当前用户主页失败:', error.message);
+      throw error;
+    }
+  }
+
+  async getUserProfile(params: { userId?: number; username?: string }): Promise<BooruUserProfileData | null> {
+    try {
+      if (params.userId) {
+        console.log('[DanbooruClient] 按 ID 获取用户主页:', params.userId);
+        await this.rateLimiter.acquire();
+        const response = await this.client.get(`/users/${params.userId}.json`);
+        if (!response.data?.id) {
+          return null;
+        }
+        return this.convertUserProfile(response.data as DanbooruRawUser);
+      }
+
+      if (params.username) {
+        console.log('[DanbooruClient] 按用户名获取用户主页:', params.username);
+        await this.rateLimiter.acquire();
+        const response = await this.client.get('/users.json', {
+          params: { 'search[name_matches]': params.username, limit: 1 }
+        });
+        const users: DanbooruRawUser[] = Array.isArray(response.data) ? response.data : [];
+        const user = users.find(item => item.name === params.username);
+        return user ? this.convertUserProfile(user) : null;
+      }
+
+      return null;
+    } catch (error: any) {
+      if (error.response?.status === 404) {
+        return null;
+      }
+      console.error('[DanbooruClient] 获取用户主页失败:', error.message);
+      throw error;
     }
   }
 
