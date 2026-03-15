@@ -15,7 +15,8 @@ import {
   UserOutlined,
   LockOutlined,
   LinkOutlined,
-  FileImageOutlined
+  FileImageOutlined,
+  WarningOutlined
 } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { useLocale } from '../../locales';
@@ -163,6 +164,34 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
     message.info(t('details.slideshowDev'));
   }, [message, t]);
 
+  const handleReportPost = useCallback(async () => {
+    if (!site || site.type !== 'danbooru') {
+      message.warning('当前站点暂不支持举报');
+      return;
+    }
+    if (!isLoggedIn) {
+      message.warning('需要登录后才能举报');
+      return;
+    }
+
+    const reason = window.prompt('请输入举报原因');
+    if (!reason || !reason.trim()) {
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.booru.reportPost(site.id, post.postId, reason.trim());
+      if (result.success) {
+        message.success('举报已提交');
+      } else {
+        message.error('举报失败: ' + result.error);
+      }
+    } catch (error) {
+      console.error('[Toolbar] 举报帖子失败:', error);
+      message.error('举报失败');
+    }
+  }, [site, isLoggedIn, post.postId, message]);
+
   const copyToClipboard = useCallback((text: string, successMsg: string) => {
     if (!text) { message.warning('链接不可用'); return; }
     navigator.clipboard.writeText(text).then(() => {
@@ -285,6 +314,11 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
             {t('details.share')}
           </Button>
         </Dropdown>
+        {site?.type === 'danbooru' && (
+          <Button icon={<WarningOutlined />} danger onClick={handleReportPost}>
+            举报
+          </Button>
+        )}
       </Space>
 
       {/* 收藏用户列表 */}

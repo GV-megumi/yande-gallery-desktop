@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button, Empty, App, Tooltip, Tag } from 'antd';
-import { ThunderboltOutlined } from '@ant-design/icons';
+import { CheckSquareOutlined, ThunderboltOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -10,6 +10,7 @@ import { AdvancedFilterPanel, FilterConfig, filterConfigToMetaTags } from '../co
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { useFavorite } from '../hooks/useFavorite';
+import { getCommonPostTags, toggleSelectedPost } from '../utils/multiSelect';
 
 interface BooruPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -35,6 +36,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   const [filterConfig, setFilterConfig] = useState<FilterConfig>({});
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedPostIds, setSelectedPostIds] = useState<Set<number>>(new Set());
   const contentRef = useRef<HTMLDivElement>(null);
   // 挂起时保存/恢复详情弹窗状态（导航栈机制）
   // 请求计数器：用于丢弃快速切换站点时的过期响应
@@ -312,6 +315,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     setSearchQuery('');
     setSelectedTags([]);
     setFilterConfig({});
+    setSelectionMode(false);
+    setSelectedPostIds(new Set());
   };
 
   // 处理搜索
@@ -407,9 +412,13 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   // 处理图片预览
   const handlePreview = useCallback((post: BooruPost) => {
     console.log('[BooruPage] 预览图片:', post.postId);
+    if (selectionMode) {
+      setSelectedPostIds((current) => toggleSelectedPost(current, post.postId));
+      return;
+    }
     setSelectedPost(post);
     setDetailsPageOpen(true);
-  }, []);
+  }, [selectionMode]);
 
   // 按 ID 倒序排序（最新的在前），用于 BooruGridLayout 和 BooruPostDetailsPage
   const sortedPosts = useMemo(() => {
@@ -496,6 +505,37 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       .slice(0, 15)
       .map(([tag, count]) => ({ tag, count }));
   }, [posts, parsedPostTags, selectedTags]);
+
+  const selectedPosts = useMemo(() => posts.filter((post) => selectedPostIds.has(post.postId)), [posts, selectedPostIds]);
+  const commonSelectedTags = useMemo(() => getCommonPostTags(selectedPosts), [selectedPosts]);
+
+  const handleBatchFavorite = useCallback(async () => {
+    if (!selectedSiteId || selectedPosts.length === 0) return;
+    let added = 0;
+    for (const post of selectedPosts) {
+      if (!favorites.has(post.postId) && !post.isFavorited) {
+        const result = await toggleFavorite(post);
+        if (result.success) added += 1;
+      }
+    }
+    message.success(`已处理 ${added} 张图片的收藏`);
+  }, [selectedSiteId, selectedPosts, favorites, toggleFavorite, message]);
+
+  const handleBatchDownload = useCallback(async () => {
+    if (!selectedSiteId || selectedPosts.length === 0) return;
+    for (const post of selectedPosts) {
+      await handleDownload(post);
+    }
+    message.success(`已将 ${selectedPosts.length} 张图片加入下载队列`);
+  }, [selectedSiteId, selectedPosts, handleDownload, message]);
+
+  const handleAppendSelectedTag = useCallback((tag: string) => {
+    const nextTags = Array.from(new Set([...selectedTags, tag]));
+    const nextQuery = nextTags.join(' ');
+    setSelectedTags(nextTags);
+    setSearchQuery(nextQuery);
+    searchPosts(nextQuery, 1);
+  }, [selectedTags]);
 
   // 初始化
   useEffect(() => {
@@ -602,9 +642,43 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
                 disabled={!selectedSiteId || loading}
               />
             </Tooltip>
+            <Tooltip title={selectionMode ? '退出多选' : '进入多选'}>
+              <Button
+                icon={<CheckSquareOutlined />}
+                type={selectionMode ? 'primary' : 'default'}
+                onClick={() => {
+                  setSelectionMode((value) => !value);
+                  setSelectedPostIds(new Set());
+                }}
+                disabled={!posts.length}
+              />
+            </Tooltip>
           </>
         }
       />
+
+      {selectionMode && (
+        <div style={{ padding: '8px 12px', marginBottom: 8, background: 'rgba(52, 199, 89, 0.08)', borderRadius: 8 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: selectedPosts.length > 0 ? 8 : 0 }}>
+            <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>已选择 {selectedPosts.length} 张图片</span>
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button size="small" onClick={handleBatchFavorite} disabled={selectedPosts.length === 0}>批量收藏</Button>
+              <Button size="small" onClick={handleBatchDownload} disabled={selectedPosts.length === 0}>批量下载</Button>
+              <Button size="small" onClick={() => setSelectedPostIds(new Set())} disabled={selectedPosts.length === 0}>清空选择</Button>
+            </div>
+          </div>
+          {commonSelectedTags.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>共同标签:</span>
+              {commonSelectedTags.slice(0, 12).map((tag) => (
+                <Tag key={tag} style={{ cursor: 'pointer', marginBottom: 0 }} onClick={() => handleAppendSelectedTag(tag)}>
+                  {tag}
+                </Tag>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 相关标签推荐 — 在搜索模式下显示当前结果中的高频标签 */}
       {isSearchMode && relatedTags.length > 0 && (
@@ -770,10 +844,13 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
-              onTagClick={handleTagClick}
-              onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-              serverFavorites={serverFavorites}
-            />
+                onTagClick={handleTagClick}
+                onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+                serverFavorites={serverFavorites}
+                selectionMode={selectionMode}
+                selectedPostIds={selectedPostIds}
+                onToggleSelect={(post) => setSelectedPostIds((current) => toggleSelectedPost(current, post.postId))}
+              />
 
             <PaginationControl
               currentPage={currentPage}

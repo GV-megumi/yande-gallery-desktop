@@ -11,6 +11,7 @@ import { getBooruPreviewUrl } from '../utils/url';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { canOpenWikiTitleQuery } from '../utils/booruQuery';
+import { getDirectImplicationTags, resolveCanonicalTag, type TagRelationships } from '../utils/tagRelationships';
 
 const { Title, Text } = Typography;
 
@@ -101,10 +102,13 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   // 标签详情信息
   const [tagInfo, setTagInfo] = useState<TagInfo | null>(null);
   const [tagInfoLoading, setTagInfoLoading] = useState(false);
+  const [tagRelationships, setTagRelationships] = useState<TagRelationships | null>(null);
 
   // 当前搜索标签的收藏状态
   const [isTagFavorited, setIsTagFavorited] = useState(false);
   const canOpenWiki = useMemo(() => canOpenWikiTitleQuery(searchTag), [searchTag]);
+  const canonicalSearchTag = useMemo(() => resolveCanonicalTag(searchTag, tagRelationships), [searchTag, tagRelationships]);
+  const implicationTags = useMemo(() => getDirectImplicationTags(searchTag, tagRelationships), [searchTag, tagRelationships]);
 
   // 检查当前搜索标签是否已收藏
   const checkTagFavoriteStatus = useCallback(async (tag: string) => {
@@ -163,13 +167,34 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   }, [selectedSiteId]);
 
+  const loadTagRelationships = useCallback(async (tag: string) => {
+    if (!selectedSiteId || !window.electronAPI?.booru?.getTagRelationships) return;
+    try {
+      const site = sites.find((item) => item.id === selectedSiteId);
+      if (site?.type !== 'danbooru') {
+        setTagRelationships(null);
+        return;
+      }
+      const result = await window.electronAPI.booru.getTagRelationships(selectedSiteId, tag);
+      if (result.success && result.data) {
+        setTagRelationships(result.data);
+      } else {
+        setTagRelationships(null);
+      }
+    } catch (error) {
+      console.error('[BooruTagSearchPage] 加载标签别名与关联失败:', error);
+      setTagRelationships(null);
+    }
+  }, [selectedSiteId, sites]);
+
   // 搜索标签变化时加载标签信息和检查收藏状态
   useEffect(() => {
     if (searchTag) {
       checkTagFavoriteStatus(searchTag);
       loadTagInfo(searchTag);
+      loadTagRelationships(searchTag);
     }
-  }, [searchTag, selectedSiteId, checkTagFavoriteStatus, loadTagInfo]);
+  }, [searchTag, selectedSiteId, checkTagFavoriteStatus, loadTagInfo, loadTagRelationships]);
 
   // 相关标签推荐：从当前帖子标签中统计高频标签（排除当前搜索标签）
   const relatedTags = useMemo(() => {
@@ -446,15 +471,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   // 使用 ref 跟踪已搜索的标签，避免重复搜索
   const lastSearchedTagRef = useRef<string>('');
   useEffect(() => {
-    if (sitesLoaded && selectedSiteId && searchTag && !suspended) {
+    if (sitesLoaded && selectedSiteId && canonicalSearchTag && !suspended) {
       // 避免重复搜索相同的标签
-      if (lastSearchedTagRef.current !== searchTag) {
-        console.log('[BooruTagSearchPage] 自动搜索标签:', searchTag, '站点:', selectedSiteId);
-        lastSearchedTagRef.current = searchTag;
-        searchTagPosts(searchTag, 1);
+      if (lastSearchedTagRef.current !== canonicalSearchTag) {
+        console.log('[BooruTagSearchPage] 自动搜索标签:', canonicalSearchTag, '站点:', selectedSiteId);
+        lastSearchedTagRef.current = canonicalSearchTag;
+        searchTagPosts(canonicalSearchTag, 1);
       }
     }
-  }, [sitesLoaded, selectedSiteId, searchTag, suspended]);
+  }, [sitesLoaded, selectedSiteId, canonicalSearchTag, suspended]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
 
@@ -524,6 +549,22 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
                 {tagInfo.count.toLocaleString()} 张帖子
               </Text>
             </div>
+            {canonicalSearchTag !== searchTag && (
+              <div style={{ marginBottom: spacing.xs }}>
+                <Text type="secondary" style={{ fontSize: fontSize.sm }}>别名已自动展开为</Text>
+                <Tag color="gold" style={{ marginLeft: spacing.xs }}>{canonicalSearchTag}</Tag>
+              </div>
+            )}
+            {implicationTags.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
+                <Text type="secondary" style={{ fontSize: fontSize.sm }}>关联标签:</Text>
+                {implicationTags.slice(0, 10).map((tag) => (
+                  <Tag key={tag} style={{ cursor: 'pointer', marginBottom: 0 }} onClick={() => handleTagClickInPlace(tag)}>
+                    {tag}
+                  </Tag>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
           <Text type="secondary" style={{ fontSize: fontSize.sm }}>
@@ -593,8 +634,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               paginationPosition={appearanceConfig.paginationPosition}
               position="top"
               onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
-              onNext={() => searchTagPosts(searchTag, currentPage + 1)}
-              onPageChange={(page) => searchTagPosts(searchTag, page)}
+              onNext={() => searchTagPosts(canonicalSearchTag, currentPage + 1)}
+              onPageChange={(page) => searchTagPosts(canonicalSearchTag, page)}
             />
 
             <BooruGridLayout
@@ -620,8 +661,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               paginationPosition={appearanceConfig.paginationPosition}
               position="bottom"
               onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
-              onNext={() => searchTagPosts(searchTag, currentPage + 1)}
-              onPageChange={(page) => searchTagPosts(searchTag, page)}
+              onNext={() => searchTagPosts(canonicalSearchTag, currentPage + 1)}
+              onPageChange={(page) => searchTagPosts(canonicalSearchTag, page)}
             />
           </>
         )}

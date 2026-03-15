@@ -176,6 +176,27 @@ export interface BooruUserProfileData {
   feedback_count?: number;
 }
 
+export interface BooruTagAliasData {
+  id: number;
+  antecedent_name: string;
+  consequent_name: string;
+  status?: string;
+  created_at?: string;
+}
+
+export interface BooruTagImplicationData {
+  id: number;
+  antecedent_name: string;
+  consequent_name: string;
+  status?: string;
+  created_at?: string;
+}
+
+export interface BooruTagRelationshipData {
+  aliases: BooruTagAliasData[];
+  implications: BooruTagImplicationData[];
+}
+
 /** 客户端配置 */
 export interface BooruClientConfig {
   baseUrl: string;
@@ -261,6 +282,9 @@ export interface IBooruClient {
   /** 按名称批量获取标签信息 */
   getTagsByNames(names: string[]): Promise<BooruTagData[]>;
 
+  /** 获取标签别名与关联（Danbooru 支持） */
+  getTagRelationships(name: string): Promise<BooruTagRelationshipData>;
+
   /** 获取标签摘要（仅 Moebooru 支持，其他返回空数据） */
   getTagSummary(): Promise<BooruTagSummaryData>;
 
@@ -312,6 +336,9 @@ export interface IBooruClient {
 
   /** 获取帖子的版本历史（Danbooru 专属，其他返回空数组） */
   getPostVersions(postId: number): Promise<BooruPostVersionData[]>;
+
+  /** 举报帖子（Danbooru 支持） */
+  reportPost(postId: number, reason: string): Promise<void>;
 
   // --- 认证/测试 ---
 

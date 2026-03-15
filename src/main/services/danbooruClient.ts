@@ -31,6 +31,7 @@ import {
   BooruUserProfileData,
   BooruNoteData,
   BooruPostVersionData,
+  BooruTagRelationshipData,
   TAG_TYPE_MAP,
   RateLimiter,
 } from './booruClientInterface.js';
@@ -73,6 +74,14 @@ interface DanbooruRawTag {
   post_count: number;
   category: number;    // 0=general, 1=artist, 3=copyright, 4=character, 5=meta
   is_deprecated: boolean;
+}
+
+interface DanbooruRawTagRelationship {
+  id: number;
+  antecedent_name: string;
+  consequent_name: string;
+  status?: string;
+  created_at?: string;
 }
 
 // Danbooru 评论原始格式
@@ -513,6 +522,42 @@ export class DanbooruClient implements IBooruClient {
     } catch (error: any) {
       console.error('[DanbooruClient] 获取标签详情失败:', error.message);
       throw error;
+    }
+  }
+
+  async getTagRelationships(name: string): Promise<BooruTagRelationshipData> {
+    try {
+      console.log('[DanbooruClient] 获取标签别名与关联:', name);
+      await this.rateLimiter.acquire();
+      const [aliasResponse, implicationResponse] = await Promise.all([
+        this.client.get('/tag_aliases.json', { params: { 'search[name_matches]': name, limit: 20 } }),
+        this.client.get('/tag_implications.json', { params: { 'search[name_matches]': name, limit: 20 } }),
+      ]);
+
+      const matchesName = (row: DanbooruRawTagRelationship) => row.antecedent_name === name || row.consequent_name === name;
+      const aliases = (Array.isArray(aliasResponse.data) ? aliasResponse.data : [])
+        .filter(matchesName)
+        .map((row: DanbooruRawTagRelationship) => ({
+          id: row.id,
+          antecedent_name: row.antecedent_name,
+          consequent_name: row.consequent_name,
+          status: row.status,
+          created_at: row.created_at,
+        }));
+      const implications = (Array.isArray(implicationResponse.data) ? implicationResponse.data : [])
+        .filter(matchesName)
+        .map((row: DanbooruRawTagRelationship) => ({
+          id: row.id,
+          antecedent_name: row.antecedent_name,
+          consequent_name: row.consequent_name,
+          status: row.status,
+          created_at: row.created_at,
+        }));
+
+      return { aliases, implications };
+    } catch (error: any) {
+      console.error('[DanbooruClient] 获取标签别名与关联失败:', error.message);
+      return { aliases: [], implications: [] };
     }
   }
 
@@ -990,6 +1035,12 @@ export class DanbooruClient implements IBooruClient {
       console.error('[DanbooruClient] 获取版本历史失败:', error.message);
       return [];
     }
+  }
+
+  async reportPost(postId: number, reason: string): Promise<void> {
+    console.log('[DanbooruClient] 举报帖子:', postId);
+    await this.rateLimiter.acquire();
+    await this.client.post('/post_flags.json', { post_id: postId, reason });
   }
 
   async testConnection(): Promise<boolean> {

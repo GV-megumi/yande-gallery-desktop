@@ -40,6 +40,8 @@ import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
 import * as imageCacheService from '../services/imageCacheService.js';
 import { runInTransaction, getDatabase, all, run } from '../services/database.js';
+import { createAppBackupData, isValidBackupData, restoreAppBackupData, summarizeBackupTables } from '../services/backupService.js';
+import { getImageMetadata } from '../services/imageMetadataService.js';
 
 /**
  * 安全解析 created_at 字段
@@ -456,6 +458,58 @@ export function setupIPC() {
       const config = await reloadConfig();
       return { success: true, data: config };
     } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('system:export-backup', async () => {
+    try {
+      console.log('[IPC] 导出应用备份');
+      const backupData = await createAppBackupData();
+      const summary = summarizeBackupTables(backupData);
+      const result = await dialog.showSaveDialog({
+        title: '导出应用备份',
+        defaultPath: `yande-gallery-backup-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: 'JSON Backup', extensions: ['json'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: '已取消导出' };
+      }
+
+      await fs.writeFile(result.filePath, JSON.stringify(backupData, null, 2), 'utf-8');
+      return { success: true, data: { path: result.filePath, summary } };
+    } catch (error) {
+      console.error('[IPC] 导出应用备份失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('system:import-backup', async (_event: IpcMainInvokeEvent, mode: 'merge' | 'replace' = 'merge') => {
+    try {
+      console.log('[IPC] 导入应用备份, mode:', mode);
+      const result = await dialog.showOpenDialog({
+        title: '导入应用备份',
+        properties: ['openFile'],
+        filters: [{ name: 'JSON Backup', extensions: ['json'] }],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: '已取消导入' };
+      }
+
+      const filePath = result.filePaths[0];
+      const content = await fs.readFile(filePath, 'utf-8');
+      const backupData = JSON.parse(content);
+
+      if (!isValidBackupData(backupData)) {
+        throw new Error('备份文件格式无效');
+      }
+
+      const restoreResult = await restoreAppBackupData(backupData, { mode });
+      return { success: true, data: { path: filePath, ...restoreResult } };
+    } catch (error) {
+      console.error('[IPC] 导入应用备份失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
@@ -1664,6 +1718,52 @@ export function setupIPC() {
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取艺术家失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  ipcMain.handle('booru:get-tag-relationships', async (_event: IpcMainInvokeEvent, siteId: number, name: string) => {
+    try {
+      console.log('[IPC] 获取标签别名与关联:', { siteId, name });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      const relationships = await client.getTagRelationships(name);
+      return { success: true, data: relationships };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取标签别名与关联失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  ipcMain.handle('booru:report-post', async (_event: IpcMainInvokeEvent, siteId: number, postId: number, reason: string) => {
+    try {
+      console.log('[IPC] 举报帖子:', { siteId, postId });
+      const site = await booruService.getBooruSiteById(siteId);
+      if (!site) {
+        return { success: false, error: '站点不存在' };
+      }
+      const client = createBooruClient(site);
+      await client.reportPost(postId, reason);
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 举报帖子失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+  });
+
+  ipcMain.handle('booru:get-image-metadata', async (_event: IpcMainInvokeEvent, request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) => {
+    try {
+      console.log('[IPC] 获取图片元数据');
+      const metadata = await getImageMetadata(request);
+      return { success: true, data: metadata };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[IPC] 获取图片元数据失败:', errorMessage);
       return { success: false, error: errorMessage };
     }
   });

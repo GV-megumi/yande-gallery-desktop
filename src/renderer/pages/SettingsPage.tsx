@@ -2,8 +2,8 @@
  * 设置页面 — iOS Grouped Inset 风格
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Switch, Select, message, List, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Switch, Select, message, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
+import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
@@ -204,6 +204,8 @@ export const SettingsPage: React.FC = () => {
   const [proxyProtocol, setProxyProtocol] = useState('http');
   const [proxyHost, setProxyHost] = useState('127.0.0.1');
   const [proxyPort, setProxyPort] = useState('7890');
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
 
   useEffect(() => {
     console.log('[SettingsPage] 组件挂载，加载配置');
@@ -356,6 +358,66 @@ export const SettingsPage: React.FC = () => {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleExportBackup = async () => {
+    if (!window.electronAPI) return;
+    setExportingBackup(true);
+    try {
+      const result = await window.electronAPI.system.exportBackup();
+      if (result.success && result.data) {
+        message.success(`备份已导出到 ${result.data.path}`);
+      } else if (result.error && result.error !== '已取消导出') {
+        message.error(result.error);
+      }
+    } catch (error) {
+      console.error('[SettingsPage] 导出备份失败:', error);
+      message.error('导出备份失败');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
+  const runImportBackup = async (mode: 'merge' | 'replace') => {
+    if (!window.electronAPI) return;
+    setImportingBackup(true);
+    try {
+      const result = await window.electronAPI.system.importBackup(mode);
+      if (result.success && result.data) {
+        message.success(`备份已恢复（${mode === 'merge' ? '合并' : '完全替换'}），来源 ${result.data.path}`);
+        await loadConfig();
+      } else if (result.error && result.error !== '已取消导入') {
+        message.error(result.error);
+      }
+    } catch (error) {
+      console.error('[SettingsPage] 导入备份失败:', error);
+      message.error(mode === 'merge' ? '导入备份失败' : '完全替换恢复失败');
+    } finally {
+      setImportingBackup(false);
+    }
+  };
+
+  const handleImportBackup = async () => {
+    if (!window.electronAPI) return;
+    Modal.confirm({
+      title: '导入应用备份',
+      content: '推荐使用“合并恢复”，仅补充或覆盖同 ID 数据；若需要清空当前站点/收藏/标签/搜索数据，请使用下方的“完全替换恢复”按钮。',
+      okText: '合并恢复',
+      cancelText: '取消',
+      okButtonProps: { icon: <InboxOutlined /> },
+      onOk: async () => runImportBackup('merge')
+    });
+  };
+
+  const handleReplaceBackup = async () => {
+    Modal.confirm({
+      title: '完全替换恢复',
+      content: '这会先清空当前站点配置、收藏、标签、保存的搜索和搜索历史，再从备份文件恢复。仅在明确需要回滚到备份状态时使用。',
+      okText: '继续替换',
+      cancelText: '取消',
+      okButtonProps: { danger: true, icon: <InboxOutlined /> },
+      onOk: async () => runImportBackup('replace')
+    });
   };
 
   return (
@@ -543,6 +605,49 @@ export const SettingsPage: React.FC = () => {
 
           {/* 缓存管理 */}
           <CacheManagementGroup />
+
+          <SettingsGroup title="备份与恢复" footer="导出当前站点配置、收藏、标签、保存的搜索与搜索历史；导入时支持合并恢复或完全替换。">
+            <SettingsRow
+              label="导出应用数据"
+              description="生成 JSON 备份文件，便于迁移或手动归档"
+              extra={
+                <Button
+                  size="small"
+                  icon={<ExportOutlined />}
+                  loading={exportingBackup}
+                  onClick={handleExportBackup}
+                >
+                  导出
+                </Button>
+              }
+            />
+            <SettingsRow
+              label="导入应用数据"
+              description="从备份文件恢复站点、收藏、标签和搜索数据"
+              extra={
+                <Space size={spacing.sm}>
+                  <Button
+                    size="small"
+                    icon={<InboxOutlined />}
+                    loading={importingBackup}
+                    onClick={handleImportBackup}
+                  >
+                    合并恢复
+                  </Button>
+                  <Button
+                    size="small"
+                    danger
+                    icon={<InboxOutlined />}
+                    loading={importingBackup}
+                    onClick={handleReplaceBackup}
+                  >
+                    完全替换
+                  </Button>
+                </Space>
+              }
+              isLast
+            />
+          </SettingsGroup>
 
           {/* 高级 */}
           <SettingsGroup title={t('settings.advanced')}>

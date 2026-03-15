@@ -14,6 +14,8 @@ const IPC_CHANNELS = {
   SYSTEM_SELECT_FOLDER: 'system:select-folder',
   SYSTEM_OPEN_EXTERNAL: 'system:open-external',
   SYSTEM_SHOW_ITEM: 'system:show-item',
+  SYSTEM_EXPORT_BACKUP: 'system:export-backup',
+  SYSTEM_IMPORT_BACKUP: 'system:import-backup',
 
   // === Booru 相关通道 ===
   BOORU_GET_SITES: 'booru:get-sites',
@@ -56,6 +58,9 @@ const IPC_CHANNELS = {
 
   // Booru 艺术家
   BOORU_GET_ARTIST: 'booru:get-artist',
+  BOORU_GET_TAG_RELATIONSHIPS: 'booru:get-tag-relationships',
+  BOORU_REPORT_POST: 'booru:report-post',
+  BOORU_GET_IMAGE_METADATA: 'booru:get-image-metadata',
 
   // Booru Wiki
   BOORU_GET_WIKI: 'booru:get-wiki',
@@ -311,6 +316,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 艺术家
     getArtist: (siteId: number, name: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ARTIST, siteId, name),
+    getTagRelationships: (siteId: number, name: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAG_RELATIONSHIPS, siteId, name),
+    reportPost: (siteId: number, postId: number, reason: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REPORT_POST, siteId, postId, reason),
+    getImageMetadata: (request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_IMAGE_METADATA, request),
 
     // Wiki
     getWiki: (siteId: number, title: string) =>
@@ -512,6 +523,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, url),
     showItem: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_ITEM, path),
+    exportBackup: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_EXPORT_BACKUP),
+    importBackup: (mode: 'merge' | 'replace' = 'merge') => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_IMPORT_BACKUP, mode),
     // 网络测试（从主进程发起，绕过CORS限制）
     testBaidu: () => ipcRenderer.invoke('network:test-baidu'),
     testGoogle: () => ipcRenderer.invoke('network:test-google'),
@@ -618,6 +631,9 @@ declare global {
         getTagsCategories: (siteId: number, tagNames: string[]) => Promise<{ success: boolean; data?: Record<string, string>; error?: string }>;
         autocompleteTags: (siteId: number, query: string, limit?: number) => Promise<{ success: boolean; data?: Array<{ name: string; count: number; type: number }>; error?: string }>;
         getArtist: (siteId: number, name: string) => Promise<{ success: boolean; data?: { id: number; name: string; aliases: string[]; urls: string[]; group_name?: string; is_banned?: boolean } | null; error?: string }>;
+        getTagRelationships: (siteId: number, name: string) => Promise<{ success: boolean; data?: { aliases: Array<{ id: number; antecedent_name: string; consequent_name: string; status?: string; created_at?: string }>; implications: Array<{ id: number; antecedent_name: string; consequent_name: string; status?: string; created_at?: string }> }; error?: string }>;
+        reportPost: (siteId: number, postId: number, reason: string) => Promise<{ success: boolean; error?: string }>;
+        getImageMetadata: (request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) => Promise<{ success: boolean; data?: { format?: string; width?: number; height?: number; space?: string; density?: number; hasAlpha?: boolean; orientation?: number; channels?: number; hasExif: boolean; pathSource: 'local' | 'cache' }; error?: string }>;
         getWiki: (siteId: number, title: string) => Promise<{ success: boolean; data?: { id: number; title: string; body: string; other_names: string[]; created_at?: string; updated_at?: string; is_locked?: boolean; is_deleted?: boolean } | null; error?: string }>;
         getForumTopics: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: Array<{ id: number; title: string; response_count: number; is_sticky?: boolean; is_locked?: boolean; is_hidden?: boolean; category_id?: number; creator_id?: number; updater_id?: number; created_at?: string; updated_at?: string }>; error?: string }>;
         getForumPosts: (siteId: number, topicId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: Array<{ id: number; topic_id: number; body: string; creator_id?: number; updater_id?: number; created_at?: string; updated_at?: string; is_deleted?: boolean; is_hidden?: boolean }>; error?: string }>;
@@ -701,6 +717,8 @@ declare global {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;
         openExternal: (url: string) => Promise<void>;
         showItem: (path: string) => Promise<{ success: boolean; error?: string }>;
+        exportBackup: () => Promise<{ success: boolean; data?: { path: string; summary: Array<{ table: string; count: number }> }; error?: string }>;
+        importBackup: (mode?: 'merge' | 'replace') => Promise<{ success: boolean; data?: { path: string; mode: 'merge' | 'replace'; restoredTables: Array<{ table: string; count: number }> }; error?: string }>;
         testBaidu: () => Promise<{ success: boolean; status?: number; error?: string }>;
         testGoogle: () => Promise<{ success: boolean; status?: number; error?: string }>;
         onBulkDownloadRecordProgress: (callback: (data: any) => void) => () => void;

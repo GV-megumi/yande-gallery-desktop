@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Modal, Space, Button, Tooltip, Slider } from 'antd';
-import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined } from '@ant-design/icons';
+import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined, RotateLeftOutlined, RotateRightOutlined, BorderOutlined } from '@ant-design/icons';
 
 // 检测是否为视频格式
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi']);
@@ -21,6 +21,7 @@ import { CommentSection } from '../components/BooruPostDetails/CommentSection';
 import { NotesOverlay } from '../components/BooruPostDetails/NotesOverlay';
 import { PostHistorySection } from '../components/BooruPostDetails/PostHistorySection';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
+import { buildViewerTransform, getComparablePreviewUrl, rotateBy } from '../utils/viewerControls';
 
 interface BooruPostDetailsPageProps {
   open: boolean;
@@ -72,11 +73,28 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [imageScale, setImageScale] = useState(1);
   const [imagePosition, setImagePosition] = useState({ x: 0, y: 0 });
+  const [rotation, setRotation] = useState(0);
+  const [flipX, setFlipX] = useState(false);
+  const [flipY, setFlipY] = useState(false);
+  const [compareMode, setCompareMode] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [previewQuality, setPreviewQuality] = useState<'auto' | 'low' | 'medium' | 'high' | 'original'>('auto');
   const [imageUrl, setImageUrl] = useState<string>('');
   const [isCaching, setIsCaching] = useState(false);
+  const [imageMetadata, setImageMetadata] = useState<{
+    format?: string;
+    width?: number;
+    height?: number;
+    space?: string;
+    density?: number;
+    hasAlpha?: boolean;
+    orientation?: number;
+    channels?: number;
+    hasExif: boolean;
+    pathSource: 'local' | 'cache';
+  } | null>(null);
+  const [metadataLoading, setMetadataLoading] = useState(false);
 
   // 幻灯片模式
   const [slideshowActive, setSlideshowActive] = useState(false);
@@ -125,7 +143,48 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     if (open && currentPost) {
       setImageScale(1);
       setImagePosition({ x: 0, y: 0 });
+      setRotation(0);
+      setFlipX(false);
+      setFlipY(false);
+      setCompareMode(false);
     }
+  }, [open, currentPost]);
+
+  useEffect(() => {
+    if (!open || !currentPost || isVideoPost(currentPost)) {
+      setImageMetadata(null);
+      return;
+    }
+
+    let cancelled = false;
+    const loadMetadata = async () => {
+      setMetadataLoading(true);
+      try {
+        const result = await window.electronAPI.booru.getImageMetadata({
+          localPath: currentPost.localPath,
+          fileUrl: currentPost.fileUrl,
+          md5: currentPost.md5,
+          fileExt: currentPost.fileExt,
+        });
+        if (!cancelled) {
+          setImageMetadata(result.success && result.data ? result.data : null);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[BooruPostDetailsPage] 加载图片元数据失败:', error);
+          setImageMetadata(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setMetadataLoading(false);
+        }
+      }
+    };
+
+    void loadMetadata();
+    return () => {
+      cancelled = true;
+    };
   }, [open, currentPost]);
 
   // 加载并缓存原图
@@ -428,6 +487,17 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     setIsDragging(false);
   };
 
+  const viewerTransform = useMemo(() => buildViewerTransform({
+    rotation,
+    flipX,
+    flipY,
+    scale: imageScale,
+    positionX: imagePosition.x,
+    positionY: imagePosition.y,
+  }), [rotation, flipX, flipY, imageScale, imagePosition]);
+
+  const comparePreviewUrl = useMemo(() => currentPost ? getComparablePreviewUrl(currentPost) : '', [currentPost]);
+
   if (!currentPost) {
     return null;
   }
@@ -515,6 +585,23 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 正在加载原图...
               </div>
             )}
+            {!isVideoPost(currentPost) && (
+              <div style={{ position: 'absolute', top: 16, right: 16, display: 'flex', gap: 8, zIndex: 10, flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: '60%' }}>
+                <Button size="small" icon={<RotateLeftOutlined />} onClick={() => setRotation((value) => rotateBy(value, -90))}>左转</Button>
+                <Button size="small" icon={<RotateRightOutlined />} onClick={() => setRotation((value) => rotateBy(value, 90))}>右转</Button>
+                <Button size="small" onClick={() => setFlipX((value) => !value)}>水平翻转</Button>
+                <Button size="small" onClick={() => setFlipY((value) => !value)}>垂直翻转</Button>
+                <Button size="small" icon={<BorderOutlined />} type={compareMode ? 'primary' : 'default'} onClick={() => setCompareMode((value) => !value)} disabled={!comparePreviewUrl}>对比</Button>
+                <Button size="small" onClick={() => {
+                  setImageScale(1);
+                  setImagePosition({ x: 0, y: 0 });
+                  setRotation(0);
+                  setFlipX(false);
+                  setFlipY(false);
+                  setCompareMode(false);
+                }}>重置</Button>
+              </div>
+            )}
             {/* 左侧导航按钮 — 半透明悬浮 */}
             {posts.length > 1 && (
               <button
@@ -600,6 +687,29 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   console.log('[BooruPostDetailsPage] 视频加载成功:', currentPost?.postId);
                 }}
               />
+            ) : imageUrl && compareMode && comparePreviewUrl ? (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, width: '100%', height: '100%', padding: 24 }}>
+                {[{ label: '原图', src: imageUrl }, { label: '对比图', src: comparePreviewUrl }].map((item) => (
+                  <div key={item.label} style={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+                    <span style={{ color: '#fff', fontSize: 12, marginBottom: 8 }}>{item.label}</span>
+                    <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
+                      <img
+                        src={item.src}
+                        alt={`${item.label}-${currentPost?.postId || ''}`}
+                        style={{
+                          maxWidth: '100%',
+                          maxHeight: '100%',
+                          objectFit: 'contain',
+                          transform: viewerTransform,
+                          transition: isDragging ? 'none' : 'transform 0.1s ease-out',
+                          userSelect: 'none'
+                        }}
+                        draggable={false}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             ) : imageUrl ? (
               /* 图片查看器 */
               <img
@@ -609,7 +719,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   maxWidth: '100%',
                   maxHeight: '100%',
                   objectFit: 'contain',
-                  transform: `scale(${imageScale}) translate(${imagePosition.x / imageScale}px, ${imagePosition.y / imageScale}px)`,
+                  transform: viewerTransform,
                   transition: isDragging ? 'none' : 'transform 0.1s ease-out',
                   userSelect: 'none'
                 }}
@@ -717,6 +827,29 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 isServerFavorited={isServerFavorited ? isServerFavorited(currentPost) : undefined}
                 onToggleServerFavorite={onToggleServerFavorite}
               />
+
+              {!isVideoPost(currentPost) && (
+                <div style={{ marginBottom: spacing.lg, padding: spacing.md, borderRadius: radius.md, background: colors.bgGroupedSecondary, border: `1px solid ${colors.separator}` }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: spacing.sm, alignItems: 'center' }}>
+                    <strong>图像元数据</strong>
+                    <span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>{metadataLoading ? '读取中...' : imageMetadata?.pathSource === 'local' ? '本地文件' : '缓存文件'}</span>
+                  </div>
+                  {imageMetadata ? (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: spacing.sm, fontSize: fontSize.sm }}>
+                      <span>格式: {imageMetadata.format || '-'}</span>
+                      <span>尺寸: {imageMetadata.width || '-'} x {imageMetadata.height || '-'}</span>
+                      <span>色彩空间: {imageMetadata.space || '-'}</span>
+                      <span>DPI: {imageMetadata.density || '-'}</span>
+                      <span>通道数: {imageMetadata.channels || '-'}</span>
+                      <span>Alpha: {imageMetadata.hasAlpha ? '有' : '无'}</span>
+                      <span>方向: {imageMetadata.orientation || '-'}</span>
+                      <span>EXIF: {imageMetadata.hasExif ? '存在' : '无'}</span>
+                    </div>
+                  ) : (
+                    <span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>未读取到额外元数据</span>
+                  )}
+                </div>
+              )}
 
               {/* 标签部分 */}
               <TagsSection

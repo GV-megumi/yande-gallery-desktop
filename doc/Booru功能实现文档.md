@@ -4,6 +4,23 @@
 
 本文档记录Booru（Moebooru）功能集成的实现方案、技术决策和进度状态。
 
+### 当前实现补充（2026-03-15）
+
+本轮收尾后，Booru 子系统在 P2 范围内补齐了以下能力：
+
+- **高级图片查看器**：详情页支持旋转、翻转、原图/对比图模式，以及基于 `sharp.metadata()` 的图像元数据读取。
+- **多选批量操作**：Booru 网格支持多选，已提供批量收藏、批量下载，以及从已选图片提取共同标签并快速追加到当前搜索。
+- **备份与恢复**：新增 JSON 备份能力，可导出/导入站点配置、帖子索引、收藏、标签、分组、保存的搜索与搜索历史；支持合并恢复和完全替换恢复。
+- **DText / BBCode 渲染**：评论区和论坛正文改为富文本渲染，Danbooru 走 DText，Moebooru 走基础 BBCode。
+- **帖子举报**：Danbooru 站点支持通过 `/post_flags.json` 提交帖子举报；Moebooru / Gelbooru 当前保留不支持状态。
+- **标签别名与关联**：Danbooru 标签页支持 alias / implication 查询，并在标签搜索页自动展开为 canonical tag。
+
+### 站点差异说明
+
+- **Danbooru**：完整支持 DText、标签别名/关联、帖子举报、Wiki、论坛、用户主页、版本历史。
+- **Moebooru**：支持基础 BBCode 评论展示、艺术家信息、注释、热门图片与下载；不提供标准化标签 alias / implication API，也不支持帖子举报 API。
+- **Gelbooru**：当前保留为基础帖子/标签/下载接入，不提供帖子举报、标签 alias / implication、Wiki、论坛和用户主页。
+
 ## 参考资源
 
 - **主要参考项目**: `example/Boorusama-master/`

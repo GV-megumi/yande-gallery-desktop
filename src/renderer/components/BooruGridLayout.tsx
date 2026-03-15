@@ -22,6 +22,9 @@ export interface BooruGridLayoutProps {
   onTagClick?: (tag: string) => void;
   onToggleServerFavorite?: (post: BooruPost) => void;
   serverFavorites?: Set<number>;
+  selectionMode?: boolean;
+  selectedPostIds?: Set<number>;
+  onToggleSelect?: (post: BooruPost) => void;
 }
 
 /** 根据帖子元数据估算图片在指定列宽下的渲染高度 */
@@ -46,7 +49,10 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   getPreviewUrl,
   onTagClick,
   onToggleServerFavorite,
-  serverFavorites
+  serverFavorites,
+  selectionMode = false,
+  selectedPostIds = new Set<number>(),
+  onToggleSelect,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(5);
@@ -143,6 +149,9 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
                 onTagClick={onTagClick}
                 onToggleServerFavorite={onToggleServerFavorite}
                 isServerFavorited={serverFavorites?.has(post.postId)}
+                selectionMode={selectionMode}
+                selected={selectedPostIds.has(post.postId)}
+                onToggleSelect={onToggleSelect}
               />
             </div>
           ))}

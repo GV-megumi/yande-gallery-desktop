@@ -33,6 +33,7 @@ import {
   BooruUserProfileData,
   BooruNoteData,
   BooruPostVersionData,
+  BooruTagRelationshipData,
 } from './booruClientInterface.js';
 
 // Gelbooru API 返回的原始 Post 格式
@@ -494,6 +495,10 @@ export class GelbooruClient implements IBooruClient {
     }
   }
 
+  async getTagRelationships(_name: string): Promise<BooruTagRelationshipData> {
+    return { aliases: [], implications: [] };
+  }
+
   async getTagSummary(): Promise<BooruTagSummaryData> {
     // Gelbooru 不支持标签摘要
     console.log('[GelbooruClient] getTagSummary 不支持，返回空数据');
@@ -692,6 +697,10 @@ export class GelbooruClient implements IBooruClient {
 
   async getPostVersions(_postId: number): Promise<BooruPostVersionData[]> {
     return [];
+  }
+
+  async reportPost(_postId: number, _reason: string): Promise<void> {
+    throw new Error('当前站点暂不支持帖子举报');
   }
 
   // ========= 认证/测试 =========

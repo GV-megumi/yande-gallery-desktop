@@ -61,6 +61,9 @@ interface BooruImageCardProps {
   onTagClick?: (tag: string) => void;
   onToggleServerFavorite?: (post: BooruPost) => void;
   isServerFavorited?: boolean;
+  selectionMode?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (post: BooruPost) => void;
 }
 
 export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
@@ -74,7 +77,10 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
   siteUrl,
   onTagClick,
   onToggleServerFavorite,
-  isServerFavorited = false
+  isServerFavorited = false,
+  selectionMode = false,
+  selected = false,
+  onToggleSelect,
 }) => {
   const computedPreviewUrl = useMemo((): string => {
     let url = (previewUrl || post.previewUrl || post.sampleUrl || post.fileUrl || '').trim();
@@ -194,8 +200,16 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           overflow: 'hidden',
           cursor: 'pointer',
           background: colors.bgElevated,
+          outline: selectionMode && selected ? `2px solid ${colors.primary}` : 'none',
+          outlineOffset: -2,
         }}
-        onClick={handlePreview}
+        onClick={() => {
+          if (selectionMode && onToggleSelect) {
+            onToggleSelect(post);
+            return;
+          }
+          handlePreview();
+        }}
       >
         {/* 图片区域 — 全出血 */}
         <div style={{ position: 'relative', width: '100%' }}>
@@ -287,14 +301,37 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             </div>
           )}
 
-          {/* 左上角：分级徽章（始终可见） */}
-          <div style={{
-            position: 'absolute', top: 8, left: 8,
-            display: 'flex', gap: 4, zIndex: 3,
-          }}>
-            <span style={{
-              fontSize: 10, fontWeight: 700,
-              color: '#fff',
+            {/* 左上角：分级徽章（始终可见） */}
+            <div style={{
+              position: 'absolute', top: 8, left: 8,
+              display: 'flex', gap: 4, zIndex: 3,
+            }}>
+              {selectionMode && (
+                <span
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onToggleSelect?.(post);
+                  }}
+                  style={{
+                    minWidth: 18,
+                    height: 18,
+                    borderRadius: 4,
+                    border: '1px solid rgba(255,255,255,0.8)',
+                    background: selected ? colors.primary : 'rgba(0,0,0,0.35)',
+                    color: '#fff',
+                    fontSize: 11,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontWeight: 700,
+                  }}
+                >
+                  {selected ? '√' : ''}
+                </span>
+              )}
+              <span style={{
+                fontSize: 10, fontWeight: 700,
+                color: '#fff',
               background: ratingConfig.color,
               padding: '2px 6px',
               borderRadius: 4,

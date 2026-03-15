@@ -8,6 +8,7 @@ import { Alert, App, Button, Card, Empty, List, Space, Spin, Tag, Typography } f
 import { ArrowLeftOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { BooruSite, BooruForumTopic, BooruForumPost } from '../../shared/types';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
+import { DTextRenderer } from '../components/DTextRenderer';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -18,8 +19,6 @@ interface BooruForumPageProps {
 
 const PAGE_SIZE = 20;
 
-let forumKeyCounter = 0;
-
 function formatTime(value?: string): string {
   if (!value) {
     return '未知时间';
@@ -29,57 +28,6 @@ function formatTime(value?: string): string {
   } catch {
     return value;
   }
-}
-
-function renderForumInline(text: string): React.ReactNode[] {
-  const pattern = /(https?:\/\/[^\s<]+)/g;
-  const nodes: React.ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of text.matchAll(pattern)) {
-    const index = match.index ?? 0;
-    const before = text.slice(lastIndex, index);
-    if (before) {
-      nodes.push(before);
-    }
-    const url = match[0];
-    nodes.push(
-      <a
-        key={`forum-url-${forumKeyCounter++}`}
-        href={url}
-        target="_blank"
-        rel="noopener noreferrer"
-        style={{ wordBreak: 'break-all' }}
-      >
-        {url}
-      </a>
-    );
-    lastIndex = index + url.length;
-  }
-
-  const tail = text.slice(lastIndex);
-  if (tail) {
-    nodes.push(tail);
-  }
-
-  return nodes.length > 0 ? nodes : [text];
-}
-
-function renderForumBody(body: string): React.ReactNode {
-  const lines = body.split(/\r?\n/).filter(line => line.trim().length > 0);
-  if (lines.length === 0) {
-    return <Text type="secondary">该帖子暂无正文。</Text>;
-  }
-
-  return (
-    <>
-      {lines.map((line) => (
-        <Paragraph key={`forum-line-${forumKeyCounter++}`} style={{ marginBottom: spacing.sm, whiteSpace: 'pre-wrap' }}>
-          {renderForumInline(line)}
-        </Paragraph>
-      ))}
-    </>
-  );
 }
 
 export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, suspended = false }) => {
@@ -274,7 +222,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
                   }
                   extra={<Text type="secondary">创建于 {formatTime(post.createdAt)}</Text>}
                 >
-                  <div style={{ color: colors.textPrimary }}>{renderForumBody(post.body)}</div>
+                  <div style={{ color: colors.textPrimary }}><DTextRenderer value={post.body} mode="dtext" /></div>
                 </Card>
               </List.Item>
             )}

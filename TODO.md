@@ -124,60 +124,51 @@
 - **Boorusama 参考**: `lib/core/characters/`
 - **工作量**: 小（已完成）
 
-### 18. 高级图片查看器
-- **现状**: 支持缩放和拖拽
-- **目标**: 增加旋转、翻转、对比模式（原图 vs 缩略图）、EXIF 信息
-- **涉及文件**: `BooruPostDetailsPage.tsx` 增强图片查看器
-- **Boorusama 参考**: `lib/core/widgets/image_viewer/`
-- **工作量**: 中
+### ~~18. 高级图片查看器~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - `BooruPostDetailsPage.tsx` 增加旋转、水平/垂直翻转、重置和原图/对比图模式
+  - 新增 `imageMetadataService.ts` + IPC `booru:get-image-metadata`，详情页可读取格式、色彩空间、DPI、方向与 EXIF 是否存在
+  - 对比模式优先使用 sample/preview 资源，方便快速比较原图与较低质量预览
 
-### 19. 多选批量操作
-- **现状**: 每次只能操作单张图片
-- **目标**: 在图片网格中支持多选，批量收藏、批量下载、批量添加标签
-- **涉及文件**: `BooruPage.tsx` 增加多选模式，`BooruImageCard.tsx` 增加选择框
-- **Boorusama 参考**: `lib/core/widgets/posts/post_grid_config_region.dart`
-- **工作量**: 中
+### ~~19. 多选批量操作~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - `BooruPage.tsx` 增加多选模式、选择统计、批量收藏、批量下载和共同标签快速追加到当前搜索
+  - `BooruGridLayout.tsx` / `BooruImageCard.tsx` 增加选择态与勾选框，保留原有预览/下载/收藏交互
+  - 新增 `multiSelect.ts` 纯函数用于共同标签提取和选择状态切换
 
-### 20. 分享功能
-- **现状**: 帖子详情页工具栏无分享按钮
-- **目标**: 支持复制帖子链接、复制图片链接、用系统默认应用分享
-- **涉及文件**: `Toolbar.tsx` 增加分享菜单
-- **Boorusama 参考**: `lib/core/widgets/posts/post_share.dart`
-- **工作量**: 小
+### ~~20. 分享功能~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - 帖子详情工具栏支持复制帖子链接与复制原图链接
+  - 统一复用系统外链能力打开目标站点页面
 
-### 21. 备份与恢复
-- **现状**: 不支持
-- **目标**: 导出/导入应用数据（收藏、标签、站点配置、搜索历史）
-- **涉及文件**: 新建 `src/main/services/backupService.ts`，`SettingsPage.tsx` 增加入口
-- **Boorusama 参考**: `lib/core/backups/`
-- **工作量**: 中
+### ~~21. 备份与恢复~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - 新增 `backupService.ts`，支持导出/导入站点配置、帖子缓存索引、收藏、标签、分组、保存的搜索和搜索历史
+  - 主进程新增 `system:export-backup` / `system:import-backup`，支持合并恢复和完全替换恢复
+  - `SettingsPage.tsx` 增加备份导出、合并恢复、完全替换恢复入口
 
-### 22. 缓存管理界面
-- **现状**: 有 `get-cache-stats` API，但无管理界面
-- **目标**: 在设置页展示缓存大小、文件数，支持一键清理、设置上限
-- **涉及文件**: `SettingsPage.tsx` 增加缓存管理区块
-- **Boorusama 参考**: `lib/core/settings/widgets/settings_tile_cache.dart`
-- **工作量**: 小
+### ~~22. 缓存管理界面~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - `SettingsPage.tsx` 已增加缓存统计、缓存文件数展示和一键清理入口
+  - 与 `imageCacheService.ts` 的缓存统计/清理接口联动
 
-### 23. DText / BBCode 渲染
-- **现状**: 评论和描述以纯文本展示
-- **目标**: 支持 Danbooru DText 和 Moebooru BBCode 的富文本渲染
-- **涉及文件**: 新建 `src/renderer/components/DTextRenderer.tsx`
-- **Boorusama 参考**: `lib/core/dtext/`
-- **工作量**: 中
+### ~~23. DText / BBCode 渲染~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - 新增 `DTextRenderer.tsx`，统一处理 DText / BBCode 的基础富文本展示
+  - `CommentSection.tsx` 根据站点类型分别启用 Danbooru DText 与 Moebooru BBCode 渲染
+  - `BooruForumPage.tsx` 改为使用 DText 渲染论坛帖子正文
 
-### 24. 帖子举报
-- **现状**: 不支持
-- **目标**: 支持举报帖子（需要登录）
-- **Boorusama 参考**: `lib/core/posts/reports/`
-- **工作量**: 小
+### ~~24. 帖子举报~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - `Toolbar.tsx` 增加 Danbooru 专属“举报”入口，要求登录后提交原因
+  - 新增 IPC `booru:report-post`，Danbooru 客户端对接 `/post_flags.json`
+  - Moebooru / Gelbooru 保持显式不支持，避免误导用户
 
-### 25. 标签别名与关联
-- **现状**: 不支持
-- **目标**: 显示标签的别名（alias）和关联标签（implication），搜索时自动展开
-- **涉及文件**: 标签详情页展示，搜索自动补全时提示
-- **Boorusama 参考**: `lib/core/tags/alias/`, `lib/core/tags/implication/`
-- **工作量**: 中
+### ~~25. 标签别名与关联~~ ✅ 已完成 (2026-03-15)
+- **实现**:
+  - Danbooru 客户端新增标签别名与关联查询，使用 `/tag_aliases.json` 与 `/tag_implications.json`
+  - `BooruTagSearchPage.tsx` 展示别名展开结果和关联标签，并在搜索时自动使用 canonical tag
+  - 新增 `tagRelationships.ts` 纯函数，封装 canonical tag 解析与 implication 提取逻辑
 
 ---
 
@@ -258,5 +249,5 @@
 
 ---
 
-*最后更新: 2026-03-12*
+*最后更新: 2026-03-15*
 *基于 Boorusama commit: master 分支*

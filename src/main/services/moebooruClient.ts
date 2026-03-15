@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import crypto from 'crypto';
 import { getProxyConfig } from './config.js';
-import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, BooruWikiData, BooruForumTopicData, BooruForumPostData, BooruUserProfileData, BooruNoteData, BooruPostVersionData, RateLimiter } from './booruClientInterface.js';
+import { IBooruClient, BooruPostData, BooruTagData, BooruCommentData, BooruPoolData, BooruPoolDetailData, BooruTagSummaryData, BooruArtistData, BooruWikiData, BooruForumTopicData, BooruForumPostData, BooruUserProfileData, BooruNoteData, BooruPostVersionData, BooruTagRelationshipData, RateLimiter } from './booruClientInterface.js';
 
 // Moebooru API配置
 export interface MoebooruConfig {
@@ -410,6 +410,10 @@ export class MoebooruClient implements IBooruClient {
       console.error('[MoebooruClient] 获取标签详情失败:', error);
       throw error;
     }
+  }
+
+  async getTagRelationships(_name: string): Promise<BooruTagRelationshipData> {
+    return { aliases: [], implications: [] };
   }
 
   /**
@@ -1046,6 +1050,10 @@ export class MoebooruClient implements IBooruClient {
    */
   async getPostVersions(_postId: number): Promise<BooruPostVersionData[]> {
     return [];
+  }
+
+  async reportPost(_postId: number, _reason: string): Promise<void> {
+    throw new Error('当前站点暂不支持帖子举报');
   }
 
   /**
