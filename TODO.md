@@ -97,32 +97,32 @@
 ## P2 - 低优先级（锦上添花）
 
 ### 14. Wiki 页面浏览
-- **现状**: 不支持
+- **现状**: 已完成（支持基础 Wiki 浏览，当前优先支持 Danbooru）
 - **目标**: 浏览 Booru 站点的 Wiki 页面（标签说明、使用指南等）
-- **涉及文件**: 新建 `src/renderer/pages/BooruWikiPage.tsx`
+- **涉及文件**: `src/renderer/pages/BooruWikiPage.tsx`、`src/main/services/danbooruClient.ts`
 - **Boorusama 参考**: `lib/core/wikis/`
-- **工作量**: 中（需要 DText/HTML 渲染）
+- **工作量**: 中（已完成 MVP，后续可继续增强 DText/HTML 渲染）
 
 ### 15. 论坛浏览
-- **现状**: 不支持
+- **现状**: 已完成（支持只读论坛浏览，当前仅 Danbooru）
 - **目标**: 浏览 Booru 站点的论坛帖子和讨论
-- **涉及文件**: 新建 `src/renderer/pages/BooruForumPage.tsx`
+- **涉及文件**: `src/renderer/pages/BooruForumPage.tsx`、`src/main/services/danbooruClient.ts`
 - **Boorusama 参考**: `lib/core/forums/`
-- **工作量**: 中（仅 Danbooru）
+- **工作量**: 中（已完成 MVP，当前仅 Danbooru）
 
 ### 16. 用户主页
-- **现状**: 帖子详情页显示上传者名称，但无法点击查看
+- **现状**: 已完成（支持基础用户主页，当前优先支持 Danbooru）
 - **目标**: 增加用户主页（上传列表、收藏列表、基本信息）
-- **涉及文件**: 新建 `src/renderer/pages/BooruUserPage.tsx`
+- **涉及文件**: `src/renderer/pages/BooruUserPage.tsx`、`src/main/services/danbooruClient.ts`
 - **Boorusama 参考**: `lib/core/users/`
-- **工作量**: 中
+- **工作量**: 中（已完成 MVP，支持查看资料并跳转 `user:username` 上传搜索）
 
 ### 17. 角色页面
-- **现状**: 帖子详情页展示 character 标签，但无独立页面
+- **现状**: 已完成（已有独立角色页面 `src/renderer/pages/BooruCharacterPage.tsx`）
 - **目标**: 增加角色详情页（相关帖子、出处作品）
-- **涉及文件**: 新建 `src/renderer/pages/BooruCharacterPage.tsx`
+- **涉及文件**: `src/renderer/pages/BooruCharacterPage.tsx`
 - **Boorusama 参考**: `lib/core/characters/`
-- **工作量**: 小（与艺术家页面结构类似）
+- **工作量**: 小（已完成）
 
 ### 18. 高级图片查看器
 - **现状**: 支持缩放和拖拽
