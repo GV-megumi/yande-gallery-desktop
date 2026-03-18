@@ -8,6 +8,7 @@
 - `doc/功能总览.md`：当前功能面
 - `doc/开发与配置指南.md`：安装、命令、配置、常见排障
 - `doc/数据库结构文档.md`：数据库结构总览
+- `doc/Renderer API 文档.md`：渲染进程可调用的 `window.electronAPI` 总览
 - `doc/Booru功能实现文档.md`：Booru 子系统说明
 - `doc/图库功能文档.md`：图库子系统说明
 

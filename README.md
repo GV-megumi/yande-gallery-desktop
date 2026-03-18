@@ -23,7 +23,7 @@
 ### 辅助集成
 
 - Google Drive
-- Google Photos
+- Google Photos Picker
 - Google Account
 - Gemini
 
@@ -59,6 +59,7 @@ npm run dist
 
 - `.env` 可通过 `CONFIG_DIR` 指定配置根目录
 - `config.yaml` 定义数据库、下载目录、图库目录、缩略图、代理和 Booru 外观设置
+- 应用启动时会自动初始化数据库、按配置创建初始图库，并在后台恢复未完成下载
 - 路径系统已和运行数据目录解耦，详情见 `doc/开发与配置指南.md`
 
 ## 文档索引
@@ -67,9 +68,11 @@ npm run dist
 - `doc/功能总览.md`：当前功能面
 - `doc/开发与配置指南.md`：安装、命令、配置、排错
 - `doc/数据库结构文档.md`：数据库结构总览
+- `doc/Renderer API 文档.md`：渲染进程 API 总览
 - `doc/Booru功能实现文档.md`：Booru 子系统说明
 - `doc/图库功能文档.md`：图库子系统说明
 - `doc/注意事项/README.md`：设计原因、约束、注意事项索引
+- `doc/README.md`：`doc/` 目录内部导航
 - `doc/done/`：历史实现记录与归档材料
 - `TODO.md`：功能路线图与完成情况
 
