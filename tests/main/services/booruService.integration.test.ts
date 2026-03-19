@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import fs from 'fs/promises';
 
 const state = {
   favoriteTags: [
@@ -103,6 +104,12 @@ vi.mock('../../../src/main/services/bulkDownloadService', () => ({
   startBulkDownloadSession: vi.fn(async () => ({ success: true })),
 }));
 
+vi.mock('fs/promises', () => ({
+  default: {
+    mkdir: vi.fn(async () => undefined),
+  },
+}));
+
 vi.mock('../../../src/main/services/config', () => ({
   getConfig: vi.fn(() => ({ downloads: { path: 'downloads' } })),
   resolveConfigPath: vi.fn((p: string) => `C:/config/${p}`),
@@ -137,5 +144,12 @@ describe('booruService integration-ish behavior', () => {
 
     expect(tags).toHaveLength(1);
     expect(tags[0].tagName).toBe('tag_a');
+  });
+
+  it('startFavoriteTagBulkDownload 启动前应确保下载目录存在', async () => {
+    const service = await import('../../../src/main/services/booruService');
+    await service.startFavoriteTagBulkDownload(1);
+
+    expect(fs.mkdir).toHaveBeenCalledWith('D:/gallery/a', { recursive: true });
   });
 });
