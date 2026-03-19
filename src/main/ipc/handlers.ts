@@ -43,6 +43,8 @@ import { runInTransaction, getDatabase, all, run } from '../services/database.js
 import { createAppBackupData, isValidBackupData, restoreAppBackupData, summarizeBackupTables } from '../services/backupService.js';
 import { getImageMetadata } from '../services/imageMetadataService.js';
 
+let ipcHandlersRegistered = false;
+
 /**
  * 安全解析 created_at 字段
  * Moebooru API 在不同接口返回的格式不同：
@@ -183,6 +185,12 @@ async function resolveArtistTags(
 }
 
 export function setupIPC() {
+  if (ipcHandlersRegistered) {
+    console.warn('[IPC] setupIPC() 重复调用，已跳过重复注册');
+    return;
+  }
+
+  ipcHandlersRegistered = true;
   // 数据库初始化
   ipcMain.handle(IPC_CHANNELS.DB_INIT, async (_event: IpcMainInvokeEvent) => {
     try {
