@@ -107,12 +107,11 @@ describe('FavoriteTagsPage render behavior', () => {
       expect(getFavoriteTagsWithDownloadState).toHaveBeenCalled();
     });
 
-    expect(screen.getByText('favoriteTags.boundGallery')).toBeTruthy();
-    expect(screen.getByText('favoriteTags.downloadStatus')).toBeTruthy();
-    expect(screen.getByText('favoriteTags.downloadProgress')).toBeTruthy();
-    expect(screen.getByText('favoriteTags.lastDownloadTime')).toBeTruthy();
+    expect(screen.getByText('favoriteTags.count:1')).toBeTruthy();
     expect(screen.getByText('tag a')).toBeTruthy();
-    expect(screen.getByText('Gallery A')).toBeTruthy();
+    expect(screen.getByText('favoriteTags.completed')).toBeTruthy();
+    expect(screen.getByText('common.export')).toBeTruthy();
+    expect(screen.getByText('common.import')).toBeTruthy();
   });
 
   it('图集绑定不一致时应显示 warning 提示', async () => {
@@ -151,7 +150,6 @@ describe('FavoriteTagsPage render behavior', () => {
 
     render(<FavoriteTagsPage />);
 
-    expect(await screen.findByText('favoriteTags.galleryBindingMismatch')).toBeTruthy();
-    expect(screen.getByText('favoriteTags.galleryBindingMismatchAlert')).toBeTruthy();
+    expect(await screen.findByText('favoriteTags.galleryBindingMismatchAlert')).toBeTruthy();
   });
 });

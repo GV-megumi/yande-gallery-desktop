@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert, Progress, Switch, InputNumber, List } from 'antd';
+import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined } from '@ant-design/icons';
 import {
   DndContext,
@@ -151,6 +152,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   useEffect(() => { loadFavoriteTags(); }, [loadFavoriteTags]);
 
   useEffect(() => {
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        loadFavoriteTags();
+      }, 250);
+    };
+
     const removeProgressListener = window.electronAPI?.system?.onBulkDownloadRecordProgress?.((data: {
       sessionId: string;
       progress: number;
@@ -166,10 +177,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           runtimeProgress: {
             ...tag.runtimeProgress,
             status: 'running',
-            percent: data.progress,
           },
         };
       }));
+
+      scheduleRefresh();
     });
 
     const removeStatusListener = window.electronAPI?.system?.onBulkDownloadRecordStatus?.((data: {
@@ -184,9 +196,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           return tag;
         }
 
-        if (data.status === 'completed' || data.status === 'failed' || data.status === 'paused' || data.status === 'cancelled') {
-          needsRefresh = true;
-        }
+        needsRefresh = true;
 
         return {
           ...tag,
@@ -200,11 +210,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       }));
 
       if (needsRefresh) {
-        loadFavoriteTags();
+        scheduleRefresh();
       }
     });
 
     return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
       removeProgressListener?.();
       removeStatusListener?.();
     };
@@ -591,7 +604,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
-  const columns = [
+  const columns: TableColumnsType<FavoriteTagWithDownloadState> = [
     {
       title: '',
       dataIndex: 'sort',
@@ -625,6 +638,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       dataIndex: 'labels',
       key: 'labels',
       width: 180,
+      responsive: ['lg'],
       render: (labels?: string[]) => (
         labels && labels.length > 0
           ? labels.map(label => <Tag key={label} color="purple">{label}</Tag>)
@@ -635,6 +649,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       title: t('favoriteTags.boundGallery'),
       key: 'boundGallery',
       width: 220,
+      responsive: ['lg'],
       render: (_: unknown, record: FavoriteTagWithDownloadState) => (
         <Space direction="vertical" size={2}>
           <span>{record.galleryName || t('favoriteTags.noGalleryBound')}</span>
@@ -656,6 +671,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       title: t('favoriteTags.downloadProgress'),
       key: 'downloadProgress',
       width: 180,
+      responsive: ['md'],
       render: (_: unknown, record: FavoriteTagWithDownloadState) => (
         record.runtimeProgress
           ? (
@@ -673,6 +689,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       title: t('favoriteTags.lastDownloadTime'),
       key: 'lastDownloadTime',
       width: 180,
+      responsive: ['xl'],
       render: (_: unknown, record: FavoriteTagWithDownloadState) => formatDateTime(record.downloadBinding?.lastCompletedAt || record.downloadBinding?.lastStartedAt),
     },
     {
@@ -680,15 +697,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       dataIndex: 'notes',
       key: 'notes',
       width: 180,
+      responsive: ['xl'],
       ellipsis: true,
       render: (notes?: string) => notes || <span style={{ color: '#ccc' }}>-</span>,
     },
     {
       title: t('favoriteTags.actions'),
       key: 'actions',
-      width: 260,
+      width: 176,
       render: (_: unknown, record: FavoriteTagWithDownloadState) => (
-        <Space>
+        <Space wrap size={[0, 4]} style={{ width: '100%', justifyContent: 'flex-start' }}>
           <Tooltip title={t('favoriteTags.searchTag')}>
             <Button type="link" size="small" icon={<SearchOutlined />} onClick={() => handleTagClick(record)} />
           </Tooltip>
@@ -748,68 +766,70 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       )}
 
       <Card size="small" style={{ marginBottom: 16 }}>
-        <Space style={{ width: '100%', justifyContent: 'space-between' }}>
-          <Space>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
+          <Space size={8} style={{ minWidth: 0 }}>
             <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
             <span style={{ fontSize: 16, fontWeight: 500 }}>{t('favoriteTags.count', { count: favoriteTags.length })}</span>
           </Space>
-          <Space>
-            <Select
-              placeholder={t('favoriteTags.filterSite')}
-              allowClear
-              style={{ width: 150 }}
-              value={filterSiteId ?? '__all__'}
-              onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? undefined : value as number)}
-            >
-              <Select.Option value="__all__">{t('common.all')}</Select.Option>
-              {sites.map(site => (
-                <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
-              ))}
-            </Select>
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setAddModalVisible(true); }}>
-              {t('favoriteTags.add')}
-            </Button>
-            <Button
-              icon={<ExportOutlined />}
-              onClick={async () => {
-                try {
-                  const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId ?? null);
-                  if (result.success && result.data) {
-                    message.success(t('favoriteTags.exportSuccess', { count: result.data.count }));
-                  } else if (result.error !== '取消导出') {
-                    message.error(`${t('favoriteTags.exportFailed')}: ${result.error}`);
+          <div style={{ flex: '1 1 320px', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
+              <Select
+                placeholder={t('favoriteTags.filterSite')}
+                allowClear
+                style={{ width: 150, minWidth: 120 }}
+                value={filterSiteId ?? '__all__'}
+                onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? undefined : value as number)}
+              >
+                <Select.Option value="__all__">{t('common.all')}</Select.Option>
+                {sites.map(site => (
+                  <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
+                ))}
+              </Select>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setAddModalVisible(true); }}>
+                {t('favoriteTags.add')}
+              </Button>
+              <Button
+                icon={<ExportOutlined />}
+                onClick={async () => {
+                  try {
+                    const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId ?? null);
+                    if (result.success && result.data) {
+                      message.success(t('favoriteTags.exportSuccess', { count: result.data.count }));
+                    } else if (result.error !== '取消导出') {
+                      message.error(`${t('favoriteTags.exportFailed')}: ${result.error}`);
+                    }
+                  } catch {
+                    message.error(t('favoriteTags.exportFailed'));
                   }
-                } catch {
-                  message.error(t('favoriteTags.exportFailed'));
-                }
-              }}
-            >
-              {t('common.export')}
-            </Button>
-            <Button
-              icon={<ImportOutlined />}
-              onClick={async () => {
-                try {
-                  const result = await window.electronAPI.booru.importFavoriteTags();
-                  if (result.success && result.data) {
-                    message.success(t('favoriteTags.importSuccess', {
-                      imported: result.data.importedTags,
-                      labels: result.data.importedLabels,
-                      skipped: result.data.skippedTags,
-                    }));
-                    loadFavoriteTags();
-                  } else if (result.error !== '取消导入') {
-                    message.error(`${t('favoriteTags.importFailed')}: ${result.error}`);
+                }}
+              >
+                {t('common.export')}
+              </Button>
+              <Button
+                icon={<ImportOutlined />}
+                onClick={async () => {
+                  try {
+                    const result = await window.electronAPI.booru.importFavoriteTags();
+                    if (result.success && result.data) {
+                      message.success(t('favoriteTags.importSuccess', {
+                        imported: result.data.importedTags,
+                        labels: result.data.importedLabels,
+                        skipped: result.data.skippedTags,
+                      }));
+                      loadFavoriteTags();
+                    } else if (result.error !== '取消导入') {
+                      message.error(`${t('favoriteTags.importFailed')}: ${result.error}`);
+                    }
+                  } catch {
+                    message.error(t('favoriteTags.importFailed'));
                   }
-                } catch {
-                  message.error(t('favoriteTags.importFailed'));
-                }
-              }}
-            >
-              {t('common.import')}
-            </Button>
-          </Space>
-        </Space>
+                }}
+              >
+                {t('common.import')}
+              </Button>
+            </div>
+          </div>
+        </div>
       </Card>
 
       {favoriteTags.length > 0 && onTagClick && (
