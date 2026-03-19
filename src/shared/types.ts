@@ -293,6 +293,7 @@ export interface FavoriteTagDownloadRuntimeProgress {
 
 export interface FavoriteTagWithDownloadState extends FavoriteTag {
   downloadBinding?: FavoriteTagDownloadBinding;
+  resolvedDownloadPath?: string | null;
   runtimeProgress?: FavoriteTagDownloadRuntimeProgress | null;
   galleryName?: string | null;
   galleryBindingConsistent?: boolean | null;

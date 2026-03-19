@@ -59,7 +59,7 @@ interface FavoriteTagDownloadHistoryItem {
 }
 
 const SortableRow: React.FC<any> = (props) => {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  const { setNodeRef, transform, transition, isDragging } = useSortable({
     id: props['data-row-key'],
   });
 
@@ -67,11 +67,24 @@ const SortableRow: React.FC<any> = (props) => {
     ...props.style,
     transform: CSS.Transform.toString(transform),
     transition,
-    cursor: 'move',
     ...(isDragging ? { position: 'relative', zIndex: 9999, background: '#fafafa', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' } : {}),
   };
 
-  return <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners} />;
+  return <tr {...props} ref={setNodeRef} style={style} />;
+};
+
+const DragHandle: React.FC<{ id: number }> = ({ id }) => {
+  const { attributes, listeners } = useSortable({ id });
+
+  return (
+    <span
+      {...attributes}
+      {...listeners}
+      style={{ cursor: 'grab', color: '#999', display: 'inline-flex', alignItems: 'center' }}
+    >
+      <HolderOutlined />
+    </span>
+  );
 };
 
 export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }) => {
@@ -197,16 +210,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         }
 
         needsRefresh = true;
-
-        return {
-          ...tag,
-          runtimeProgress: tag.runtimeProgress
-            ? {
-                ...tag.runtimeProgress,
-                status: data.status as any,
-              }
-            : tag.runtimeProgress,
-        };
+        return tag;
       }));
 
       if (needsRefresh) {
@@ -455,11 +459,21 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
   };
 
+  const getDownloadDisabledReason = (record: FavoriteTagWithDownloadState) => {
+    if (record.queryType !== 'tag') {
+      return t('favoriteTags.onlyTagQuerySupported');
+    }
+    if (record.siteId == null) {
+      return t('favoriteTags.siteRequiredForDownload');
+    }
+    return null;
+  };
+
   const openDownloadConfig = (record: FavoriteTagWithDownloadState) => {
     setConfiguringTag(record);
     downloadForm.setFieldsValue({
       galleryId: record.downloadBinding?.galleryId ?? undefined,
-      downloadPath: record.downloadBinding?.downloadPath || '',
+      downloadPath: record.resolvedDownloadPath || record.downloadBinding?.downloadPath || '',
       autoCreateGallery: record.downloadBinding?.autoCreateGallery ?? false,
       autoSyncGalleryAfterDownload: record.downloadBinding?.autoSyncGalleryAfterDownload ?? false,
       quality: record.downloadBinding?.quality || 'original',
@@ -469,18 +483,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       notifications: record.downloadBinding?.notifications ?? true,
       blacklistedTags: record.downloadBinding?.blacklistedTags?.join(' ') || '',
     });
-  };
-
-  const handleSelectDownloadFolder = async () => {
-    try {
-      const result = await window.electronAPI.system.selectFolder();
-      if (result.success && result.data) {
-        downloadForm.setFieldsValue({ downloadPath: result.data });
-      }
-    } catch (error) {
-      console.error('[FavoriteTagsPage] 选择下载目录失败:', error);
-      message.error(t('common.failed'));
-    }
   };
 
   const handleGalleryChange = (galleryId?: number) => {
@@ -530,11 +532,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const saveDownloadBinding = async (record: FavoriteTagWithDownloadState, startAfterSave: boolean) => {
     try {
       const values = await downloadForm.validateFields();
-      if (!values.downloadPath?.trim()) {
-        message.warning(t('favoriteTags.selectPathFirst'));
-        return;
-      }
-
       setSavingDownloadConfig(true);
       const result = await window.electronAPI.booru.upsertFavoriteTagDownloadBinding({
         favoriteTagId: record.id,
@@ -610,7 +607,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       dataIndex: 'sort',
       key: 'sort',
       width: 40,
-      render: () => <HolderOutlined style={{ cursor: 'grab', color: '#999' }} />,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => <DragHandle id={record.id} />,
     },
     {
       title: t('favoriteTags.tagName'),
@@ -711,13 +708,17 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             <Button type="link" size="small" icon={<SearchOutlined />} onClick={() => handleTagClick(record)} />
           </Tooltip>
           <Tooltip title={t('favoriteTags.download')}>
-            <Button
-              type="link"
-              size="small"
-              icon={<DownloadOutlined />}
-              disabled={record.queryType !== 'tag' || record.siteId == null}
-              onClick={() => handleDownloadClick(record)}
-            />
+            <Tooltip title={getDownloadDisabledReason(record) || t('favoriteTags.download')}>
+              <span>
+                <Button
+                  type="link"
+                  size="small"
+                  icon={<DownloadOutlined />}
+                  disabled={record.queryType !== 'tag' || record.siteId == null}
+                  onClick={() => handleDownloadClick(record)}
+                />
+              </span>
+            </Tooltip>
           </Tooltip>
           <Tooltip title={t('favoriteTags.configureDownload')}>
             <Button type="link" size="small" icon={<SettingOutlined />} danger={record.galleryBindingConsistent === false} onClick={() => openDownloadConfig(record)} />
@@ -771,12 +772,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
             <span style={{ fontSize: 16, fontWeight: 500 }}>{t('favoriteTags.count', { count: favoriteTags.length })}</span>
           </Space>
-          <div style={{ flex: '1 1 320px', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
+          <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
               <Select
                 placeholder={t('favoriteTags.filterSite')}
                 allowClear
-                style={{ width: 150, minWidth: 120 }}
+                style={{ width: 140, minWidth: 100, flex: '0 0 auto' }}
                 value={filterSiteId ?? '__all__'}
                 onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? undefined : value as number)}
               >
@@ -916,10 +917,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             </Select>
           </Form.Item>
           <Form.Item name="downloadPath" label={t('favoriteTags.downloadPath')} rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}> 
-            <Input.Group compact>
-              <Input style={{ width: 'calc(100% - 120px)' }} readOnly />
-              <Button icon={<FolderOpenOutlined />} onClick={handleSelectDownloadFolder}>{t('favoriteTags.selectFolder')}</Button>
-            </Input.Group>
+            <Input readOnly />
           </Form.Item>
           <Form.Item name="autoCreateGallery" label={t('favoriteTags.autoCreateGallery')} valuePropName="checked">
             <Switch />

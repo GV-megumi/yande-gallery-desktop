@@ -59,6 +59,9 @@ beforeEach(() => {
     gallery: {
       getGalleries,
     },
+    config: {
+      get: vi.fn(async () => ({ success: true, data: { downloads: { path: 'downloads' } } })),
+    },
     system: {
       onBulkDownloadRecordProgress: vi.fn(() => () => {}),
       onBulkDownloadRecordStatus: vi.fn(() => () => {}),

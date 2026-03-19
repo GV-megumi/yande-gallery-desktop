@@ -103,6 +103,11 @@ vi.mock('../../../src/main/services/bulkDownloadService', () => ({
   startBulkDownloadSession: vi.fn(async () => ({ success: true })),
 }));
 
+vi.mock('../../../src/main/services/config', () => ({
+  getConfig: vi.fn(() => ({ downloads: { path: 'downloads' } })),
+  resolveConfigPath: vi.fn((p: string) => `C:/config/${p}`),
+}));
+
 describe('booruService integration-ish behavior', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -115,6 +120,7 @@ describe('booruService integration-ish behavior', () => {
     expect(result.length).toBeGreaterThan(0);
     expect(result[0].downloadBinding?.favoriteTagId).toBe(1);
     expect(result[0].galleryName).toBe('Gallery A');
+    expect(result[1].resolvedDownloadPath?.replace(/\\/g, '/')).toBe('C:/config/downloads/tag_b');
   });
 
   it('getFavoriteTagDownloadHistory 应返回 favoriteTag 来源会话', async () => {
