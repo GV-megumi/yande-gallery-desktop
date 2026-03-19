@@ -251,6 +251,7 @@ const zhCN = {
     dryRun: '扫描中',
     running: '下载中',
     completed: '已完成',
+    allSkipped: '已全部跳过',
     paused: '已暂停',
     failed: '失败',
     validationError: '配置错误',

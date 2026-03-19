@@ -253,6 +253,7 @@ const enUS: LocaleMessages = {
     dryRun: 'Scanning',
     running: 'Downloading',
     completed: 'Completed',
+    allSkipped: 'All Skipped',
     paused: 'Paused',
     failed: 'Failed',
     validationError: 'Config Error',
