@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert } from 'antd';
-import { StarOutlined, StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined } from '@ant-design/icons';
+import React, { useState, useEffect, useCallback } from 'react';
+import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert, Progress, Switch, InputNumber, List } from 'antd';
+import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined } from '@ant-design/icons';
 import {
   DndContext,
   closestCenter,
@@ -17,15 +17,46 @@ import {
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import type { FavoriteTag } from '../../shared/types';
+import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
 import { useLocale } from '../locales';
 
 interface FavoriteTagsPageProps {
-  /** 点击标签时的回调，用于跳转到标签搜索页面 */
   onTagClick?: (tag: string, siteId?: number | null) => void;
 }
 
-/** 可拖拽的表格行组件 */
+interface SiteOption {
+  id: number;
+  name: string;
+}
+
+interface GalleryOption {
+  id: number;
+  name: string;
+  folderPath: string;
+}
+
+interface DownloadBindingFormValues {
+  galleryId?: number | null;
+  downloadPath: string;
+  autoCreateGallery?: boolean;
+  autoSyncGalleryAfterDownload?: boolean;
+  quality?: string;
+  perPage?: number;
+  concurrency?: number;
+  skipIfExists?: boolean;
+  notifications?: boolean;
+  blacklistedTags?: string;
+}
+
+interface FavoriteTagDownloadHistoryItem {
+  sessionId: string;
+  taskId: string;
+  status: string;
+  startedAt: string;
+  completedAt?: string | null;
+  error?: string | null;
+}
+
 const SortableRow: React.FC<any> = (props) => {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: props['data-row-key'],
@@ -42,42 +73,42 @@ const SortableRow: React.FC<any> = (props) => {
   return <tr {...props} ref={setNodeRef} style={style} {...attributes} {...listeners} />;
 };
 
-/**
- * 收藏标签管理页面
- * 展示用户收藏的标签列表，支持添加、编辑、删除、拖拽排序
- */
 export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }) => {
   const { t } = useLocale();
-  const [favoriteTags, setFavoriteTags] = useState<FavoriteTag[]>([]);
+  const [favoriteTags, setFavoriteTags] = useState<FavoriteTagWithDownloadState[]>([]);
   const [loading, setLoading] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [editingTag, setEditingTag] = useState<FavoriteTag | null>(null);
-  const [sites, setSites] = useState<any[]>([]);
-  const [filterSiteId, setFilterSiteId] = useState<number | null | undefined>(undefined);
+  const [configuringTag, setConfiguringTag] = useState<FavoriteTagWithDownloadState | null>(null);
+  const [sites, setSites] = useState<SiteOption[]>([]);
+  const [galleries, setGalleries] = useState<GalleryOption[]>([]);
+  const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
+  const [savingDownloadConfig, setSavingDownloadConfig] = useState(false);
+  const [historyVisible, setHistoryVisible] = useState(false);
+  const [historyTag, setHistoryTag] = useState<FavoriteTagWithDownloadState | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [downloadHistory, setDownloadHistory] = useState<FavoriteTagDownloadHistoryItem[]>([]);
   const [form] = Form.useForm();
+  const [downloadForm] = Form.useForm<DownloadBindingFormValues>();
 
-  // 拖拽/粘贴/选择性导入状态
   const [isDragging, setIsDragging] = useState(false);
   const [importPreviewVisible, setImportPreviewVisible] = useState(false);
   const [importPreviewTags, setImportPreviewTags] = useState<string[]>([]);
   const [importCheckedTags, setImportCheckedTags] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
 
-  // dnd-kit 传感器：需要拖拽 5px 才触发，防止误触
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
     })
   );
 
-  // 加载收藏标签列表
   const loadFavoriteTags = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await window.electronAPI.booru.getFavoriteTags(filterSiteId);
+      const result = await window.electronAPI.booru.getFavoriteTagsWithDownloadState(filterSiteId);
       if (result.success && result.data) {
         setFavoriteTags(result.data);
-        console.log('[FavoriteTagsPage] 加载收藏标签:', result.data.length, '个');
       } else {
         console.error('[FavoriteTagsPage] 加载收藏标签失败:', result.error);
       }
@@ -89,7 +120,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   }, [filterSiteId, t]);
 
-  // 加载站点列表
   const loadSites = useCallback(async () => {
     try {
       const result = await window.electronAPI.booru.getSites();
@@ -101,10 +131,85 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   }, []);
 
+  const loadGalleries = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.gallery.getGalleries();
+      if (result.success && result.data) {
+        setGalleries(result.data.map((gallery: any) => ({
+          id: gallery.id,
+          name: gallery.name,
+          folderPath: gallery.folderPath,
+        })));
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 加载图集列表失败:', error);
+    }
+  }, []);
+
   useEffect(() => { loadSites(); }, [loadSites]);
+  useEffect(() => { loadGalleries(); }, [loadGalleries]);
   useEffect(() => { loadFavoriteTags(); }, [loadFavoriteTags]);
 
-  // 拖拽排序结束
+  useEffect(() => {
+    const removeProgressListener = window.electronAPI?.system?.onBulkDownloadRecordProgress?.((data: {
+      sessionId: string;
+      progress: number;
+    }) => {
+      setFavoriteTags(prev => prev.map(tag => {
+        const sessionId = tag.downloadBinding?.lastSessionId;
+        if (!sessionId || sessionId !== data.sessionId || !tag.runtimeProgress) {
+          return tag;
+        }
+
+        return {
+          ...tag,
+          runtimeProgress: {
+            ...tag.runtimeProgress,
+            status: 'running',
+            percent: data.progress,
+          },
+        };
+      }));
+    });
+
+    const removeStatusListener = window.electronAPI?.system?.onBulkDownloadRecordStatus?.((data: {
+      sessionId: string;
+      status: string;
+    }) => {
+      let needsRefresh = false;
+
+      setFavoriteTags(prev => prev.map(tag => {
+        const sessionId = tag.downloadBinding?.lastSessionId;
+        if (!sessionId || sessionId !== data.sessionId) {
+          return tag;
+        }
+
+        if (data.status === 'completed' || data.status === 'failed' || data.status === 'paused' || data.status === 'cancelled') {
+          needsRefresh = true;
+        }
+
+        return {
+          ...tag,
+          runtimeProgress: tag.runtimeProgress
+            ? {
+                ...tag.runtimeProgress,
+                status: data.status as any,
+              }
+            : tag.runtimeProgress,
+        };
+      }));
+
+      if (needsRefresh) {
+        loadFavoriteTags();
+      }
+    });
+
+    return () => {
+      removeProgressListener?.();
+      removeStatusListener?.();
+    };
+  }, [loadFavoriteTags]);
+
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     const { active, over } = event;
     if (!over || active.id === over.id) return;
@@ -113,31 +218,22 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     const newIndex = favoriteTags.findIndex(tag => tag.id === over.id);
     if (oldIndex === -1 || newIndex === -1) return;
 
-    // 乐观更新：先更新 UI
     const newTags = arrayMove(favoriteTags, oldIndex, newIndex);
     setFavoriteTags(newTags);
 
-    // 批量更新 sortOrder 到后端
-    console.log('[FavoriteTagsPage] 拖拽排序: 从', oldIndex, '到', newIndex);
     try {
       const updates = newTags.map((tag, index) => ({
         id: tag.id,
         sortOrder: index + 1,
       }));
-      // 逐个更新 sortOrder
-      await Promise.all(
-        updates.map(u => window.electronAPI.booru.updateFavoriteTag(u.id, { sortOrder: u.sortOrder }))
-      );
-      console.log('[FavoriteTagsPage] 排序保存成功');
+      await Promise.all(updates.map(u => window.electronAPI.booru.updateFavoriteTag(u.id, { sortOrder: u.sortOrder })));
     } catch (error) {
       console.error('[FavoriteTagsPage] 排序保存失败:', error);
       message.error(t('common.failed'));
-      // 回滚：重新加载
       loadFavoriteTags();
     }
   }, [favoriteTags, loadFavoriteTags, t]);
 
-  // 添加收藏标签
   const handleAdd = async (values: any) => {
     try {
       const { tagName, siteId, notes, labels } = values;
@@ -146,7 +242,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         tagName.trim(),
         {
           notes: notes || undefined,
-          labels: labels ? labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined
+          labels: labels ? labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined,
         }
       );
       if (result.success) {
@@ -155,7 +251,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         form.resetFields();
         loadFavoriteTags();
       } else {
-        message.error(t('common.failed') + ': ' + result.error);
+        message.error(`${t('common.failed')}: ${result.error}`);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 添加收藏标签失败:', error);
@@ -163,13 +259,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
-  // 编辑收藏标签
   const handleEdit = async (values: any) => {
     if (!editingTag) return;
     try {
       const result = await window.electronAPI.booru.updateFavoriteTag(editingTag.id, {
         notes: values.notes || undefined,
-        labels: values.labels ? values.labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined
+        labels: values.labels ? values.labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined,
       });
       if (result.success) {
         message.success(t('favoriteTags.updateSuccess'));
@@ -177,7 +272,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         form.resetFields();
         loadFavoriteTags();
       } else {
-        message.error(t('common.failed') + ': ' + result.error);
+        message.error(`${t('common.failed')}: ${result.error}`);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 编辑收藏标签失败:', error);
@@ -185,7 +280,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
-  // 删除收藏标签
   const handleDelete = async (id: number) => {
     try {
       const result = await window.electronAPI.booru.removeFavoriteTag(id);
@@ -193,7 +287,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         message.success(t('favoriteTags.unfavorited'));
         loadFavoriteTags();
       } else {
-        message.error(t('common.failed') + ': ' + result.error);
+        message.error(`${t('common.failed')}: ${result.error}`);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 删除收藏标签失败:', error);
@@ -201,18 +295,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
-  // 点击标签进行搜索
   const handleTagClick = (tag: FavoriteTag) => {
     if (onTagClick) {
       onTagClick(tag.tagName, tag.siteId);
     }
   };
 
-  // === 拖拽/粘贴/选择性导入 ===
-
-  // 解析文本内容中的标签
   const parseTagsFromContent = useCallback((content: string): string[] => {
-    // 尝试 JSON 格式
     try {
       const json = JSON.parse(content);
       if (json.data?.favoriteTags) {
@@ -221,14 +310,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       if (Array.isArray(json)) {
         return json.map((t: any) => t.tagName || t.name || String(t)).filter(Boolean);
       }
-    } catch { /* 非 JSON，按纯文本处理 */ }
-    // 纯文本：每行一个标签
-    return content.split('\n')
-      .map(l => l.trim())
-      .filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
+    } catch {}
+    return content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
   }, []);
 
-  // 显示导入预览弹窗
   const showImportPreview = useCallback((tags: string[]) => {
     const unique = [...new Set(tags)];
     if (unique.length === 0) {
@@ -240,7 +325,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     setImportPreviewVisible(true);
   }, [t]);
 
-  // 拖拽事件处理
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -264,13 +348,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       message.error(t('favoriteTags.unsupportedFileType'));
       return;
     }
-    console.log('[FavoriteTagsPage] 拖拽导入文件:', file.name);
     const text = await file.text();
     const tags = parseTagsFromContent(text);
     showImportPreview(tags);
   }, [parseTagsFromContent, showImportPreview, t]);
 
-  // 剪贴板粘贴
   useEffect(() => {
     const handlePaste = (e: ClipboardEvent) => {
       const target = e.target as HTMLElement;
@@ -280,7 +362,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       const tags = parseTagsFromContent(text);
       if (tags.length > 0) {
         e.preventDefault();
-        console.log('[FavoriteTagsPage] 剪贴板粘贴导入:', tags.length, '个标签');
         showImportPreview(tags);
       }
     };
@@ -288,7 +369,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     return () => document.removeEventListener('paste', handlePaste);
   }, [parseTagsFromContent, showImportPreview]);
 
-  // 导入选中的标签
   const handleImportSelected = async () => {
     const tagsToImport = importPreviewTags.filter(t => importCheckedTags.has(t));
     if (tagsToImport.length === 0) {
@@ -296,31 +376,221 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       return;
     }
     setImporting(true);
-    let added = 0, skipped = 0;
+    let added = 0;
+    let skipped = 0;
     for (const tagName of tagsToImport) {
       try {
-        const result = await window.electronAPI.booru.addFavoriteTag(
-          filterSiteId ?? null, tagName, {}
-        );
+        const result = await window.electronAPI.booru.addFavoriteTag(filterSiteId ?? null, tagName, {});
         if (result.success) added++;
         else skipped++;
-      } catch { skipped++; }
+      } catch {
+        skipped++;
+      }
     }
     setImporting(false);
     setImportPreviewVisible(false);
-    message.success(t('favoriteTags.selectiveImportResult', { added, skipped }));
-    console.log('[FavoriteTagsPage] 选择性导入完成: 成功', added, '跳过', skipped);
+    message.success(t('favoriteTags.selectiveImportResult', { count: added }));
     loadFavoriteTags();
   };
 
-  // 获取站点名称
   const getSiteName = (siteId: number | null) => {
     if (siteId === null) return t('favoriteTags.global');
     const site = sites.find(s => s.id === siteId);
     return site ? site.name : `#${siteId}`;
   };
 
-  // 表格列定义
+  const getStatusKey = (record: FavoriteTagWithDownloadState): FavoriteTagDownloadDisplayStatus => {
+    if (record.runtimeProgress?.status) {
+      return record.runtimeProgress.status;
+    }
+    if (record.downloadBinding?.lastStatus) {
+      return record.downloadBinding.lastStatus;
+    }
+    if (record.downloadBinding?.enabled) {
+      return 'ready';
+    }
+    return 'notConfigured';
+  };
+
+  const getStatusColor = (record: FavoriteTagWithDownloadState) => {
+    const key = getStatusKey(record);
+    switch (key) {
+      case 'starting':
+      case 'dryRun':
+      case 'running':
+        return 'processing';
+      case 'ready':
+      case 'completed':
+        return 'success';
+      case 'paused':
+        return 'warning';
+      case 'failed':
+      case 'validationError':
+      case 'taskCreateFailed':
+      case 'sessionCreateFailed':
+        return 'error';
+      default:
+        return 'default';
+    }
+  };
+
+  const formatDateTime = (value?: string | null) => {
+    if (!value) {
+      return t('favoriteTags.noLastDownload');
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+  };
+
+  const openDownloadConfig = (record: FavoriteTagWithDownloadState) => {
+    setConfiguringTag(record);
+    downloadForm.setFieldsValue({
+      galleryId: record.downloadBinding?.galleryId ?? undefined,
+      downloadPath: record.downloadBinding?.downloadPath || '',
+      autoCreateGallery: record.downloadBinding?.autoCreateGallery ?? false,
+      autoSyncGalleryAfterDownload: record.downloadBinding?.autoSyncGalleryAfterDownload ?? false,
+      quality: record.downloadBinding?.quality || 'original',
+      perPage: record.downloadBinding?.perPage ?? 20,
+      concurrency: record.downloadBinding?.concurrency ?? 3,
+      skipIfExists: record.downloadBinding?.skipIfExists ?? true,
+      notifications: record.downloadBinding?.notifications ?? true,
+      blacklistedTags: record.downloadBinding?.blacklistedTags?.join(' ') || '',
+    });
+  };
+
+  const handleSelectDownloadFolder = async () => {
+    try {
+      const result = await window.electronAPI.system.selectFolder();
+      if (result.success && result.data) {
+        downloadForm.setFieldsValue({ downloadPath: result.data });
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 选择下载目录失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
+  const handleGalleryChange = (galleryId?: number) => {
+    if (!galleryId) return;
+    const gallery = galleries.find(item => item.id === galleryId);
+    if (gallery) {
+      downloadForm.setFieldsValue({ downloadPath: gallery.folderPath });
+    }
+  };
+
+  const triggerDownload = async (favoriteTagId: number) => {
+    try {
+      const result = await window.electronAPI.booru.startFavoriteTagBulkDownload(favoriteTagId);
+      if (result.success) {
+        message.success(t('favoriteTags.downloadStarted'));
+        await loadFavoriteTags();
+      } else {
+        message.error(`${t('common.failed')}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 启动标签下载失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
+  const openDownloadHistory = async (record: FavoriteTagWithDownloadState) => {
+    setHistoryTag(record);
+    setHistoryVisible(true);
+    setHistoryLoading(true);
+    try {
+      const result = await window.electronAPI.booru.getFavoriteTagDownloadHistory(record.id);
+      if (result.success && result.data) {
+        setDownloadHistory(result.data);
+      } else {
+        setDownloadHistory([]);
+        message.error(`${t('common.failed')}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 加载收藏标签下载历史失败:', error);
+      setDownloadHistory([]);
+      message.error(t('common.failed'));
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
+  const saveDownloadBinding = async (record: FavoriteTagWithDownloadState, startAfterSave: boolean) => {
+    try {
+      const values = await downloadForm.validateFields();
+      if (!values.downloadPath?.trim()) {
+        message.warning(t('favoriteTags.selectPathFirst'));
+        return;
+      }
+
+      setSavingDownloadConfig(true);
+      const result = await window.electronAPI.booru.upsertFavoriteTagDownloadBinding({
+        favoriteTagId: record.id,
+        galleryId: values.galleryId ?? null,
+        downloadPath: values.downloadPath,
+        autoCreateGallery: values.autoCreateGallery,
+        autoSyncGalleryAfterDownload: values.autoSyncGalleryAfterDownload,
+        quality: values.quality,
+        perPage: values.perPage,
+        concurrency: values.concurrency,
+        skipIfExists: values.skipIfExists,
+        notifications: values.notifications,
+        blacklistedTags: values.blacklistedTags
+          ? values.blacklistedTags.split(/\s+/).map(tag => tag.trim()).filter(Boolean)
+          : [],
+      });
+
+      if (!result.success) {
+        message.error(`${t('common.failed')}: ${result.error}`);
+        return;
+      }
+
+      message.success(t('favoriteTags.saveConfigSuccess'));
+      setConfiguringTag(null);
+      downloadForm.resetFields();
+      await loadFavoriteTags();
+
+      if (startAfterSave) {
+        await triggerDownload(record.id);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 保存下载配置失败:', error);
+      message.error(t('common.failed'));
+    } finally {
+      setSavingDownloadConfig(false);
+    }
+  };
+
+  const handleDownloadClick = async (record: FavoriteTagWithDownloadState) => {
+    if (record.queryType !== 'tag') {
+      message.warning(t('favoriteTags.onlyTagQuerySupported'));
+      return;
+    }
+    if (record.siteId == null) {
+      message.warning(t('favoriteTags.siteRequiredForDownload'));
+      return;
+    }
+    if (!record.downloadBinding) {
+      openDownloadConfig(record);
+      return;
+    }
+    await triggerDownload(record.id);
+  };
+
+  const handleClearDownloadBinding = async (favoriteTagId: number) => {
+    try {
+      const result = await window.electronAPI.booru.removeFavoriteTagDownloadBinding(favoriteTagId);
+      if (result.success) {
+        message.success(t('favoriteTags.clearBindingSuccess'));
+        await loadFavoriteTags();
+      } else {
+        message.error(`${t('common.failed')}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 删除下载配置失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
   const columns = [
     {
       title: '',
@@ -333,7 +603,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       title: t('favoriteTags.tagName'),
       dataIndex: 'tagName',
       key: 'tagName',
-      render: (tagName: string, record: FavoriteTag) => (
+      render: (tagName: string, record: FavoriteTagWithDownloadState) => (
         <a onClick={() => handleTagClick(record)} style={{ cursor: 'pointer' }}>
           <Tag color="blue" style={{ cursor: 'pointer', fontSize: '14px', padding: '2px 8px' }}>
             {tagName.replace(/_/g, ' ')}
@@ -354,7 +624,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       title: t('favoriteTags.group'),
       dataIndex: 'labels',
       key: 'labels',
-      width: 200,
+      width: 180,
       render: (labels?: string[]) => (
         labels && labels.length > 0
           ? labels.map(label => <Tag key={label} color="purple">{label}</Tag>)
@@ -362,26 +632,85 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       ),
     },
     {
+      title: t('favoriteTags.boundGallery'),
+      key: 'boundGallery',
+      width: 220,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => (
+        <Space direction="vertical" size={2}>
+          <span>{record.galleryName || t('favoriteTags.noGalleryBound')}</span>
+          {record.galleryBindingConsistent === false && (
+            <Tag color="warning">{t('favoriteTags.galleryBindingMismatch')}</Tag>
+          )}
+        </Space>
+      ),
+    },
+    {
+      title: t('favoriteTags.downloadStatus'),
+      key: 'downloadStatus',
+      width: 140,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => (
+        <Tag color={getStatusColor(record)}>{t(`favoriteTags.${getStatusKey(record)}`)}</Tag>
+      ),
+    },
+    {
+      title: t('favoriteTags.downloadProgress'),
+      key: 'downloadProgress',
+      width: 180,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => (
+        record.runtimeProgress
+          ? (
+            <div style={{ minWidth: 140 }}>
+              <Progress percent={record.runtimeProgress.percent} size="small" />
+              <div style={{ fontSize: 12, color: '#666' }}>
+                {record.runtimeProgress.completed}/{record.runtimeProgress.total}
+              </div>
+            </div>
+          )
+          : <span style={{ color: '#999' }}>-</span>
+      ),
+    },
+    {
+      title: t('favoriteTags.lastDownloadTime'),
+      key: 'lastDownloadTime',
+      width: 180,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => formatDateTime(record.downloadBinding?.lastCompletedAt || record.downloadBinding?.lastStartedAt),
+    },
+    {
       title: t('favoriteTags.notes'),
       dataIndex: 'notes',
       key: 'notes',
-      width: 200,
+      width: 180,
       ellipsis: true,
       render: (notes?: string) => notes || <span style={{ color: '#ccc' }}>-</span>,
     },
     {
       title: t('favoriteTags.actions'),
       key: 'actions',
-      width: 150,
-      render: (_: any, record: FavoriteTag) => (
+      width: 260,
+      render: (_: unknown, record: FavoriteTagWithDownloadState) => (
         <Space>
           <Tooltip title={t('favoriteTags.searchTag')}>
+            <Button type="link" size="small" icon={<SearchOutlined />} onClick={() => handleTagClick(record)} />
+          </Tooltip>
+          <Tooltip title={t('favoriteTags.download')}>
             <Button
               type="link"
               size="small"
-              icon={<SearchOutlined />}
-              onClick={() => handleTagClick(record)}
+              icon={<DownloadOutlined />}
+              disabled={record.queryType !== 'tag' || record.siteId == null}
+              onClick={() => handleDownloadClick(record)}
             />
+          </Tooltip>
+          <Tooltip title={t('favoriteTags.configureDownload')}>
+            <Button type="link" size="small" icon={<SettingOutlined />} danger={record.galleryBindingConsistent === false} onClick={() => openDownloadConfig(record)} />
+          </Tooltip>
+          <Popconfirm title={t('favoriteTags.clearBindingConfirm')} onConfirm={() => handleClearDownloadBinding(record.id)}>
+            <Tooltip title={t('favoriteTags.clearDownloadBinding')}>
+              <Button type="link" size="small" icon={<DisconnectOutlined />} disabled={!record.downloadBinding} />
+            </Tooltip>
+          </Popconfirm>
+          <Tooltip title={t('favoriteTags.viewDownloadHistory')}>
+            <Button type="link" size="small" icon={<HistoryOutlined />} onClick={() => openDownloadHistory(record)} />
           </Tooltip>
           <Tooltip title={t('common.edit')}>
             <Button
@@ -392,7 +721,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 setEditingTag(record);
                 form.setFieldsValue({
                   notes: record.notes || '',
-                  labels: record.labels ? record.labels.join(', ') : ''
+                  labels: record.labels ? record.labels.join(', ') : '',
                 });
               }}
             />
@@ -408,39 +737,21 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   ];
 
   return (
-    <div
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
-      style={{ position: 'relative' }}
-    >
-      {/* 拖拽覆盖层 */}
+    <div onDragOver={handleDragOver} onDragLeave={handleDragLeave} onDrop={handleDrop} style={{ position: 'relative' }}>
       {isDragging && (
-        <div style={{
-          position: 'absolute', inset: 0, zIndex: 999,
-          background: 'rgba(24, 144, 255, 0.08)',
-          border: '2px dashed #1890ff',
-          borderRadius: 12,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          pointerEvents: 'none',
-        }}>
+        <div style={{ position: 'absolute', inset: 0, zIndex: 999, background: 'rgba(24, 144, 255, 0.08)', border: '2px dashed #1890ff', borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}>
           <div style={{ textAlign: 'center' }}>
             <InboxOutlined style={{ fontSize: 48, color: '#1890ff' }} />
-            <div style={{ fontSize: 16, color: '#1890ff', marginTop: 8 }}>
-              {t('favoriteTags.dropFileHere')}
-            </div>
+            <div style={{ fontSize: 16, color: '#1890ff', marginTop: 8 }}>{t('favoriteTags.dropFileHere')}</div>
           </div>
         </div>
       )}
 
-      {/* 工具栏 */}
       <Card size="small" style={{ marginBottom: 16 }}>
         <Space style={{ width: '100%', justifyContent: 'space-between' }}>
           <Space>
             <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
-            <span style={{ fontSize: 16, fontWeight: 500 }}>
-              {t('favoriteTags.count', { count: favoriteTags.length })}
-            </span>
+            <span style={{ fontSize: 16, fontWeight: 500 }}>{t('favoriteTags.count', { count: favoriteTags.length })}</span>
           </Space>
           <Space>
             <Select
@@ -448,34 +759,27 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               allowClear
               style={{ width: 150 }}
               value={filterSiteId ?? '__all__'}
-              onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? null : value as number)}
+              onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? undefined : value as number)}
             >
-              <Select.Option value="__all__">{t('favoriteTags.globalTags')}</Select.Option>
+              <Select.Option value="__all__">{t('common.all')}</Select.Option>
               {sites.map(site => (
                 <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
               ))}
             </Select>
-            <Button
-              type="primary"
-              icon={<PlusOutlined />}
-              onClick={() => {
-                form.resetFields();
-                setAddModalVisible(true);
-              }}
-            >
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setAddModalVisible(true); }}>
               {t('favoriteTags.add')}
             </Button>
             <Button
               icon={<ExportOutlined />}
               onClick={async () => {
                 try {
-                  const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId);
+                  const result = await window.electronAPI.booru.exportFavoriteTags(filterSiteId ?? null);
                   if (result.success && result.data) {
                     message.success(t('favoriteTags.exportSuccess', { count: result.data.count }));
                   } else if (result.error !== '取消导出') {
-                    message.error(t('favoriteTags.exportFailed') + ': ' + result.error);
+                    message.error(`${t('favoriteTags.exportFailed')}: ${result.error}`);
                   }
-                } catch (error) {
+                } catch {
                   message.error(t('favoriteTags.exportFailed'));
                 }
               }}
@@ -491,13 +795,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                     message.success(t('favoriteTags.importSuccess', {
                       imported: result.data.importedTags,
                       labels: result.data.importedLabels,
-                      skipped: result.data.skippedTags
+                      skipped: result.data.skippedTags,
                     }));
                     loadFavoriteTags();
                   } else if (result.error !== '取消导入') {
-                    message.error(t('favoriteTags.importFailed') + ': ' + result.error);
+                    message.error(`${t('favoriteTags.importFailed')}: ${result.error}`);
                   }
-                } catch (error) {
+                } catch {
                   message.error(t('favoriteTags.importFailed'));
                 }
               }}
@@ -508,17 +812,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Space>
       </Card>
 
-      {/* 快捷标签区域 */}
       {favoriteTags.length > 0 && onTagClick && (
         <Card size="small" style={{ marginBottom: 16 }} title={t('favoriteTags.quickSearch')}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
             {favoriteTags.map(tag => (
-              <Tag
-                key={tag.id}
-                color="blue"
-                style={{ cursor: 'pointer', fontSize: '13px', padding: '4px 10px' }}
-                onClick={() => handleTagClick(tag)}
-              >
+              <Tag key={tag.id} color="blue" style={{ cursor: 'pointer', fontSize: '13px', padding: '4px 10px' }} onClick={() => handleTagClick(tag)}>
                 <StarFilled style={{ marginRight: 4, color: '#faad14' }} />
                 {tag.tagName.replace(/_/g, ' ')}
               </Tag>
@@ -527,18 +825,18 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Card>
       )}
 
-      {/* 可拖拽排序的标签列表 */}
+      {favoriteTags.some(tag => tag.galleryBindingConsistent === false) && (
+        <Alert
+          style={{ marginBottom: 16 }}
+          type="warning"
+          showIcon
+          message={t('favoriteTags.galleryBindingMismatchAlert')}
+        />
+      )}
+
       <Card>
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
-          modifiers={[restrictToVerticalAxis]}
-        >
-          <SortableContext
-            items={favoriteTags.map(tag => tag.id)}
-            strategy={verticalListSortingStrategy}
-          >
+        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
+          <SortableContext items={favoriteTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
             <Table
               dataSource={favoriteTags}
               columns={columns}
@@ -546,17 +844,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               loading={loading}
               pagination={{ pageSize: 50 }}
               locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
-              components={{
-                body: {
-                  row: SortableRow,
-                },
-              }}
+              components={{ body: { row: SortableRow } }}
             />
           </SortableContext>
         </DndContext>
       </Card>
 
-      {/* 添加收藏标签弹窗 */}
       <Modal
         title={t('favoriteTags.addTitle')}
         open={addModalVisible}
@@ -566,11 +859,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={handleAdd}>
-          <Form.Item
-            name="tagName"
-            label={t('favoriteTags.tagName')}
-            rules={[{ required: true, message: t('favoriteTags.tagNameRequired') }]}
-          >
+          <Form.Item name="tagName" label={t('favoriteTags.tagName')} rules={[{ required: true, message: t('favoriteTags.tagNameRequired') }]}> 
             <Input placeholder={t('favoriteTags.tagNamePlaceholder')} />
           </Form.Item>
           <Form.Item name="siteId" label={t('favoriteTags.site')}>
@@ -589,7 +878,100 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Form>
       </Modal>
 
-      {/* 编辑收藏标签弹窗 */}
+      <Modal
+        title={t('favoriteTags.configTitle', { name: configuringTag?.tagName || '' })}
+        open={!!configuringTag}
+        footer={null}
+        onCancel={() => {
+          setConfiguringTag(null);
+          downloadForm.resetFields();
+        }}
+      >
+        <Form form={downloadForm} layout="vertical" initialValues={{ quality: 'original', perPage: 20, concurrency: 3, skipIfExists: true, notifications: true }}>
+          <Form.Item name="galleryId" label={t('favoriteTags.selectGallery')}>
+            <Select allowClear placeholder={t('favoriteTags.selectGalleryPlaceholder')} onChange={handleGalleryChange}>
+              {galleries.map(gallery => (
+                <Select.Option key={gallery.id} value={gallery.id}>{gallery.name}</Select.Option>
+              ))}
+            </Select>
+          </Form.Item>
+          <Form.Item name="downloadPath" label={t('favoriteTags.downloadPath')} rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}> 
+            <Input.Group compact>
+              <Input style={{ width: 'calc(100% - 120px)' }} readOnly />
+              <Button icon={<FolderOpenOutlined />} onClick={handleSelectDownloadFolder}>{t('favoriteTags.selectFolder')}</Button>
+            </Input.Group>
+          </Form.Item>
+          <Form.Item name="autoCreateGallery" label={t('favoriteTags.autoCreateGallery')} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="autoSyncGalleryAfterDownload" label={t('favoriteTags.autoSyncGalleryAfterDownload')} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="quality" label={t('favoriteTags.quality')}>
+            <Select>
+              <Select.Option value="original">original</Select.Option>
+              <Select.Option value="sample">sample</Select.Option>
+              <Select.Option value="preview">preview</Select.Option>
+            </Select>
+          </Form.Item>
+          <Form.Item name="perPage" label={t('favoriteTags.perPage')}>
+            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="concurrency" label={t('favoriteTags.concurrency')}>
+            <InputNumber min={1} max={10} style={{ width: '100%' }} />
+          </Form.Item>
+          <Form.Item name="blacklistedTags" label={t('favoriteTags.blacklistedTags')}>
+            <Input.TextArea rows={2} placeholder={t('favoriteTags.blacklistedTagsPlaceholder')} />
+          </Form.Item>
+          <Form.Item name="skipIfExists" label={t('favoriteTags.skipIfExists')} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Form.Item name="notifications" label={t('favoriteTags.notifications')} valuePropName="checked">
+            <Switch />
+          </Form.Item>
+          <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => configuringTag && saveDownloadBinding(configuringTag, false)} loading={savingDownloadConfig}>{t('common.save')}</Button>
+            <Button type="primary" onClick={() => configuringTag && saveDownloadBinding(configuringTag, true)} loading={savingDownloadConfig}>{t('favoriteTags.saveAndDownload')}</Button>
+          </Space>
+        </Form>
+      </Modal>
+
+      <Modal
+        title={t('favoriteTags.historyTitle', { name: historyTag?.tagName || '' })}
+        open={historyVisible}
+        footer={null}
+        onCancel={() => {
+          setHistoryVisible(false);
+          setHistoryTag(null);
+          setDownloadHistory([]);
+        }}
+      >
+        <List
+          loading={historyLoading}
+          locale={{ emptyText: t('favoriteTags.noDownloadHistory') }}
+          dataSource={downloadHistory}
+          renderItem={(item) => (
+            <List.Item>
+              <List.Item.Meta
+                title={
+                  <Space>
+                    <Tag>{item.status}</Tag>
+                    <span>{item.sessionId}</span>
+                  </Space>
+                }
+                description={
+                  <Space direction="vertical" size={2}>
+                    <span>{t('favoriteTags.historyStartedAt')}: {formatDateTime(item.startedAt)}</span>
+                    <span>{t('favoriteTags.historyCompletedAt')}: {formatDateTime(item.completedAt)}</span>
+                    {item.error ? <span>{t('favoriteTags.historyError')}: {item.error}</span> : null}
+                  </Space>
+                }
+              />
+            </List.Item>
+          )}
+        />
+      </Modal>
+
       <Modal
         title={t('favoriteTags.editTitle', { name: editingTag?.tagName || '' })}
         open={!!editingTag}
@@ -608,7 +990,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Form>
       </Modal>
 
-      {/* 选择性导入预览弹窗 */}
       <Modal
         title={t('favoriteTags.importPreviewTitle')}
         open={importPreviewVisible}
@@ -619,29 +1000,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         confirmLoading={importing}
         width={500}
       >
-        <Alert
-          message={t('favoriteTags.importPreviewHint', { count: importPreviewTags.length })}
-          type="info"
-          showIcon
-          style={{ marginBottom: 12 }}
-        />
+        <Alert message={t('favoriteTags.importPreviewHint')} type="info" showIcon style={{ marginBottom: 12 }} />
         <div style={{ marginBottom: 8 }}>
           <Space>
-            <Button
-              size="small"
-              onClick={() => setImportCheckedTags(new Set(importPreviewTags))}
-            >
-              {t('favoriteTags.selectAll')}
-            </Button>
-            <Button
-              size="small"
-              onClick={() => setImportCheckedTags(new Set())}
-            >
-              {t('favoriteTags.deselectAll')}
-            </Button>
-            <span style={{ color: '#999', fontSize: 12 }}>
-              {t('favoriteTags.selectedCount', { count: importCheckedTags.size })}
-            </span>
+            <Button size="small" onClick={() => setImportCheckedTags(new Set(importPreviewTags))}>{t('favoriteTags.selectAll')}</Button>
+            <Button size="small" onClick={() => setImportCheckedTags(new Set())}>{t('favoriteTags.deselectAll')}</Button>
+            <span style={{ color: '#999', fontSize: 12 }}>{t('favoriteTags.selectedCount', { count: importCheckedTags.size })}</span>
           </Space>
         </div>
         <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>

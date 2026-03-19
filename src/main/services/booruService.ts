@@ -1,5 +1,307 @@
-import { BooruSite, BooruPost, BooruTag, BooruFavorite, DownloadQueueItem, SearchHistoryItem, FavoriteTag, FavoriteTagLabel, BlacklistedTag } from '../../shared/types.js';
+import {
+  BooruSite,
+  BooruPost,
+  BooruTag,
+  BooruFavorite,
+  DownloadQueueItem,
+  SearchHistoryItem,
+  FavoriteTag,
+  FavoriteTagLabel,
+  BlacklistedTag,
+  FavoriteTagDownloadBinding,
+  FavoriteTagDownloadRuntimeProgress,
+  FavoriteTagWithDownloadState,
+  UpsertFavoriteTagDownloadBindingInput,
+  BulkDownloadSessionStatus,
+  FavoriteTagDownloadDisplayStatus,
+} from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
+import { createGallery, getGallery, updateGalleryStats } from './galleryService.js';
+import { scanAndImportFolder } from './imageService.js';
+
+type FavoriteTagDownloadBindingRow = {
+  id: number;
+  favoriteTagId: number;
+  galleryId: number | null;
+  downloadPath: string;
+  enabled: number;
+  autoCreateGallery?: number | null;
+  autoSyncGalleryAfterDownload?: number | null;
+  quality?: string | null;
+  perPage?: number | null;
+  concurrency?: number | null;
+  skipIfExists?: number | null;
+  notifications?: number | null;
+  blacklistedTags?: string | null;
+  lastTaskId?: string | null;
+  lastSessionId?: string | null;
+  lastStartedAt?: string | null;
+  lastCompletedAt?: string | null;
+  lastStatus?: FavoriteTagDownloadDisplayStatus | null;
+  createdAt: string;
+  updatedAt: string;
+  galleryName?: string | null;
+};
+
+type BulkDownloadRuntimeStatsRow = {
+  status: BulkDownloadSessionStatus;
+  completed: number;
+  failed: number;
+  total: number;
+  completedAt?: string | null;
+};
+
+function parseFavoriteTagDownloadBinding(row: FavoriteTagDownloadBindingRow | undefined): FavoriteTagDownloadBinding | undefined {
+  if (!row) {
+    return undefined;
+  }
+
+  return {
+    id: row.id,
+    favoriteTagId: row.favoriteTagId,
+    galleryId: row.galleryId,
+    downloadPath: row.downloadPath,
+    enabled: Boolean(row.enabled),
+    autoCreateGallery: row.autoCreateGallery === null || row.autoCreateGallery === undefined ? null : Boolean(row.autoCreateGallery),
+    autoSyncGalleryAfterDownload: row.autoSyncGalleryAfterDownload === null || row.autoSyncGalleryAfterDownload === undefined ? null : Boolean(row.autoSyncGalleryAfterDownload),
+    quality: row.quality ?? null,
+    perPage: row.perPage ?? null,
+    concurrency: row.concurrency ?? null,
+    skipIfExists: row.skipIfExists === null || row.skipIfExists === undefined ? null : Boolean(row.skipIfExists),
+    notifications: row.notifications === null || row.notifications === undefined ? null : Boolean(row.notifications),
+    blacklistedTags: row.blacklistedTags ? JSON.parse(row.blacklistedTags) : null,
+    lastTaskId: row.lastTaskId ?? null,
+    lastSessionId: row.lastSessionId ?? null,
+    lastStartedAt: row.lastStartedAt ?? null,
+    lastCompletedAt: row.lastCompletedAt ?? null,
+    lastStatus: isFavoriteTagDownloadDisplayStatus(row.lastStatus) ? row.lastStatus : null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
+  };
+}
+
+function isActiveBulkDownloadStatus(status?: string | null): status is BulkDownloadSessionStatus {
+  return status === 'pending' || status === 'dryRun' || status === 'running' || status === 'paused' || status === 'suspended';
+}
+
+function isFavoriteTagDownloadDisplayStatus(status?: string | null): status is FavoriteTagDownloadDisplayStatus {
+  return !!status && [
+    'pending',
+    'dryRun',
+    'running',
+    'completed',
+    'allSkipped',
+    'failed',
+    'paused',
+    'suspended',
+    'cancelled',
+    'notConfigured',
+    'ready',
+    'starting',
+    'validationError',
+    'taskCreateFailed',
+    'sessionCreateFailed',
+  ].includes(status);
+}
+
+async function getFavoriteTagById(id: number): Promise<FavoriteTag | null> {
+  const db = await getDatabase();
+  const row = await get<any>(db, 'SELECT * FROM booru_favorite_tags WHERE id = ?', [id]);
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    ...row,
+    labels: row.labels ? JSON.parse(row.labels) : undefined,
+  };
+}
+
+async function getGallerySnapshotById(id: number): Promise<{ id: number; name: string; folderPath: string } | null> {
+  const db = await getDatabase();
+  const row = await get<{ id: number; name: string; folderPath: string }>(
+    db,
+    'SELECT id, name, folderPath FROM galleries WHERE id = ?',
+    [id]
+  );
+
+  return row || null;
+}
+
+async function findGalleryByFolderPath(folderPath: string): Promise<{ id: number; name: string; folderPath: string } | null> {
+  const db = await getDatabase();
+  const row = await get<{ id: number; name: string; folderPath: string }>(
+    db,
+    'SELECT id, name, folderPath FROM galleries WHERE folderPath = ?',
+    [folderPath]
+  );
+
+  return row || null;
+}
+
+async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: FavoriteTagDownloadBinding): Promise<number | null> {
+  if (binding.galleryId) {
+    return binding.galleryId;
+  }
+
+  if (!binding.autoCreateGallery) {
+    return null;
+  }
+
+  const existingGallery = await findGalleryByFolderPath(binding.downloadPath);
+  if (existingGallery) {
+    return existingGallery.id;
+  }
+
+  const created = await createGallery({
+    folderPath: binding.downloadPath,
+    name: favoriteTag.tagName.replace(/_/g, ' '),
+    isWatching: true,
+    recursive: true,
+  });
+
+  if (!created.success || !created.data) {
+    throw new Error(created.error || '自动创建图集失败');
+  }
+
+  return created.data;
+}
+
+async function syncGalleryAfterDownload(galleryId: number, downloadPath: string): Promise<void> {
+  const scanResult = await scanAndImportFolder(downloadPath);
+  if (!scanResult.success) {
+    throw new Error(scanResult.error || '图集同步扫描失败');
+  }
+
+  const galleryResult = await getGallery(galleryId);
+  if (!galleryResult.success || !galleryResult.data) {
+    throw new Error(galleryResult.error || '图集不存在');
+  }
+
+  const imageCount = scanResult.data ? scanResult.data.imported + scanResult.data.skipped : galleryResult.data.imageCount;
+  const updateResult = await updateGalleryStats(galleryId, imageCount, new Date().toISOString());
+  if (!updateResult.success) {
+    throw new Error(updateResult.error || '更新图集统计失败');
+  }
+}
+
+async function updateBulkDownloadSessionOrigin(sessionId: string, originType: 'favoriteTag', originId: number): Promise<void> {
+  const db = await getDatabase();
+  await run(db, `
+    UPDATE bulk_download_sessions
+    SET originType = ?, originId = ?
+    WHERE id = ?
+  `, [originType, originId, sessionId]);
+}
+
+async function syncFavoriteTagDownloadTerminalState(favoriteTagId: number, binding: FavoriteTagDownloadBinding): Promise<void> {
+  if (!binding.lastSessionId) {
+    return;
+  }
+
+  const snapshot = await getBulkDownloadSessionSnapshot(binding.lastSessionId);
+  if (!snapshot || isActiveBulkDownloadStatus(snapshot.status)) {
+    return;
+  }
+
+  await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, {
+    lastStatus: snapshot.status,
+    lastCompletedAt: snapshot.completedAt ?? null,
+  });
+
+  if (snapshot.status === 'completed' && binding.galleryId && binding.autoSyncGalleryAfterDownload) {
+    await syncGalleryAfterDownload(binding.galleryId, binding.downloadPath);
+  }
+}
+
+async function updateFavoriteTagDownloadBindingSnapshot(
+  favoriteTagId: number,
+  updates: Partial<Pick<FavoriteTagDownloadBinding, 'lastTaskId' | 'lastSessionId' | 'lastStartedAt' | 'lastCompletedAt' | 'lastStatus'>>
+): Promise<void> {
+  const db = await getDatabase();
+  const fields: string[] = [];
+  const values: any[] = [];
+
+  if (updates.lastTaskId !== undefined) {
+    fields.push('lastTaskId = ?');
+    values.push(updates.lastTaskId ?? null);
+  }
+  if (updates.lastSessionId !== undefined) {
+    fields.push('lastSessionId = ?');
+    values.push(updates.lastSessionId ?? null);
+  }
+  if (updates.lastStartedAt !== undefined) {
+    fields.push('lastStartedAt = ?');
+    values.push(updates.lastStartedAt ?? null);
+  }
+  if (updates.lastCompletedAt !== undefined) {
+    fields.push('lastCompletedAt = ?');
+    values.push(updates.lastCompletedAt ?? null);
+  }
+  if (updates.lastStatus !== undefined) {
+    fields.push('lastStatus = ?');
+    values.push(updates.lastStatus ?? null);
+  }
+
+  if (fields.length === 0) {
+    return;
+  }
+
+  fields.push('updatedAt = ?');
+  values.push(new Date().toISOString());
+  values.push(favoriteTagId);
+
+  await run(db, `
+    UPDATE booru_favorite_tag_download_bindings
+    SET ${fields.join(', ')}
+    WHERE favoriteTagId = ?
+  `, values);
+}
+
+async function getRuntimeProgressBySessionId(sessionId: string): Promise<FavoriteTagDownloadRuntimeProgress | null> {
+  const db = await getDatabase();
+  const stats = await get<BulkDownloadRuntimeStatsRow>(db, `
+    SELECT
+      s.status as status,
+      SUM(CASE WHEN r.status = 'completed' THEN 1 ELSE 0 END) as completed,
+      SUM(CASE WHEN r.status = 'failed' THEN 1 ELSE 0 END) as failed,
+      COUNT(r.url) as total
+    FROM bulk_download_sessions s
+    LEFT JOIN bulk_download_records r ON r.sessionId = s.id
+    WHERE s.id = ? AND s.deletedAt IS NULL
+    GROUP BY s.id, s.status
+  `, [sessionId]);
+
+  if (!stats || !isActiveBulkDownloadStatus(stats.status)) {
+    return null;
+  }
+
+  const total = stats.total || 0;
+  const completed = stats.completed || 0;
+  const failed = stats.failed || 0;
+  const percent = total > 0 ? Math.round(((completed + failed) / total) * 100) : 0;
+
+  return {
+    sessionId,
+    status: stats.status,
+    completed,
+    total,
+    percent,
+    failed,
+  };
+}
+
+async function getBulkDownloadSessionSnapshot(sessionId: string): Promise<{ status: BulkDownloadSessionStatus; completedAt?: string | null } | null> {
+  const db = await getDatabase();
+  const session = await get<{ status: BulkDownloadSessionStatus; completedAt?: string | null }>(db, `
+    SELECT status, completedAt
+    FROM bulk_download_sessions
+    WHERE id = ? AND deletedAt IS NULL
+  `, [sessionId]);
+
+  return session || null;
+}
 
 // ========= 站点管理 =========
 
@@ -1264,6 +1566,463 @@ export async function getFavoriteTags(siteId?: number | null): Promise<FavoriteT
     console.error('[booruService] 获取收藏标签列表失败:', error);
     throw error;
   }
+}
+
+export async function getFavoriteTagDownloadBinding(favoriteTagId: number): Promise<FavoriteTagDownloadBinding | null> {
+  console.log('[booruService] 获取收藏标签下载绑定:', favoriteTagId);
+  try {
+    const db = await getDatabase();
+    const row = await get<FavoriteTagDownloadBindingRow>(db, `
+      SELECT b.*, g.name as galleryName
+      FROM booru_favorite_tag_download_bindings b
+      LEFT JOIN galleries g ON g.id = b.galleryId
+      WHERE b.favoriteTagId = ?
+    `, [favoriteTagId]);
+
+    return parseFavoriteTagDownloadBinding(row) || null;
+  } catch (error) {
+    console.error('[booruService] 获取收藏标签下载绑定失败:', favoriteTagId, error);
+    throw error;
+  }
+}
+
+export async function exportFavoriteTags(siteId?: number | null): Promise<{
+  favoriteTags: FavoriteTag[];
+  favoriteTagLabels: FavoriteTagLabel[];
+}> {
+  const favoriteTags = await getFavoriteTags(siteId);
+  const favoriteTagLabels = await getFavoriteTagLabels();
+  return { favoriteTags, favoriteTagLabels };
+}
+
+export async function importFavoriteTags(payload: {
+  favoriteTags?: Array<{
+    siteId?: number | null;
+    tagName: string;
+    labels?: string[];
+    queryType?: 'tag' | 'raw' | 'list';
+    notes?: string;
+  }>;
+  favoriteTagLabels?: Array<{ name: string; color?: string }>;
+}): Promise<{ importedTags: number; importedLabels: number; skippedTags: number }> {
+  const labels = payload.favoriteTagLabels || [];
+  const tags = payload.favoriteTags || [];
+
+  let importedLabels = 0;
+  let importedTags = 0;
+  let skippedTags = 0;
+
+  const existingLabels = await getFavoriteTagLabels();
+  const existingLabelNames = new Set(existingLabels.map(label => label.name));
+
+  for (const label of labels) {
+    if (!label.name || existingLabelNames.has(label.name)) {
+      continue;
+    }
+    await addFavoriteTagLabel(label.name, label.color);
+    existingLabelNames.add(label.name);
+    importedLabels += 1;
+  }
+
+  for (const tag of tags) {
+    try {
+      const exists = await isFavoriteTag(tag.siteId ?? null, tag.tagName);
+      if (exists) {
+        skippedTags += 1;
+        continue;
+      }
+
+      await addFavoriteTag(tag.siteId ?? null, tag.tagName, {
+        labels: tag.labels,
+        queryType: tag.queryType,
+        notes: tag.notes,
+      });
+      importedTags += 1;
+    } catch {
+      skippedTags += 1;
+    }
+  }
+
+  return { importedTags, importedLabels, skippedTags };
+}
+
+export async function upsertFavoriteTagDownloadBinding(
+  input: UpsertFavoriteTagDownloadBindingInput
+): Promise<FavoriteTagDownloadBinding> {
+  console.log('[booruService] 保存收藏标签下载绑定:', input.favoriteTagId);
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    const favoriteTag = await getFavoriteTagById(input.favoriteTagId);
+
+    if (!favoriteTag) {
+      throw new Error('收藏标签不存在');
+    }
+
+    if (!input.downloadPath?.trim()) {
+      throw new Error('下载目录不能为空');
+    }
+
+    if (favoriteTag.queryType !== 'tag') {
+      throw new Error('当前仅支持 queryType=tag 的收藏标签进行一键下载');
+    }
+
+    if (input.galleryId !== undefined && input.galleryId !== null) {
+      const gallery = await getGallerySnapshotById(input.galleryId);
+      if (!gallery) {
+        throw new Error('绑定的图集不存在');
+      }
+      if (gallery.folderPath !== input.downloadPath) {
+        throw new Error('下载目录必须与绑定图集的文件夹路径一致');
+      }
+    }
+
+    const existing = await get<FavoriteTagDownloadBindingRow>(
+      db,
+      'SELECT * FROM booru_favorite_tag_download_bindings WHERE favoriteTagId = ?',
+      [input.favoriteTagId]
+    );
+
+    const blacklistedTagsJson = input.blacklistedTags ? JSON.stringify(input.blacklistedTags) : null;
+
+    if (existing) {
+      await run(db, `
+        UPDATE booru_favorite_tag_download_bindings
+        SET galleryId = ?, downloadPath = ?, enabled = ?, autoCreateGallery = ?, autoSyncGalleryAfterDownload = ?, quality = ?, perPage = ?, concurrency = ?,
+            skipIfExists = ?, notifications = ?, blacklistedTags = ?, updatedAt = ?
+        WHERE favoriteTagId = ?
+      `, [
+        input.galleryId ?? null,
+        input.downloadPath,
+        input.enabled === undefined ? 1 : (input.enabled ? 1 : 0),
+        input.autoCreateGallery === undefined ? null : (input.autoCreateGallery ? 1 : 0),
+        input.autoSyncGalleryAfterDownload === undefined ? null : (input.autoSyncGalleryAfterDownload ? 1 : 0),
+        input.quality ?? null,
+        input.perPage ?? null,
+        input.concurrency ?? null,
+        input.skipIfExists === undefined ? null : (input.skipIfExists ? 1 : 0),
+        input.notifications === undefined ? null : (input.notifications ? 1 : 0),
+        blacklistedTagsJson,
+        now,
+        input.favoriteTagId,
+      ]);
+    } else {
+      await run(db, `
+        INSERT INTO booru_favorite_tag_download_bindings (
+          favoriteTagId, galleryId, downloadPath, enabled, autoCreateGallery, autoSyncGalleryAfterDownload, quality, perPage, concurrency,
+          skipIfExists, notifications, blacklistedTags, createdAt, updatedAt
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `, [
+        input.favoriteTagId,
+        input.galleryId ?? null,
+        input.downloadPath,
+        input.enabled === undefined ? 1 : (input.enabled ? 1 : 0),
+        input.autoCreateGallery === undefined ? null : (input.autoCreateGallery ? 1 : 0),
+        input.autoSyncGalleryAfterDownload === undefined ? null : (input.autoSyncGalleryAfterDownload ? 1 : 0),
+        input.quality ?? null,
+        input.perPage ?? null,
+        input.concurrency ?? null,
+        input.skipIfExists === undefined ? null : (input.skipIfExists ? 1 : 0),
+        input.notifications === undefined ? null : (input.notifications ? 1 : 0),
+        blacklistedTagsJson,
+        now,
+        now,
+      ]);
+    }
+
+    const binding = await getFavoriteTagDownloadBinding(input.favoriteTagId);
+    if (!binding) {
+      throw new Error('保存下载绑定失败');
+    }
+
+    return binding;
+  } catch (error) {
+    console.error('[booruService] 保存收藏标签下载绑定失败:', input.favoriteTagId, error);
+    throw error;
+  }
+}
+
+export async function deleteFavoriteTagDownloadBinding(favoriteTagId: number): Promise<void> {
+  console.log('[booruService] 删除收藏标签下载绑定:', favoriteTagId);
+  try {
+    const db = await getDatabase();
+    await run(db, 'DELETE FROM booru_favorite_tag_download_bindings WHERE favoriteTagId = ?', [favoriteTagId]);
+  } catch (error) {
+    console.error('[booruService] 删除收藏标签下载绑定失败:', favoriteTagId, error);
+    throw error;
+  }
+}
+
+export async function getFavoriteTagsWithDownloadState(siteId?: number | null): Promise<FavoriteTagWithDownloadState[]> {
+  console.log('[booruService] 获取收藏标签及下载状态, siteId:', siteId);
+  try {
+    const tags = await getFavoriteTags(siteId);
+    if (tags.length === 0) {
+      return [];
+    }
+
+    const db = await getDatabase();
+    const placeholders = tags.map(() => '?').join(',');
+    const bindingRows = await all<FavoriteTagDownloadBindingRow>(db, `
+      SELECT b.*, g.name as galleryName
+      FROM booru_favorite_tag_download_bindings b
+      LEFT JOIN galleries g ON g.id = b.galleryId
+      WHERE b.favoriteTagId IN (${placeholders})
+    `, tags.map(tag => tag.id));
+
+    const bindingMap = new Map<number, FavoriteTagDownloadBindingRow>();
+    for (const row of bindingRows) {
+      bindingMap.set(row.favoriteTagId, row);
+    }
+
+    const galleryIds = Array.from(new Set(bindingRows.map(row => row.galleryId).filter((id): id is number => id !== null)));
+    const galleriesById = new Map<number, { id: number; folderPath: string; name: string }>();
+    if (galleryIds.length > 0) {
+      const galleryPlaceholders = galleryIds.map(() => '?').join(',');
+      const galleries = await all<{ id: number; folderPath: string; name: string }>(db, `
+        SELECT id, folderPath, name
+        FROM galleries
+        WHERE id IN (${galleryPlaceholders})
+      `, galleryIds);
+
+      for (const gallery of galleries) {
+        galleriesById.set(gallery.id, gallery);
+      }
+    }
+
+    const runtimeMap = new Map<string, FavoriteTagDownloadRuntimeProgress>();
+    const sessionSnapshotMap = new Map<string, { status: BulkDownloadSessionStatus; completedAt?: string | null }>();
+    const activeSessionIds = Array.from(new Set(
+      bindingRows
+        .filter(row => Boolean(row.lastSessionId) && isActiveBulkDownloadStatus(row.lastStatus))
+        .map(row => row.lastSessionId as string)
+    ));
+
+    for (const sessionId of activeSessionIds) {
+      const runtime = await getRuntimeProgressBySessionId(sessionId);
+      if (runtime) {
+        runtimeMap.set(sessionId, runtime);
+      }
+    }
+
+    for (const row of bindingRows) {
+      if (!row.lastSessionId) {
+        continue;
+      }
+
+      let snapshot = sessionSnapshotMap.get(row.lastSessionId) ?? undefined;
+      if (!snapshot) {
+        const loadedSnapshot = await getBulkDownloadSessionSnapshot(row.lastSessionId);
+        snapshot = loadedSnapshot ?? undefined;
+        if (snapshot) {
+          sessionSnapshotMap.set(row.lastSessionId, snapshot);
+        }
+      }
+
+      if (!snapshot) {
+        continue;
+      }
+
+      if (!isActiveBulkDownloadStatus(snapshot.status) && (row.lastStatus !== snapshot.status || row.lastCompletedAt !== (snapshot.completedAt ?? null))) {
+        await updateFavoriteTagDownloadBindingSnapshot(row.favoriteTagId, {
+          lastStatus: snapshot.status,
+          lastCompletedAt: snapshot.completedAt ?? null,
+        });
+        row.lastStatus = snapshot.status;
+        row.lastCompletedAt = snapshot.completedAt ?? null;
+      }
+    }
+
+    for (const tag of tags) {
+      const bindingRow = bindingMap.get(tag.id);
+      const binding = parseFavoriteTagDownloadBinding(bindingRow);
+      if (!binding) {
+        continue;
+      }
+
+      await syncFavoriteTagDownloadTerminalState(tag.id, binding);
+
+      const refreshedRow = await get<FavoriteTagDownloadBindingRow>(db, `
+        SELECT b.*, g.name as galleryName
+        FROM booru_favorite_tag_download_bindings b
+        LEFT JOIN galleries g ON g.id = b.galleryId
+        WHERE b.favoriteTagId = ?
+      `, [tag.id]);
+
+      if (refreshedRow) {
+        bindingMap.set(tag.id, refreshedRow);
+      }
+    }
+
+    return tags.map(tag => {
+      const bindingRow = bindingMap.get(tag.id);
+      const binding = parseFavoriteTagDownloadBinding(bindingRow);
+      const runtime = binding?.lastSessionId ? runtimeMap.get(binding.lastSessionId) ?? null : null;
+      let galleryBindingConsistent: boolean | null = null;
+      let galleryBindingMismatchReason: string | null = null;
+
+      if (binding?.galleryId) {
+        const gallery = galleriesById.get(binding.galleryId);
+        if (!gallery) {
+          galleryBindingConsistent = false;
+          galleryBindingMismatchReason = 'galleryNotFound';
+        } else if (gallery.folderPath !== binding.downloadPath) {
+          galleryBindingConsistent = false;
+          galleryBindingMismatchReason = 'pathMismatch';
+        } else {
+          galleryBindingConsistent = true;
+        }
+      }
+
+      return {
+        ...tag,
+        downloadBinding: binding,
+        runtimeProgress: runtime,
+        galleryName: bindingRow?.galleryName ?? null,
+        galleryBindingConsistent,
+        galleryBindingMismatchReason,
+      };
+    });
+  } catch (error) {
+    console.error('[booruService] 获取收藏标签及下载状态失败:', error);
+    throw error;
+  }
+}
+
+export async function getFavoriteTagDownloadHistory(favoriteTagId: number): Promise<Array<{
+  sessionId: string;
+  taskId: string;
+  status: BulkDownloadSessionStatus;
+  startedAt: string;
+  completedAt?: string | null;
+  error?: string | null;
+}>> {
+  const db = await getDatabase();
+  return all(db, `
+    SELECT id as sessionId, taskId, status, startedAt, completedAt, error
+    FROM bulk_download_sessions
+    WHERE originType = 'favoriteTag' AND originId = ? AND deletedAt IS NULL
+    ORDER BY startedAt DESC
+  `, [favoriteTagId]);
+}
+
+export async function getGallerySourceFavoriteTags(galleryId: number): Promise<FavoriteTagWithDownloadState[]> {
+  const sourceTags = await getFavoriteTagsWithDownloadState(undefined);
+  return sourceTags.filter(tag => tag.downloadBinding?.galleryId === galleryId);
+}
+
+export async function startFavoriteTagBulkDownload(favoriteTagId: number): Promise<{ taskId: string; sessionId: string }> {
+  console.log('[booruService] 启动收藏标签批量下载:', favoriteTagId);
+  const favoriteTag = await getFavoriteTagById(favoriteTagId);
+  if (!favoriteTag) {
+    throw new Error('收藏标签不存在');
+  }
+
+  const binding = await getFavoriteTagDownloadBinding(favoriteTagId);
+  if (!binding || !binding.enabled) {
+    throw new Error('当前收藏标签尚未配置下载');
+  }
+
+  if (favoriteTag.queryType !== 'tag') {
+    await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
+    throw new Error('当前仅支持 queryType=tag 的收藏标签进行一键下载');
+  }
+
+  if (favoriteTag.siteId == null) {
+    await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
+    throw new Error('未指定站点的收藏标签无法直接启动下载');
+  }
+
+  let resolvedGalleryId = binding.galleryId ?? null;
+  if (resolvedGalleryId) {
+    const gallery = await getGallerySnapshotById(resolvedGalleryId);
+    if (!gallery) {
+      await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
+      throw new Error('绑定的图集不存在');
+    }
+    if (gallery.folderPath !== binding.downloadPath) {
+      await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
+      throw new Error('下载目录必须与绑定图集的文件夹路径一致');
+    }
+  }
+
+  if (!resolvedGalleryId && binding.autoCreateGallery) {
+    resolvedGalleryId = await ensureGalleryForFavoriteTag(favoriteTag, binding);
+    if (resolvedGalleryId) {
+      await upsertFavoriteTagDownloadBinding({
+        favoriteTagId,
+        galleryId: resolvedGalleryId,
+        downloadPath: binding.downloadPath,
+        enabled: binding.enabled,
+        autoCreateGallery: binding.autoCreateGallery,
+        autoSyncGalleryAfterDownload: binding.autoSyncGalleryAfterDownload,
+        quality: binding.quality ?? undefined,
+        perPage: binding.perPage ?? undefined,
+        concurrency: binding.concurrency ?? undefined,
+        skipIfExists: binding.skipIfExists ?? undefined,
+        notifications: binding.notifications ?? undefined,
+        blacklistedTags: binding.blacklistedTags ?? undefined,
+      });
+    }
+  }
+
+  const bulkDownloadService = await import('./bulkDownloadService.js');
+  const taskResult = await bulkDownloadService.createBulkDownloadTask({
+    siteId: favoriteTag.siteId,
+    path: binding.downloadPath,
+    tags: [favoriteTag.tagName],
+    blacklistedTags: binding.blacklistedTags ?? undefined,
+    notifications: binding.notifications ?? undefined,
+    skipIfExists: binding.skipIfExists ?? undefined,
+    quality: binding.quality ?? undefined,
+    perPage: binding.perPage ?? undefined,
+    concurrency: binding.concurrency ?? undefined,
+  });
+
+  if (!taskResult.success || !taskResult.data) {
+    await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'taskCreateFailed' });
+    throw new Error(taskResult.error || '创建批量下载任务失败');
+  }
+
+  const taskId = taskResult.data.id;
+  const sessionResult = await bulkDownloadService.createBulkDownloadSession(taskId);
+  if (!sessionResult.success || !sessionResult.data) {
+    await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, {
+      lastTaskId: taskId,
+      lastStatus: 'sessionCreateFailed',
+    });
+    throw new Error(sessionResult.error || '创建批量下载会话失败');
+  }
+
+  const sessionId = sessionResult.data.id;
+  await updateBulkDownloadSessionOrigin(sessionId, 'favoriteTag', favoriteTagId);
+  await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, {
+    lastTaskId: taskId,
+    lastSessionId: sessionId,
+    lastStartedAt: new Date().toISOString(),
+    lastCompletedAt: null,
+    lastStatus: 'starting',
+  });
+
+  const startResult = await bulkDownloadService.startBulkDownloadSession(sessionId);
+  if (!startResult.success) {
+    await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, {
+      lastTaskId: taskId,
+      lastSessionId: sessionId,
+      lastStatus: 'failed',
+    });
+    throw new Error(startResult.error || '启动批量下载会话失败');
+  }
+
+  const runtime = await getRuntimeProgressBySessionId(sessionId);
+  await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, {
+    lastTaskId: taskId,
+    lastSessionId: sessionId,
+    lastStartedAt: new Date().toISOString(),
+    lastStatus: runtime?.status || 'running',
+  });
+
+  return { taskId, sessionId };
 }
 
 /**

@@ -230,6 +230,96 @@ describe('FavoriteTag 数据验证', () => {
   });
 });
 
+describe('FavoriteTagDownloadBinding 数据验证', () => {
+  function validateFavoriteTagDownloadBinding(binding: Record<string, any>): string[] {
+    const errors: string[] = [];
+    if (typeof binding.favoriteTagId !== 'number' || binding.favoriteTagId <= 0) errors.push('favoriteTagId 必须是正整数');
+    if (binding.galleryId !== null && binding.galleryId !== undefined && (typeof binding.galleryId !== 'number' || binding.galleryId <= 0)) {
+      errors.push('galleryId 必须是正整数或 null');
+    }
+    if (!binding.downloadPath || typeof binding.downloadPath !== 'string') errors.push('downloadPath 必须是非空字符串');
+    if (typeof binding.enabled !== 'boolean') errors.push('enabled 必须是布尔值');
+    if (binding.lastTaskId !== undefined && binding.lastTaskId !== null && typeof binding.lastTaskId !== 'string') errors.push('lastTaskId 必须是字符串或 null');
+    if (binding.lastSessionId !== undefined && binding.lastSessionId !== null && typeof binding.lastSessionId !== 'string') errors.push('lastSessionId 必须是字符串或 null');
+    if (binding.blacklistedTags !== undefined && binding.blacklistedTags !== null && !Array.isArray(binding.blacklistedTags)) {
+      errors.push('blacklistedTags 必须是数组或 null');
+    }
+    return errors;
+  }
+
+  it('完整绑定配置应通过验证', () => {
+    const binding = {
+      id: 1,
+      favoriteTagId: 1,
+      galleryId: 2,
+      downloadPath: 'D:/downloads/tag',
+      enabled: true,
+      lastTaskId: 'task-1',
+      lastSessionId: 'session-1',
+      blacklistedTags: ['tag_a', 'tag_b'],
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    };
+    expect(validateFavoriteTagDownloadBinding(binding)).toEqual([]);
+  });
+
+  it('galleryId 可为 null', () => {
+    const binding = {
+      favoriteTagId: 1,
+      galleryId: null,
+      downloadPath: 'D:/downloads/tag',
+      enabled: true,
+    };
+    expect(validateFavoriteTagDownloadBinding(binding)).toEqual([]);
+  });
+
+  it('autoCreateGallery 和 autoSyncGalleryAfterDownload 应允许布尔值', () => {
+    const binding = {
+      favoriteTagId: 1,
+      galleryId: null,
+      downloadPath: 'D:/downloads/tag',
+      enabled: true,
+      autoCreateGallery: true,
+      autoSyncGalleryAfterDownload: false,
+    };
+    expect(validateFavoriteTagDownloadBinding(binding)).toEqual([]);
+  });
+
+  it('lastTaskId 和 lastSessionId 应保持字符串语义', () => {
+    const binding = {
+      favoriteTagId: 1,
+      galleryId: null,
+      downloadPath: 'D:/downloads/tag',
+      enabled: true,
+      lastTaskId: 123,
+      lastSessionId: 456,
+    };
+    expect(validateFavoriteTagDownloadBinding(binding)).toContain('lastTaskId 必须是字符串或 null');
+    expect(validateFavoriteTagDownloadBinding(binding)).toContain('lastSessionId 必须是字符串或 null');
+  });
+});
+
+describe('BulkDownloadSession 来源字段验证', () => {
+  function validateBulkDownloadSessionOrigin(session: Record<string, any>): string[] {
+    const errors: string[] = [];
+    if (session.originType !== undefined && session.originType !== 'favoriteTag') {
+      errors.push('originType 必须是 favoriteTag 或 undefined');
+    }
+    if (session.originId !== undefined && session.originId !== null && (typeof session.originId !== 'number' || session.originId <= 0)) {
+      errors.push('originId 必须是正整数或 undefined');
+    }
+    return errors;
+  }
+
+  it('favoriteTag 来源元数据应通过验证', () => {
+    expect(validateBulkDownloadSessionOrigin({ originType: 'favoriteTag', originId: 3 })).toEqual([]);
+  });
+
+  it('未知 originType 应报错', () => {
+    expect(validateBulkDownloadSessionOrigin({ originType: 'manual', originId: 3 })).toContain('originType 必须是 favoriteTag 或 undefined');
+  });
+});
+
 describe('ApiResponse 结构验证', () => {
   function isValidApiResponse(response: Record<string, any>): boolean {
     if (typeof response.success !== 'boolean') return false;

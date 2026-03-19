@@ -1571,6 +1571,124 @@ export function setupIPC() {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    console.log('[IPC] 获取收藏标签及下载状态, siteId:', siteId);
+    try {
+      const tags = await booruService.getFavoriteTagsWithDownloadState(siteId);
+      return { success: true, data: tags };
+    } catch (error) {
+      console.error('[IPC] 获取收藏标签及下载状态失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
+    try {
+      const payload = await booruService.exportFavoriteTags(siteId);
+      const result = await dialog.showSaveDialog({
+        title: '导出收藏标签',
+        defaultPath: 'favorite-tags.json',
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+
+      if (result.canceled || !result.filePath) {
+        return { success: false, error: '取消导出' };
+      }
+
+      await fs.writeFile(result.filePath, JSON.stringify({ data: payload }, null, 2), 'utf-8');
+      return { success: true, data: { count: payload.favoriteTags.length, filePath: result.filePath } };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS, async () => {
+    try {
+      const result = await dialog.showOpenDialog({
+        title: '导入收藏标签',
+        properties: ['openFile'],
+        filters: [{ name: 'JSON', extensions: ['json'] }],
+      });
+
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false, error: '取消导入' };
+      }
+
+      const content = await fs.readFile(result.filePaths[0], 'utf-8');
+      const parsed = JSON.parse(content);
+      const imported = await booruService.importFavoriteTags(parsed.data || parsed);
+      return { success: true, data: imported };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING, async (_event: IpcMainInvokeEvent, favoriteTagId: number) => {
+    console.log('[IPC] 获取收藏标签下载绑定:', favoriteTagId);
+    try {
+      const binding = await booruService.getFavoriteTagDownloadBinding(favoriteTagId);
+      return { success: true, data: binding };
+    } catch (error) {
+      console.error('[IPC] 获取收藏标签下载绑定失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_HISTORY, async (_event: IpcMainInvokeEvent, favoriteTagId: number) => {
+    console.log('[IPC] 获取收藏标签下载历史:', favoriteTagId);
+    try {
+      const history = await booruService.getFavoriteTagDownloadHistory(favoriteTagId);
+      return { success: true, data: history };
+    } catch (error) {
+      console.error('[IPC] 获取收藏标签下载历史失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_GALLERY_SOURCE_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, galleryId: number) => {
+    console.log('[IPC] 获取图集来源收藏标签:', galleryId);
+    try {
+      const tags = await booruService.getGallerySourceFavoriteTags(galleryId);
+      return { success: true, data: tags };
+    } catch (error) {
+      console.error('[IPC] 获取图集来源收藏标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING, async (_event: IpcMainInvokeEvent, input: any) => {
+    console.log('[IPC] 保存收藏标签下载绑定:', input?.favoriteTagId);
+    try {
+      const binding = await booruService.upsertFavoriteTagDownloadBinding(input);
+      return { success: true, data: binding };
+    } catch (error) {
+      console.error('[IPC] 保存收藏标签下载绑定失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING, async (_event: IpcMainInvokeEvent, favoriteTagId: number) => {
+    console.log('[IPC] 删除收藏标签下载绑定:', favoriteTagId);
+    try {
+      await booruService.deleteFavoriteTagDownloadBinding(favoriteTagId);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 删除收藏标签下载绑定失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD, async (_event: IpcMainInvokeEvent, favoriteTagId: number) => {
+    console.log('[IPC] 启动收藏标签批量下载:', favoriteTagId);
+    try {
+      const result = await booruService.startFavoriteTagBulkDownload(favoriteTagId);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 启动收藏标签批量下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // 更新收藏标签
   ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_TAG, async (_event: IpcMainInvokeEvent, id: number, updates: any) => {
     console.log('[IPC] 更新收藏标签:', id);

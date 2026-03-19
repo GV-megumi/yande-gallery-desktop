@@ -226,3 +226,77 @@ describe('booruService - 收藏标签 labels JSON 解析', () => {
     expect(parseLabels('[]')).toEqual([]);
   });
 });
+
+describe('booruService - 收藏标签下载规则', () => {
+  function canStartFavoriteTagDownload(tag: { queryType: string; siteId: number | null }): { ok: boolean; reason?: string } {
+    if (tag.queryType !== 'tag') {
+      return { ok: false, reason: 'queryType' };
+    }
+    if (tag.siteId == null) {
+      return { ok: false, reason: 'siteId' };
+    }
+    return { ok: true };
+  }
+
+  it('queryType=tag 且 siteId 有值时允许启动', () => {
+    expect(canStartFavoriteTagDownload({ queryType: 'tag', siteId: 1 })).toEqual({ ok: true });
+  });
+
+  it('queryType=raw 时禁止启动', () => {
+    expect(canStartFavoriteTagDownload({ queryType: 'raw', siteId: 1 })).toEqual({ ok: false, reason: 'queryType' });
+  });
+
+  it('queryType=list 时禁止启动', () => {
+    expect(canStartFavoriteTagDownload({ queryType: 'list', siteId: 1 })).toEqual({ ok: false, reason: 'queryType' });
+  });
+
+  it('siteId 为 null 时禁止启动', () => {
+    expect(canStartFavoriteTagDownload({ queryType: 'tag', siteId: null })).toEqual({ ok: false, reason: 'siteId' });
+  });
+});
+
+describe('booruService - 自动图集绑定策略', () => {
+  function resolveGalleryStrategy(binding: { galleryId?: number | null; autoCreateGallery?: boolean | null }) {
+    if (binding.galleryId) {
+      return 'use-existing-gallery';
+    }
+    if (binding.autoCreateGallery) {
+      return 'auto-create-gallery';
+    }
+    return 'no-gallery-binding';
+  }
+
+  it('已有 galleryId 时应直接使用现有图集', () => {
+    expect(resolveGalleryStrategy({ galleryId: 5, autoCreateGallery: true })).toBe('use-existing-gallery');
+  });
+
+  it('无 galleryId 且 autoCreateGallery=true 时应自动创建图集', () => {
+    expect(resolveGalleryStrategy({ galleryId: null, autoCreateGallery: true })).toBe('auto-create-gallery');
+  });
+
+  it('无 galleryId 且未启用 autoCreateGallery 时不自动绑定图集', () => {
+    expect(resolveGalleryStrategy({ galleryId: null, autoCreateGallery: false })).toBe('no-gallery-binding');
+  });
+});
+
+describe('booruService - favorite tag 历史追踪规则', () => {
+  function toHistorySession(session: { id: string; taskId: string; status: string; originType?: string; originId?: number }) {
+    return session.originType === 'favoriteTag' && typeof session.originId === 'number'
+      ? { tracked: true, favoriteTagId: session.originId, sessionId: session.id, taskId: session.taskId, status: session.status }
+      : { tracked: false };
+  }
+
+  it('favoriteTag 来源会话应被识别为可追踪历史', () => {
+    expect(toHistorySession({ id: 's1', taskId: 't1', status: 'completed', originType: 'favoriteTag', originId: 12 })).toEqual({
+      tracked: true,
+      favoriteTagId: 12,
+      sessionId: 's1',
+      taskId: 't1',
+      status: 'completed',
+    });
+  });
+
+  it('无来源元数据的会话不应归入 favorite tag 历史', () => {
+    expect(toHistorySession({ id: 's1', taskId: 't1', status: 'completed' })).toEqual({ tracked: false });
+  });
+});

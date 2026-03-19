@@ -153,6 +153,15 @@ export type BulkDownloadSessionStatus =
   | 'suspended' 
   | 'cancelled';
 
+export type FavoriteTagDownloadDisplayStatus =
+  | BulkDownloadSessionStatus
+  | 'notConfigured'
+  | 'ready'
+  | 'starting'
+  | 'validationError'
+  | 'taskCreateFailed'
+  | 'sessionCreateFailed';
+
 // 批量下载记录状态
 export type BulkDownloadRecordStatus = 
   | 'pending' 
@@ -189,6 +198,8 @@ export interface BulkDownloadSession {
   currentPage: number;
   totalPages?: number;
   error?: string;
+  originType?: 'favoriteTag';
+  originId?: number;
   task?: BulkDownloadTask;
   stats?: BulkDownloadSessionStats;
 }
@@ -246,6 +257,61 @@ export interface FavoriteTag {
   sortOrder: number;
   createdAt: string;
   updatedAt?: string;
+}
+
+export interface FavoriteTagDownloadBinding {
+  id: number;
+  favoriteTagId: number;
+  galleryId: number | null;
+  downloadPath: string;
+  enabled: boolean;
+  autoCreateGallery?: boolean | null;
+  autoSyncGalleryAfterDownload?: boolean | null;
+  quality?: string | null;
+  perPage?: number | null;
+  concurrency?: number | null;
+  skipIfExists?: boolean | null;
+  notifications?: boolean | null;
+  blacklistedTags?: string[] | null;
+  lastTaskId?: string | null;
+  lastSessionId?: string | null;
+  lastStartedAt?: string | null;
+  lastCompletedAt?: string | null;
+  lastStatus?: FavoriteTagDownloadDisplayStatus | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FavoriteTagDownloadRuntimeProgress {
+  sessionId: string;
+  status: BulkDownloadSessionStatus;
+  completed: number;
+  total: number;
+  percent: number;
+  failed?: number;
+}
+
+export interface FavoriteTagWithDownloadState extends FavoriteTag {
+  downloadBinding?: FavoriteTagDownloadBinding;
+  runtimeProgress?: FavoriteTagDownloadRuntimeProgress | null;
+  galleryName?: string | null;
+  galleryBindingConsistent?: boolean | null;
+  galleryBindingMismatchReason?: string | null;
+}
+
+export interface UpsertFavoriteTagDownloadBindingInput {
+  favoriteTagId: number;
+  galleryId?: number | null;
+  downloadPath: string;
+  enabled?: boolean;
+  autoCreateGallery?: boolean | null;
+  autoSyncGalleryAfterDownload?: boolean | null;
+  quality?: string | null;
+  perPage?: number | null;
+  concurrency?: number | null;
+  skipIfExists?: boolean | null;
+  notifications?: boolean | null;
+  blacklistedTags?: string[] | null;
 }
 
 // 标签分组

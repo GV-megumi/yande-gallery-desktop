@@ -103,8 +103,17 @@ export const IPC_CHANNELS = {
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
+  BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE: 'booru:get-favorite-tags-with-download-state',
+  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
   BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
+  BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:get-favorite-tag-download-binding',
+  BOORU_GET_FAVORITE_TAG_DOWNLOAD_HISTORY: 'booru:get-favorite-tag-download-history',
+  BOORU_GET_GALLERY_SOURCE_FAVORITE_TAGS: 'booru:get-gallery-source-favorite-tags',
+  BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:upsert-favorite-tag-download-binding',
+  BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:remove-favorite-tag-download-binding',
+  BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD: 'booru:start-favorite-tag-bulk-download',
 
   // 收藏标签分组管理
   BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
@@ -149,8 +158,6 @@ export const IPC_CHANNELS = {
   BOORU_SEARCH_POOLS: 'booru:search-pools',
 
   // === 标签导入/导出 ===
-  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
   BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
 

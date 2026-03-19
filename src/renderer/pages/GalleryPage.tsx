@@ -57,6 +57,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [allGalleries, setAllGalleries] = useState<any[]>([]);
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
+  const [sourceFavoriteTags, setSourceFavoriteTags] = useState<any[]>([]);
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchPage, setSearchPage] = useState(1);
@@ -250,6 +251,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       const galleryResult = await window.electronAPI.gallery.getGallery(galleryId);
       if (galleryResult.success && galleryResult.data) {
         const gallery = galleryResult.data;
+        const sourceResult = await window.electronAPI.booru.getGallerySourceFavoriteTags(galleryId);
+        if (sourceResult.success && sourceResult.data) {
+          setSourceFavoriteTags(sourceResult.data);
+        } else {
+          setSourceFavoriteTags([]);
+        }
         const folderPath = gallery.folderPath;
         console.log(`[GalleryPage] 图集 "${gallery.name}" 路径: ${folderPath}`);
         // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
@@ -866,6 +873,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                               {selectedGallery.extensions.join(', ')}
                             </Descriptions.Item>
                           )}
+                          <Descriptions.Item label="来源收藏标签">
+                            {sourceFavoriteTags.length > 0
+                              ? sourceFavoriteTags.map((tag: any) => <Tag key={tag.id}>{tag.tagName}</Tag>)
+                              : '-'}
+                          </Descriptions.Item>
                         </Descriptions>
                       }
                       title="图集详细信息"

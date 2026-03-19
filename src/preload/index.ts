@@ -78,8 +78,17 @@ const IPC_CHANNELS = {
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
+  BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE: 'booru:get-favorite-tags-with-download-state',
+  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
   BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
+  BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:get-favorite-tag-download-binding',
+  BOORU_GET_FAVORITE_TAG_DOWNLOAD_HISTORY: 'booru:get-favorite-tag-download-history',
+  BOORU_GET_GALLERY_SOURCE_FAVORITE_TAGS: 'booru:get-gallery-source-favorite-tags',
+  BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:upsert-favorite-tag-download-binding',
+  BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:remove-favorite-tag-download-binding',
+  BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD: 'booru:start-favorite-tag-bulk-download',
 
   // 收藏标签分组
   BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',
@@ -129,8 +138,6 @@ const IPC_CHANNELS = {
   BOORU_SEARCH_POOLS: 'booru:search-pools',
 
   // 标签导入/导出
-  BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
   BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
 
@@ -348,10 +355,24 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_BY_NAME, siteId, tagName),
     getFavoriteTags: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, siteId),
+    getFavoriteTagsWithDownloadState: (siteId?: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, siteId),
     updateFavoriteTag: (id: number, updates: any) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_TAG, id, updates),
     isFavoriteTag: (siteId: number | null, tagName: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_IS_FAVORITE_TAG, siteId, tagName),
+    getFavoriteTagDownloadBinding: (favoriteTagId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING, favoriteTagId),
+    getFavoriteTagDownloadHistory: (favoriteTagId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_HISTORY, favoriteTagId),
+    getGallerySourceFavoriteTags: (galleryId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_GALLERY_SOURCE_FAVORITE_TAGS, galleryId),
+    upsertFavoriteTagDownloadBinding: (input: any) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING, input),
+    removeFavoriteTagDownloadBinding: (favoriteTagId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING, favoriteTagId),
+    startFavoriteTagBulkDownload: (favoriteTagId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD, favoriteTagId),
 
     // 收藏标签分组
     getFavoriteTagLabels: () =>
@@ -643,8 +664,17 @@ declare global {
         removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;
         getFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavoriteTagsWithDownloadState: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; filePath: string }; error?: string }>;
+        importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
         updateFavoriteTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         isFavoriteTag: (siteId: number | null, tagName: string) => Promise<{ success: boolean; data?: boolean; error?: string }>;
+        getFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
+        getFavoriteTagDownloadHistory: (favoriteTagId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getGallerySourceFavoriteTags: (galleryId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        upsertFavoriteTagDownloadBinding: (input: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+        removeFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; error?: string }>;
+        startFavoriteTagBulkDownload: (favoriteTagId: number) => Promise<{ success: boolean; data?: { taskId: string; sessionId: string }; error?: string }>;
         getFavoriteTagLabels: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavoriteTagLabel: (name: string, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagLabel: (id: number) => Promise<{ success: boolean; error?: string }>;
@@ -682,8 +712,6 @@ declare global {
         getPool: (siteId: number, poolId: number, page?: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         searchPools: (siteId: number, query: string, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         // 标签导入/导出
-        exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
-        importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
         exportBlacklistedTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
         importBlacklistedTags: () => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;

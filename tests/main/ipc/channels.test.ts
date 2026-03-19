@@ -95,8 +95,13 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG).toBe('booru:remove-favorite-tag');
     expect(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_BY_NAME).toBe('booru:remove-favorite-tag-by-name');
     expect(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS).toBe('booru:get-favorite-tags');
+    expect(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE).toBe('booru:get-favorite-tags-with-download-state');
     expect(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_TAG).toBe('booru:update-favorite-tag');
     expect(IPC_CHANNELS.BOORU_IS_FAVORITE_TAG).toBe('booru:is-favorite-tag');
+    expect(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING).toBe('booru:get-favorite-tag-download-binding');
+    expect(IPC_CHANNELS.BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING).toBe('booru:upsert-favorite-tag-download-binding');
+    expect(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING).toBe('booru:remove-favorite-tag-download-binding');
+    expect(IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD).toBe('booru:start-favorite-tag-bulk-download');
   });
 
   it('应包含收藏标签分组管理通道', () => {
@@ -139,6 +144,6 @@ describe('IPC_CHANNELS', () => {
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(126);
+    expect(keys.length).toBe(133);
   });
 });

@@ -441,6 +441,33 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS booru_favorite_tag_download_bindings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        favoriteTagId INTEGER NOT NULL UNIQUE,
+        galleryId INTEGER,
+        downloadPath TEXT NOT NULL,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        autoCreateGallery INTEGER,
+        autoSyncGalleryAfterDownload INTEGER,
+        quality TEXT,
+        perPage INTEGER,
+        concurrency INTEGER,
+        skipIfExists INTEGER,
+        notifications INTEGER,
+        blacklistedTags TEXT,
+        lastTaskId TEXT,
+        lastSessionId TEXT,
+        lastStartedAt TEXT,
+        lastCompletedAt TEXT,
+        lastStatus TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (favoriteTagId) REFERENCES booru_favorite_tags(id) ON DELETE CASCADE,
+        FOREIGN KEY (galleryId) REFERENCES galleries(id) ON DELETE SET NULL
+      )
+    `);
+
     // 批量创建收藏标签相关索引
     await new Promise<void>((resolve, reject) => {
       database.exec(`
@@ -448,6 +475,8 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
         CREATE INDEX IF NOT EXISTS idx_favorite_tags_tagName ON booru_favorite_tags(tagName);
         CREATE INDEX IF NOT EXISTS idx_favorite_tags_sortOrder ON booru_favorite_tags(sortOrder);
         CREATE INDEX IF NOT EXISTS idx_favorite_tag_labels_sortOrder ON booru_favorite_tag_labels(sortOrder);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tag_download_bindings_galleryId ON booru_favorite_tag_download_bindings(galleryId);
+        CREATE INDEX IF NOT EXISTS idx_favorite_tag_download_bindings_lastSessionId ON booru_favorite_tag_download_bindings(lastSessionId);
       `, (err) => err ? reject(err) : resolve());
     });
 
@@ -545,6 +574,26 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       await run(database, "ALTER TABLE booru_tags ADD COLUMN updatedAt TEXT NOT NULL DEFAULT ''");
       await run(database, 'UPDATE booru_tags SET updatedAt = createdAt WHERE updatedAt = \'\'');
       console.log('[database] 已添加 updatedAt 字段到 booru_tags');
+    }
+
+    if (!(await columnExists(database, 'booru_favorite_tag_download_bindings', 'autoCreateGallery'))) {
+      await run(database, 'ALTER TABLE booru_favorite_tag_download_bindings ADD COLUMN autoCreateGallery INTEGER');
+      console.log('[database] 已添加 autoCreateGallery 字段到 booru_favorite_tag_download_bindings');
+    }
+
+    if (!(await columnExists(database, 'booru_favorite_tag_download_bindings', 'autoSyncGalleryAfterDownload'))) {
+      await run(database, 'ALTER TABLE booru_favorite_tag_download_bindings ADD COLUMN autoSyncGalleryAfterDownload INTEGER');
+      console.log('[database] 已添加 autoSyncGalleryAfterDownload 字段到 booru_favorite_tag_download_bindings');
+    }
+
+    if (!(await columnExists(database, 'bulk_download_sessions', 'originType'))) {
+      await run(database, 'ALTER TABLE bulk_download_sessions ADD COLUMN originType TEXT');
+      console.log('[database] 已添加 originType 字段到 bulk_download_sessions');
+    }
+
+    if (!(await columnExists(database, 'bulk_download_sessions', 'originId'))) {
+      await run(database, 'ALTER TABLE bulk_download_sessions ADD COLUMN originId INTEGER');
+      console.log('[database] 已添加 originId 字段到 bulk_download_sessions');
     }
 
     // === 保存的搜索表 ===
