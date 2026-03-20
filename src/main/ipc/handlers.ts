@@ -1590,47 +1590,6 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
-    try {
-      const payload = await booruService.exportFavoriteTags(siteId);
-      const result = await dialog.showSaveDialog({
-        title: '导出收藏标签',
-        defaultPath: 'favorite-tags.json',
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-
-      if (result.canceled || !result.filePath) {
-        return { success: false, error: '取消导出' };
-      }
-
-      await fs.writeFile(result.filePath, JSON.stringify({ data: payload }, null, 2), 'utf-8');
-      return { success: true, data: { count: payload.favoriteTags.length, filePath: result.filePath } };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS, async () => {
-    try {
-      const result = await dialog.showOpenDialog({
-        title: '导入收藏标签',
-        properties: ['openFile'],
-        filters: [{ name: 'JSON', extensions: ['json'] }],
-      });
-
-      if (result.canceled || result.filePaths.length === 0) {
-        return { success: false, error: '取消导入' };
-      }
-
-      const content = await fs.readFile(result.filePaths[0], 'utf-8');
-      const parsed = JSON.parse(content);
-      const imported = await booruService.importFavoriteTags(parsed.data || parsed);
-      return { success: true, data: imported };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING, async (_event: IpcMainInvokeEvent, favoriteTagId: number) => {
     console.log('[IPC] 获取收藏标签下载绑定:', favoriteTagId);
     try {
