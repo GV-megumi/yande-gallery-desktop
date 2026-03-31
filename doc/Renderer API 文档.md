@@ -22,9 +22,6 @@
 - `bulkDownload`
 - `window`
 - `system`
-- `google`
-- `gdrive`
-- `gphotos`
 
 ## `db`
 
@@ -270,37 +267,6 @@
 - `onBulkDownloadRecordProgress(callback)`
 - `onBulkDownloadRecordStatus(callback)`
 
-## `google`
-
-Google 账号登录状态相关。
-
-- `login()`
-- `logout()`
-- `getAuthStatus()`
-
-## `gdrive`
-
-Google Drive 文件管理能力。
-
-- `listFiles(folderId?, pageSize?, pageToken?, mimeType?)`
-- `search(query, pageSize?, pageToken?)`
-- `getFile(fileId)`
-- `download(fileId, localPath?)`
-- `upload(localPath, folderId?)`
-- `delete(fileId)`
-- `createFolder(name, parentId?)`
-- `move(fileId, newParentId)`
-- `getStorage()`
-- `getThumbnail(fileId)`
-
-## `gphotos`
-
-Google Photos 当前仅暴露 Picker 打开能力。
-
-- `pickerOpen()`
-
-这意味着当前不是完整的 Photos Library 浏览 API，而是 Picker 接入。
-
 ## 返回值约定
 
 当前大多数 API 返回结构遵循这一模式：
@@ -360,8 +326,8 @@ unsubscribe();
 ## 说明与边界
 
 - 这份文档描述的是 preload 暴露给渲染进程的 API，不等同于应用的全部功能面
-- 例如 README 中会提到 `Gemini` 页面，但当前 preload 并没有单独暴露 `gemini` 域
-- 因此“页面存在”不一定等于“有同名 `window.electronAPI` 域”
+- Google Drive、Google Photos、Gemini 等页面均通过 webview 嵌入对应 Google 网站，不依赖 preload API
+- 因此”页面存在”不一定等于”有同名 `window.electronAPI` 域”
 
 ## 使用建议
 
