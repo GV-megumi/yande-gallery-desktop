@@ -180,23 +180,4 @@ export const IPC_CHANNELS = {
   BOORU_UPDATE_SAVED_SEARCH: 'booru:update-saved-search',
   BOORU_DELETE_SAVED_SEARCH: 'booru:delete-saved-search',
 
-  // === Google 认证 ===
-  GOOGLE_AUTH_LOGIN: 'google:auth-login',
-  GOOGLE_AUTH_LOGOUT: 'google:auth-logout',
-  GOOGLE_AUTH_STATUS: 'google:auth-status',
-
-  // === Google Drive ===
-  GDRIVE_LIST_FILES: 'gdrive:list-files',
-  GDRIVE_SEARCH: 'gdrive:search',
-  GDRIVE_GET_FILE: 'gdrive:get-file',
-  GDRIVE_DOWNLOAD: 'gdrive:download',
-  GDRIVE_UPLOAD: 'gdrive:upload',
-  GDRIVE_DELETE: 'gdrive:delete',
-  GDRIVE_CREATE_FOLDER: 'gdrive:create-folder',
-  GDRIVE_MOVE: 'gdrive:move',
-  GDRIVE_GET_STORAGE: 'gdrive:get-storage',
-  GDRIVE_GET_THUMBNAIL: 'gdrive:get-thumbnail',
-
-  // === Google Photos Picker API ===
-  GPHOTOS_PICKER_OPEN: 'gphotos:picker-open',
 } as const;

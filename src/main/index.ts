@@ -3,9 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setupWindowIPC } from './window.js';
 import { setupIPC } from './ipc/handlers.js';
-import { setupGoogleIPC } from './ipc/googleHandlers.js';
 import { initializeApp } from './services/init.js';
-import { initGoogleAuth } from './services/googleAuthService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -66,10 +64,6 @@ app.whenReady().then(async () => {
     // 3. 设置IPC
     setupIPC();
     setupWindowIPC();
-    setupGoogleIPC();
-
-    // 4. 初始化 Google 认证（加载已保存的 token，安排自动刷新）
-    initGoogleAuth().catch(err => console.warn('[GoogleAuth] 初始化失败（非致命）:', err));
 
     console.log('🎉 应用启动完成');
   } catch (error) {
