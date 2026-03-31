@@ -343,25 +343,24 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     setSelectedImage(image);
   }, []);
 
-  // 点击预览回调：先检查源文件是否存在，丢失则上报为无效图片
+  // 点击预览回调：先检查源文件是否存在，丢失则提示并上报（仅首次入库）
   const handlePreviewClick = useCallback(async (previewSrc: string, imageId: number, filename: string) => {
     if (imageId && window.electronAPI) {
       try {
         const result = await window.electronAPI.gallery.reportInvalidImage(imageId);
-        if (result.success) {
-          // 文件确实丢失，已迁移到无效项
-          message.warning(`源文件已丢失，已移至无效项: ${filename}`);
-          onReload();
+        if (result.success || result.error === '图片记录不存在') {
+          // 文件丢失（首次或已迁移），仅提示，不刷新页面
+          message.warning(`源文件已丢失: ${filename}`);
           return;
         }
-        // success: false + error '源文件仍然存在' → 文件正常，继续预览
+        // '源文件仍然存在' → 文件正常，继续预览
       } catch {
         // 检查失败，继续尝试预览
       }
     }
     setPreviewImage(previewSrc);
     setPreviewVisible(true);
-  }, [onReload]);
+  }, []);
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {
