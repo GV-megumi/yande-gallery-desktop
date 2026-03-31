@@ -119,23 +119,6 @@ booru:
     #   {tags:maxlength=50} {source}
     filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
 
-# -------- Google 集成 --------
-# 需要在 Google Cloud Console 创建 OAuth 2.0 客户端凭据（类型选"桌面应用"）
-# 重定向 URI 使用 loopback 随机端口，无需在 Cloud Console 预先注册
-google:
-  clientId: 'YOUR_CLIENT_ID.apps.googleusercontent.com'
-  clientSecret: 'YOUR_CLIENT_SECRET'
-  drive:
-    enabled: true
-    defaultViewMode: grid    # grid | list
-    imageOnly: false         # 是否只显示图片文件
-    downloadPath: ''         # 留空则使用 downloads.path
-  photos:
-    enabled: true
-    downloadPath: ''         # 留空则使用 downloads.path
-    uploadAlbumName: 'Yande Gallery'
-    thumbnailSize: 512       # 缩略图尺寸（像素）
-
 # -------- UI 偏好 --------
 ui:
   menuOrder:
