@@ -513,6 +513,36 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     console.log('[database] 黑名单标签相关表创建成功');
     // === 黑名单标签相关表结束 ===
 
+    // === 无效图片表 ===
+    console.log('[database] 开始创建无效图片表...');
+
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS invalid_images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        originalImageId INTEGER NOT NULL,
+        filename TEXT NOT NULL,
+        filepath TEXT NOT NULL,
+        fileSize INTEGER,
+        width INTEGER,
+        height INTEGER,
+        format TEXT,
+        thumbnailPath TEXT,
+        detectedAt TEXT NOT NULL,
+        galleryId INTEGER,
+        FOREIGN KEY (galleryId) REFERENCES galleries(id) ON DELETE SET NULL
+      )
+    `);
+
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_invalid_images_detectedAt ON invalid_images(detectedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_invalid_images_galleryId ON invalid_images(galleryId);
+        CREATE INDEX IF NOT EXISTS idx_invalid_images_originalImageId ON invalid_images(originalImageId);
+      `, (err) => err ? reject(err) : resolve());
+    });
+
+    console.log('[database] 无效图片表创建成功');
+
     // === 性能优化索引 ===
     console.log('[database] 创建性能优化索引...');
     // 复合索引：分页浏览和排序场景

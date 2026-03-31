@@ -451,3 +451,17 @@ export interface BulkDownloadOptions {
   perPage?: number;
   concurrency?: number;
 }
+
+export interface InvalidImage {
+  id: number;
+  originalImageId: number;
+  filename: string;
+  filepath: string;
+  fileSize: number | null;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+  thumbnailPath: string | null;
+  detectedAt: string;
+  galleryId: number | null;
+}
