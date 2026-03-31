@@ -17,11 +17,12 @@ import {
   SunOutlined, MoonOutlined, StopOutlined,
   FireOutlined, DatabaseOutlined, HeartOutlined,
   SearchOutlined, SmileOutlined, MessageOutlined,
-  HddOutlined, CameraOutlined, UserOutlined
+  HddOutlined, CameraOutlined, UserOutlined, WarningOutlined
 } from '@ant-design/icons';
 
 // 页面级组件：使用 React.lazy 实现代码分割
 const GalleryPage = React.lazy(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })));
+const InvalidImagesPage = React.lazy(() => import('./pages/InvalidImagesPage').then(m => ({ default: m.InvalidImagesPage })));
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const BooruPage = React.lazy(() => import('./pages/BooruPage').then(m => ({ default: m.BooruPage })));
 const BooruSettingsPage = React.lazy(() => import('./pages/BooruSettingsPage').then(m => ({ default: m.BooruSettingsPage })));
@@ -141,7 +142,8 @@ function buildGallerySubMenuItems(t: (path: string) => string): MenuItem[] {
   return [
     { key: 'recent', icon: <DotIcon color={iconColors.recent} icon={<ClockCircleOutlined />} />, label: t('menu.recent') },
     { key: 'all', icon: <DotIcon color={iconColors.all} icon={<AppstoreOutlined />} />, label: t('menu.all') },
-    { key: 'galleries', icon: <DotIcon color={iconColors.galleries} icon={<FolderOutlined />} />, label: t('menu.galleries') }
+    { key: 'galleries', icon: <DotIcon color={iconColors.galleries} icon={<FolderOutlined />} />, label: t('menu.galleries') },
+    { key: 'invalid-images', icon: <DotIcon color={iconColors.invalidImages} icon={<WarningOutlined />} />, label: t('menu.invalidImages') }
   ];
 }
 
@@ -585,6 +587,7 @@ export const AppContent: React.FC = () => {
     const { section, key } = pin;
     if (section === 'gallery') {
       if (key === 'settings') return <SettingsPage />;
+      if (key === 'invalid-images') return <InvalidImagesPage />;
       return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} />;
     }
     if (section === 'booru') {
@@ -617,6 +620,7 @@ export const AppContent: React.FC = () => {
     switch (selectedKey) {
       case 'gallery':
         if (selectedSubKey === 'settings') return <SettingsPage />;
+        if (selectedSubKey === 'invalid-images') return <InvalidImagesPage />;
         return <GalleryPage subTab={selectedSubKey as "recent" | "all" | "galleries" | undefined} />;
       case 'booru':
         if (selectedBooruSubKey === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;

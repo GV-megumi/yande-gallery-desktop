@@ -46,6 +46,7 @@ const enUS: LocaleMessages = {
     recent: 'Recent',
     all: 'All',
     galleries: 'Albums',
+    invalidImages: 'Invalid',
     browse: 'Browse',
     posts: 'Browse Posts',
     popular: 'Popular',

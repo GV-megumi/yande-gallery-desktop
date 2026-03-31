@@ -383,6 +383,7 @@ export const iconColors = {
   google: '#4285F4',
   gdrive: '#0F9D58',
   gphotos: '#FBBC04',
+  invalidImages: '#F97316',
 } as const;
 
 // ============================================================

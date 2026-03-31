@@ -44,6 +44,7 @@ const zhCN = {
     recent: '最近',
     all: '所有',
     galleries: '图集',
+    invalidImages: '无效项',
     browse: '浏览',
     posts: '图片浏览',
     popular: '热门图片',
