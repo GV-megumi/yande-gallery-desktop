@@ -155,13 +155,11 @@ export const InvalidImagesPage: React.FC = () => {
       </div>
 
       {/* 懒加载底部 */}
-      {hasMore && (
-        <LazyLoadFooter
-          loading={loading}
-          hasMore={hasMore}
-          onLoadMore={handleLoadMore}
-        />
-      )}
+      <LazyLoadFooter
+        current={images.length}
+        total={total}
+        onLoadMore={handleLoadMore}
+      />
     </div>
   );
 };
