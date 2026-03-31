@@ -303,6 +303,11 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                 thumbnails[image.id] = result.data;
               } else {
                 thumbnails[image.id] = null;
+                // 源文件丢失：异步上报为无效图片
+                if ((result as any).missing && image.id) {
+                  console.log(`[ImageGrid] 检测到源文件丢失，上报无效图片: ${image.filename} (ID: ${image.id})`);
+                  window.electronAPI.gallery.reportInvalidImage(image.id).catch(() => {});
+                }
               }
             } catch (error) {
               thumbnails[image.id] = null;
