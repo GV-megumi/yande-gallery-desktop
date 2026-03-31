@@ -71,7 +71,7 @@ interface ImageCardProps {
   image: any;
   thumbnailPath: string | null | undefined;
   onImageInfo: (image: any) => void;
-  onPreviewClick: (previewSrc: string) => void;
+  onPreviewClick: (previewSrc: string, imageId: number, filename: string) => void;
   onSetCover?: (imageId: number) => void;
   currentGallery?: any;
 }
@@ -181,7 +181,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
                 (e.target as HTMLImageElement).classList.add('loaded');
               }}
               onClick={() => {
-                onPreviewClick(previewSrc);
+                onPreviewClick(previewSrc, image.id, image.filename);
               }}
             />
           ) : (
@@ -343,11 +343,25 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     setSelectedImage(image);
   }, []);
 
-  // 点击预览回调
-  const handlePreviewClick = useCallback((previewSrc: string) => {
+  // 点击预览回调：先检查源文件是否存在，丢失则上报为无效图片
+  const handlePreviewClick = useCallback(async (previewSrc: string, imageId: number, filename: string) => {
+    if (imageId && window.electronAPI) {
+      try {
+        const result = await window.electronAPI.gallery.reportInvalidImage(imageId);
+        if (result.success) {
+          // 文件确实丢失，已迁移到无效项
+          message.warning(`源文件已丢失，已移至无效项: ${filename}`);
+          onReload();
+          return;
+        }
+        // success: false + error '源文件仍然存在' → 文件正常，继续预览
+      } catch {
+        // 检查失败，继续尝试预览
+      }
+    }
     setPreviewImage(previewSrc);
     setPreviewVisible(true);
-  }, []);
+  }, [onReload]);
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {
