@@ -195,7 +195,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
       ipcRenderer.invoke('gallery:scan-and-import-folder', folderPath, extensions, recursive),
     scanSubfolders: (rootPath: string, extensions?: string[]) =>
-      ipcRenderer.invoke('gallery:scan-subfolders', rootPath, extensions)
+      ipcRenderer.invoke('gallery:scan-subfolders', rootPath, extensions),
+    reportInvalidImage: (imageId: number) =>
+      ipcRenderer.invoke('gallery:report-invalid-image', imageId),
+    getInvalidImages: (page?: number, pageSize?: number) =>
+      ipcRenderer.invoke('gallery:get-invalid-images', page, pageSize),
+    getInvalidImageCount: () =>
+      ipcRenderer.invoke('gallery:get-invalid-image-count'),
+    deleteInvalidImage: (id: number) =>
+      ipcRenderer.invoke('gallery:delete-invalid-image', id),
+    clearInvalidImages: () =>
+      ipcRenderer.invoke('gallery:clear-invalid-images'),
   },
 
   // 配置操作
@@ -708,6 +718,11 @@ declare global {
         getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;
+        reportInvalidImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
+        getInvalidImages: (page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
+        getInvalidImageCount: () => Promise<{ success: boolean; data?: number; error?: string }>;
+        deleteInvalidImage: (id: number) => Promise<{ success: boolean; error?: string }>;
+        clearInvalidImages: () => Promise<{ success: boolean; data?: { deleted: number }; error?: string }>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: any; error?: string }>;

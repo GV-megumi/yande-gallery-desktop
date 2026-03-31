@@ -42,6 +42,13 @@ import * as imageCacheService from '../services/imageCacheService.js';
 import { runInTransaction, getDatabase, all, run } from '../services/database.js';
 import { createAppBackupData, isValidBackupData, restoreAppBackupData, summarizeBackupTables } from '../services/backupService.js';
 import { getImageMetadata } from '../services/imageMetadataService.js';
+import {
+  reportInvalidImage,
+  getInvalidImages,
+  getInvalidImageCount,
+  deleteInvalidImage,
+  clearInvalidImages
+} from '../services/invalidImageService.js';
 
 let ipcHandlersRegistered = false;
 
@@ -281,7 +288,9 @@ export function setupIPC() {
           console.log(`[IPC] 缩略图生成成功: ${thumbnailPath}`);
         } else {
           console.error(`[IPC] 缩略图生成失败: ${generateResult.error}`);
-          return { success: false, error: generateResult.error || '生成缩略图失败' };
+          // 如果错误信息包含"原图不存在"，标记为 missing 以便渲染进程上报
+          const isMissing = generateResult.error?.includes('原图不存在') ?? false;
+          return { success: false, error: generateResult.error || '生成缩略图失败', missing: isMissing };
         }
       } else {
         console.log(`[IPC] 使用已存在的缩略图: ${thumbnailPath}`);
@@ -421,6 +430,47 @@ export function setupIPC() {
   ipcMain.handle('gallery:update-gallery-stats', async (_event: IpcMainInvokeEvent, id: number, imageCount: number, lastScannedAt: string) => {
     try {
       return await updateGalleryStats(id, imageCount, lastScannedAt);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 无效图片管理 =====
+  ipcMain.handle('gallery:report-invalid-image', async (_event: IpcMainInvokeEvent, imageId: number) => {
+    try {
+      return await reportInvalidImage(imageId);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:get-invalid-images', async (_event: IpcMainInvokeEvent, page: number = 1, pageSize: number = 200) => {
+    try {
+      return await getInvalidImages(page, pageSize);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:get-invalid-image-count', async (_event: IpcMainInvokeEvent) => {
+    try {
+      return await getInvalidImageCount();
+    } catch (error) {
+      return { success: false, data: 0, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:delete-invalid-image', async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      return await deleteInvalidImage(id);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:clear-invalid-images', async (_event: IpcMainInvokeEvent) => {
+    try {
+      return await clearInvalidImages();
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
