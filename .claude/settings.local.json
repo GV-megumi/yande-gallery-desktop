@@ -11,7 +11,8 @@
       "Bash(npm run start:*)",
       "Bash(npm run:*)",
       "Bash(sqlite3:*)",
-      "Bash(npx tsx:*)"
+      "Bash(npx tsx:*)",
+      "WebSearch"
     ],
     "deny": [],
     "ask": []

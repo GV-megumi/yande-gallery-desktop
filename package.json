@@ -77,6 +77,7 @@
     "directories": {
       "output": "dist"
     },
+    "npmRebuild": false,
     "files": [
       "build/**/*",
       "node_modules/**/*",
