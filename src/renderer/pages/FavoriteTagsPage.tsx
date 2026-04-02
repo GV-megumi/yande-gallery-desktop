@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined } from '@ant-design/icons';
+import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined } from '@ant-design/icons';
 import {
   DndContext,
   closestCenter,
@@ -19,6 +19,7 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
+import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
 
 interface FavoriteTagsPageProps {
@@ -417,38 +418,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   };
 
   const getStatusKey = (record: FavoriteTagWithDownloadState): FavoriteTagDownloadDisplayStatus => {
-    if (record.runtimeProgress?.status) {
-      return record.runtimeProgress.status;
-    }
-    if (record.downloadBinding?.lastStatus) {
-      return record.downloadBinding.lastStatus;
-    }
-    if (record.downloadBinding?.enabled) {
-      return 'ready';
-    }
-    return 'notConfigured';
+    return getDisplayStatus(record);
   };
 
   const getStatusColor = (record: FavoriteTagWithDownloadState) => {
-    const key = getStatusKey(record);
-    switch (key) {
-      case 'starting':
-      case 'dryRun':
-      case 'running':
-        return 'processing';
-      case 'ready':
-      case 'completed':
-        return 'success';
-      case 'paused':
-        return 'warning';
-      case 'failed':
-      case 'validationError':
-      case 'taskCreateFailed':
-      case 'sessionCreateFailed':
-        return 'error';
-      default:
-        return 'default';
-    }
+    return getStatusColorUtil(getDisplayStatus(record));
   };
 
   const formatDateTime = (value?: string | null) => {
@@ -460,9 +434,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   };
 
   const getDownloadDisabledReason = (record: FavoriteTagWithDownloadState) => {
-    if (record.queryType !== 'tag') {
-      return t('favoriteTags.onlyTagQuerySupported');
-    }
     if (record.siteId == null) {
       return t('favoriteTags.siteRequiredForDownload');
     }
@@ -529,6 +500,58 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
+  const handleRetrySession = async (sessionId: string) => {
+    try {
+      const result = await window.electronAPI.bulkDownload.retryAllFailed(sessionId);
+      if (result.success) {
+        message.success(t('favoriteTags.retryStarted'));
+        await loadFavoriteTags();
+        if (historyTag) {
+          await openDownloadHistory(historyTag);
+        }
+      } else {
+        message.error(`${t('common.failed')}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 重试失败会话失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
+  const handleFixGalleryBinding = async (record: FavoriteTagWithDownloadState) => {
+    if (!record.downloadBinding || !record.downloadBinding.galleryId) return;
+    const gallery = galleries.find(g => g.id === record.downloadBinding!.galleryId);
+    if (!gallery) {
+      message.error(t('favoriteTags.galleryNotFoundForFix'));
+      return;
+    }
+    try {
+      const result = await window.electronAPI.booru.upsertFavoriteTagDownloadBinding({
+        favoriteTagId: record.id,
+        galleryId: gallery.id,
+        downloadPath: gallery.folderPath,
+        enabled: record.downloadBinding.enabled,
+        autoCreateGallery: record.downloadBinding.autoCreateGallery,
+        autoSyncGalleryAfterDownload: record.downloadBinding.autoSyncGalleryAfterDownload,
+        quality: record.downloadBinding.quality ?? undefined,
+        perPage: record.downloadBinding.perPage ?? undefined,
+        concurrency: record.downloadBinding.concurrency ?? undefined,
+        skipIfExists: record.downloadBinding.skipIfExists ?? undefined,
+        notifications: record.downloadBinding.notifications ?? undefined,
+        blacklistedTags: record.downloadBinding.blacklistedTags ?? undefined,
+      });
+      if (result.success) {
+        message.success(t('favoriteTags.galleryBindingFixed'));
+        await loadFavoriteTags();
+      } else {
+        message.error(`${t('common.failed')}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 修复图集绑定失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
   const saveDownloadBinding = async (record: FavoriteTagWithDownloadState, startAfterSave: boolean) => {
     try {
       const values = await downloadForm.validateFields();
@@ -571,10 +594,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   };
 
   const handleDownloadClick = async (record: FavoriteTagWithDownloadState) => {
-    if (record.queryType !== 'tag') {
-      message.warning(t('favoriteTags.onlyTagQuerySupported'));
-      return;
-    }
     if (record.siteId == null) {
       message.warning(t('favoriteTags.siteRequiredForDownload'));
       return;
@@ -714,7 +733,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                   type="link"
                   size="small"
                   icon={<DownloadOutlined />}
-                  disabled={record.queryType !== 'tag' || record.siteId == null}
+                  disabled={record.siteId == null}
                   onClick={() => handleDownloadClick(record)}
                 />
               </span>
@@ -852,6 +871,26 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           type="warning"
           showIcon
           message={t('favoriteTags.galleryBindingMismatchAlert')}
+          description={
+            <Space direction="vertical" size={4} style={{ marginTop: 8 }}>
+              {favoriteTags
+                .filter(tag => tag.galleryBindingConsistent === false)
+                .map(tag => (
+                  <Space key={tag.id} size={8}>
+                    <Tag color="blue">{tag.tagName.replace(/_/g, ' ')}</Tag>
+                    <Tag color="warning">{tag.galleryBindingMismatchReason === 'galleryNotFound' ? t('favoriteTags.galleryNotFound') : t('favoriteTags.pathMismatch')}</Tag>
+                    {tag.galleryBindingMismatchReason === 'pathMismatch' && (
+                      <Button size="small" type="link" icon={<ToolOutlined />} onClick={() => handleFixGalleryBinding(tag)}>
+                        {t('favoriteTags.fixBinding')}
+                      </Button>
+                    )}
+                    <Button size="small" type="link" icon={<SettingOutlined />} onClick={() => openDownloadConfig(tag)}>
+                      {t('favoriteTags.configureDownload')}
+                    </Button>
+                  </Space>
+                ))}
+            </Space>
+          }
         />
       )}
 
@@ -958,30 +997,64 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         title={t('favoriteTags.historyTitle', { name: historyTag?.tagName || '' })}
         open={historyVisible}
         footer={null}
+        width={640}
         onCancel={() => {
           setHistoryVisible(false);
           setHistoryTag(null);
           setDownloadHistory([]);
         }}
       >
+        {downloadHistory.length > 0 && (() => {
+          const completed = downloadHistory.filter(h => h.status === 'completed').length;
+          const failed = downloadHistory.filter(h => h.status === 'failed').length;
+          const total = downloadHistory.length;
+          return (
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fafafa', borderRadius: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+              <span>{t('favoriteTags.historyTotal')}: <strong>{total}</strong></span>
+              <span style={{ color: '#52c41a' }}>{t('favoriteTags.historyCompleted')}: <strong>{completed}</strong></span>
+              <span style={{ color: '#ff4d4f' }}>{t('favoriteTags.historyFailed')}: <strong>{failed}</strong></span>
+            </div>
+          );
+        })()}
         <List
           loading={historyLoading}
           locale={{ emptyText: t('favoriteTags.noDownloadHistory') }}
           dataSource={downloadHistory}
           renderItem={(item) => (
-            <List.Item>
+            <List.Item
+              actions={
+                isRetryableStatus(item.status as FavoriteTagDownloadDisplayStatus)
+                  ? [
+                      <Button
+                        key="retry"
+                        size="small"
+                        icon={<RedoOutlined />}
+                        onClick={() => handleRetrySession(item.sessionId)}
+                      >
+                        {t('favoriteTags.retryFailed')}
+                      </Button>
+                    ]
+                  : undefined
+              }
+            >
               <List.Item.Meta
                 title={
                   <Space>
-                    <Tag>{item.status}</Tag>
-                    <span>{item.sessionId}</span>
+                    <Tag color={getStatusColorUtil(item.status as FavoriteTagDownloadDisplayStatus)}>
+                      {t(`favoriteTags.${item.status}`) || item.status}
+                    </Tag>
+                    <span style={{ fontSize: 12, color: '#999' }}>{item.sessionId.slice(0, 8)}</span>
                   </Space>
                 }
                 description={
                   <Space direction="vertical" size={2}>
                     <span>{t('favoriteTags.historyStartedAt')}: {formatDateTime(item.startedAt)}</span>
-                    <span>{t('favoriteTags.historyCompletedAt')}: {formatDateTime(item.completedAt)}</span>
-                    {item.error ? <span>{t('favoriteTags.historyError')}: {item.error}</span> : null}
+                    {item.completedAt && (
+                      <span>{t('favoriteTags.historyCompletedAt')}: {formatDateTime(item.completedAt)}</span>
+                    )}
+                    {item.error && (
+                      <Alert type="error" showIcon message={item.error} style={{ padding: '4px 8px', marginTop: 4 }} />
+                    )}
                   </Space>
                 }
               />

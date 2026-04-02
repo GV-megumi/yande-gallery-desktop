@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal } from 'antd';
+import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
@@ -875,7 +875,22 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                           )}
                           <Descriptions.Item label="来源收藏标签">
                             {sourceFavoriteTags.length > 0
-                              ? sourceFavoriteTags.map((tag: any) => <Tag key={tag.id}>{tag.tagName}</Tag>)
+                              ? sourceFavoriteTags.map((tag: any) => (
+                                  <Tooltip key={tag.id} title={
+                                    <div>
+                                      <div>状态: {tag.downloadBinding?.lastStatus || '未配置'}</div>
+                                      {tag.downloadBinding?.lastCompletedAt && (
+                                        <div>上次下载: {new Date(tag.downloadBinding.lastCompletedAt).toLocaleString()}</div>
+                                      )}
+                                    </div>
+                                  }>
+                                    <Tag
+                                      color={tag.downloadBinding?.lastStatus === 'completed' ? 'success' : tag.downloadBinding?.lastStatus === 'failed' ? 'error' : 'blue'}
+                                    >
+                                      {tag.tagName}
+                                    </Tag>
+                                  </Tooltip>
+                                ))
                               : '-'}
                           </Descriptions.Item>
                         </Descriptions>
