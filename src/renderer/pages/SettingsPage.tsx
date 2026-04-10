@@ -193,7 +193,7 @@ export const SettingsPage: React.FC = () => {
   const [proxyForm] = Form.useForm();
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
-  const [activeTab, setActiveTab] = useState<'general' | 'proxy'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'about'>('general');
 
   // 表单值状态（用于即时渲染）
   const [downloadPath, setDownloadPath] = useState('');
@@ -426,10 +426,11 @@ export const SettingsPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: spacing.xl }}>
         <Segmented
           value={activeTab}
-          onChange={(value) => setActiveTab(value as 'general' | 'proxy')}
+          onChange={(value) => setActiveTab(value as 'general' | 'proxy' | 'about')}
           options={[
             { label: t('settings.tabGeneral'), value: 'general' },
             { label: t('settings.tabProxy'), value: 'proxy' },
+            { label: t('settings.tabAbout'), value: 'about' },
           ]}
         />
       </div>
@@ -659,12 +660,40 @@ export const SettingsPage: React.FC = () => {
             />
           </SettingsGroup>
 
-          {/* 关于 */}
+        </>
+      )}
+
+      {/* ===== 关于 ===== */}
+      {activeTab === 'about' && (
+        <>
           <SettingsGroup title={t('settings.about')}>
-            <SettingsRow label={t('settings.version')} extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>} />
+            <SettingsRow
+              label="Yande Gallery Desktop"
+              description="Personal Yande.re Gallery Manager"
+              isLast
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title={t('settings.version')}>
+            <SettingsRow
+              label={t('settings.version')}
+              extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>}
+            />
             <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
             <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
             <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />
+          </SettingsGroup>
+
+          <SettingsGroup title="GitHub">
+            <SettingsRow
+              label="GitHub"
+              description="https://github.com/GV-megumi/yande-gallery-desktop"
+              isLast
+              onClick={() => {
+                window.electronAPI?.system.openExternal('https://github.com/GV-megumi/yande-gallery-desktop');
+              }}
+              extra={<ExportOutlined style={{ color: colors.textTertiary, fontSize: 16 }} />}
+            />
           </SettingsGroup>
         </>
       )}
@@ -761,24 +790,26 @@ export const SettingsPage: React.FC = () => {
         </>
       )}
 
-      {/* ===== 保存按钮（始终显示） ===== */}
-      <div style={{ marginBottom: spacing.xxl, display: 'flex', justifyContent: 'center', gap: spacing.md }}>
-        <Button
-          type="primary"
-          size="large"
-          loading={saving}
-          icon={<SaveOutlined />}
-          onClick={handleSave}
-          style={{
-            borderRadius: radius.sm,
-            minWidth: 200,
-            height: 44,
-            fontWeight: 600,
-          }}
-        >
-          {t('settings.saveAll')}
-        </Button>
-      </div>
+      {/* ===== 保存按钮（关于页不显示） ===== */}
+      {activeTab !== 'about' && (
+        <div style={{ marginBottom: spacing.xxl, display: 'flex', justifyContent: 'center', gap: spacing.md }}>
+          <Button
+            type="primary"
+            size="large"
+            loading={saving}
+            icon={<SaveOutlined />}
+            onClick={handleSave}
+            style={{
+              borderRadius: radius.sm,
+              minWidth: 200,
+              height: 44,
+              fontWeight: 600,
+            }}
+          >
+            {t('settings.saveAll')}
+          </Button>
+        </div>
+      )}
 
       {/* 底部留白 */}
       <div style={{ height: spacing['3xl'] }} />

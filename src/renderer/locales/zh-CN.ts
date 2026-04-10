@@ -447,6 +447,7 @@ const zhCN = {
     languageEn: 'English',
     tabGeneral: '通用配置',
     tabProxy: '代理配置',
+    tabAbout: '关于',
     network: '网络代理',
     proxyServer: '代理服务器',
     connectivityTest: '连通性测试',

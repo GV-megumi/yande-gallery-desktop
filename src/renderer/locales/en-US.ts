@@ -449,6 +449,7 @@ const enUS: LocaleMessages = {
     languageEn: 'English',
     tabGeneral: 'General',
     tabProxy: 'Proxy',
+    tabAbout: 'About',
     network: 'Network Proxy',
     proxyServer: 'Proxy Server',
     connectivityTest: 'Connectivity Test',
