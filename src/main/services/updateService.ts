@@ -76,8 +76,6 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
         error: errorMsg,
         checkedAt,
       };
-      cachedResult = result;
-      cachedAt = now;
       return result;
     }
 
@@ -119,8 +117,6 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
       error: errorMsg,
       checkedAt,
     };
-    cachedResult = result;
-    cachedAt = now;
     return result;
   }
 }

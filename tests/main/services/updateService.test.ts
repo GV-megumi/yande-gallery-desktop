@@ -92,6 +92,28 @@ describe('checkForUpdate', () => {
     expect(result.hasUpdate).toBe(false);
   });
 
+  it('错误不缓存，下次重试会真的 fetch', async () => {
+    mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
+    mockFetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tag_name: 'v0.0.2',
+        name: 'Release 0.0.2',
+        html_url: 'https://example.com',
+        published_at: '2026-04-11T12:00:00Z',
+      }),
+    });
+
+    const first = await checkForUpdate();
+    expect(first.error).toBeTruthy();
+
+    const second = await checkForUpdate();
+    expect(second.error).toBeNull();
+    expect(second.latestVersion).toBe('0.0.2');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
   it('60 秒缓存：第二次不实际调 fetch', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
