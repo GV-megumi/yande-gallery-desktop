@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Checkbox, Alert, Progress, Switch, InputNumber, List } from 'antd';
+import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined } from '@ant-design/icons';
 import {
@@ -22,6 +22,7 @@ import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDown
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
+import { ImportTagsDialog } from '../components/ImportTagsDialog';
 
 interface FavoriteTagsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -108,11 +109,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [downloadForm] = Form.useForm<DownloadBindingFormValues>();
 
   const [isDragging, setIsDragging] = useState(false);
-  const [importPreviewVisible, setImportPreviewVisible] = useState(false);
-  const [importPreviewTags, setImportPreviewTags] = useState<string[]>([]);
-  const [importCheckedTags, setImportCheckedTags] = useState<Set<string>>(new Set());
-  const [importing, setImporting] = useState(false);
   const [batchAddModalOpen, setBatchAddModalOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
 
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -351,30 +349,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
-  const parseTagsFromContent = useCallback((content: string): string[] => {
-    try {
-      const json = JSON.parse(content);
-      if (json.data?.favoriteTags) {
-        return json.data.favoriteTags.map((t: any) => t.tagName).filter(Boolean);
-      }
-      if (Array.isArray(json)) {
-        return json.map((t: any) => t.tagName || t.name || String(t)).filter(Boolean);
-      }
-    } catch {}
-    return content.split('\n').map(l => l.trim()).filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
-  }, []);
-
-  const showImportPreview = useCallback((tags: string[]) => {
-    const unique = [...new Set(tags)];
-    if (unique.length === 0) {
-      message.warning(t('favoriteTags.noTagsToImport'));
-      return;
-    }
-    setImportPreviewTags(unique);
-    setImportCheckedTags(new Set(unique));
-    setImportPreviewVisible(true);
-  }, [t]);
-
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -387,61 +361,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     setIsDragging(false);
   }, []);
 
-  const handleDrop = useCallback(async (e: React.DragEvent) => {
+  const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDragging(false);
-    const files = e.dataTransfer.files;
-    if (files.length === 0) return;
-    const file = files[0];
-    if (!file.name.endsWith('.json') && !file.name.endsWith('.txt')) {
-      message.error(t('favoriteTags.unsupportedFileType'));
-      return;
-    }
-    const text = await file.text();
-    const tags = parseTagsFromContent(text);
-    showImportPreview(tags);
-  }, [parseTagsFromContent, showImportPreview, t]);
-
-  useEffect(() => {
-    const handlePaste = (e: ClipboardEvent) => {
-      const target = e.target as HTMLElement;
-      if (target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA') return;
-      const text = e.clipboardData?.getData('text');
-      if (!text) return;
-      const tags = parseTagsFromContent(text);
-      if (tags.length > 0) {
-        e.preventDefault();
-        showImportPreview(tags);
-      }
-    };
-    document.addEventListener('paste', handlePaste);
-    return () => document.removeEventListener('paste', handlePaste);
-  }, [parseTagsFromContent, showImportPreview]);
-
-  const handleImportSelected = async () => {
-    const tagsToImport = importPreviewTags.filter(t => importCheckedTags.has(t));
-    if (tagsToImport.length === 0) {
-      message.warning(t('favoriteTags.selectAtLeastOne'));
-      return;
-    }
-    setImporting(true);
-    let added = 0;
-    let skipped = 0;
-    for (const tagName of tagsToImport) {
-      try {
-        const result = await window.electronAPI.booru.addFavoriteTag(filterSiteId ?? null, tagName, {});
-        if (result.success) added++;
-        else skipped++;
-      } catch {
-        skipped++;
-      }
-    }
-    setImporting(false);
-    setImportPreviewVisible(false);
-    message.success(t('favoriteTags.selectiveImportResult', { count: added }));
-    loadFavoriteTags();
-  };
+    // Open the new dialog; user must explicitly pick site + file
+    setImportDialogOpen(true);
+  }, []);
 
   const getSiteName = (siteId: number | null) => {
     if (siteId === null) return t('favoriteTags.global');
@@ -881,23 +807,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               </Button>
               <Button
                 icon={<ImportOutlined />}
-                onClick={async () => {
-                  try {
-                    const result = await window.electronAPI.booru.importFavoriteTags();
-                    if (result.success && result.data) {
-                      message.success(t('favoriteTags.importSuccess', {
-                        imported: result.data.importedTags,
-                        labels: result.data.importedLabels,
-                        skipped: result.data.skippedTags,
-                      }));
-                      loadFavoriteTags();
-                    } else if (result.error !== '取消导入') {
-                      message.error(`${t('favoriteTags.importFailed')}: ${result.error}`);
-                    }
-                  } catch {
-                    message.error(t('favoriteTags.importFailed'));
-                  }
-                }}
+                onClick={() => setImportDialogOpen(true)}
               >
                 {t('common.import')}
               </Button>
@@ -1150,45 +1060,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </Form>
       </Modal>
 
-      <Modal
-        title={t('favoriteTags.importPreviewTitle')}
-        open={importPreviewVisible}
-        onCancel={() => setImportPreviewVisible(false)}
-        okText={t('favoriteTags.importSelected')}
-        cancelText={t('common.cancel')}
-        onOk={handleImportSelected}
-        confirmLoading={importing}
-        width={500}
-      >
-        <Alert message={t('favoriteTags.importPreviewHint')} type="info" showIcon style={{ marginBottom: 12 }} />
-        <div style={{ marginBottom: 8 }}>
-          <Space>
-            <Button size="small" onClick={() => setImportCheckedTags(new Set(importPreviewTags))}>{t('favoriteTags.selectAll')}</Button>
-            <Button size="small" onClick={() => setImportCheckedTags(new Set())}>{t('favoriteTags.deselectAll')}</Button>
-            <span style={{ color: '#999', fontSize: 12 }}>{t('favoriteTags.selectedCount', { count: importCheckedTags.size })}</span>
-          </Space>
-        </div>
-        <div style={{ maxHeight: 400, overflowY: 'auto', border: '1px solid #f0f0f0', borderRadius: 6, padding: 8 }}>
-          {importPreviewTags.map(tagName => (
-            <div key={tagName} style={{ padding: '4px 0' }}>
-              <Checkbox
-                checked={importCheckedTags.has(tagName)}
-                onChange={(e) => {
-                  setImportCheckedTags(prev => {
-                    const next = new Set(prev);
-                    if (e.target.checked) next.add(tagName);
-                    else next.delete(tagName);
-                    return next;
-                  });
-                }}
-              >
-                <Tag color="blue">{tagName.replace(/_/g, ' ')}</Tag>
-              </Checkbox>
-            </div>
-          ))}
-        </div>
-      </Modal>
-
       <BatchTagAddModal
         open={batchAddModalOpen}
         title="批量添加收藏标签"
@@ -1213,6 +1084,20 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             message.error(`${t('common.failed')}: ${result.error}`);
             throw new Error(result.error || 'failed');
           }
+        }}
+      />
+
+      <ImportTagsDialog
+        open={importDialogOpen}
+        title="导入收藏标签"
+        sites={sites}
+        onCancel={() => setImportDialogOpen(false)}
+        onPickFile={() => window.electronAPI.booru.importFavoriteTagsPickFile()}
+        onCommit={(payload) => window.electronAPI.booru.importFavoriteTagsCommit(payload)}
+        onImported={(result) => {
+          message.success(`已导入 ${result.imported} 个标签，跳过 ${result.skipped} 个`);
+          setImportDialogOpen(false);
+          loadFavoriteTags();
         }}
       />
     </div>
