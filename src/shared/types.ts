@@ -465,3 +465,60 @@ export interface InvalidImage {
   detectedAt: string;
   galleryId: number | null;
 }
+
+// ========== 列表查询 / 分页 ==========
+
+export interface ListQueryParams {
+  /** undefined = 不过滤站点；null = 只查全局；number = 过滤该站点（含全局） */
+  siteId?: number | null;
+  /** 空字符串或 undefined 不搜索；非空走 COLLATE NOCASE 模糊匹配 */
+  keyword?: string;
+  /** 默认 0 */
+  offset?: number;
+  /** 默认 50；传 0 或不传 = 不分页但内部兜底 1000 */
+  limit?: number;
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+}
+
+// ========== 导入 ==========
+
+export interface FavoriteTagImportRecord {
+  tagName: string;
+  /** 文件里显式包含的 siteId；undefined 代表未指定，由对话框兜底 */
+  siteId?: number | null;
+  labels?: string[];
+  notes?: string;
+  queryType?: 'tag' | 'raw' | 'list';
+}
+
+export interface BlacklistedTagImportRecord {
+  tagName: string;
+  siteId?: number | null;
+  reason?: string;
+}
+
+export interface ImportPickFileResult<T> {
+  /** 用户取消时为 true；其它字段无效 */
+  cancelled: boolean;
+  fileName?: string;
+  records?: T[];
+}
+
+// ========== 更新检查 ==========
+
+export interface UpdateCheckResult {
+  currentVersion: string;
+  latestVersion: string | null;
+  hasUpdate: boolean;
+  releaseUrl: string | null;
+  releaseName: string | null;
+  publishedAt: string | null;
+  /** 拉取失败时的可读错误；成功时 null */
+  error: string | null;
+  /** 本次检查时刻 ISO 8601 */
+  checkedAt: string;
+}
