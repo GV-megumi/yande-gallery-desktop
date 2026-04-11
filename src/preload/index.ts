@@ -454,7 +454,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, siteId),
     importFavoriteTagsPickFile: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE),
-    importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; fallbackSiteId: number | null }) =>
+    importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; labelGroups?: import('../shared/types').FavoriteTagLabelImportRecord[]; fallbackSiteId: number | null }) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT, payload),
     exportBlacklistedTags: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_BLACKLISTED_TAGS, siteId),
@@ -634,8 +634,8 @@ declare global {
         getFavoriteTags: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTag>; error?: string }>;
         getFavoriteTagsWithDownloadState: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTagWithDownloadState>; error?: string }>;
         exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; filePath: string }; error?: string }>;
-        importFavoriteTagsPickFile: () => Promise<{ success: boolean; data?: import('../shared/types').ImportPickFileResult<import('../shared/types').FavoriteTagImportRecord>; error?: string }>;
-        importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; fallbackSiteId: number | null }) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
+        importFavoriteTagsPickFile: () => Promise<{ success: boolean; data?: import('../shared/types').FavoriteTagsImportPickFileResult; error?: string }>;
+        importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; labelGroups?: import('../shared/types').FavoriteTagLabelImportRecord[]; fallbackSiteId: number | null }) => Promise<{ success: boolean; data?: { imported: number; skipped: number; labelsImported: number; labelsSkipped: number }; error?: string }>;
         updateFavoriteTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         isFavoriteTag: (siteId: number | null, tagName: string) => Promise<{ success: boolean; data?: boolean; error?: string }>;
         getFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; data?: any; error?: string }>;

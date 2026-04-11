@@ -6,6 +6,7 @@ const state = {
     { id: 1, siteId: 1, tagName: 'tag_a', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
     { id: 2, siteId: 1, tagName: 'tag_b', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
   ] as Array<{ id: number; siteId: number | null; tagName: string; labels: string; queryType: string; notes: null; sortOrder: number; createdAt: string; updatedAt: string }>,
+  favoriteTagLabels: [] as Array<{ id: number; name: string; color: string | null; sortOrder: number; createdAt: string }>,
   blacklistedTags: [
     { id: 1, siteId: 1, tagName: 'aotsu_karin', reason: null, isActive: 1, createdAt: '2026-04-01' },
     { id: 2, siteId: 1, tagName: 'muku_apupop', reason: null, isActive: 1, createdAt: '2026-04-01' },
@@ -129,6 +130,9 @@ function applyFavoriteTagsUpdate(sql: string, params: any[] = []): void {
 }
 
 let lastInsertedFavoriteTagId = 0;
+let lastInsertedFavoriteTagLabelId = 0;
+// last_insert_rowid() 的返回值：根据最近一次 INSERT 更新，供 addFavoriteTag / addFavoriteTagLabel 共用
+let lastInsertRowid = 0;
 
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
@@ -143,6 +147,7 @@ vi.mock('../../../src/main/services/database', () => ({
       const existingIds = state.favoriteTags.map(t => t.id);
       const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
       lastInsertedFavoriteTagId = nextId;
+      lastInsertRowid = nextId;
       state.favoriteTags.push({
         id: nextId,
         siteId: p[0] ?? null,
@@ -153,6 +158,27 @@ vi.mock('../../../src/main/services/database', () => ({
         sortOrder: p[5] ?? 0,
         createdAt: p[6],
         updatedAt: p[7],
+      });
+    }
+    if (/^\s*INSERT\s+INTO\s+booru_favorite_tag_labels\b/i.test(sql)) {
+      // 与 addFavoriteTagLabel 的 INSERT 列顺序保持一致：
+      // (name, color, sortOrder, createdAt)
+      const p = params ?? [];
+      // UNIQUE (name) 语义下重复视为失败（addFavoriteTagLabel 依赖这个来支持"已存在"分组计入 skipped）
+      const duplicated = state.favoriteTagLabels.some(l => l.name === p[0]);
+      if (duplicated) {
+        throw new Error('UNIQUE constraint failed: booru_favorite_tag_labels.name');
+      }
+      const existingIds = state.favoriteTagLabels.map(l => l.id);
+      const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
+      lastInsertedFavoriteTagLabelId = nextId;
+      lastInsertRowid = nextId;
+      state.favoriteTagLabels.push({
+        id: nextId,
+        name: p[0],
+        color: p[1] ?? null,
+        sortOrder: p[2] ?? 0,
+        createdAt: p[3],
       });
     }
     if (/^\s*INSERT\s+INTO\s+booru_blacklisted_tags\b/i.test(sql)) {
@@ -230,6 +256,12 @@ vi.mock('../../../src/main/services/database', () => ({
       const { rows } = filterFavoriteTagsByParams(sql, params ?? []);
       return { cnt: rows.length };
     }
+    // addFavoriteTagLabel: SELECT COALESCE(MAX(sortOrder), 0) as maxSort FROM booru_favorite_tag_labels
+    // 必须放在 booru_favorite_tags 分支之前，因为后者的字符串匹配会子串命中 booru_favorite_tag_labels
+    if (sql.includes('MAX(sortOrder)') && sql.includes('booru_favorite_tag_labels')) {
+      const maxSort = state.favoriteTagLabels.reduce((m, l) => Math.max(m, l.sortOrder), 0);
+      return { maxSort };
+    }
     // addFavoriteTag: SELECT COALESCE(MAX(sortOrder), 0) as maxSort FROM booru_favorite_tags WHERE siteId IS ?
     if (sql.includes('MAX(sortOrder)') && sql.includes('booru_favorite_tags')) {
       const sid = params?.[0] ?? null;
@@ -238,9 +270,9 @@ vi.mock('../../../src/main/services/database', () => ({
         .reduce((m, t) => Math.max(m, t.sortOrder), 0);
       return { maxSort };
     }
-    // addFavoriteTag: SELECT last_insert_rowid() as id
+    // addFavoriteTag / addFavoriteTagLabel: SELECT last_insert_rowid() as id
     if (sql.includes('last_insert_rowid()')) {
-      return { id: lastInsertedFavoriteTagId };
+      return { id: lastInsertRowid };
     }
     return undefined;
   }),
@@ -635,7 +667,10 @@ describe('importFavoriteTagsCommit', () => {
   beforeEach(() => {
     vi.resetModules();
     lastInsertedFavoriteTagId = 0;
+    lastInsertedFavoriteTagLabelId = 0;
+    lastInsertRowid = 0;
     state.favoriteTags = [];
+    state.favoriteTagLabels = [];
   });
 
   it('文件里显式 siteId 优先于 fallbackSiteId', async () => {
@@ -681,6 +716,24 @@ describe('importFavoriteTagsCommit', () => {
     expect(result.imported).toBe(0);
     expect(result.skipped).toBe(0);
   });
+
+  it('labelGroups 调 addFavoriteTagLabel', async () => {
+    state.favoriteTagLabels = [];
+    const { importFavoriteTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importFavoriteTagsCommit({
+      records: [{ tagName: 'a' }],
+      labelGroups: [
+        { name: '角色', color: '#ff0000' },
+        { name: '风格' },
+      ],
+      fallbackSiteId: null,
+    });
+    expect(result.imported).toBe(1);
+    expect(result.labelsImported).toBe(2);
+    expect(result.labelsSkipped).toBe(0);
+    expect(state.favoriteTagLabels.length).toBe(2);
+    expect(state.favoriteTagLabels.find(l => l.name === '角色')?.color).toBe('#ff0000');
+  });
 });
 
 describe('parseFavoriteTagImportContent', () => {
@@ -691,7 +744,8 @@ describe('parseFavoriteTagImportContent', () => {
   it('txt 按行解析跳过注释', async () => {
     const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
     const result = parseFavoriteTagImportContent('tag_a\n# comment\n// comment\n\n  tag_b  ', true);
-    expect(result).toEqual([{ tagName: 'tag_a' }, { tagName: 'tag_b' }]);
+    expect(result.records).toEqual([{ tagName: 'tag_a' }, { tagName: 'tag_b' }]);
+    expect(result.labelGroups).toBeUndefined();
   });
 
   it('json 顶层数组', async () => {
@@ -701,24 +755,25 @@ describe('parseFavoriteTagImportContent', () => {
       { tagName: 'b' },
     ]);
     const result = parseFavoriteTagImportContent(json, false);
-    expect(result).toEqual([
+    expect(result.records).toEqual([
       { tagName: 'a', siteId: 1, labels: ['x'] },
       { tagName: 'b' },
     ]);
+    expect(result.labelGroups).toBeUndefined();
   });
 
   it('json { favoriteTags: [...] } 包装', async () => {
     const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
     const json = JSON.stringify({ favoriteTags: [{ tagName: 'a' }] });
     const result = parseFavoriteTagImportContent(json, false);
-    expect(result).toEqual([{ tagName: 'a' }]);
+    expect(result.records).toEqual([{ tagName: 'a' }]);
   });
 
   it('json 带 queryType', async () => {
     const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
     const json = JSON.stringify([{ tagName: 'a', queryType: 'raw' }]);
     const result = parseFavoriteTagImportContent(json, false);
-    expect(result[0].queryType).toBe('raw');
+    expect(result.records[0].queryType).toBe('raw');
   });
 
   it('json 非法顶层抛错', async () => {
@@ -735,9 +790,9 @@ describe('parseFavoriteTagImportContent', () => {
       { tagName: 'c', siteId: 7 },
     ]);
     const result = parseFavoriteTagImportContent(json, false);
-    expect(result[0].siteId).toBeNull();
-    expect(result[1].siteId).toBeNull();
-    expect(result[2].siteId).toBe(7);
+    expect(result.records[0].siteId).toBeNull();
+    expect(result.records[1].siteId).toBeNull();
+    expect(result.records[2].siteId).toBe(7);
   });
 
   it('labels 非字符串元素过滤', async () => {
@@ -746,7 +801,26 @@ describe('parseFavoriteTagImportContent', () => {
       { tagName: 'a', labels: ['x', 1, null, 'y', {}] },
     ]);
     const result = parseFavoriteTagImportContent(json, false);
-    expect(result[0].labels).toEqual(['x', 'y']);
+    expect(result.records[0].labels).toEqual(['x', 'y']);
+  });
+
+  it('json 顶层 labels 解析为 labelGroups', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify({
+      tags: [{ tagName: 'a' }],
+      labels: [
+        { name: '角色', color: '#ff0000', sortOrder: 1 },
+        { name: '风格' },
+        { name: '', color: '#000' },  // invalid: empty name, filtered out
+        { color: '#111' },              // invalid: no name, filtered out
+      ],
+    });
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result.records).toEqual([{ tagName: 'a' }]);
+    expect(result.labelGroups).toEqual([
+      { name: '角色', color: '#ff0000' },
+      { name: '风格' },
+    ]);
   });
 });
 

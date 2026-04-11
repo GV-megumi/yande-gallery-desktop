@@ -33,7 +33,7 @@ import { hashPasswordSHA1 } from '../services/moebooruClient.js';
 import { createBooruClient } from '../services/booruClientFactory.js';
 import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
-import { BooruPost, ListQueryParams, FavoriteTagImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
+import { BooruPost, ListQueryParams, FavoriteTagImportRecord, FavoriteTagLabelImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
@@ -2913,10 +2913,9 @@ export function setupIPC() {
   });
 
   // 提交收藏标签导入（commit 阶段：把用户确认过的记录写入数据库）
-  // NOTE: label group import was dropped from the pickFile/commit split — labels attached to
-  // individual records are still imported via record.labels, but the top-level 'labels' array
-  // is no longer persisted as separate groups.
-  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT, async (_event: IpcMainInvokeEvent, payload: { records: FavoriteTagImportRecord[]; fallbackSiteId: number | null }) => {
+  // payload.labelGroups 承载文件里顶层 labels 数组，由 pickFile 阶段解析得到，
+  // commit 阶段会逐条调用 addFavoriteTagLabel 写回数据库（已存在的分组计入 labelsSkipped）。
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT, async (_event: IpcMainInvokeEvent, payload: { records: FavoriteTagImportRecord[]; labelGroups?: FavoriteTagLabelImportRecord[]; fallbackSiteId: number | null }) => {
     console.log('[IPC] 提交收藏标签导入:', payload.records.length);
     try {
       const result = await booruService.importFavoriteTagsCommit(payload);

@@ -111,6 +111,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [isDragging, setIsDragging] = useState(false);
   const [batchAddModalOpen, setBatchAddModalOpen] = useState(false);
   const [importDialogOpen, setImportDialogOpen] = useState(false);
+  // labelGroups 在 pickFile 阶段从文件里解析得到，commit 阶段合并回 payload，
+  // 通用 ImportTagsDialog 不感知该字段，由本页缓存透传即可。
+  const [pendingLabelGroups, setPendingLabelGroups] = useState<import('../../shared/types').FavoriteTagLabelImportRecord[] | undefined>(undefined);
 
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -1103,11 +1106,29 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         open={importDialogOpen}
         title="导入收藏标签"
         sites={sites}
-        onCancel={() => setImportDialogOpen(false)}
-        onPickFile={() => window.electronAPI.booru.importFavoriteTagsPickFile()}
-        onCommit={(payload) => window.electronAPI.booru.importFavoriteTagsCommit(payload)}
+        onCancel={() => {
+          setImportDialogOpen(false);
+          setPendingLabelGroups(undefined);
+        }}
+        onPickFile={async () => {
+          const res = await window.electronAPI.booru.importFavoriteTagsPickFile();
+          if (res.success && res.data && !res.data.cancelled) {
+            setPendingLabelGroups(res.data.labelGroups);
+          }
+          return res;
+        }}
+        onCommit={(payload) => window.electronAPI.booru.importFavoriteTagsCommit({
+          ...payload,
+          labelGroups: pendingLabelGroups,
+        })}
         onImported={(result) => {
-          message.success(`已导入 ${result.imported} 个标签，跳过 ${result.skipped} 个`);
+          setPendingLabelGroups(undefined);
+          const r = result as { imported: number; skipped: number; labelsImported?: number; labelsSkipped?: number };
+          const parts = [`已导入 ${r.imported} 个标签，跳过 ${r.skipped} 个`];
+          if (r.labelsImported || r.labelsSkipped) {
+            parts.push(`分组: 导入 ${r.labelsImported ?? 0} / 跳过 ${r.labelsSkipped ?? 0}`);
+          }
+          message.success(parts.join('，'));
           setImportDialogOpen(false);
           loadFavoriteTags();
         }}

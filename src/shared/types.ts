@@ -508,6 +508,20 @@ export interface ImportPickFileResult<T> {
   records?: T[];
 }
 
+export interface FavoriteTagLabelImportRecord {
+  name: string;
+  color?: string;
+}
+
+/**
+ * 收藏标签 import pickFile 的返回形态。
+ * 在泛型 ImportPickFileResult<FavoriteTagImportRecord> 基础上追加 labelGroups，
+ * 用于承载文件里顶层 labels 数组（标签分组定义）。
+ */
+export interface FavoriteTagsImportPickFileResult extends ImportPickFileResult<FavoriteTagImportRecord> {
+  labelGroups?: FavoriteTagLabelImportRecord[];
+}
+
 // ========== 更新检查 ==========
 
 export interface UpdateCheckResult {
