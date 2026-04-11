@@ -654,4 +654,26 @@ describe('parseFavoriteTagImportContent', () => {
     expect(() => parseFavoriteTagImportContent(JSON.stringify({ foo: 'bar' }), false))
       .toThrow(/格式不支持/);
   });
+
+  it('siteId 非数字强制为 null', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([
+      { tagName: 'a', siteId: '3' },
+      { tagName: 'b', siteId: true },
+      { tagName: 'c', siteId: 7 },
+    ]);
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result[0].siteId).toBeNull();
+    expect(result[1].siteId).toBeNull();
+    expect(result[2].siteId).toBe(7);
+  });
+
+  it('labels 非字符串元素过滤', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([
+      { tagName: 'a', labels: ['x', 1, null, 'y', {}] },
+    ]);
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result[0].labels).toEqual(['x', 'y']);
+  });
 });
