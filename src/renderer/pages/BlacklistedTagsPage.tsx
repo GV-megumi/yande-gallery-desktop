@@ -3,8 +3,7 @@ import { Card, Table, Button, Input, Space, Tag, Popconfirm, Modal, Form, Select
 import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, DownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import type { BlacklistedTag } from '../../shared/types';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
-
-const { TextArea } = Input;
+import { BatchTagAddModal } from '../components/BatchTagAddModal';
 
 /**
  * 黑名单标签管理页面
@@ -15,7 +14,7 @@ export const BlacklistedTagsPage: React.FC = () => {
   const [blacklistedTags, setBlacklistedTags] = useState<BlacklistedTag[]>([]);
   const [loading, setLoading] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
-  const [batchAddMode, setBatchAddMode] = useState(false);
+  const [batchAddModalOpen, setBatchAddModalOpen] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
   const [keyword, setKeyword] = useState('');
@@ -80,36 +79,18 @@ export const BlacklistedTagsPage: React.FC = () => {
   // 添加单个黑名单标签
   const handleAdd = async (values: any) => {
     try {
-      if (batchAddMode) {
-        // 批量添加模式
-        const result = await window.electronAPI.booru.addBlacklistedTags(
-          values.tagNames,
-          values.siteId ?? null,
-          values.reason || undefined
-        );
-        if (result.success && result.data) {
-          message.success(`已添加 ${result.data.added} 个标签，跳过 ${result.data.skipped} 个`);
-          setAddModalVisible(false);
-          form.resetFields();
-          loadBlacklistedTags();
-        } else {
-          message.error('添加失败: ' + result.error);
-        }
+      const result = await window.electronAPI.booru.addBlacklistedTag(
+        values.tagName.trim(),
+        values.siteId ?? null,
+        values.reason || undefined
+      );
+      if (result.success) {
+        message.success(`已添加黑名单: ${values.tagName}`);
+        setAddModalVisible(false);
+        form.resetFields();
+        loadBlacklistedTags();
       } else {
-        // 单个添加模式
-        const result = await window.electronAPI.booru.addBlacklistedTag(
-          values.tagName.trim(),
-          values.siteId ?? null,
-          values.reason || undefined
-        );
-        if (result.success) {
-          message.success(`已添加黑名单: ${values.tagName}`);
-          setAddModalVisible(false);
-          form.resetFields();
-          loadBlacklistedTags();
-        } else {
-          message.error('添加失败: ' + result.error);
-        }
+        message.error('添加失败: ' + result.error);
       }
     } catch (error) {
       console.error('[BlacklistedTagsPage] 添加黑名单标签失败:', error);
@@ -274,19 +255,13 @@ export const BlacklistedTagsPage: React.FC = () => {
           <Button
             type="primary"
             icon={<PlusOutlined />}
-            onClick={() => {
-              setBatchAddMode(false);
-              setAddModalVisible(true);
-            }}
+            onClick={() => setAddModalVisible(true)}
           >
             添加
           </Button>
           <Button
             icon={<ImportOutlined />}
-            onClick={() => {
-              setBatchAddMode(true);
-              setAddModalVisible(true);
-            }}
+            onClick={() => setBatchAddModalOpen(true)}
           >
             批量添加
           </Button>
@@ -338,10 +313,7 @@ export const BlacklistedTagsPage: React.FC = () => {
             <Button
               type="primary"
               icon={<PlusOutlined />}
-              onClick={() => {
-                setBatchAddMode(false);
-                setAddModalVisible(true);
-              }}
+              onClick={() => setAddModalVisible(true)}
             >
               添加黑名单标签
             </Button>
@@ -367,9 +339,9 @@ export const BlacklistedTagsPage: React.FC = () => {
         </Card>
       )}
 
-      {/* 添加黑名单标签弹窗 */}
+      {/* 添加黑名单标签弹窗（单个） */}
       <Modal
-        title={batchAddMode ? '批量添加黑名单标签' : '添加黑名单标签'}
+        title="添加黑名单标签"
         open={addModalVisible}
         onCancel={() => {
           setAddModalVisible(false);
@@ -385,26 +357,13 @@ export const BlacklistedTagsPage: React.FC = () => {
           onFinish={handleAdd}
           initialValues={{ siteId: undefined }}
         >
-          {batchAddMode ? (
-            <Form.Item
-              name="tagNames"
-              label="标签列表（每行一个）"
-              rules={[{ required: true, message: '请输入至少一个标签' }]}
-            >
-              <TextArea
-                rows={8}
-                placeholder={"ugly_tag\nbad_quality\nlow_resolution"}
-              />
-            </Form.Item>
-          ) : (
-            <Form.Item
-              name="tagName"
-              label="标签名"
-              rules={[{ required: true, message: '请输入标签名' }]}
-            >
-              <Input placeholder="输入标签名，如: ugly_tag" />
-            </Form.Item>
-          )}
+          <Form.Item
+            name="tagName"
+            label="标签名"
+            rules={[{ required: true, message: '请输入标签名' }]}
+          >
+            <Input placeholder="输入标签名，如: ugly_tag" />
+          </Form.Item>
 
           <Form.Item name="siteId" label="适用站点">
             <Select placeholder="全局（所有站点）" allowClear>
@@ -421,7 +380,7 @@ export const BlacklistedTagsPage: React.FC = () => {
           <Form.Item>
             <Space>
               <Button type="primary" htmlType="submit">
-                {batchAddMode ? '批量添加' : '添加'}
+                添加
               </Button>
               <Button onClick={() => {
                 setAddModalVisible(false);
@@ -433,6 +392,34 @@ export const BlacklistedTagsPage: React.FC = () => {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 批量添加黑名单标签弹窗（使用共享组件） */}
+      <BatchTagAddModal
+        open={batchAddModalOpen}
+        title="批量添加黑名单"
+        sites={sites}
+        extraField={{
+          name: 'reason',
+          label: '原因（可选）',
+          placeholder: '例如: 不喜欢',
+        }}
+        onCancel={() => setBatchAddModalOpen(false)}
+        onSubmit={async (values) => {
+          const result = await window.electronAPI.booru.addBlacklistedTags(
+            values.tagNames,
+            values.siteId,
+            values.extra || undefined
+          );
+          if (result.success && result.data) {
+            message.success(`已添加 ${result.data.added} 个标签，跳过 ${result.data.skipped} 个`);
+            setBatchAddModalOpen(false);
+            loadBlacklistedTags();
+          } else {
+            message.error('添加失败: ' + result.error);
+            throw new Error(result.error || 'failed');
+          }
+        }}
+      />
     </div>
   );
 };
