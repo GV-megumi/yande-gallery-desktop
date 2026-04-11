@@ -1618,24 +1618,22 @@ export function setupIPC() {
   });
 
   // 获取收藏标签列表
-  // NOTE: Task 3 只更新 service 签名，IPC 合约仍返回扁平数组，渲染端逻辑由 Task 5 一并调整。
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
-    console.log('[IPC] 获取收藏标签列表, siteId:', siteId);
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event, params: any = {}) => {
+    console.log('[IPC] 获取收藏标签列表:', params);
     try {
-      const { items } = await booruService.getFavoriteTags({ siteId, limit: 0 });
-      return { success: true, data: items };
+      const result = await booruService.getFavoriteTags(params);
+      return { success: true, data: result };
     } catch (error) {
       console.error('[IPC] 获取收藏标签列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
-    console.log('[IPC] 获取收藏标签及下载状态, siteId:', siteId);
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event, params: any = {}) => {
+    console.log('[IPC] 获取收藏标签及下载状态:', params);
     try {
-      // Task 4: getFavoriteTagsWithDownloadState 现返回 PaginatedResult；IPC 对外契约暂保持数组（Task 5 再改）。
-      const { items } = await booruService.getFavoriteTagsWithDownloadState({ siteId, limit: 0 });
-      return { success: true, data: items };
+      const result = await booruService.getFavoriteTagsWithDownloadState(params);
+      return { success: true, data: result };
     } catch (error) {
       console.error('[IPC] 获取收藏标签及下载状态失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -2064,12 +2062,11 @@ export function setupIPC() {
   });
 
   // 获取黑名单标签列表
-  // NOTE: Task 2 只更新 service 签名，IPC 合约仍返回扁平数组，渲染端逻辑由 Task 5 一并调整。
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
-    console.log('[IPC] 获取黑名单标签列表, siteId:', siteId);
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event, params: any = {}) => {
+    console.log('[IPC] 获取黑名单标签列表:', params);
     try {
-      const { items } = await booruService.getBlacklistedTags({ siteId, limit: 0 });
-      return { success: true, data: items };
+      const result = await booruService.getBlacklistedTags(params);
+      return { success: true, data: result };
     } catch (error) {
       console.error('[IPC] 获取黑名单标签列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };

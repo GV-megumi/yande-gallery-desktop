@@ -344,10 +344,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG, id),
     removeFavoriteTagByName: (siteId: number | null, tagName: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_BY_NAME, siteId, tagName),
-    getFavoriteTags: (siteId?: number | null) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, siteId),
-    getFavoriteTagsWithDownloadState: (siteId?: number | null) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, siteId),
+    getFavoriteTags: (params: import('../shared/types').ListQueryParams = {}) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, params),
+    getFavoriteTagsWithDownloadState: (params: import('../shared/types').ListQueryParams = {}) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, params),
     updateFavoriteTag: (id: number, updates: any) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_TAG, id, updates),
     isFavoriteTag: (siteId: number | null, tagName: string) =>
@@ -386,8 +386,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAG, tagName, siteId, reason),
     addBlacklistedTags: (tagString: string, siteId?: number | null, reason?: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_BLACKLISTED_TAGS, tagString, siteId, reason),
-    getBlacklistedTags: (siteId?: number | null) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, siteId),
+    getBlacklistedTags: (params: import('../shared/types').ListQueryParams = {}) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, params),
     getActiveBlacklistTagNames: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ACTIVE_BLACKLIST_TAG_NAMES, siteId),
     toggleBlacklistedTag: (id: number) =>
@@ -618,8 +618,8 @@ declare global {
         addFavoriteTag: (siteId: number | null, tagName: string, options?: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;
-        getFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        getFavoriteTagsWithDownloadState: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavoriteTags: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTag>; error?: string }>;
+        getFavoriteTagsWithDownloadState: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTagWithDownloadState>; error?: string }>;
         exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; filePath: string }; error?: string }>;
         importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
         updateFavoriteTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
@@ -638,7 +638,7 @@ declare global {
         clearSearchHistory: (siteId?: number) => Promise<{ success: boolean; error?: string }>;
         addBlacklistedTag: (tagName: string, siteId?: number | null, reason?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         addBlacklistedTags: (tagString: string, siteId?: number | null, reason?: string) => Promise<{ success: boolean; data?: { added: number; skipped: number }; error?: string }>;
-        getBlacklistedTags: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getBlacklistedTags: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').BlacklistedTag>; error?: string }>;
         getActiveBlacklistTagNames: (siteId?: number | null) => Promise<{ success: boolean; data?: string[]; error?: string }>;
         toggleBlacklistedTag: (id: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         updateBlacklistedTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
