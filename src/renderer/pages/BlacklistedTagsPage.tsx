@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, Popconfirm, Modal, Form, Select, Empty, Switch, App, Tooltip } from 'antd';
-import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, DownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import type { BlacklistedTag } from '../../shared/types';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
+import { ImportTagsDialog } from '../components/ImportTagsDialog';
 
 /**
  * 黑名单标签管理页面
@@ -15,6 +16,7 @@ export const BlacklistedTagsPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [batchAddModalOpen, setBatchAddModalOpen] = useState(false);
+  const [importDialogOpen, setImportDialogOpen] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
   const [keyword, setKeyword] = useState('');
@@ -282,22 +284,7 @@ export const BlacklistedTagsPage: React.FC = () => {
           >
             导出
           </Button>
-          <Button
-            icon={<DownloadOutlined />}
-            onClick={async () => {
-              try {
-                const result = await window.electronAPI.booru.importBlacklistedTags();
-                if (result.success && result.data) {
-                  message.success(`已导入 ${result.data.imported} 个标签，跳过 ${result.data.skipped} 个`);
-                  loadBlacklistedTags();
-                } else if (result.error !== '取消导入') {
-                  message.error('导入失败: ' + result.error);
-                }
-              } catch (error) {
-                message.error('导入失败');
-              }
-            }}
-          >
+          <Button icon={<ImportOutlined />} onClick={() => setImportDialogOpen(true)}>
             导入
           </Button>
         </Space>
@@ -418,6 +405,21 @@ export const BlacklistedTagsPage: React.FC = () => {
             message.error('添加失败: ' + result.error);
             throw new Error(result.error || 'failed');
           }
+        }}
+      />
+
+      {/* 从文件导入黑名单（两阶段：pickFile + commit） */}
+      <ImportTagsDialog
+        open={importDialogOpen}
+        title="导入黑名单"
+        sites={sites}
+        onCancel={() => setImportDialogOpen(false)}
+        onPickFile={() => window.electronAPI.booru.importBlacklistedTagsPickFile()}
+        onCommit={(payload) => window.electronAPI.booru.importBlacklistedTagsCommit(payload)}
+        onImported={(result) => {
+          message.success(`已导入 ${result.imported} 个标签，跳过 ${result.skipped} 个`);
+          setImportDialogOpen(false);
+          loadBlacklistedTags();
         }}
       />
     </div>
