@@ -155,6 +155,31 @@ vi.mock('../../../src/main/services/database', () => ({
         updatedAt: p[7],
       });
     }
+    if (/^\s*INSERT\s+INTO\s+booru_blacklisted_tags\b/i.test(sql)) {
+      // 与 addBlacklistedTag 的 INSERT 列顺序保持一致：
+      // (siteId, tagName, isActive, reason, createdAt, updatedAt)
+      // isActive 在 SQL 里被硬编码成 1，params 只含 5 项：
+      // [siteId, tagName, reason, createdAt, updatedAt]
+      const p = params ?? [];
+      const existingIds = state.blacklistedTags.map(t => t.id);
+      const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
+      // UNIQUE (siteId, tagName) 语义下重复视为失败
+      const duplicated = state.blacklistedTags.some(
+        t => t.siteId === (p[0] ?? null) && t.tagName === p[1]
+      );
+      if (duplicated) {
+        const err = new Error('UNIQUE constraint failed: booru_blacklisted_tags.siteId, booru_blacklisted_tags.tagName');
+        throw err;
+      }
+      state.blacklistedTags.push({
+        id: nextId,
+        siteId: p[0] ?? null,
+        tagName: p[1],
+        reason: (p[2] ?? null) as any,
+        isActive: 1,
+        createdAt: p[3],
+      });
+    }
     return undefined;
   }),
   runWithChanges: vi.fn(async () => ({ changes: 1 })),
@@ -178,6 +203,16 @@ vi.mock('../../../src/main/services/database', () => ({
     if (sql.includes('COUNT(*)') && sql.includes('booru_blacklisted_tags')) {
       const { rows } = filterBlacklistedByParams(sql, params ?? []);
       return { cnt: rows.length };
+    }
+    // addBlacklistedTag: SELECT * FROM booru_blacklisted_tags WHERE siteId IS ? AND tagName = ?
+    if (
+      sql.includes('FROM booru_blacklisted_tags')
+      && sql.includes('siteId IS ?')
+      && sql.includes('tagName = ?')
+    ) {
+      const sid = params?.[0] ?? null;
+      const name = params?.[1];
+      return state.blacklistedTags.find(t => t.siteId === sid && t.tagName === name);
     }
     // isFavoriteTag: SELECT COUNT(*) as count FROM booru_favorite_tags WHERE siteId IS ? AND tagName = ?
     if (
@@ -675,5 +710,65 @@ describe('parseFavoriteTagImportContent', () => {
     ]);
     const result = parseFavoriteTagImportContent(json, false);
     expect(result[0].labels).toEqual(['x', 'y']);
+  });
+});
+
+describe('importBlacklistedTagsCommit', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    state.blacklistedTags = [];
+  });
+
+  it('fallbackSiteId 作用于未指定 siteId 的记录', async () => {
+    const { importBlacklistedTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importBlacklistedTagsCommit({
+      records: [
+        { tagName: 'a' },
+        { tagName: 'b', siteId: 2 },
+      ],
+      fallbackSiteId: 1,
+    });
+    expect(result.imported).toBe(2);
+    expect(state.blacklistedTags.find(t => t.tagName === 'a')!.siteId).toBe(1);
+    expect(state.blacklistedTags.find(t => t.tagName === 'b')!.siteId).toBe(2);
+  });
+
+  it('records 的 reason 传到入库', async () => {
+    const { importBlacklistedTagsCommit } = await import('../../../src/main/services/booruService');
+    await importBlacklistedTagsCommit({
+      records: [{ tagName: 'a', reason: '不喜欢' }],
+      fallbackSiteId: null,
+    });
+    expect(state.blacklistedTags[0].reason).toBe('不喜欢' as any);
+  });
+});
+
+describe('parseBlacklistedTagImportContent', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('txt 按行解析', async () => {
+    const { parseBlacklistedTagImportContent } = await import('../../../src/main/services/booruService');
+    expect(parseBlacklistedTagImportContent('tag_a\ntag_b', true))
+      .toEqual([{ tagName: 'tag_a' }, { tagName: 'tag_b' }]);
+  });
+
+  it('json 顶层数组带 reason', async () => {
+    const { parseBlacklistedTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([{ tagName: 'a', reason: 'bad' }, { tagName: 'b' }]);
+    expect(parseBlacklistedTagImportContent(json, false))
+      .toEqual([{ tagName: 'a', reason: 'bad' }, { tagName: 'b' }]);
+  });
+
+  it('siteId 非数字强制为 null', async () => {
+    const { parseBlacklistedTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([
+      { tagName: 'a', siteId: '3' },
+      { tagName: 'b', siteId: 7 },
+    ]);
+    const result = parseBlacklistedTagImportContent(json, false);
+    expect(result[0].siteId).toBeNull();
+    expect(result[1].siteId).toBe(7);
   });
 });
