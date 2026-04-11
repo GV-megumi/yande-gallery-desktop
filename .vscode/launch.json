@@ -46,7 +46,7 @@
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
       "program": "${workspaceFolder}/build/main/index.js",
       "args": [
-        "--proxy-server=http://127.0.0.1:7897"  // ⚠️ 修改为实际的代理地址
+        "--proxy-server=http://127.0.0.1:7897"
       ],
       "env": {
         "NODE_ENV": "development"
@@ -64,9 +64,12 @@
     },
     {
       "name": "3. 仅编译代码",
-      "type": "shell",
+      "type": "node",
       "request": "launch",
-      "command": "echo '编译任务请使用任务面板运行：Ctrl+Shift+P -> Tasks: Run Task -> 📦 仅编译（主进程 + Preload）'",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "build:main"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
       "presentation": {
         "hidden": false,
         "group": "dev",
