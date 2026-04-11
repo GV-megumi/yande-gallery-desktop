@@ -2062,11 +2062,12 @@ export function setupIPC() {
   });
 
   // 获取黑名单标签列表
+  // NOTE: Task 2 只更新 service 签名，IPC 合约仍返回扁平数组，渲染端逻辑由 Task 5 一并调整。
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 获取黑名单标签列表, siteId:', siteId);
     try {
-      const tags = await booruService.getBlacklistedTags(siteId);
-      return { success: true, data: tags };
+      const { items } = await booruService.getBlacklistedTags({ siteId, limit: 0 });
+      return { success: true, data: items };
     } catch (error) {
       console.error('[IPC] 获取黑名单标签列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -2964,7 +2965,7 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 导出黑名单标签:', siteId);
     try {
-      const tags = await booruService.getBlacklistedTags(siteId);
+      const { items: tags } = await booruService.getBlacklistedTags({ siteId, limit: 0 });
 
       const result = await dialog.showSaveDialog({
         title: '导出黑名单标签',

@@ -6,6 +6,12 @@ const state = {
     { id: 1, siteId: 1, tagName: 'tag_a', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
     { id: 2, siteId: 1, tagName: 'tag_b', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
   ],
+  blacklistedTags: [
+    { id: 1, siteId: 1, tagName: 'aotsu_karin', reason: null, isActive: 1, createdAt: '2026-04-01' },
+    { id: 2, siteId: 1, tagName: 'muku_apupop', reason: null, isActive: 1, createdAt: '2026-04-01' },
+    { id: 3, siteId: null, tagName: 'kawaii_chibi', reason: null, isActive: 1, createdAt: '2026-04-01' },
+    { id: 4, siteId: 2, tagName: 'another_site', reason: null, isActive: 1, createdAt: '2026-04-01' },
+  ] as Array<{ id: number; siteId: number | null; tagName: string; reason: null; isActive: number; createdAt: string }>,
   bindings: [
     {
       id: 1,
@@ -39,6 +45,31 @@ const state = {
   ],
 };
 
+/**
+ * 模拟 booru_blacklisted_tags 的 WHERE/LIMIT/OFFSET 行为，
+ * 使测试 mock 与 booruService.getBlacklistedTags 的真实 SQL 语义保持一致。
+ * 根据 sql 中是否包含 siteId / LIKE 子句以及 params 的数量依次消费参数。
+ */
+function filterBlacklistedByParams(sql: string, params: any[] = []) {
+  let rows = state.blacklistedTags.slice();
+  let p = 0;
+
+  if (sql.includes('siteId IS NULL') && !sql.includes('siteId = ?')) {
+    rows = rows.filter(r => r.siteId === null);
+  } else if (sql.includes('(siteId = ? OR siteId IS NULL)')) {
+    const sid = params[p++];
+    rows = rows.filter(r => r.siteId === sid || r.siteId === null);
+  }
+
+  if (sql.includes('tagName LIKE ?')) {
+    const raw = String(params[p++] ?? '');
+    const needle = raw.replace(/^%|%$/g, '').toLowerCase();
+    rows = rows.filter(r => r.tagName.toLowerCase().includes(needle));
+  }
+
+  return { rows, nextParamIndex: p };
+}
+
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
   run: vi.fn(async () => undefined),
@@ -59,6 +90,10 @@ vi.mock('../../../src/main/services/database', () => ({
     }
     if (sql.includes('SUM(CASE WHEN r.status =')) {
       return { status: 'completed', completed: 1, failed: 0, total: 1, completedAt: '2024-01-03' };
+    }
+    if (sql.includes('COUNT(*)') && sql.includes('booru_blacklisted_tags')) {
+      const { rows } = filterBlacklistedByParams(sql, params ?? []);
+      return { cnt: rows.length };
     }
     return undefined;
   }),
@@ -83,6 +118,20 @@ vi.mock('../../../src/main/services/database', () => ({
           completedAt: session.completedAt,
           error: session.error,
         }));
+    }
+    if (sql.includes('FROM booru_blacklisted_tags')) {
+      const list = params ?? [];
+      const { rows, nextParamIndex } = filterBlacklistedByParams(sql, list);
+      // LIMIT ? OFFSET ? 会在 params 末尾追加两个值
+      let limit = Number.POSITIVE_INFINITY;
+      let offset = 0;
+      if (sql.includes('LIMIT ?')) {
+        limit = Number(list[nextParamIndex] ?? Number.POSITIVE_INFINITY);
+      }
+      if (sql.includes('OFFSET ?')) {
+        offset = Number(list[nextParamIndex + 1] ?? 0);
+      }
+      return rows.slice(offset, offset + limit);
     }
     return [];
   }),
@@ -151,5 +200,53 @@ describe('booruService integration-ish behavior', () => {
     await service.startFavoriteTagBulkDownload(1);
 
     expect(fs.mkdir).toHaveBeenCalledWith('D:/gallery/a', { recursive: true });
+  });
+});
+
+describe('getBlacklistedTags — 分页与搜索', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    state.blacklistedTags = [
+      { id: 1, siteId: 1, tagName: 'aotsu_karin', reason: null, isActive: 1, createdAt: '2026-04-01' },
+      { id: 2, siteId: 1, tagName: 'muku_apupop', reason: null, isActive: 1, createdAt: '2026-04-01' },
+      { id: 3, siteId: null, tagName: 'kawaii_chibi', reason: null, isActive: 1, createdAt: '2026-04-01' },
+      { id: 4, siteId: 2, tagName: 'another_site', reason: null, isActive: 1, createdAt: '2026-04-01' },
+    ];
+  });
+
+  it('默认参数返回所有行和 total', async () => {
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({});
+    expect(res.total).toBe(4);
+    expect(res.items.length).toBe(4);
+  });
+
+  it('keyword 模糊匹配且大小写不敏感', async () => {
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({ keyword: 'MUKU' });
+    expect(res.total).toBe(1);
+    expect(res.items[0].tagName).toBe('muku_apupop');
+  });
+
+  it('siteId=1 过滤只返回该站点及全局行', async () => {
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({ siteId: 1 });
+    const names = res.items.map(t => t.tagName).sort();
+    expect(names).toEqual(['aotsu_karin', 'kawaii_chibi', 'muku_apupop']);
+    expect(res.total).toBe(3);
+  });
+
+  it('offset 和 limit 正确分页 total 不受影响', async () => {
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({ offset: 1, limit: 2 });
+    expect(res.total).toBe(4);
+    expect(res.items.length).toBe(2);
+  });
+
+  it('keyword + siteId 组合过滤', async () => {
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({ siteId: 1, keyword: 'karin' });
+    expect(res.total).toBe(1);
+    expect(res.items[0].tagName).toBe('aotsu_karin');
   });
 });
