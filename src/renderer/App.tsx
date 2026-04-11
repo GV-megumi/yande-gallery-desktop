@@ -5,6 +5,7 @@ export const HeaderExtraContext = createContext<(node: React.ReactNode) => void>
 /** 读取标题栏右侧插槽的 hook */
 export const useHeaderExtra = () => useContext(HeaderExtraContext);
 import { Layout, Menu, message, App as AntApp, Tooltip, Dropdown } from 'antd';
+import appIconUrl from './assets/icon.png';
 import { useTheme } from './hooks/useTheme';
 import { useLocale } from './locales';
 import { useKeyboardShortcuts, SHORTCUT_KEYS } from './hooks/useKeyboardShortcuts';
@@ -727,11 +728,14 @@ export const AppContent: React.FC = () => {
           <div style={{ padding: isCollapsed ? '20px 0 12px' : '20px 16px 12px', display: 'flex', justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
             <Tooltip title={isCollapsed ? 'Yande Gallery Desktop' : ''} placement="right">
               <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : 10, overflow: 'hidden' }}>
-                <div
+                <img
+                  src={appIconUrl}
+                  alt="Yande Gallery"
                   onClick={() => setSidebarWidth(isCollapsed ? layout.sidebarWidth : SIDEBAR_MIN)}
                   title={isCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-                  style={{ width: 32, height: 32, borderRadius: 8, background: `linear-gradient(135deg, ${colors.primary}, ${colors.accent})`, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#FFFFFF', fontSize: 16, fontWeight: 700, flexShrink: 0, cursor: 'pointer', userSelect: 'none' as const }}
-                >Y</div>
+                  style={{ width: 32, height: 32, flexShrink: 0, cursor: 'pointer', userSelect: 'none' as const, objectFit: 'contain' }}
+                  draggable={false}
+                />
                 {!isCollapsed && (
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', color: colors.textPrimary, lineHeight: '18px', fontFamily: 'var(--font-display, sans-serif)', whiteSpace: 'nowrap' }}>Yande Gallery</div>

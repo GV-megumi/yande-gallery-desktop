@@ -1,10 +1,28 @@
-import { BrowserWindow, screen, ipcMain } from 'electron';
+import { BrowserWindow, screen, ipcMain, app } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+/**
+ * 解析运行时图标路径：
+ * - 开发模式：从编译后的 build/main 回到仓库根，取 assets/icon.png
+ * - 生产模式：extraResources 把 assets 拷到 process.resourcesPath 下
+ */
+function resolveAppIconPath(): string | undefined {
+  const candidates = app.isPackaged
+    ? [path.join(process.resourcesPath, 'assets', 'icon.png')]
+    : [
+        path.join(__dirname, '../../assets/icon.png'),
+        path.join(process.cwd(), 'assets/icon.png'),
+      ];
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+  return undefined;
+}
 
 export function createWindow(): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
@@ -28,11 +46,19 @@ export function createWindow(): BrowserWindow {
     console.log('[Window] Trying alternative path 2:', altPath2, 'exists:', fs.existsSync(altPath2));
   }
   
+  const iconPath = resolveAppIconPath();
+  if (iconPath) {
+    console.log('[Window] App icon path:', iconPath);
+  } else {
+    console.warn('[Window] App icon not found, falling back to default');
+  }
+
   const mainWindow = new BrowserWindow({
     width: Math.min(1400, width * 0.8),
     height: Math.min(900, height * 0.8),
     minWidth: 1200,
     minHeight: 700,
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -119,11 +145,14 @@ export function createSubWindow(hash: string): BrowserWindow {
   const preloadPath = path.join(__dirname, '../preload/index.js');
   const absolutePreloadPath = path.resolve(preloadPath);
 
+  const iconPath = resolveAppIconPath();
+
   const subWindow = new BrowserWindow({
     width: Math.min(1200, Math.round(width * 0.7)),
     height: Math.min(800, Math.round(height * 0.75)),
     minWidth: 800,
     minHeight: 600,
+    ...(iconPath ? { icon: iconPath } : {}),
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
