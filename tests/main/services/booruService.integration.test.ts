@@ -5,7 +5,7 @@ const state = {
   favoriteTags: [
     { id: 1, siteId: 1, tagName: 'tag_a', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
     { id: 2, siteId: 1, tagName: 'tag_b', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
-  ],
+  ] as Array<{ id: number; siteId: number | null; tagName: string; labels: string; queryType: string; notes: null; sortOrder: number; createdAt: string; updatedAt: string }>,
   blacklistedTags: [
     { id: 1, siteId: 1, tagName: 'aotsu_karin', reason: null, isActive: 1, createdAt: '2026-04-01' },
     { id: 2, siteId: 1, tagName: 'muku_apupop', reason: null, isActive: 1, createdAt: '2026-04-01' },
@@ -70,6 +70,30 @@ function filterBlacklistedByParams(sql: string, params: any[] = []) {
   return { rows, nextParamIndex: p };
 }
 
+/**
+ * 模拟 booru_favorite_tags 的 WHERE/LIMIT/OFFSET 行为，
+ * 使测试 mock 与 booruService.getFavoriteTags 的真实 SQL 语义保持一致。
+ */
+function filterFavoriteTagsByParams(sql: string, params: any[] = []) {
+  let rows = state.favoriteTags.slice();
+  let p = 0;
+
+  if (sql.includes('siteId IS NULL') && !sql.includes('siteId = ?')) {
+    rows = rows.filter(r => r.siteId === null);
+  } else if (sql.includes('(siteId = ? OR siteId IS NULL)')) {
+    const sid = params[p++];
+    rows = rows.filter(r => r.siteId === sid || r.siteId === null);
+  }
+
+  if (sql.includes('tagName LIKE ?')) {
+    const raw = String(params[p++] ?? '');
+    const needle = raw.replace(/^%|%$/g, '').toLowerCase();
+    rows = rows.filter(r => r.tagName.toLowerCase().includes(needle));
+  }
+
+  return { rows, nextParamIndex: p };
+}
+
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
   run: vi.fn(async () => undefined),
@@ -95,11 +119,25 @@ vi.mock('../../../src/main/services/database', () => ({
       const { rows } = filterBlacklistedByParams(sql, params ?? []);
       return { cnt: rows.length };
     }
+    if (sql.includes('COUNT(*)') && sql.includes('booru_favorite_tags')) {
+      const { rows } = filterFavoriteTagsByParams(sql, params ?? []);
+      return { cnt: rows.length };
+    }
     return undefined;
   }),
   all: vi.fn(async (_db, sql: string, params?: any[]) => {
-    if (sql.startsWith('SELECT * FROM booru_favorite_tags')) {
-      return state.favoriteTags;
+    if (sql.includes('FROM booru_favorite_tags') && !sql.includes('booru_favorite_tag_download_bindings')) {
+      const list = params ?? [];
+      const { rows, nextParamIndex } = filterFavoriteTagsByParams(sql, list);
+      let limit = Number.POSITIVE_INFINITY;
+      let offset = 0;
+      if (sql.includes('LIMIT ?')) {
+        limit = Number(list[nextParamIndex] ?? Number.POSITIVE_INFINITY);
+      }
+      if (sql.includes('OFFSET ?')) {
+        offset = Number(list[nextParamIndex + 1] ?? 0);
+      }
+      return rows.slice(offset, offset + limit);
     }
     if (sql.includes('FROM booru_favorite_tag_download_bindings b')) {
       return state.bindings;
@@ -248,5 +286,51 @@ describe('getBlacklistedTags — 分页与搜索', () => {
     const res = await getBlacklistedTags({ siteId: 1, keyword: 'karin' });
     expect(res.total).toBe(1);
     expect(res.items[0].tagName).toBe('aotsu_karin');
+  });
+});
+
+describe('getFavoriteTags — 分页与搜索', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    state.favoriteTags = [
+      { id: 1, siteId: 1, tagName: 'aoi_chizuru', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+      { id: 2, siteId: 1, tagName: 'gin', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+      { id: 3, siteId: null, tagName: 'hatsune_miku', labels: '[]', queryType: 'tag', notes: null, sortOrder: 3, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+      { id: 4, siteId: 2, tagName: 'eryuhe', labels: '[]', queryType: 'tag', notes: null, sortOrder: 4, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+    ];
+  });
+
+  it('默认参数返回所有行和 total', async () => {
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({});
+    expect(res.total).toBe(4);
+    expect(res.items.length).toBe(4);
+  });
+
+  it('keyword 搜索大小写不敏感', async () => {
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({ keyword: 'AOI' });
+    expect(res.total).toBe(1);
+    expect(res.items[0].tagName).toBe('aoi_chizuru');
+  });
+
+  it('siteId=1 含全局', async () => {
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({ siteId: 1 });
+    expect(res.total).toBe(3);
+  });
+
+  it('siteId=null 只含全局', async () => {
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({ siteId: null });
+    expect(res.total).toBe(1);
+    expect(res.items[0].tagName).toBe('hatsune_miku');
+  });
+
+  it('分页切片正确', async () => {
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({ offset: 1, limit: 2 });
+    expect(res.total).toBe(4);
+    expect(res.items.length).toBe(2);
   });
 });

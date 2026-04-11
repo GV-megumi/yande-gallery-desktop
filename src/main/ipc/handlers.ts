@@ -1618,11 +1618,12 @@ export function setupIPC() {
   });
 
   // 获取收藏标签列表
+  // NOTE: Task 3 只更新 service 签名，IPC 合约仍返回扁平数组，渲染端逻辑由 Task 5 一并调整。
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 获取收藏标签列表, siteId:', siteId);
     try {
-      const tags = await booruService.getFavoriteTags(siteId);
-      return { success: true, data: tags };
+      const { items } = await booruService.getFavoriteTags({ siteId, limit: 0 });
+      return { success: true, data: items };
     } catch (error) {
       console.error('[IPC] 获取收藏标签列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -2823,7 +2824,7 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 导出收藏标签:', siteId);
     try {
-      const tags = await booruService.getFavoriteTags(siteId);
+      const { items: tags } = await booruService.getFavoriteTags({ siteId, limit: 0 });
       const labels = await booruService.getFavoriteTagLabels();
 
       // 弹出保存对话框（支持 JSON 和 TXT）
@@ -2903,7 +2904,7 @@ export function setupIPC() {
       let skippedTags = 0;
 
       // 获取已有标签用于去重
-      const existingTags = await booruService.getFavoriteTags();
+      const { items: existingTags } = await booruService.getFavoriteTags({ limit: 0 });
       const existingTagNames = new Set(existingTags.map(t => `${t.siteId || 'null'}_${t.tagName}`));
 
       if (isTxt) {
