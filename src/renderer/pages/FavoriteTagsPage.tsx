@@ -303,10 +303,17 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const handleEdit = async (values: any) => {
     if (!editingTag) return;
     try {
-      const result = await window.electronAPI.booru.updateFavoriteTag(editingTag.id, {
+      const updates: any = {
         notes: values.notes || undefined,
-        labels: values.labels ? values.labels.split(',').map((l: string) => l.trim()).filter(Boolean) : undefined,
-      });
+        labels: values.labels
+          ? values.labels.split(',').map((l: string) => l.trim()).filter(Boolean)
+          : undefined,
+      };
+      // Only pass siteId when the current tag is global and user picked a specific site
+      if (editingTag.siteId == null && values.siteId != null) {
+        updates.siteId = values.siteId;
+      }
+      const result = await window.electronAPI.booru.updateFavoriteTag(editingTag.id, updates);
       if (result.success) {
         message.success(t('favoriteTags.updateSuccess'));
         setEditingTag(null);
@@ -784,6 +791,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 form.setFieldsValue({
                   notes: record.notes || '',
                   labels: record.labels ? record.labels.join(', ') : '',
+                  siteId: record.siteId,
                 });
               }}
             />
@@ -1105,6 +1113,26 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={handleEdit}>
+          <Form.Item name="siteId" label={t('favoriteTags.site')}>
+            {editingTag?.siteId == null ? (
+              <Select
+                placeholder={t('favoriteTags.sitePlaceholder')}
+                allowClear={false}
+                options={[
+                  { label: t('favoriteTags.global'), value: null },
+                  ...sites.map(s => ({ label: s.name, value: s.id })),
+                ]}
+              />
+            ) : (
+              <Tooltip title="已指派到具体站点，无法修改">
+                <Select
+                  disabled
+                  value={editingTag.siteId}
+                  options={sites.map(s => ({ label: s.name, value: s.id }))}
+                />
+              </Tooltip>
+            )}
+          </Form.Item>
           <Form.Item name="labels" label={t('favoriteTags.groupSeparator')}>
             <Input placeholder={t('favoriteTags.groupPlaceholder')} />
           </Form.Item>
