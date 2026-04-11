@@ -94,9 +94,48 @@ function filterFavoriteTagsByParams(sql: string, params: any[] = []) {
   return { rows, nextParamIndex: p };
 }
 
+/**
+ * 模拟 booru_favorite_tags 的 UPDATE 行为。
+ * 从 `UPDATE booru_favorite_tags SET a = ?, b = ? WHERE id = ?` 这种语句里提取
+ * SET 列表中列的顺序，依次把 params 映射到 state.favoriteTags 中匹配行上。
+ */
+function applyFavoriteTagsUpdate(sql: string, params: any[] = []): void {
+  const setMatch = sql.match(/SET\s+(.+?)\s+WHERE\s+id\s*=\s*\?/i);
+  if (!setMatch) return;
+  const columns = setMatch[1]
+    .split(',')
+    .map(segment => segment.trim().split('=')[0].trim());
+  const id = params[params.length - 1];
+  const row = state.favoriteTags.find(tag => tag.id === id);
+  if (!row) return;
+  columns.forEach((column, index) => {
+    const value = params[index];
+    if (column === 'siteId') {
+      (row as any).siteId = value;
+    } else if (column === 'tagName') {
+      (row as any).tagName = value;
+    } else if (column === 'labels') {
+      (row as any).labels = value;
+    } else if (column === 'queryType') {
+      (row as any).queryType = value;
+    } else if (column === 'notes') {
+      (row as any).notes = value;
+    } else if (column === 'sortOrder') {
+      (row as any).sortOrder = value;
+    } else if (column === 'updatedAt') {
+      (row as any).updatedAt = value;
+    }
+  });
+}
+
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
-  run: vi.fn(async () => undefined),
+  run: vi.fn(async (_db, sql: string, params?: any[]) => {
+    if (/^\s*UPDATE\s+booru_favorite_tags\b/i.test(sql)) {
+      applyFavoriteTagsUpdate(sql, params ?? []);
+    }
+    return undefined;
+  }),
   runWithChanges: vi.fn(async () => ({ changes: 1 })),
   runInTransaction: vi.fn(async (_db, fn) => fn()),
   get: vi.fn(async (_db, sql: string, params?: any[]) => {
@@ -370,5 +409,43 @@ describe('getFavoriteTagsWithDownloadState — 分页与搜索透传', () => {
     expect(res.items.length).toBe(1);
     expect(res.items[0].id).toBe(1);
     expect(res.items[0].downloadBinding).toBeDefined();
+  });
+});
+
+describe('updateFavoriteTag — siteId 修改规则', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    state.favoriteTags = [
+      { id: 1, siteId: null, tagName: 'global_tag', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+      { id: 2, siteId: 1, tagName: 'site1_tag', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+    ];
+  });
+
+  it('global (siteId=null) 可以升级到具体站点', async () => {
+    const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
+    await expect(updateFavoriteTag(1, { siteId: 1 })).resolves.not.toThrow();
+    expect(state.favoriteTags.find(t => t.id === 1)!.siteId).toBe(1);
+  });
+
+  it('已绑定站点的不可改到另一个站点', async () => {
+    const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
+    await expect(updateFavoriteTag(2, { siteId: 3 })).rejects.toThrow(/不允许修改站点/);
+  });
+
+  it('已绑定站点的不可改回 global', async () => {
+    const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
+    await expect(updateFavoriteTag(2, { siteId: null })).rejects.toThrow(/不允许修改站点/);
+  });
+
+  it('updates 不含 siteId 时走原路径 (仅改 notes)', async () => {
+    const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
+    await expect(updateFavoriteTag(2, { notes: 'hello' } as any)).resolves.not.toThrow();
+    expect(state.favoriteTags.find(t => t.id === 2)!.notes).toBe('hello' as any);
+    expect(state.favoriteTags.find(t => t.id === 2)!.siteId).toBe(1);
+  });
+
+  it('global → global 是 no-op 成功', async () => {
+    const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
+    await expect(updateFavoriteTag(1, { siteId: null })).resolves.not.toThrow();
   });
 });
