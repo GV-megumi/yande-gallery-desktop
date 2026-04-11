@@ -461,6 +461,21 @@ html.dark .ant-dropdown .ant-dropdown-menu {
   overflow: hidden;
 }
 
+/* 修复 fixed 列表头透明背景透字问题：
+   主题把 Table.headerBg 设成了 transparent（main.tsx），所以表头单元格本身是透明的；
+   对于 fixed:left / fixed:right 的列，sticky 时会露出身后被滚走的相邻列表头文字。
+   这里强制给 fixed 列的表头一个和卡片一致的背景色盖住底下。
+   注意：body 行单元格已经有 colorBgContainer 的背景，只需补表头行。 */
+.ant-table-thead > tr > .ant-table-cell-fix-left,
+.ant-table-thead > tr > .ant-table-cell-fix-right {
+  background: #FFFFFF !important;
+}
+
+html.dark .ant-table-thead > tr > .ant-table-cell-fix-left,
+html.dark .ant-table-thead > tr > .ant-table-cell-fix-right {
+  background: #161822 !important;
+}
+
 /* Tabs */
 .ant-tabs-ink-bar {
   border-radius: 2px !important;
