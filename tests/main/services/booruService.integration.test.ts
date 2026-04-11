@@ -128,11 +128,32 @@ function applyFavoriteTagsUpdate(sql: string, params: any[] = []): void {
   });
 }
 
+let lastInsertedFavoriteTagId = 0;
+
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
   run: vi.fn(async (_db, sql: string, params?: any[]) => {
     if (/^\s*UPDATE\s+booru_favorite_tags\b/i.test(sql)) {
       applyFavoriteTagsUpdate(sql, params ?? []);
+    }
+    if (/^\s*INSERT\s+INTO\s+booru_favorite_tags\b/i.test(sql)) {
+      // 与 addFavoriteTag 的 INSERT 列顺序保持一致：
+      // (siteId, tagName, labels, queryType, notes, sortOrder, createdAt, updatedAt)
+      const p = params ?? [];
+      const existingIds = state.favoriteTags.map(t => t.id);
+      const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
+      lastInsertedFavoriteTagId = nextId;
+      state.favoriteTags.push({
+        id: nextId,
+        siteId: p[0] ?? null,
+        tagName: p[1],
+        labels: p[2] ?? '[]',
+        queryType: p[3] ?? 'tag',
+        notes: p[4] ?? null,
+        sortOrder: p[5] ?? 0,
+        createdAt: p[6],
+        updatedAt: p[7],
+      });
     }
     return undefined;
   }),
@@ -158,9 +179,33 @@ vi.mock('../../../src/main/services/database', () => ({
       const { rows } = filterBlacklistedByParams(sql, params ?? []);
       return { cnt: rows.length };
     }
+    // isFavoriteTag: SELECT COUNT(*) as count FROM booru_favorite_tags WHERE siteId IS ? AND tagName = ?
+    if (
+      sql.includes('COUNT(*)')
+      && sql.includes('booru_favorite_tags')
+      && sql.includes('siteId IS ?')
+      && sql.includes('tagName = ?')
+    ) {
+      const sid = params?.[0] ?? null;
+      const name = params?.[1];
+      const count = state.favoriteTags.filter(t => t.siteId === sid && t.tagName === name).length;
+      return { count };
+    }
     if (sql.includes('COUNT(*)') && sql.includes('booru_favorite_tags')) {
       const { rows } = filterFavoriteTagsByParams(sql, params ?? []);
       return { cnt: rows.length };
+    }
+    // addFavoriteTag: SELECT COALESCE(MAX(sortOrder), 0) as maxSort FROM booru_favorite_tags WHERE siteId IS ?
+    if (sql.includes('MAX(sortOrder)') && sql.includes('booru_favorite_tags')) {
+      const sid = params?.[0] ?? null;
+      const maxSort = state.favoriteTags
+        .filter(t => t.siteId === sid)
+        .reduce((m, t) => Math.max(m, t.sortOrder), 0);
+      return { maxSort };
+    }
+    // addFavoriteTag: SELECT last_insert_rowid() as id
+    if (sql.includes('last_insert_rowid()')) {
+      return { id: lastInsertedFavoriteTagId };
     }
     return undefined;
   }),
@@ -447,5 +492,60 @@ describe('updateFavoriteTag — siteId 修改规则', () => {
   it('global → global 是 no-op 成功', async () => {
     const { updateFavoriteTag } = await import('../../../src/main/services/booruService');
     await expect(updateFavoriteTag(1, { siteId: null })).resolves.not.toThrow();
+  });
+});
+
+describe('addFavoriteTagsBatch', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    lastInsertedFavoriteTagId = 0;
+    state.favoriteTags = [
+      { id: 1, siteId: 1, tagName: 'existing_tag', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+    ];
+  });
+
+  it('换行分隔的输入', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    const res = await addFavoriteTagsBatch('new_a\nnew_b\nnew_c', 1);
+    expect(res).toEqual({ added: 3, skipped: 0 });
+  });
+
+  it('换行 + 逗号混合', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    const res = await addFavoriteTagsBatch('a, b\nc,d', 1);
+    expect(res.added).toBe(4);
+  });
+
+  it('已存在跳过', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    const res = await addFavoriteTagsBatch('existing_tag\nnew_tag', 1);
+    expect(res).toEqual({ added: 1, skipped: 1 });
+  });
+
+  it('输入内部重复只计一次', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    const res = await addFavoriteTagsBatch('new_x\nnew_x\nnew_y', 1);
+    expect(res.added).toBe(2);
+  });
+
+  it('空输入 added=0', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    const res = await addFavoriteTagsBatch('   \n,  ,', 1);
+    expect(res).toEqual({ added: 0, skipped: 0 });
+  });
+
+  it('siteId=null 添加为全局', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    await addFavoriteTagsBatch('global_tag', null);
+    const added = state.favoriteTags.find(t => t.tagName === 'global_tag');
+    expect(added).toBeDefined();
+    expect(added!.siteId).toBeNull();
+  });
+
+  it('labels 字符串按逗号拆分传到每条记录', async () => {
+    const { addFavoriteTagsBatch } = await import('../../../src/main/services/booruService');
+    await addFavoriteTagsBatch('a\nb', 1, '角色, 风格');
+    const a = state.favoriteTags.find(t => t.tagName === 'a');
+    expect(JSON.parse(a!.labels as any)).toEqual(['角色', '风格']);
   });
 });
