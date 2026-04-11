@@ -209,12 +209,12 @@ describe('booruService integration-ish behavior', () => {
 
   it('getFavoriteTagsWithDownloadState 应返回带 binding 和 galleryName 的 enriched 结果', async () => {
     const service = await import('../../../src/main/services/booruService');
-    const result = await service.getFavoriteTagsWithDownloadState(1);
+    const { items } = await service.getFavoriteTagsWithDownloadState({ siteId: 1, limit: 0 });
 
-    expect(result.length).toBeGreaterThan(0);
-    expect(result[0].downloadBinding?.favoriteTagId).toBe(1);
-    expect(result[0].galleryName).toBe('Gallery A');
-    expect(result[1].resolvedDownloadPath?.replace(/\\/g, '/')).toBe('C:/config/downloads/tag_b');
+    expect(items.length).toBeGreaterThan(0);
+    expect(items[0].downloadBinding?.favoriteTagId).toBe(1);
+    expect(items[0].galleryName).toBe('Gallery A');
+    expect(items[1].resolvedDownloadPath?.replace(/\\/g, '/')).toBe('C:/config/downloads/tag_b');
   });
 
   it('getFavoriteTagDownloadHistory 应返回 favoriteTag 来源会话', async () => {
@@ -332,5 +332,43 @@ describe('getFavoriteTags — 分页与搜索', () => {
     const res = await getFavoriteTags({ offset: 1, limit: 2 });
     expect(res.total).toBe(4);
     expect(res.items.length).toBe(2);
+  });
+});
+
+describe('getFavoriteTagsWithDownloadState — 分页与搜索透传', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    state.favoriteTags = [
+      { id: 1, siteId: 1, tagName: 'aoi_chizuru', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+      { id: 2, siteId: 1, tagName: 'gin', labels: '[]', queryType: 'tag', notes: null, sortOrder: 2, createdAt: '2026-04-01', updatedAt: '2026-04-01' },
+    ];
+    state.bindings = [];
+  });
+
+  it('返回 PaginatedResult 结构', async () => {
+    const { getFavoriteTagsWithDownloadState } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTagsWithDownloadState({});
+    expect(res).toHaveProperty('items');
+    expect(res).toHaveProperty('total');
+    expect(Array.isArray(res.items)).toBe(true);
+    expect(res.total).toBe(2);
+  });
+
+  it('keyword 过滤', async () => {
+    const { getFavoriteTagsWithDownloadState } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTagsWithDownloadState({ keyword: 'aoi' });
+    expect(res.total).toBe(1);
+    expect(res.items[0].tagName).toBe('aoi_chizuru');
+  });
+
+  it('分页不影响 binding 富化', async () => {
+    state.bindings = [
+      { id: 1, favoriteTagId: 1, galleryId: null, downloadPath: '', enabled: 1, lastStatus: 'idle' } as any,
+    ];
+    const { getFavoriteTagsWithDownloadState } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTagsWithDownloadState({ limit: 1, offset: 0 });
+    expect(res.items.length).toBe(1);
+    expect(res.items[0].id).toBe(1);
+    expect(res.items[0].downloadBinding).toBeDefined();
   });
 });

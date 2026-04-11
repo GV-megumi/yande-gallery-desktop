@@ -1633,8 +1633,9 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     console.log('[IPC] 获取收藏标签及下载状态, siteId:', siteId);
     try {
-      const tags = await booruService.getFavoriteTagsWithDownloadState(siteId);
-      return { success: true, data: tags };
+      // Task 4: getFavoriteTagsWithDownloadState 现返回 PaginatedResult；IPC 对外契约暂保持数组（Task 5 再改）。
+      const { items } = await booruService.getFavoriteTagsWithDownloadState({ siteId, limit: 0 });
+      return { success: true, data: items };
     } catch (error) {
       console.error('[IPC] 获取收藏标签及下载状态失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
