@@ -76,32 +76,35 @@ describe('FavoriteTagsPage render behavior', () => {
     getGalleries.mockResolvedValue({ success: true, data: [] });
     getFavoriteTagsWithDownloadState.mockResolvedValue({
       success: true,
-      data: [
-        {
-          id: 1,
-          siteId: 1,
-          tagName: 'tag_a',
-          labels: ['group1'],
-          queryType: 'tag',
-          notes: 'note',
-          sortOrder: 1,
-          createdAt: '2024-01-01',
-          updatedAt: '2024-01-01',
-          galleryName: 'Gallery A',
-          galleryBindingConsistent: true,
-          downloadBinding: {
+      data: {
+        items: [
+          {
             id: 1,
-            favoriteTagId: 1,
-            galleryId: 1,
-            downloadPath: 'D:/gallery/a',
-            enabled: true,
+            siteId: 1,
+            tagName: 'tag_a',
+            labels: ['group1'],
+            queryType: 'tag',
+            notes: 'note',
+            sortOrder: 1,
             createdAt: '2024-01-01',
             updatedAt: '2024-01-01',
-            lastStatus: 'completed',
+            galleryName: 'Gallery A',
+            galleryBindingConsistent: true,
+            downloadBinding: {
+              id: 1,
+              favoriteTagId: 1,
+              galleryId: 1,
+              downloadPath: 'D:/gallery/a',
+              enabled: true,
+              createdAt: '2024-01-01',
+              updatedAt: '2024-01-01',
+              lastStatus: 'completed',
+            },
+            runtimeProgress: null,
           },
-          runtimeProgress: null,
-        },
-      ],
+        ],
+        total: 1,
+      },
     });
 
     render(<FavoriteTagsPage />);
@@ -122,33 +125,36 @@ describe('FavoriteTagsPage render behavior', () => {
     getGalleries.mockResolvedValue({ success: true, data: [] });
     getFavoriteTagsWithDownloadState.mockResolvedValue({
       success: true,
-      data: [
-        {
-          id: 1,
-          siteId: 1,
-          tagName: 'tag_b',
-          labels: [],
-          queryType: 'tag',
-          notes: null,
-          sortOrder: 1,
-          createdAt: '2024-01-01',
-          updatedAt: '2024-01-01',
-          galleryName: 'Gallery B',
-          galleryBindingConsistent: false,
-          galleryBindingMismatchReason: 'pathMismatch',
-          downloadBinding: {
-            id: 2,
-            favoriteTagId: 1,
-            galleryId: 2,
-            downloadPath: 'D:/wrong',
-            enabled: true,
+      data: {
+        items: [
+          {
+            id: 1,
+            siteId: 1,
+            tagName: 'tag_b',
+            labels: [],
+            queryType: 'tag',
+            notes: null,
+            sortOrder: 1,
             createdAt: '2024-01-01',
             updatedAt: '2024-01-01',
-            lastStatus: 'ready',
+            galleryName: 'Gallery B',
+            galleryBindingConsistent: false,
+            galleryBindingMismatchReason: 'pathMismatch',
+            downloadBinding: {
+              id: 2,
+              favoriteTagId: 1,
+              galleryId: 2,
+              downloadPath: 'D:/wrong',
+              enabled: true,
+              createdAt: '2024-01-01',
+              updatedAt: '2024-01-01',
+              lastStatus: 'ready',
+            },
+            runtimeProgress: null,
           },
-          runtimeProgress: null,
-        },
-      ],
+        ],
+        total: 1,
+      },
     });
 
     render(<FavoriteTagsPage />);
