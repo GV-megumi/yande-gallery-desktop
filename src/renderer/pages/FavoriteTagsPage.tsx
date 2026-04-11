@@ -21,6 +21,7 @@ import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
 import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
+import { BatchTagAddModal } from '../components/BatchTagAddModal';
 
 interface FavoriteTagsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -111,6 +112,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [importPreviewTags, setImportPreviewTags] = useState<string[]>([]);
   const [importCheckedTags, setImportCheckedTags] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
+  const [batchAddModalOpen, setBatchAddModalOpen] = useState(false);
 
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
@@ -855,6 +857,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 {t('favoriteTags.add')}
               </Button>
               <Button
+                icon={<PlusOutlined />}
+                onClick={() => setBatchAddModalOpen(true)}
+              >
+                批量添加
+              </Button>
+              <Button
                 icon={<ExportOutlined />}
                 onClick={async () => {
                   try {
@@ -1180,6 +1188,33 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           ))}
         </div>
       </Modal>
+
+      <BatchTagAddModal
+        open={batchAddModalOpen}
+        title="批量添加收藏标签"
+        sites={sites}
+        extraField={{
+          name: 'labels',
+          label: '分组（逗号分隔）',
+          placeholder: '例如: 角色, 风格',
+        }}
+        onCancel={() => setBatchAddModalOpen(false)}
+        onSubmit={async (values) => {
+          const result = await window.electronAPI.booru.addFavoriteTagsBatch(
+            values.tagNames,
+            values.siteId,
+            values.extra || undefined
+          );
+          if (result.success && result.data) {
+            message.success(`已添加 ${result.data.added} 个标签，跳过 ${result.data.skipped} 个`);
+            setBatchAddModalOpen(false);
+            loadFavoriteTags();
+          } else {
+            message.error(`${t('common.failed')}: ${result.error}`);
+            throw new Error(result.error || 'failed');
+          }
+        }}
+      />
     </div>
   );
 };
