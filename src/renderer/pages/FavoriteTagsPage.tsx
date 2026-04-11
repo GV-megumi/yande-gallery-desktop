@@ -252,6 +252,15 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   }, [loadFavoriteTags]);
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
+    // DnD reordering is only meaningful when no keyword filter is active.
+    // With a filter the visible rows are cherry-picked from the sort-order axis,
+    // so writing sortOrder based on their visible position would corrupt the
+    // positions of the unshown rows sitting between them.
+    if (debouncedKeyword.trim()) {
+      message.warning('搜索过滤时不能拖动排序');
+      return;
+    }
+
     const { active, over } = event;
     if (!over || active.id === over.id) return;
 
@@ -263,9 +272,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     setFavoriteTags(newTags);
 
     try {
+      // Use an absolute offset so that page-N rows don't collide with page-1's
+      // sortOrder range (1..pageSize) after server-side pagination was introduced.
+      const baseOffset = (page - 1) * pageSize;
       const updates = newTags.map((tag, index) => ({
         id: tag.id,
-        sortOrder: index + 1,
+        sortOrder: baseOffset + index + 1,
       }));
       await Promise.all(updates.map(u => window.electronAPI.booru.updateFavoriteTag(u.id, { sortOrder: u.sortOrder })));
     } catch (error) {
@@ -273,7 +285,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       message.error(t('common.failed'));
       loadFavoriteTags();
     }
-  }, [favoriteTags, loadFavoriteTags, t]);
+  }, [favoriteTags, loadFavoriteTags, t, page, pageSize, debouncedKeyword]);
 
   const handleAdd = async (values: any) => {
     try {
