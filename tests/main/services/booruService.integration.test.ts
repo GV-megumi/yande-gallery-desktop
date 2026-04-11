@@ -415,6 +415,23 @@ describe('getBlacklistedTags — 分页与搜索', () => {
     expect(res.total).toBe(1);
     expect(res.items[0].tagName).toBe('aotsu_karin');
   });
+
+  it('limit=0 返回全部不截断', async () => {
+    // 构造 1500 行，证明 limit<=0 时不再走 1000 条兜底，
+    // 这是导出场景（BOORU_EXPORT_BLACKLISTED_TAGS）必须依赖的语义
+    state.blacklistedTags = Array.from({ length: 1500 }, (_, i) => ({
+      id: i + 1,
+      siteId: 1,
+      tagName: `tag_${i}`,
+      reason: null,
+      isActive: 1,
+      createdAt: '2026-04-01',
+    }));
+    const { getBlacklistedTags } = await import('../../../src/main/services/booruService');
+    const res = await getBlacklistedTags({ limit: 0 });
+    expect(res.total).toBe(1500);
+    expect(res.items.length).toBe(1500);
+  });
 });
 
 describe('getFavoriteTags — 分页与搜索', () => {
@@ -460,6 +477,26 @@ describe('getFavoriteTags — 分页与搜索', () => {
     const res = await getFavoriteTags({ offset: 1, limit: 2 });
     expect(res.total).toBe(4);
     expect(res.items.length).toBe(2);
+  });
+
+  it('limit=0 返回全部不截断', async () => {
+    // 构造 1500 行，证明 limit<=0 时不再走 1000 条兜底，
+    // 这是导出场景（BOORU_EXPORT_FAVORITE_TAGS）必须依赖的语义
+    state.favoriteTags = Array.from({ length: 1500 }, (_, i) => ({
+      id: i + 1,
+      siteId: 1,
+      tagName: `tag_${i}`,
+      labels: '[]',
+      queryType: 'tag',
+      notes: null,
+      sortOrder: i + 1,
+      createdAt: '2026-04-01',
+      updatedAt: '2026-04-01',
+    }));
+    const { getFavoriteTags } = await import('../../../src/main/services/booruService');
+    const res = await getFavoriteTags({ limit: 0 });
+    expect(res.total).toBe(1500);
+    expect(res.items.length).toBe(1500);
   });
 });
 

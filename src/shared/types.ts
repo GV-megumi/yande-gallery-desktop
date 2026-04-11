@@ -475,7 +475,7 @@ export interface ListQueryParams {
   keyword?: string;
   /** 默认 0 */
   offset?: number;
-  /** 默认 50；传 0 或不传 = 不分页但内部兜底 1000 */
+  /** 默认 50；传 0 或省略 = 不分页（真正取全部，无兜底） */
   limit?: number;
 }
 
