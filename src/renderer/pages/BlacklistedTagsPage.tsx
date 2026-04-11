@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Card, Table, Button, Input, Space, Tag, Popconfirm, Modal, Form, Select, Empty, Switch, App, Tooltip } from 'antd';
-import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, DownloadOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
+import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, DownloadOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import type { BlacklistedTag } from '../../shared/types';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
@@ -17,17 +17,35 @@ export const BlacklistedTagsPage: React.FC = () => {
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [batchAddMode, setBatchAddMode] = useState(false);
   const [sites, setSites] = useState<any[]>([]);
-  const [filterSiteId, setFilterSiteId] = useState<number | null | undefined>(undefined);
+  const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
+  const [keyword, setKeyword] = useState('');
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
   const [form] = Form.useForm();
 
-  // 加载黑名单标签列表
+  // 搜索关键字防抖，避免每次按键都打服务端
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedKeyword(keyword), 300);
+    return () => clearTimeout(t);
+  }, [keyword]);
+
+  // 加载黑名单标签列表（服务端分页 + 关键字搜索）
   const loadBlacklistedTags = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await window.electronAPI.booru.getBlacklistedTags(filterSiteId);
+      const offset = (page - 1) * pageSize;
+      const result = await window.electronAPI.booru.getBlacklistedTags({
+        siteId: filterSiteId,
+        keyword: debouncedKeyword.trim() || undefined,
+        offset,
+        limit: pageSize,
+      });
       if (result.success && result.data) {
-        setBlacklistedTags(result.data);
-        console.log('[BlacklistedTagsPage] 加载黑名单标签:', result.data.length, '个');
+        setBlacklistedTags(result.data.items);
+        setTotal(result.data.total);
+        console.log('[BlacklistedTagsPage] 加载黑名单标签:', result.data.items.length, '/', result.data.total);
       } else {
         console.error('[BlacklistedTagsPage] 加载黑名单标签失败:', result.error);
       }
@@ -37,7 +55,7 @@ export const BlacklistedTagsPage: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [filterSiteId]);
+  }, [filterSiteId, debouncedKeyword, page, pageSize, message]);
 
   // 加载站点列表
   const loadSites = useCallback(async () => {
@@ -137,9 +155,8 @@ export const BlacklistedTagsPage: React.FC = () => {
     return site ? site.name : `站点 #${siteId}`;
   };
 
-  // 统计信息
-  const activeCount = blacklistedTags.filter(t => t.isActive).length;
-  const totalCount = blacklistedTags.length;
+  // 统计信息（服务端分页后使用 total，而非仅当前页）
+  const totalCount = total;
 
   // 表格列定义
   const columns = [
@@ -227,7 +244,7 @@ export const BlacklistedTagsPage: React.FC = () => {
       }}>
         <div>
           <span style={{ color: colors.textSecondary, fontSize: fontSize.md }}>
-            共 {totalCount} 个黑名单标签，{activeCount} 个已激活
+            共 {totalCount} 个黑名单标签
           </span>
         </div>
         <Space>
@@ -236,13 +253,24 @@ export const BlacklistedTagsPage: React.FC = () => {
             placeholder="筛选站点"
             allowClear
             value={filterSiteId ?? '__all__'}
-            onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? null : value as number)}
+            onChange={(value: string | number) => {
+              setFilterSiteId(value === '__all__' ? undefined : value as number);
+              setPage(1);
+            }}
           >
             <Select.Option value="__all__">全部站点</Select.Option>
             {sites.map(site => (
               <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
             ))}
           </Select>
+          <Input
+            placeholder="搜索标签"
+            allowClear
+            prefix={<SearchOutlined />}
+            value={keyword}
+            onChange={(e) => { setKeyword(e.target.value); setPage(1); }}
+            style={{ width: 240 }}
+          />
           <Button
             type="primary"
             icon={<PlusOutlined />}
@@ -301,7 +329,7 @@ export const BlacklistedTagsPage: React.FC = () => {
       </div>
 
       {/* 标签列表 */}
-      {blacklistedTags.length === 0 && !loading ? (
+      {total === 0 && !loading && !debouncedKeyword && filterSiteId === undefined ? (
         <Card style={{ borderRadius: radius.md }}>
           <Empty
             description="暂无黑名单标签"
@@ -326,7 +354,14 @@ export const BlacklistedTagsPage: React.FC = () => {
             columns={columns}
             rowKey="id"
             loading={loading}
-            pagination={blacklistedTags.length > 20 ? { pageSize: 20 } : false}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              showSizeChanger: true,
+              pageSizeOptions: ['20', '50', '100'],
+              onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+            }}
             size="middle"
           />
         </Card>
