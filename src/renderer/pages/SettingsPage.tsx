@@ -7,6 +7,7 @@ import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutline
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
+import type { UpdateCheckResult } from '../../shared/types';
 
 const { Option } = Select;
 
@@ -62,7 +63,7 @@ const SettingsGroup: React.FC<{
 /** iOS 风格列表行 */
 const SettingsRow: React.FC<{
   label: string | React.ReactNode;
-  description?: string;
+  description?: React.ReactNode;
   extra?: React.ReactNode;
   isLast?: boolean;
   onClick?: () => void;
@@ -206,6 +207,32 @@ export const SettingsPage: React.FC = () => {
   const [proxyPort, setProxyPort] = useState('7890');
   const [exportingBackup, setExportingBackup] = useState(false);
   const [importingBackup, setImportingBackup] = useState(false);
+  const [updateChecking, setUpdateChecking] = useState(false);
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+
+  const handleCheckForUpdate = async () => {
+    if (!window.electronAPI) return;
+    setUpdateChecking(true);
+    try {
+      const res = await window.electronAPI.system.checkForUpdate();
+      if (res.success && res.data) {
+        setUpdateResult(res.data);
+      } else {
+        setUpdateResult({
+          currentVersion: '-',
+          latestVersion: null,
+          hasUpdate: false,
+          releaseUrl: null,
+          releaseName: null,
+          publishedAt: null,
+          error: res.error || '检查失败',
+          checkedAt: new Date().toISOString(),
+        });
+      }
+    } finally {
+      setUpdateChecking(false);
+    }
+  };
 
   useEffect(() => {
     console.log('[SettingsPage] 组件挂载，加载配置');
@@ -682,6 +709,41 @@ export const SettingsPage: React.FC = () => {
             <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
             <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
             <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />
+          </SettingsGroup>
+
+          <SettingsGroup title="更新">
+            <SettingsRow
+              label="检查更新"
+              description={
+                updateResult?.error
+                  ? <span style={{ color: '#ff4d4f' }}>检查失败：{updateResult.error}</span>
+                  : updateResult?.hasUpdate
+                    ? <span style={{ color: '#52c41a' }}>发现新版本 v{updateResult.latestVersion}（当前 v{updateResult.currentVersion}）</span>
+                    : updateResult
+                      ? <span style={{ color: colors.textTertiary }}>当前已是最新版本 v{updateResult.currentVersion}</span>
+                      : <span style={{ color: colors.textTertiary }}>点击按钮检查是否有新版本</span>
+              }
+              isLast
+              extra={
+                updateResult?.hasUpdate && updateResult.releaseUrl ? (
+                  <Button
+                    type="primary"
+                    size="small"
+                    onClick={() => window.electronAPI?.system.openExternal(updateResult.releaseUrl!)}
+                  >
+                    查看发布页
+                  </Button>
+                ) : (
+                  <Button
+                    size="small"
+                    loading={updateChecking}
+                    onClick={handleCheckForUpdate}
+                  >
+                    检查更新
+                  </Button>
+                )
+              }
+            />
           </SettingsGroup>
 
           <SettingsGroup title="GitHub">
