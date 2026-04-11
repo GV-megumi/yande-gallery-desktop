@@ -33,7 +33,7 @@ import { hashPasswordSHA1 } from '../services/moebooruClient.js';
 import { createBooruClient } from '../services/booruClientFactory.js';
 import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
-import { BooruPost } from '../../shared/types.js';
+import { BooruPost, ListQueryParams } from '../../shared/types.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
@@ -1618,7 +1618,7 @@ export function setupIPC() {
   });
 
   // 获取收藏标签列表
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event, params: any = {}) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event, params: ListQueryParams = {}) => {
     console.log('[IPC] 获取收藏标签列表:', params);
     try {
       const result = await booruService.getFavoriteTags(params);
@@ -1629,7 +1629,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event, params: any = {}) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE, async (_event, params: ListQueryParams = {}) => {
     console.log('[IPC] 获取收藏标签及下载状态:', params);
     try {
       const result = await booruService.getFavoriteTagsWithDownloadState(params);
@@ -2062,7 +2062,7 @@ export function setupIPC() {
   });
 
   // 获取黑名单标签列表
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event, params: any = {}) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_BLACKLISTED_TAGS, async (_event, params: ListQueryParams = {}) => {
     console.log('[IPC] 获取黑名单标签列表:', params);
     try {
       const result = await booruService.getBlacklistedTags(params);
