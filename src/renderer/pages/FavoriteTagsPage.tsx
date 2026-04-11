@@ -112,20 +112,43 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [importCheckedTags, setImportCheckedTags] = useState<Set<string>>(new Set());
   const [importing, setImporting] = useState(false);
 
+  const [keyword, setKeyword] = useState('');
+  const [debouncedKeyword, setDebouncedKeyword] = useState('');
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+  const [total, setTotal] = useState(0);
+
   const sensors = useSensors(
     useSensor(PointerSensor, {
       activationConstraint: { distance: 5 },
     })
   );
 
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
+    return () => clearTimeout(timer);
+  }, [keyword]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedKeyword]);
+
   const loadFavoriteTags = useCallback(async () => {
     setLoading(true);
     try {
-      const result = await window.electronAPI.booru.getFavoriteTagsWithDownloadState(filterSiteId);
+      const offset = (page - 1) * pageSize;
+      const result = await window.electronAPI.booru.getFavoriteTagsWithDownloadState({
+        siteId: filterSiteId,
+        keyword: debouncedKeyword.trim() || undefined,
+        offset,
+        limit: pageSize,
+      });
       if (result.success && result.data) {
-        setFavoriteTags(result.data);
+        setFavoriteTags(result.data.items);
+        setTotal(result.data.total);
+        console.log('[FavoriteTagsPage] 加载收藏标签:', result.data.items.length, '/', result.data.total);
       } else {
-        console.error('[FavoriteTagsPage] 加载收藏标签失败:', result.error);
+        message.error(`${t('common.failed')}: ${result.error}`);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 加载收藏标签失败:', error);
@@ -133,7 +156,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     } finally {
       setLoading(false);
     }
-  }, [filterSiteId, t]);
+  }, [filterSiteId, debouncedKeyword, page, pageSize, t]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -720,7 +743,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     {
       title: t('favoriteTags.actions'),
       key: 'actions',
-      width: 176,
+      width: 240,
+      fixed: 'right' as const,
       render: (_: unknown, record: FavoriteTagWithDownloadState) => (
         <Space wrap size={[0, 4]} style={{ width: '100%', justifyContent: 'flex-start' }}>
           <Tooltip title={t('favoriteTags.searchTag')}>
@@ -789,7 +813,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 12 }}>
           <Space size={8} style={{ minWidth: 0 }}>
             <StarFilled style={{ color: '#faad14', fontSize: 18 }} />
-            <span style={{ fontSize: 16, fontWeight: 500 }}>{t('favoriteTags.count', { count: favoriteTags.length })}</span>
+            <span style={{ fontSize: 16, fontWeight: 500 }}>{t('favoriteTags.count', { count: total })}</span>
           </Space>
           <div style={{ flex: '1 1 260px', minWidth: 0, display: 'flex', justifyContent: 'flex-end' }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 8, width: '100%' }}>
@@ -798,13 +822,27 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 allowClear
                 style={{ width: 140, minWidth: 100, flex: '0 0 auto' }}
                 value={filterSiteId ?? '__all__'}
-                onChange={(value: string | number) => setFilterSiteId(value === '__all__' ? undefined : value as number)}
+                onChange={(value: string | number) => {
+                  setFilterSiteId(value === '__all__' ? undefined : value as number);
+                  setPage(1);
+                }}
               >
                 <Select.Option value="__all__">{t('common.all')}</Select.Option>
                 {sites.map(site => (
                   <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
                 ))}
               </Select>
+              <Input
+                placeholder={t('favoriteTags.searchPlaceholder') || '搜索标签'}
+                allowClear
+                prefix={<SearchOutlined />}
+                value={keyword}
+                onChange={(e) => {
+                  setKeyword(e.target.value);
+                  setPage(1);
+                }}
+                style={{ width: 240, flex: '0 0 auto' }}
+              />
               <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setAddModalVisible(true); }}>
                 {t('favoriteTags.add')}
               </Button>
@@ -852,19 +890,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         </div>
       </Card>
 
-      {favoriteTags.length > 0 && onTagClick && (
-        <Card size="small" style={{ marginBottom: 16 }} title={t('favoriteTags.quickSearch')}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
-            {favoriteTags.map(tag => (
-              <Tag key={tag.id} color="blue" style={{ cursor: 'pointer', fontSize: '13px', padding: '4px 10px' }} onClick={() => handleTagClick(tag)}>
-                <StarFilled style={{ marginRight: 4, color: '#faad14' }} />
-                {tag.tagName.replace(/_/g, ' ')}
-              </Tag>
-            ))}
-          </div>
-        </Card>
-      )}
-
       {favoriteTags.some(tag => tag.galleryBindingConsistent === false) && (
         <Alert
           style={{ marginBottom: 16 }}
@@ -902,7 +927,15 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               columns={columns}
               rowKey="id"
               loading={loading}
-              pagination={{ pageSize: 50 }}
+              scroll={{ x: 1600 }}
+              pagination={{
+                current: page,
+                pageSize,
+                total,
+                showSizeChanger: true,
+                pageSizeOptions: ['20', '50', '100'],
+                onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+              }}
               locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
               components={{ body: { row: SortableRow } }}
             />
