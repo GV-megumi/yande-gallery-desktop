@@ -28,6 +28,7 @@
 - `imageCacheService.ts`：图片缓存与统计
 - `backupService.ts`：导出/导入应用数据
 - `imageMetadataService.ts`：帖子查看器元数据支持
+- `updateService.ts`：GitHub Releases API 版本检查（v0.0.2 新增；带短时缓存，错误不缓存）
 
 ### IPC / Preload
 
@@ -78,6 +79,8 @@
 - 收藏标签、标签分组
 - 黑名单标签
 - 保存的搜索
+
+说明（v0.0.2 起）：`getFavoriteTags` / `getFavoriteTagsWithDownloadState` / `getBlacklistedTags` 三个 list 接口统一迁移到 `ListQueryParams` → `PaginatedResult<T>` 契约，支持服务端分页和关键词搜索；导入流程拆成 `pickFile` + `commit` 两段式。具体签名见 `doc/Renderer API 文档.md` 的"列表查询与分页约定"章节和 `src/preload/index.ts`。
 
 ### 下载与缓存
 

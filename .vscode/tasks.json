@@ -1,0 +1,97 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "type": "npm",
+      "script": "build",
+      "group": "build",
+      "label": "npm: build",
+      "detail": "Build the project"
+    },
+    {
+      "type": "npm",
+      "script": "dev",
+      "group": "build",
+      "label": "npm: dev",
+      "detail": "Start development server"
+    },
+    {
+      "type": "npm",
+      "script": "build:main",
+      "group": "build",
+      "label": "npm: build:main",
+      "detail": "Build main process"
+    },
+    {
+      "type": "npm",
+      "script": "build:preload",
+      "group": "build",
+      "label": "npm: build:preload",
+      "detail": "Build preload script"
+    },
+    {
+      "type": "npm",
+      "script": "dev:renderer",
+      "group": "build",
+      "label": "npm: dev:renderer",
+      "detail": "Start Vite dev server",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": ".",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Local:.*http://localhost:5173.*"
+        }
+      }
+    },
+    {
+      "label": "📦 仅编译（主进程 + Preload）",
+      "dependsOn": [
+        "npm: build:main",
+        "npm: build:preload"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "label": "🚀 启动开发环境（编译 + Vite）",
+      "dependsOn": [
+        "npm: build:main",
+        "npm: build:preload",
+        "npm: dev:renderer"
+      ],
+      "dependsOrder": "parallel",
+      "problemMatcher": []
+    },
+    {
+      "type": "shell",
+      "label": "🚀 手动启动 Vite 服务器",
+      "command": "npm run dev:renderer",
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": {
+          "regexp": ".",
+          "file": 1,
+          "location": 2,
+          "message": 3
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": ".*Local:.*http://localhost:5173.*"
+        }
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false
+      }
+    }
+  ]
+}

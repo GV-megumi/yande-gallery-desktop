@@ -92,15 +92,18 @@
     "mac": {
       "category": "public.app-category.photography",
       "target": "dmg",
-      "icon": "assets/icon.icns"
+      "icon": "assets/icon.icns",
+      "artifactName": "yande_gallery_mac_${arch}_v${version}_setup.${ext}"
     },
     "win": {
       "target": "nsis",
-      "icon": "assets/icon.ico"
+      "icon": "assets/icon.ico",
+      "artifactName": "yande_gallery_win_${arch}_v${version}_setup.${ext}"
     },
     "linux": {
       "target": "AppImage",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "artifactName": "yande_gallery_linux_${arch}_v${version}_setup.${ext}"
     },
     "nsis": {
       "oneClick": false,

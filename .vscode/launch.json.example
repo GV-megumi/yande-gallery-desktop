@@ -1,0 +1,44 @@
+{
+  // 这是 launch.json 的模板。首次 checkout 后复制为 launch.json 再按需修改。
+  // launch.json 已被 .gitignore 忽略，本地改动不会污染仓库。
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "1. 启动 Vite 服务器",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:renderer"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 1
+      }
+    },
+    {
+      "name": "2. 启动 Electron",
+      "type": "node",
+      "request": "launch",
+      "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "program": "${workspaceFolder}/build/main/index.js",
+      "args": [],
+      "env": {
+        "NODE_ENV": "development"
+      },
+      "console": "integratedTerminal",
+      "skipFiles": ["<node_internals>/**"],
+      "preLaunchTask": "📦 仅编译（主进程 + Preload）",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/build/main/**/*.js"],
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 2
+      }
+    }
+  ]
+}

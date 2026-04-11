@@ -141,10 +141,12 @@
 ### 收藏标签 / 标签分组
 
 - `addFavoriteTag(siteId, tagName, options?)`
+- `addFavoriteTagsBatch(tagString, siteId, labels?)`：批量添加，`tagString` 按行/逗号/空格切分，返回 `{ added, skipped }`
 - `removeFavoriteTag(id)`
 - `removeFavoriteTagByName(siteId, tagName)`
-- `getFavoriteTags(siteId?)`
-- `updateFavoriteTag(id, updates)`
+- `getFavoriteTags(params?: ListQueryParams)`：返回 `PaginatedResult<FavoriteTag>`，支持 `siteId` / `keyword` / `offset` / `limit`；`limit <= 0` 表示全量
+- `getFavoriteTagsWithDownloadState(params?: ListQueryParams)`：同上，返回值带下载状态字段
+- `updateFavoriteTag(id, updates)`：`updates.siteId` 只允许把"全局"标签（原 `siteId === null`）指派到某个站点，已绑定站点的标签不可再改
 - `isFavoriteTag(siteId, tagName)`
 - `getFavoriteTagLabels()`
 - `addFavoriteTagLabel(name, color?)`
@@ -160,7 +162,7 @@
 
 - `addBlacklistedTag(tagName, siteId?, reason?)`
 - `addBlacklistedTags(tagString, siteId?, reason?)`
-- `getBlacklistedTags(siteId?)`
+- `getBlacklistedTags(params?: ListQueryParams)`：返回 `PaginatedResult<BlacklistedTag>`，语义同 `getFavoriteTags`
 - `getActiveBlacklistTagNames(siteId?)`
 - `toggleBlacklistedTag(id)`
 - `updateBlacklistedTag(id, updates)`
@@ -192,9 +194,13 @@
 ### 导入 / 导出
 
 - `exportFavoriteTags(siteId?)`
-- `importFavoriteTags()`
+- `importFavoriteTagsPickFile()`：只负责弹选择文件 + 解析，返回 `ImportPickFileResult<FavoriteTagImportRecord>`（含标签分组预览），不落库
+- `importFavoriteTagsCommit(payload)`：拿 pickFile 的结果 + 用户选中的兜底 siteId 提交，返回 `{ imported, skipped, labelsImported, labelsSkipped }`
 - `exportBlacklistedTags(siteId?)`
-- `importBlacklistedTags()`
+- `importBlacklistedTagsPickFile()`：同上，用于黑名单
+- `importBlacklistedTagsCommit(payload)`：同上，用于黑名单
+
+说明：从 v0.0.2 起一步到位的旧 `importFavoriteTags()` / `importBlacklistedTags()` 已被移除，统一改成两段式以支持预览再确认。
 
 ### 收藏夹分组 / 保存的搜索
 
@@ -261,6 +267,7 @@
 - `importBackup(mode?)`：导入应用备份
 - `testBaidu()`：测试百度连通性
 - `testGoogle()`：测试 Google 连通性
+- `checkForUpdate()`：通过 GitHub Releases API 查询最新发布版本，返回 `UpdateCheckResult`（含当前版本、最新版本、`hasUpdate`、`releaseUrl` 等）。主进程侧对成功结果做短时缓存（约 60s），错误响应不缓存以便重试。
 
 ### 事件订阅
 
@@ -286,8 +293,8 @@
 - 一部分接口允许 `siteId?: number | null`
 - 当 `siteId` 为 `null` 或省略时，通常表示“全局项”或“不绑定特定站点”
 - 这类接口主要包括：
-  - `booru.addFavoriteTag`、`booru.removeFavoriteTagByName`、`booru.getFavoriteTags`、`booru.isFavoriteTag`
-  - `booru.addBlacklistedTag`、`booru.addBlacklistedTags`、`booru.getBlacklistedTags`、`booru.getActiveBlacklistTagNames`
+  - `booru.addFavoriteTag`、`booru.removeFavoriteTagByName`、`booru.isFavoriteTag`
+  - `booru.addBlacklistedTag`、`booru.addBlacklistedTags`、`booru.getActiveBlacklistTagNames`
   - `booru.exportFavoriteTags`、`booru.exportBlacklistedTags`
   - `booru.getFavoriteGroups`、`booru.createFavoriteGroup`
   - `booru.getSavedSearches`、`booru.addSavedSearch`
@@ -299,6 +306,33 @@
   - `booru.addFavorite(..., syncToServer = false)`
   - `booru.removeFavorite(..., syncToServer = false)`
   - `system.importBackup(mode = 'merge')`
+
+### 列表查询与分页约定（v0.0.2 起）
+
+`getFavoriteTags` / `getFavoriteTagsWithDownloadState` / `getBlacklistedTags` 三个 list 接口统一接收 `ListQueryParams`，返回 `PaginatedResult<T>`：
+
+```ts
+interface ListQueryParams {
+  /** undefined = 不过滤站点；null = 只查全局；number = 过滤该站点并含全局 */
+  siteId?: number | null;
+  /** 空字符串或 undefined 不搜索；非空走 COLLATE NOCASE 模糊匹配 */
+  keyword?: string;
+  /** 默认 0 */
+  offset?: number;
+  /** 默认 50；传 0 或负数 = 无分页全量（导出场景使用） */
+  limit?: number;
+}
+
+interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+}
+```
+
+调用模式：
+
+- 页面表格走分页：传 `{ siteId, keyword, offset, limit }`，根据 `total` 渲染分页控件
+- 导出 / 批量计算：传 `{ limit: 0 }` 拿全量，再从 `items` 里取数组
 
 ## 事件订阅使用模式
 

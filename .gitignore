@@ -14,7 +14,11 @@ pip-log.txt
 pip-delete-this-directory.txt
 
 # IDE and Editor files
-.vscode/
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+!.vscode/tasks.json
+!.vscode/launch.json.example
 .idea/
 *.swp
 *.swo
@@ -140,4 +144,4 @@ skills-lock.json
 .claude/settings.local.json
 
 # 打包目录
-dist2
+dist-v*
