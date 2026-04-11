@@ -16,6 +16,7 @@ const IPC_CHANNELS = {
   SYSTEM_SHOW_ITEM: 'system:show-item',
   SYSTEM_EXPORT_BACKUP: 'system:export-backup',
   SYSTEM_IMPORT_BACKUP: 'system:import-backup',
+  SYSTEM_CHECK_FOR_UPDATE: 'system:check-for-update',
 
   // === Booru 相关通道 ===
   BOORU_GET_SITES: 'booru:get-sites',
@@ -546,6 +547,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     showItem: (path: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SHOW_ITEM, path),
     exportBackup: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_EXPORT_BACKUP),
     importBackup: (mode: 'merge' | 'replace' = 'merge') => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_IMPORT_BACKUP, mode),
+    checkForUpdate: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_CHECK_FOR_UPDATE),
     // 网络测试（从主进程发起，绕过CORS限制）
     testBaidu: () => ipcRenderer.invoke('network:test-baidu'),
     testGoogle: () => ipcRenderer.invoke('network:test-google'),
@@ -716,6 +719,7 @@ declare global {
         importBackup: (mode?: 'merge' | 'replace') => Promise<{ success: boolean; data?: { path: string; mode: 'merge' | 'replace'; restoredTables: Array<{ table: string; count: number }> }; error?: string }>;
         testBaidu: () => Promise<{ success: boolean; status?: number; error?: string }>;
         testGoogle: () => Promise<{ success: boolean; status?: number; error?: string }>;
+        checkForUpdate: () => Promise<{ success: boolean; data?: import('../shared/types').UpdateCheckResult; error?: string }>;
         onBulkDownloadRecordProgress: (callback: (data: any) => void) => () => void;
         onBulkDownloadRecordStatus: (callback: (data: any) => void) => () => void;
       };

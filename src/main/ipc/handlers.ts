@@ -49,6 +49,7 @@ import {
   deleteInvalidImage,
   clearInvalidImages
 } from '../services/invalidImageService.js';
+import * as updateService from '../services/updateService.js';
 
 let ipcHandlersRegistered = false;
 
@@ -340,6 +341,18 @@ export function setupIPC() {
       shell.showItemInFolder(filePath);
       return { success: true };
     } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 检查更新
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_CHECK_FOR_UPDATE, async () => {
+    console.log('[IPC] 检查更新');
+    try {
+      const result = await updateService.checkForUpdate();
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 检查更新失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

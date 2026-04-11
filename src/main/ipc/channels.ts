@@ -13,6 +13,7 @@ export const IPC_CHANNELS = {
   SYSTEM_SELECT_FOLDER: 'system:select-folder',
   SYSTEM_OPEN_EXTERNAL: 'system:open-external',
   SYSTEM_SHOW_ITEM: 'system:show-item',
+  SYSTEM_CHECK_FOR_UPDATE: 'system:check-for-update',
 
   // === Booru 相关通道 ===
 
