@@ -286,6 +286,15 @@ vi.mock('../../../src/main/services/config', () => ({
   resolveConfigPath: vi.fn((p: string) => `C:/config/${p}`),
 }));
 
+// Task 9: booruService 现在会 `import { dialog } from 'electron'`。
+// 测试环境没有 electron 运行时，必须 stub 掉整个模块，否则模块求值会爆。
+// 具体 pickFile 测试不在本文件里，这里只提供一个最小 dialog stub 以便 import 通过。
+vi.mock('electron', () => ({
+  dialog: {
+    showOpenDialog: vi.fn(async () => ({ canceled: true, filePaths: [] })),
+  },
+}));
+
 describe('booruService integration-ish behavior', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -547,5 +556,102 @@ describe('addFavoriteTagsBatch', () => {
     await addFavoriteTagsBatch('a\nb', 1, '角色, 风格');
     const a = state.favoriteTags.find(t => t.tagName === 'a');
     expect(JSON.parse(a!.labels as any)).toEqual(['角色', '风格']);
+  });
+});
+
+describe('importFavoriteTagsCommit', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    lastInsertedFavoriteTagId = 0;
+    state.favoriteTags = [];
+  });
+
+  it('文件里显式 siteId 优先于 fallbackSiteId', async () => {
+    const { importFavoriteTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importFavoriteTagsCommit({
+      records: [
+        { tagName: 'with_site', siteId: 2 },
+        { tagName: 'without_site' },
+      ],
+      fallbackSiteId: 1,
+    });
+    expect(result.imported).toBe(2);
+    const withSite = state.favoriteTags.find(t => t.tagName === 'with_site');
+    const withoutSite = state.favoriteTags.find(t => t.tagName === 'without_site');
+    expect(withSite!.siteId).toBe(2);
+    expect(withoutSite!.siteId).toBe(1);
+  });
+
+  it('fallbackSiteId=null 时未指定的记录进全局', async () => {
+    const { importFavoriteTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importFavoriteTagsCommit({
+      records: [{ tagName: 'a' }, { tagName: 'b' }],
+      fallbackSiteId: null,
+    });
+    expect(result.imported).toBe(2);
+    expect(state.favoriteTags.every(t => t.siteId === null)).toBe(true);
+  });
+
+  it('已存在计入 skipped', async () => {
+    state.favoriteTags = [{ id: 1, siteId: null, tagName: 'dup', labels: '[]', queryType: 'tag', notes: null, sortOrder: 1, createdAt: '2026-04-01', updatedAt: '2026-04-01' }];
+    const { importFavoriteTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importFavoriteTagsCommit({
+      records: [{ tagName: 'dup' }, { tagName: 'new' }],
+      fallbackSiteId: null,
+    });
+    expect(result.imported).toBe(1);
+    expect(result.skipped).toBe(1);
+  });
+
+  it('records 为空返回 0/0', async () => {
+    const { importFavoriteTagsCommit } = await import('../../../src/main/services/booruService');
+    const result = await importFavoriteTagsCommit({ records: [], fallbackSiteId: null });
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(0);
+  });
+});
+
+describe('parseFavoriteTagImportContent', () => {
+  beforeEach(() => {
+    vi.resetModules();
+  });
+
+  it('txt 按行解析跳过注释', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const result = parseFavoriteTagImportContent('tag_a\n# comment\n// comment\n\n  tag_b  ', true);
+    expect(result).toEqual([{ tagName: 'tag_a' }, { tagName: 'tag_b' }]);
+  });
+
+  it('json 顶层数组', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([
+      { tagName: 'a', siteId: 1, labels: ['x'] },
+      { tagName: 'b' },
+    ]);
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result).toEqual([
+      { tagName: 'a', siteId: 1, labels: ['x'] },
+      { tagName: 'b' },
+    ]);
+  });
+
+  it('json { favoriteTags: [...] } 包装', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify({ favoriteTags: [{ tagName: 'a' }] });
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result).toEqual([{ tagName: 'a' }]);
+  });
+
+  it('json 带 queryType', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    const json = JSON.stringify([{ tagName: 'a', queryType: 'raw' }]);
+    const result = parseFavoriteTagImportContent(json, false);
+    expect(result[0].queryType).toBe('raw');
+  });
+
+  it('json 非法顶层抛错', async () => {
+    const { parseFavoriteTagImportContent } = await import('../../../src/main/services/booruService');
+    expect(() => parseFavoriteTagImportContent(JSON.stringify({ foo: 'bar' }), false))
+      .toThrow(/格式不支持/);
   });
 });
