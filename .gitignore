@@ -137,3 +137,6 @@ celerybeat-schedule
 .agents/
 .trae/
 skills-lock.json
+
+# 打包目录
+dist2
