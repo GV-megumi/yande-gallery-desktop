@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, ipcMain, protocol, Menu } from 'electron';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createWindow, setupWindowIPC } from './window.js';
@@ -24,6 +24,10 @@ protocol.registerSchemesAsPrivileged([
 // 初始化应用（加载配置、初始化数据库、初始化图库）
 app.whenReady().then(async () => {
   try {
+    // 去掉 Electron 默认菜单栏（File / Edit / View / Window / Help）
+    // 应用自身有侧边栏导航，无需系统菜单；同时也移除 Alt 呼出
+    Menu.setApplicationMenu(null);
+
     // 注册文件协议处理器，将 app://... 映射到本地文件系统路径
     protocol.registerFileProtocol('app', (request, callback) => {
       try {
