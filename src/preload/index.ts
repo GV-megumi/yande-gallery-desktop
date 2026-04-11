@@ -75,6 +75,7 @@ const IPC_CHANNELS = {
 
   // 收藏标签管理
   BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
+  BOORU_ADD_FAVORITE_TAGS_BATCH: 'booru:add-favorite-tags-batch',
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
@@ -340,6 +341,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 收藏标签管理
     addFavoriteTag: (siteId: number | null, tagName: string, options?: any) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE_TAG, siteId, tagName, options),
+    addFavoriteTagsBatch: (tagString: string, siteId: number | null, labels?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE_TAGS_BATCH, tagString, siteId, labels),
     removeFavoriteTag: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG, id),
     removeFavoriteTagByName: (siteId: number | null, tagName: string) =>
@@ -616,6 +619,7 @@ declare global {
         getProfile: (siteId: number) => Promise<{ success: boolean; data?: { id: number; name: string; level_string?: string; created_at?: string; avatar_url?: string; post_upload_count?: number; post_update_count?: number; note_update_count?: number; comment_count?: number; forum_post_count?: number; favorite_count?: number; feedback_count?: number } | null; error?: string }>;
         getUserProfile: (siteId: number, params: { userId?: number; username?: string }) => Promise<{ success: boolean; data?: { id: number; name: string; level_string?: string; created_at?: string; avatar_url?: string; post_upload_count?: number; post_update_count?: number; note_update_count?: number; comment_count?: number; forum_post_count?: number; favorite_count?: number; feedback_count?: number } | null; error?: string }>;
         addFavoriteTag: (siteId: number | null, tagName: string, options?: any) => Promise<{ success: boolean; data?: any; error?: string }>;
+        addFavoriteTagsBatch: (tagString: string, siteId: number | null, labels?: string) => Promise<{ success: boolean; data?: { added: number; skipped: number }; error?: string }>;
         removeFavoriteTag: (id: number) => Promise<{ success: boolean; error?: string }>;
         removeFavoriteTagByName: (siteId: number | null, tagName: string) => Promise<{ success: boolean; error?: string }>;
         getFavoriteTags: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTag>; error?: string }>;

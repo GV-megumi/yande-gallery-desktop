@@ -100,6 +100,7 @@ export const IPC_CHANNELS = {
 
   // === 收藏标签管理 ===
   BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',
+  BOORU_ADD_FAVORITE_TAGS_BATCH: 'booru:add-favorite-tags-batch',
   BOORU_REMOVE_FAVORITE_TAG: 'booru:remove-favorite-tag',
   BOORU_REMOVE_FAVORITE_TAG_BY_NAME: 'booru:remove-favorite-tag-by-name',
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',

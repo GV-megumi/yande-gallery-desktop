@@ -1617,6 +1617,18 @@ export function setupIPC() {
     }
   });
 
+  // 批量添加收藏标签
+  ipcMain.handle(IPC_CHANNELS.BOORU_ADD_FAVORITE_TAGS_BATCH, async (_event, tagString: string, siteId: number | null, labels?: string) => {
+    console.log('[IPC] 批量添加收藏标签');
+    try {
+      const result = await booruService.addFavoriteTagsBatch(tagString, siteId, labels);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 批量添加收藏标签失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // 获取收藏标签列表
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS, async (_event, params: ListQueryParams = {}) => {
     console.log('[IPC] 获取收藏标签列表:', params);
