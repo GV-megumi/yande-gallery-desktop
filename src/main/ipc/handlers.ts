@@ -33,7 +33,7 @@ import { hashPasswordSHA1 } from '../services/moebooruClient.js';
 import { createBooruClient } from '../services/booruClientFactory.js';
 import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
-import { BooruPost, ListQueryParams } from '../../shared/types.js';
+import { BooruPost, ListQueryParams, FavoriteTagImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
 import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
@@ -2887,85 +2887,27 @@ export function setupIPC() {
     }
   });
 
-  // 导入收藏标签（支持 JSON/TXT）
-  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent) => {
-    console.log('[IPC] 导入收藏标签');
+  // 选择收藏标签导入文件（pickFile 阶段：弹对话框 + 读取 + 解析，返回记录列表）
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE, async () => {
+    console.log('[IPC] 选择收藏标签导入文件');
     try {
-      const result = await dialog.showOpenDialog({
-        title: '导入收藏标签',
-        filters: [
-          { name: '支持的文件', extensions: ['json', 'txt'] },
-          { name: 'JSON 文件', extensions: ['json'] },
-          { name: '文本文件', extensions: ['txt'] },
-        ],
-        properties: ['openFile'],
-      });
+      const result = await booruService.importFavoriteTagsPickFile();
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 选择导入文件失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
 
-      if (result.canceled || !result.filePaths.length) {
-        return { success: false, error: '取消导入' };
-      }
-
-      const filePath = result.filePaths[0];
-      const content = await fs.readFile(filePath, 'utf-8');
-      const isTxt = filePath.endsWith('.txt');
-
-      let importedTags = 0;
-      let importedLabels = 0;
-      let skippedTags = 0;
-
-      // 获取已有标签用于去重
-      const { items: existingTags } = await booruService.getFavoriteTags({ limit: 0 });
-      const existingTagNames = new Set(existingTags.map(t => `${t.siteId || 'null'}_${t.tagName}`));
-
-      if (isTxt) {
-        // TXT 格式：每行一个标签名，作为全局标签导入
-        const tagNames = content.split('\n').map(l => l.trim()).filter(Boolean);
-        for (const tagName of tagNames) {
-          const key = `null_${tagName}`;
-          if (!existingTagNames.has(key)) {
-            await booruService.addFavoriteTag(null, tagName);
-            importedTags++;
-          } else {
-            skippedTags++;
-          }
-        }
-      } else {
-        // JSON 格式
-        const importData = JSON.parse(content);
-        if (!importData.tags || !Array.isArray(importData.tags)) {
-          throw new Error('无效的导入文件格式：缺少 tags 数组');
-        }
-
-        // 导入标签分组
-        if (importData.labels && Array.isArray(importData.labels)) {
-          const existingLabels = await booruService.getFavoriteTagLabels();
-          const existingLabelNames = new Set(existingLabels.map(l => l.name));
-          for (const label of importData.labels) {
-            if (!existingLabelNames.has(label.name)) {
-              await booruService.addFavoriteTagLabel(label.name, label.color);
-              importedLabels++;
-            }
-          }
-        }
-
-        // 导入收藏标签
-        for (const tag of importData.tags) {
-          const key = `${tag.siteId || 'null'}_${tag.tagName}`;
-          if (!existingTagNames.has(key)) {
-            await booruService.addFavoriteTag(
-              tag.siteId || null,
-              tag.tagName,
-              { labels: tag.labels, queryType: tag.queryType || 'tag', notes: tag.notes }
-            );
-            importedTags++;
-          } else {
-            skippedTags++;
-          }
-        }
-      }
-
-      console.log('[IPC] 导入收藏标签成功: 导入', importedTags, '个标签,', importedLabels, '个分组, 跳过', skippedTags, '个');
-      return { success: true, data: { importedTags, importedLabels, skippedTags } };
+  // 提交收藏标签导入（commit 阶段：把用户确认过的记录写入数据库）
+  // NOTE: label group import was dropped from the pickFile/commit split — labels attached to
+  // individual records are still imported via record.labels, but the top-level 'labels' array
+  // is no longer persisted as separate groups.
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT, async (_event: IpcMainInvokeEvent, payload: { records: FavoriteTagImportRecord[]; fallbackSiteId: number | null }) => {
+    console.log('[IPC] 提交收藏标签导入:', payload.records.length);
+    try {
+      const result = await booruService.importFavoriteTagsCommit(payload);
+      return { success: true, data: result };
     } catch (error) {
       console.error('[IPC] 导入收藏标签失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -3018,63 +2960,26 @@ export function setupIPC() {
     }
   });
 
-  // 导入黑名单标签（支持 JSON/TXT）
-  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent) => {
-    console.log('[IPC] 导入黑名单标签');
+  // 选择黑名单导入文件（pickFile 阶段：弹对话框 + 读取 + 解析，返回记录列表）
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS_PICK_FILE, async () => {
+    console.log('[IPC] 选择黑名单导入文件');
     try {
-      const result = await dialog.showOpenDialog({
-        title: '导入黑名单标签',
-        filters: [
-          { name: '支持的文件', extensions: ['json', 'txt'] },
-          { name: 'JSON 文件', extensions: ['json'] },
-          { name: '文本文件', extensions: ['txt'] },
-        ],
-        properties: ['openFile'],
-      });
-
-      if (result.canceled || !result.filePaths.length) {
-        return { success: false, error: '取消导入' };
-      }
-
-      const filePath = result.filePaths[0];
-      const content = await fs.readFile(filePath, 'utf-8');
-      const isTxt = filePath.endsWith('.txt');
-
-      let imported = 0;
-      let skipped = 0;
-
-      if (isTxt) {
-        // TXT 格式：每行一个标签名，批量添加为全局黑名单
-        const tagString = content.split('\n').map(l => l.trim()).filter(Boolean).join('\n');
-        const addResult = await booruService.addBlacklistedTags(tagString, null);
-        imported = addResult.added;
-        skipped = addResult.skipped;
-      } else {
-        // JSON 格式
-        const importData = JSON.parse(content);
-        if (!importData.tags || !Array.isArray(importData.tags)) {
-          throw new Error('无效的导入文件格式：缺少 tags 数组');
-        }
-
-        for (const tag of importData.tags) {
-          try {
-            await booruService.addBlacklistedTag(
-              tag.tagName,
-              tag.siteId || null,
-              tag.reason || undefined
-            );
-            imported++;
-          } catch {
-            // 标签已存在等情况，计为跳过
-            skipped++;
-          }
-        }
-      }
-
-      console.log('[IPC] 导入黑名单标签成功: 导入', imported, '个, 跳过', skipped, '个');
-      return { success: true, data: { imported, skipped } };
+      const result = await booruService.importBlacklistedTagsPickFile();
+      return { success: true, data: result };
     } catch (error) {
-      console.error('[IPC] 导入黑名单标签失败:', error);
+      console.error('[IPC] 选择黑名单导入文件失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 提交黑名单导入（commit 阶段：把用户确认过的记录写入数据库）
+  ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS_COMMIT, async (_event: IpcMainInvokeEvent, payload: { records: BlacklistedTagImportRecord[]; fallbackSiteId: number | null }) => {
+    console.log('[IPC] 提交黑名单导入:', payload.records.length);
+    try {
+      const result = await booruService.importBlacklistedTagsCommit(payload);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 导入黑名单失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

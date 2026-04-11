@@ -14,21 +14,25 @@ describe('favorite tag import/export contract', () => {
 
   it('应存在 favorite tag 导入导出 IPC channels', () => {
     expect(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS).toBe('booru:export-favorite-tags');
-    expect(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS).toBe('booru:import-favorite-tags');
+    expect(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE).toBe('booru:import-favorite-tags-pick-file');
+    expect(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT).toBe('booru:import-favorite-tags-commit');
   });
 
-  it('preload 应真实暴露 exportFavoriteTags / importFavoriteTags', () => {
+  it('preload 应真实暴露 exportFavoriteTags / importFavoriteTagsPickFile / importFavoriteTagsCommit', () => {
     expect(preloadSource).toContain('exportFavoriteTags: (siteId?: number | null) =>');
-    expect(preloadSource).toContain('importFavoriteTags: () =>');
+    expect(preloadSource).toContain('importFavoriteTagsPickFile: () =>');
+    expect(preloadSource).toContain('importFavoriteTagsCommit: (payload:');
   });
 
   it('handlers 应真实注册导入导出 handler', () => {
     expect(handlersSource).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS');
-    expect(handlersSource).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS');
+    expect(handlersSource).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE');
+    expect(handlersSource).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT');
   });
 
   it('booruService 应真实提供导入导出方法', () => {
     expect(serviceSource).toContain('export async function exportFavoriteTags');
-    expect(serviceSource).toContain('export async function importFavoriteTags');
+    expect(serviceSource).toContain('export async function importFavoriteTagsPickFile');
+    expect(serviceSource).toContain('export async function importFavoriteTagsCommit');
   });
 });

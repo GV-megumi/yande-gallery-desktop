@@ -81,7 +81,8 @@ const IPC_CHANNELS = {
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
   BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE: 'booru:get-favorite-tags-with-download-state',
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE: 'booru:import-favorite-tags-pick-file',
+  BOORU_IMPORT_FAVORITE_TAGS_COMMIT: 'booru:import-favorite-tags-commit',
   BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
   BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
   BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:get-favorite-tag-download-binding',
@@ -140,7 +141,8 @@ const IPC_CHANNELS = {
 
   // 标签导入/导出
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
-  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
+  BOORU_IMPORT_BLACKLISTED_TAGS_PICK_FILE: 'booru:import-blacklisted-tags-pick-file',
+  BOORU_IMPORT_BLACKLISTED_TAGS_COMMIT: 'booru:import-blacklisted-tags-commit',
 
   // 帖子注释
   BOORU_GET_NOTES: 'booru:get-notes',
@@ -449,12 +451,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // 标签导入/导出
     exportFavoriteTags: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS, siteId),
-    importFavoriteTags: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS),
+    importFavoriteTagsPickFile: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE),
+    importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; fallbackSiteId: number | null }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT, payload),
     exportBlacklistedTags: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_EXPORT_BLACKLISTED_TAGS, siteId),
-    importBlacklistedTags: () =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS),
+    importBlacklistedTagsPickFile: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS_PICK_FILE),
+    importBlacklistedTagsCommit: (payload: { records: import('../shared/types').BlacklistedTagImportRecord[]; fallbackSiteId: number | null }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_IMPORT_BLACKLISTED_TAGS_COMMIT, payload),
 
     // 帖子注释
     getNotes: (siteId: number, postId: number) =>
@@ -625,7 +631,8 @@ declare global {
         getFavoriteTags: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTag>; error?: string }>;
         getFavoriteTagsWithDownloadState: (params?: import('../shared/types').ListQueryParams) => Promise<{ success: boolean; data?: import('../shared/types').PaginatedResult<import('../shared/types').FavoriteTagWithDownloadState>; error?: string }>;
         exportFavoriteTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; filePath: string }; error?: string }>;
-        importFavoriteTags: () => Promise<{ success: boolean; data?: { importedTags: number; importedLabels: number; skippedTags: number }; error?: string }>;
+        importFavoriteTagsPickFile: () => Promise<{ success: boolean; data?: import('../shared/types').ImportPickFileResult<import('../shared/types').FavoriteTagImportRecord>; error?: string }>;
+        importFavoriteTagsCommit: (payload: { records: import('../shared/types').FavoriteTagImportRecord[]; fallbackSiteId: number | null }) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         updateFavoriteTag: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         isFavoriteTag: (siteId: number | null, tagName: string) => Promise<{ success: boolean; data?: boolean; error?: string }>;
         getFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
@@ -672,7 +679,8 @@ declare global {
         searchPools: (siteId: number, query: string, page?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         // 标签导入/导出
         exportBlacklistedTags: (siteId?: number | null) => Promise<{ success: boolean; data?: { count: number; path: string }; error?: string }>;
-        importBlacklistedTags: () => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
+        importBlacklistedTagsPickFile: () => Promise<{ success: boolean; data?: import('../shared/types').ImportPickFileResult<import('../shared/types').BlacklistedTagImportRecord>; error?: string }>;
+        importBlacklistedTagsCommit: (payload: { records: import('../shared/types').BlacklistedTagImportRecord[]; fallbackSiteId: number | null }) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         onDownloadProgress: (callback: (data: any) => void) => () => void;
         onDownloadStatus: (callback: (data: any) => void) => () => void;
         onQueueStatus: (callback: (data: any) => void) => () => void;

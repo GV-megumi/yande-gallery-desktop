@@ -106,7 +106,8 @@ export const IPC_CHANNELS = {
   BOORU_GET_FAVORITE_TAGS: 'booru:get-favorite-tags',
   BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE: 'booru:get-favorite-tags-with-download-state',
   BOORU_EXPORT_FAVORITE_TAGS: 'booru:export-favorite-tags',
-  BOORU_IMPORT_FAVORITE_TAGS: 'booru:import-favorite-tags',
+  BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE: 'booru:import-favorite-tags-pick-file',
+  BOORU_IMPORT_FAVORITE_TAGS_COMMIT: 'booru:import-favorite-tags-commit',
   BOORU_UPDATE_FAVORITE_TAG: 'booru:update-favorite-tag',
   BOORU_IS_FAVORITE_TAG: 'booru:is-favorite-tag',
   BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:get-favorite-tag-download-binding',
@@ -160,7 +161,8 @@ export const IPC_CHANNELS = {
 
   // === 标签导入/导出 ===
   BOORU_EXPORT_BLACKLISTED_TAGS: 'booru:export-blacklisted-tags',
-  BOORU_IMPORT_BLACKLISTED_TAGS: 'booru:import-blacklisted-tags',
+  BOORU_IMPORT_BLACKLISTED_TAGS_PICK_FILE: 'booru:import-blacklisted-tags-pick-file',
+  BOORU_IMPORT_BLACKLISTED_TAGS_COMMIT: 'booru:import-blacklisted-tags-commit',
 
   // === 帖子注释 ===
   BOORU_GET_NOTES: 'booru:get-notes',
