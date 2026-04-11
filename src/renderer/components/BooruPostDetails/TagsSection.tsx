@@ -99,9 +99,9 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
     if (!site) return;
     const loadFavoriteStatus = async () => {
       try {
-        const result = await window.electronAPI.booru.getFavoriteTags(site.id);
+        const result = await window.electronAPI.booru.getFavoriteTags({ siteId: site.id, limit: 0 });
         if (result.success && result.data) {
-          setFavoritedTags(new Set(result.data.map((t: any) => t.tagName)));
+          setFavoritedTags(new Set(result.data.items.map((t) => t.tagName)));
         }
       } catch (error) {
         console.error('[TagsSection] 加载收藏标签状态失败:', error);
