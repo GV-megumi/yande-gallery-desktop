@@ -677,7 +677,7 @@ export const SettingsPage: React.FC = () => {
           <SettingsGroup title={t('settings.version')}>
             <SettingsRow
               label={t('settings.version')}
-              extra={<span style={{ color: colors.textTertiary }}>1.0.0</span>}
+              extra={<span style={{ color: colors.textTertiary }}>0.0.1</span>}
             />
             <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
             <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
