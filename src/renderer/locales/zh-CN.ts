@@ -57,6 +57,8 @@ const zhCN = {
     blacklist: '黑名单',
     downloads: '下载管理',
     bulkDownload: '批量下载',
+    tagManagement: '标签管理',
+    download: '下载',
     savedSearches: '保存的搜索',
     siteConfig: '站点配置',
     settings: '设置',

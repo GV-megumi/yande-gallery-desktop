@@ -27,12 +27,10 @@ const InvalidImagesPage = React.lazy(() => import('./pages/InvalidImagesPage').t
 const SettingsPage = React.lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
 const BooruPage = React.lazy(() => import('./pages/BooruPage').then(m => ({ default: m.BooruPage })));
 const BooruSettingsPage = React.lazy(() => import('./pages/BooruSettingsPage').then(m => ({ default: m.BooruSettingsPage })));
-const BooruDownloadPage = React.lazy(() => import('./pages/BooruDownloadPage'));
-const BooruBulkDownloadPage = React.lazy(() => import('./pages/BooruBulkDownloadPage').then(m => ({ default: m.BooruBulkDownloadPage })));
 const BooruTagSearchPage = React.lazy(() => import('./pages/BooruTagSearchPage').then(m => ({ default: m.BooruTagSearchPage })));
 const BooruFavoritesPage = React.lazy(() => import('./pages/BooruFavoritesPage').then(m => ({ default: m.BooruFavoritesPage })));
-const FavoriteTagsPage = React.lazy(() => import('./pages/FavoriteTagsPage').then(m => ({ default: m.FavoriteTagsPage })));
-const BlacklistedTagsPage = React.lazy(() => import('./pages/BlacklistedTagsPage').then(m => ({ default: m.BlacklistedTagsPage })));
+const BooruTagManagementPage = React.lazy(() => import('./pages/BooruTagManagementPage').then(m => ({ default: m.BooruTagManagementPage })));
+const BooruDownloadHubPage = React.lazy(() => import('./pages/BooruDownloadHubPage').then(m => ({ default: m.BooruDownloadHubPage })));
 const BooruPopularPage = React.lazy(() => import('./pages/BooruPopularPage').then(m => ({ default: m.BooruPopularPage })));
 const BooruPoolsPage = React.lazy(() => import('./pages/BooruPoolsPage').then(m => ({ default: m.BooruPoolsPage })));
 const BooruArtistPage = React.lazy(() => import('./pages/BooruArtistPage').then(m => ({ default: m.BooruArtistPage })));
@@ -56,7 +54,7 @@ type MenuItem = {
 };
 
 /** 固定到底部的菜单项（最多 5 个，持久化到 config.yaml） */
-type PinnedItem = { key: string; section: 'gallery' | 'booru' | 'google' };
+type PinnedItem = { key: string; section: 'gallery' | 'booru' | 'google'; defaultTab?: string };
 
 /** 侧边栏图标：小圆角方块 + 品牌色 */
 const IconBadge: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, icon }) => (
@@ -157,10 +155,8 @@ function buildBooruSubMenuItems(t: (path: string) => string): MenuItem[] {
     { key: 'user-profile', icon: <DotIcon color={iconColors.favorites} icon={<UserOutlined />} />, label: t('menu.userProfile') },
     { key: 'favorites', icon: <DotIcon color={iconColors.favorites} icon={<BookOutlined />} />, label: t('menu.favorites') },
     { key: 'server-favorites', icon: <DotIcon color={iconColors.serverFavorites} icon={<HeartOutlined />} />, label: t('menu.serverFavorites') },
-    { key: 'favorite-tags', icon: <DotIcon color={iconColors.favoriteTags} icon={<StarOutlined />} />, label: t('menu.favoriteTags') },
-    { key: 'blacklisted-tags', icon: <DotIcon color="#EF4444" icon={<StopOutlined />} />, label: t('menu.blacklist') },
-    { key: 'downloads', icon: <DotIcon color={iconColors.downloads} icon={<CloudDownloadOutlined />} />, label: t('menu.downloads') },
-    { key: 'bulk-download', icon: <DotIcon color={iconColors.bulkDownload} icon={<CloudDownloadOutlined />} />, label: t('menu.bulkDownload') },
+    { key: 'tag-management', icon: <DotIcon color={iconColors.favoriteTags} icon={<StarOutlined />} />, label: t('menu.tagManagement') },
+    { key: 'download', icon: <DotIcon color={iconColors.downloads} icon={<CloudDownloadOutlined />} />, label: t('menu.download') },
     { key: 'saved-searches', icon: <DotIcon color="#6366F1" icon={<SearchOutlined />} />, label: t('menu.savedSearches') },
     { key: 'booru-settings', icon: <DotIcon color={iconColors.booruSettings} icon={<CloudOutlined />} />, label: t('menu.siteConfig') },
   ];
@@ -370,14 +366,56 @@ export const AppContent: React.FC = () => {
             const order = cfgResult.data.ui.menuOrder;
             if (order.main?.length)    setMainOrder(order.main);
             if (order.gallery?.length) setGalleryOrder(order.gallery);
-            if (order.booru?.length)   setBooruOrder(order.booru);
+            if (order.booru?.length) {
+              // 迁移旧的 booru 菜单排序 key
+              const BOORU_ORDER_MIGRATION: Record<string, string> = {
+                'favorite-tags': 'tag-management',
+                'blacklisted-tags': 'tag-management',
+                'downloads': 'download',
+                'bulk-download': 'download',
+              };
+              const seen = new Set<string>();
+              const migratedBooruOrder = (order.booru as string[])
+                .map(k => BOORU_ORDER_MIGRATION[k] ?? k)
+                .filter(k => { if (seen.has(k)) return false; seen.add(k); return true; });
+              setBooruOrder(migratedBooruOrder);
+            }
             if (order.google?.length)  setGoogleOrder(order.google);
             console.log('[App] 菜单排序已加载', order);
           }
-          // 加载固定菜单项
+          // 加载固定菜单项（含旧 key 迁移）
           if (cfgResult.data?.ui?.pinnedItems?.length) {
-            setPinnedItems((cfgResult.data.ui.pinnedItems as PinnedItem[]).slice(0, 5));
-            console.log('[App] 固定菜单项已加载', cfgResult.data.ui.pinnedItems);
+            const PINNED_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
+              'favorite-tags':   { key: 'tag-management', defaultTab: 'favorite' },
+              'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
+              'downloads':       { key: 'download',       defaultTab: 'downloads' },
+              'bulk-download':   { key: 'download',       defaultTab: 'bulk' },
+            };
+            let migrated = false;
+            const raw = (cfgResult.data.ui.pinnedItems as PinnedItem[]).slice(0, 5);
+            const migratedPins: PinnedItem[] = [];
+            const seen = new Set<string>();
+            for (const pin of raw) {
+              const mapping = PINNED_MIGRATION[pin.key];
+              const newPin = mapping
+                ? { ...pin, key: mapping.key, defaultTab: pin.defaultTab ?? mapping.defaultTab }
+                : pin;
+              if (mapping) migrated = true;
+              // 去重：合并后可能出现重复的 key
+              const dedupKey = `${newPin.section}:${newPin.key}`;
+              if (!seen.has(dedupKey)) {
+                seen.add(dedupKey);
+                migratedPins.push(newPin);
+              }
+            }
+            setPinnedItems(migratedPins);
+            if (migrated) {
+              console.log('[App] 固定菜单项已迁移旧 key', migratedPins);
+              // 异步持久化迁移后的结果
+              savePinnedItems(migratedPins);
+            } else {
+              console.log('[App] 固定菜单项已加载', migratedPins);
+            }
           }
         }
       } catch (error) {
@@ -599,10 +637,8 @@ export const AppContent: React.FC = () => {
       if (key === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
       if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
       if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
-      if (key === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
-      if (key === 'blacklisted-tags') return <BlacklistedTagsPage />;
-      if (key === 'downloads') return <BooruDownloadPage />;
-      if (key === 'bulk-download') return <BooruBulkDownloadPage />;
+      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} defaultTab={(pin.defaultTab as 'favorite' | 'blacklist') ?? 'favorite'} />;
+      if (key === 'download') return <BooruDownloadHubPage defaultTab={(pin.defaultTab as 'downloads' | 'bulk') ?? 'downloads'} />;
       if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
       if (key === 'booru-settings') return <BooruSettingsPage />;
       if (key === 'settings') return <SettingsPage />;
@@ -631,10 +667,8 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
         if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
-        if (selectedBooruSubKey === 'favorite-tags') return <FavoriteTagsPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'blacklisted-tags') return <BlacklistedTagsPage />;
-        if (selectedBooruSubKey === 'downloads') return <BooruDownloadPage />;
-        if (selectedBooruSubKey === 'bulk-download') return <BooruBulkDownloadPage />;
+        if (selectedBooruSubKey === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} />;
+        if (selectedBooruSubKey === 'download') return <BooruDownloadHubPage />;
         if (selectedBooruSubKey === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
         if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
         if (selectedBooruSubKey === 'settings') return <SettingsPage />;
@@ -753,8 +787,8 @@ export const AppContent: React.FC = () => {
               console.log(`[App] 主菜单切换: ${key}`);
               setSelectedKey(key); setNavigationStack([]);
               setActivePinnedId(null);
-              if (key === 'gallery') setSelectedSubKey('recent');
-              if (key === 'google') setSelectedGoogleSubKey('gdrive');
+              // 不再强制重置子菜单选中项，保留用户上次浏览位置
+              // 子菜单默认值由 useEffect 在为空时兜底设置
             }}
             onReorder={(keys) => { setMainOrder(keys); saveMenuOrder('main', keys); }}
             isCollapsed={isCollapsed}

@@ -59,6 +59,8 @@ const enUS: LocaleMessages = {
     blacklist: 'Blacklist',
     downloads: 'Downloads',
     bulkDownload: 'Bulk Download',
+    tagManagement: 'Tag Management',
+    download: 'Downloads',
     savedSearches: 'Saved Searches',
     siteConfig: 'Site Config',
     settings: 'Settings',
