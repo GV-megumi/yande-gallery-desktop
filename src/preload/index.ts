@@ -644,7 +644,7 @@ declare global {
         getGallerySourceFavoriteTags: (galleryId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         upsertFavoriteTagDownloadBinding: (input: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; error?: string }>;
-        startFavoriteTagBulkDownload: (favoriteTagId: number) => Promise<{ success: boolean; data?: { taskId: string; sessionId: string }; error?: string }>;
+        startFavoriteTagBulkDownload: (favoriteTagId: number) => Promise<{ success: boolean; data?: { taskId: string; sessionId: string; deduplicated?: boolean }; error?: string }>;
         getFavoriteTagLabels: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavoriteTagLabel: (name: string, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagLabel: (id: number) => Promise<{ success: boolean; error?: string }>;

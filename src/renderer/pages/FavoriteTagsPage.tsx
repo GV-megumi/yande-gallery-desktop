@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined } from '@ant-design/icons';
+import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import {
   DndContext,
   closestCenter,
@@ -115,6 +115,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   // 通用 ImportTagsDialog 不感知该字段，由本页缓存透传即可。
   const [pendingLabelGroups, setPendingLabelGroups] = useState<import('../../shared/types').FavoriteTagLabelImportRecord[] | undefined>(undefined);
 
+  const [sortKey, setSortKey] = useState<'tagName' | 'galleryName' | 'lastDownloadedAt'>('tagName');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
+
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -126,6 +129,41 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       activationConstraint: { distance: 5 },
     })
   );
+
+  // 是否处于非默认排序模式（非按标签名升序）
+  const isCustomSortActive = sortKey !== 'tagName' || sortOrder !== 'asc';
+
+  const sortedTags = useMemo(() => {
+    const list = [...favoriteTags];
+    list.sort((a, b) => {
+      let cmp = 0;
+      switch (sortKey) {
+        case 'tagName':
+          cmp = a.tagName.localeCompare(b.tagName);
+          break;
+        case 'galleryName': {
+          const aName = a.galleryName || '';
+          const bName = b.galleryName || '';
+          if (!aName && bName) return 1;
+          if (aName && !bName) return -1;
+          cmp = aName.localeCompare(bName);
+          if (cmp === 0) cmp = a.tagName.localeCompare(b.tagName);
+          break;
+        }
+        case 'lastDownloadedAt': {
+          const aTime = a.downloadBinding?.lastCompletedAt || a.downloadBinding?.lastStartedAt || '';
+          const bTime = b.downloadBinding?.lastCompletedAt || b.downloadBinding?.lastStartedAt || '';
+          if (!aTime && bTime) return 1;
+          if (aTime && !bTime) return -1;
+          cmp = aTime.localeCompare(bTime);
+          if (cmp === 0) cmp = a.tagName.localeCompare(b.tagName);
+          break;
+        }
+      }
+      return sortOrder === 'desc' ? -cmp : cmp;
+    });
+    return list;
+  }, [favoriteTags, sortKey, sortOrder]);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
@@ -421,7 +459,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       autoCreateGallery: record.downloadBinding?.autoCreateGallery ?? false,
       autoSyncGalleryAfterDownload: record.downloadBinding?.autoSyncGalleryAfterDownload ?? false,
       quality: record.downloadBinding?.quality || 'original',
-      perPage: record.downloadBinding?.perPage ?? 20,
+      perPage: record.downloadBinding?.perPage ?? 200,
       concurrency: record.downloadBinding?.concurrency ?? 3,
       skipIfExists: record.downloadBinding?.skipIfExists ?? true,
       notifications: record.downloadBinding?.notifications ?? true,
@@ -440,8 +478,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const triggerDownload = async (favoriteTagId: number) => {
     try {
       const result = await window.electronAPI.booru.startFavoriteTagBulkDownload(favoriteTagId);
-      if (result.success) {
-        message.success(t('favoriteTags.downloadStarted'));
+      if (result.success && result.data) {
+        if (result.data.deduplicated) {
+          message.info('任务已存在');
+        } else {
+          message.success('任务创建成功');
+        }
         await loadFavoriteTags();
       } else {
         message.error(`${t('common.failed')}: ${result.error}`);
@@ -594,13 +636,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   };
 
   const columns: TableColumnsType<FavoriteTagWithDownloadState> = [
-    {
+    // 排序模式下隐藏拖拽手柄，避免与数据排序冲突
+    ...(!isCustomSortActive ? [{
       title: '',
       dataIndex: 'sort',
       key: 'sort',
       width: 40,
       render: (_: unknown, record: FavoriteTagWithDownloadState) => <DragHandle id={record.id} />,
-    },
+    }] as TableColumnsType<FavoriteTagWithDownloadState> : []),
     {
       title: t('favoriteTags.tagName'),
       dataIndex: 'tagName',
@@ -783,8 +826,24 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                   <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
                 ))}
               </Select>
+              <Select
+                value={sortKey}
+                onChange={(val) => setSortKey(val)}
+                options={[
+                  { label: '按标签名', value: 'tagName' },
+                  { label: '按图集名', value: 'galleryName' },
+                  { label: '按下载时间', value: 'lastDownloadedAt' },
+                ]}
+                style={{ width: 130, flex: '0 0 auto' }}
+              />
+              <Tooltip title={sortOrder === 'asc' ? '升序' : '降序'}>
+                <Button
+                  icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                  onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+                />
+              </Tooltip>
               <Input
-                placeholder={t('favoriteTags.searchPlaceholder') || '搜索标签'}
+                placeholder="搜索喜欢标签"
                 allowClear
                 prefix={<SearchOutlined />}
                 value={keyword}
@@ -861,27 +920,46 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       )}
 
       <Card>
-        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
-          <SortableContext items={favoriteTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
-            <Table
-              dataSource={favoriteTags}
-              columns={columns}
-              rowKey="id"
-              loading={loading}
-              scroll={{ x: 1600 }}
-              pagination={{
-                current: page,
-                pageSize,
-                total,
-                showSizeChanger: true,
-                pageSizeOptions: ['20', '50', '100'],
-                onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-              }}
-              locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
-              components={{ body: { row: SortableRow } }}
-            />
-          </SortableContext>
-        </DndContext>
+        {isCustomSortActive ? (
+          <Table
+            dataSource={sortedTags}
+            columns={columns}
+            rowKey="id"
+            loading={loading}
+            scroll={{ x: 1600 }}
+            pagination={{
+              current: page,
+              pageSize,
+              total,
+              showSizeChanger: true,
+              pageSizeOptions: ['20', '50', '100'],
+              onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+            }}
+            locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
+          />
+        ) : (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
+            <SortableContext items={sortedTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
+              <Table
+                dataSource={sortedTags}
+                columns={columns}
+                rowKey="id"
+                loading={loading}
+                scroll={{ x: 1600 }}
+                pagination={{
+                  current: page,
+                  pageSize,
+                  total,
+                  showSizeChanger: true,
+                  pageSizeOptions: ['20', '50', '100'],
+                  onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+                }}
+                locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
+                components={{ body: { row: SortableRow } }}
+              />
+            </SortableContext>
+          </DndContext>
+        )}
       </Card>
 
       <Modal
@@ -921,7 +999,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           downloadForm.resetFields();
         }}
       >
-        <Form form={downloadForm} layout="vertical" initialValues={{ quality: 'original', perPage: 20, concurrency: 3, skipIfExists: true, notifications: true }}>
+        <Form form={downloadForm} layout="vertical" initialValues={{ quality: 'original', perPage: 200, concurrency: 3, skipIfExists: true, notifications: true }}>
           <Form.Item name="galleryId" label={t('favoriteTags.selectGallery')}>
             <Select allowClear placeholder={t('favoriteTags.selectGalleryPlaceholder')} onChange={handleGalleryChange}>
               {galleries.map(gallery => (
@@ -946,7 +1024,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             </Select>
           </Form.Item>
           <Form.Item name="perPage" label={t('favoriteTags.perPage')}>
-            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+            <InputNumber min={1} max={1000} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="concurrency" label={t('favoriteTags.concurrency')}>
             <InputNumber min={1} max={10} style={{ width: '100%' }} />
