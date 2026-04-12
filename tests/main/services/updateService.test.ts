@@ -92,6 +92,16 @@ describe('checkForUpdate', () => {
     expect(result.hasUpdate).toBe(false);
   });
 
+  it('请求超时返回友好提示', async () => {
+    const abortError = new DOMException('The operation was aborted', 'AbortError');
+    mockFetch.mockRejectedValueOnce(abortError);
+    const result = await checkForUpdate();
+    expect(result.error).toBe('请求超时');
+    expect(result.hasUpdate).toBe(false);
+    expect(result.currentVersion).toBe('0.0.1');
+    expect(result.checkedAt).toBeTruthy();
+  });
+
   it('错误不缓存，下次重试会真的 fetch', async () => {
     mockFetch.mockResolvedValueOnce({ ok: false, status: 500, json: async () => ({}) });
     mockFetch.mockResolvedValueOnce({
