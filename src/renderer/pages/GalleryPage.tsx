@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
+import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
@@ -66,6 +66,66 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   // 图集排序相关状态
   const [gallerySortKey, setGallerySortKey] = useState<'name' | 'createdAt' | 'updatedAt'>('updatedAt');
   const [gallerySortOrder, setGallerySortOrder] = useState<'asc' | 'desc'>('desc');
+
+  // 同步文件夹状态
+  const [syncing, setSyncing] = useState(false);
+
+  // 编辑图集模态框状态
+  const [editModalOpen, setEditModalOpen] = useState(false);
+  const [editingGallery, setEditingGallery] = useState<any>(null);
+  const [editForm] = Form.useForm();
+
+  // 同步图集文件夹
+  const handleSyncGalleryFolder = async () => {
+    if (!selectedGallery) return;
+    setSyncing(true);
+    try {
+      const result = await window.electronAPI.gallery.syncGalleryFolder(selectedGallery.id);
+      if (result.success && result.data) {
+        message.success(`同步完成：导入 ${result.data.imported} 张，跳过 ${result.data.skipped} 张`);
+        // 重新加载图集图片和图集信息以反映最新统计
+        await loadGalleryImages(selectedGallery.id);
+        await loadGalleries();
+      } else {
+        message.error(result.error || '同步失败');
+      }
+    } catch (error) {
+      console.error('[GalleryPage] 同步图集文件夹失败:', error);
+      message.error('同步文件夹失败');
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  // 打开编辑图集模态框
+  const handleOpenEditGallery = (gallery: any) => {
+    setEditingGallery(gallery);
+    editForm.setFieldsValue({ name: gallery.name });
+    setEditModalOpen(true);
+  };
+
+  // 保存图集编辑
+  const handleSaveGalleryEdit = async () => {
+    try {
+      const values = await editForm.validateFields();
+      if (!editingGallery) return;
+      const result = await window.electronAPI.gallery.updateGallery(editingGallery.id, { name: values.name.trim() });
+      if (result.success) {
+        message.success('图集已更新');
+        setEditModalOpen(false);
+        setEditingGallery(null);
+        await loadGalleries();
+        // 如果编辑的是当前选中的图集，更新其名称
+        if (selectedGallery && selectedGallery.id === editingGallery.id) {
+          setSelectedGallery({ ...selectedGallery, name: values.name.trim() });
+        }
+      } else {
+        message.error(result.error || '更新失败');
+      }
+    } catch (error) {
+      console.error('[GalleryPage] 图集更新失败:', error);
+    }
+  };
 
   // 加载最近图片
   const loadRecentImages = async (count: number = 2000) => {
@@ -826,17 +886,28 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                     </Space>
                   </div>
                   <Space>
-                    <Button
-                      type="text"
-                      icon={<ReloadOutlined />}
-                      onClick={() => {
-                        if (selectedGallery) {
-                          loadGalleryImages(selectedGallery.id);
-                        }
-                      }}
-                      loading={loading}
-                      style={{ fontSize: 16 }}
-                    />
+                    <Tooltip title="刷新当前图集">
+                      <Button
+                        type="text"
+                        icon={<ReloadOutlined />}
+                        onClick={() => {
+                          if (selectedGallery) {
+                            loadGalleryImages(selectedGallery.id);
+                          }
+                        }}
+                        loading={loading}
+                        style={{ fontSize: 16 }}
+                      />
+                    </Tooltip>
+                    <Tooltip title="同步文件夹">
+                      <Button
+                        type="text"
+                        icon={<SyncOutlined />}
+                        onClick={handleSyncGalleryFolder}
+                        loading={syncing}
+                        style={{ fontSize: 16 }}
+                      />
+                    </Tooltip>
                     <Popover
                       content={
                         <Descriptions bordered column={1} size="small" style={{ maxWidth: 400 }}>
@@ -952,45 +1023,57 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                   xl={4}
                   className="gallery-col"
                 >
-                  <div
-                    style={{
-                      cursor: 'pointer',
-                      background: 'transparent'
-                    }}
-                    onClick={() => {
-                      console.log(`[GalleryPage] 点击图集: ${gallery.name} (ID: ${gallery.id})`);
-                      setSelectedGallery(gallery);
-                      loadGalleryImages(gallery.id);
+                  <Dropdown
+                    trigger={['contextMenu']}
+                    menu={{
+                      items: [
+                        { key: 'edit', label: '编辑', icon: <EditOutlined /> },
+                      ],
+                      onClick: ({ key }) => {
+                        if (key === 'edit') handleOpenEditGallery(gallery);
+                      },
                     }}
                   >
-                    {/* 图片区域 - 使用独立的封面组件 */}
-                    <GalleryCoverImage
-                      coverImage={gallery.coverImage}
-                      thumbnailPath={coverThumbnails[gallery.id] || null}
-                      getImageUrl={getImageUrl}
-                      onInfoClick={() => {
-                      console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
-                      setSelectedGalleryInfo(gallery);
-                    }}
-                    />
-                    {/* 文字区域 */}
                     <div
                       style={{
-                        fontSize: gallery.name.length > 20 ? fontSize.sm : fontSize.md,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                        fontWeight: 500,
-                        lineHeight: '1.2',
-                        textAlign: 'center',
-                        padding: `0 ${spacing.xs}px`,
+                        cursor: 'pointer',
                         background: 'transparent'
                       }}
-                      title={gallery.name}
+                      onClick={() => {
+                        console.log(`[GalleryPage] 点击图集: ${gallery.name} (ID: ${gallery.id})`);
+                        setSelectedGallery(gallery);
+                        loadGalleryImages(gallery.id);
+                      }}
                     >
-                      {gallery.name}
+                      {/* 图片区域 - 使用独立的封面组件 */}
+                      <GalleryCoverImage
+                        coverImage={gallery.coverImage}
+                        thumbnailPath={coverThumbnails[gallery.id] || null}
+                        getImageUrl={getImageUrl}
+                        onInfoClick={() => {
+                        console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
+                        setSelectedGalleryInfo(gallery);
+                      }}
+                      />
+                      {/* 文字区域 */}
+                      <div
+                        style={{
+                          fontSize: gallery.name.length > 20 ? fontSize.sm : fontSize.md,
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          fontWeight: 500,
+                          lineHeight: '1.2',
+                          textAlign: 'center',
+                          padding: `0 ${spacing.xs}px`,
+                          background: 'transparent'
+                        }}
+                        title={gallery.name}
+                      >
+                        {gallery.name}
+                      </div>
                     </div>
-                  </div>
+                  </Dropdown>
                 </Col>
               ))}
             </Row>
@@ -1053,6 +1136,23 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             )}
           </Descriptions>
         )}
+      </Modal>
+
+      {/* 编辑图集模态框 */}
+      <Modal
+        open={editModalOpen}
+        title="编辑图集"
+        closable={false}
+        onCancel={() => { setEditModalOpen(false); setEditingGallery(null); }}
+        onOk={handleSaveGalleryEdit}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="name" label="图集名称" rules={[{ required: true, message: '请输入图集名称' }]}>
+            <Input placeholder="请输入图集名称" />
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );
