@@ -334,7 +334,6 @@ export const AppContent: React.FC = () => {
   const openSettings = useCallback(() => {
     if (sidebarSection === 'gallery') { setSelectedKey('gallery'); setSelectedSubKey('settings'); }
     else { setSelectedKey('booru'); setSelectedBooruSubKey('settings'); }
-    setSidebarSection(sidebarSection);
   }, [sidebarSection]);
 
   const focusSearch = useCallback(() => {

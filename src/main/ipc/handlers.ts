@@ -306,7 +306,7 @@ export function setupIPC() {
     }
   });
 
-  // 删除图片记录（仅删除数据库记录，不删除磁盘文件）
+  // 删除图片（包括数据库记录、磁盘文件和缩略图）
   ipcMain.handle('image:delete', async (_event: IpcMainInvokeEvent, imageId: number) => {
     try {
       return await deleteImage(imageId);

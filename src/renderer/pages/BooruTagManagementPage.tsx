@@ -6,6 +6,7 @@
 import React, { useState, Suspense } from 'react';
 import { Segmented } from 'antd';
 import { spacing, colors } from '../styles/tokens';
+import { useLocale } from '../locales';
 
 const FavoriteTagsPage = React.lazy(() =>
   import('./FavoriteTagsPage').then(m => ({ default: m.FavoriteTagsPage }))
@@ -28,10 +29,11 @@ export const BooruTagManagementPage: React.FC<BooruTagManagementPageProps> = ({
   defaultTab = 'favorite',
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
+  const { t } = useLocale();
 
   const suspenseFallback = (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '40vh' }}>
-      <div style={{ color: colors.textTertiary }}>加载中...</div>
+      <div style={{ color: colors.textTertiary }}>{t('common.loading')}</div>
     </div>
   );
 
@@ -43,8 +45,8 @@ export const BooruTagManagementPage: React.FC<BooruTagManagementPageProps> = ({
           value={activeTab}
           onChange={(value) => setActiveTab(value as TabKey)}
           options={[
-            { label: '喜欢', value: 'favorite' },
-            { label: '黑名单', value: 'blacklist' },
+            { label: t('menu.favoriteTags'), value: 'favorite' },
+            { label: t('menu.blacklist'), value: 'blacklist' },
           ]}
         />
       </div>

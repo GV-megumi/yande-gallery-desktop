@@ -6,6 +6,7 @@
 import React, { useState, Suspense } from 'react';
 import { Segmented } from 'antd';
 import { spacing, colors } from '../styles/tokens';
+import { useLocale } from '../locales';
 
 const BooruDownloadPage = React.lazy(() => import('./BooruDownloadPage'));
 const BooruBulkDownloadPage = React.lazy(() =>
@@ -23,10 +24,11 @@ export const BooruDownloadHubPage: React.FC<BooruDownloadHubPageProps> = ({
   defaultTab = 'downloads',
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
+  const { t } = useLocale();
 
   const suspenseFallback = (
     <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '40vh' }}>
-      <div style={{ color: colors.textTertiary }}>加载中...</div>
+      <div style={{ color: colors.textTertiary }}>{t('common.loading')}</div>
     </div>
   );
 
@@ -38,8 +40,8 @@ export const BooruDownloadHubPage: React.FC<BooruDownloadHubPageProps> = ({
           value={activeTab}
           onChange={(value) => setActiveTab(value as TabKey)}
           options={[
-            { label: '下载', value: 'downloads' },
-            { label: '批量下载', value: 'bulk' },
+            { label: t('menu.download'), value: 'downloads' },
+            { label: t('menu.bulkDownload'), value: 'bulk' },
           ]}
         />
       </div>

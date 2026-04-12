@@ -1,10 +1,19 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { checkForUpdate, __resetCacheForTest, compareSemver } from '../../../src/main/services/updateService';
 
-// mock app.getVersion
+// mock createRequire — updateService.ts 用它从 package.json 读版本号
+vi.mock('module', () => ({
+  createRequire: () => (path: string) => {
+    if (path.includes('package.json')) return { version: '0.0.1' };
+    throw new Error(`Unexpected require: ${path}`);
+  },
+}));
+
+// mock electron（updateService 不再用 app.getVersion，但模块仍 import electron）
 vi.mock('electron', () => ({
   app: { getVersion: () => '0.0.1' },
 }));
+
+import { checkForUpdate, __resetCacheForTest, compareSemver } from '../../../src/main/services/updateService';
 
 describe('compareSemver', () => {
   it('数字段比较', () => {
@@ -42,12 +51,12 @@ describe('checkForUpdate', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      json: async () => ([{
         tag_name: 'v0.0.2',
         name: 'Release 0.0.2',
         html_url: 'https://github.com/GV-megumi/yande-gallery-desktop/releases/tag/v0.0.2',
         published_at: '2026-04-11T12:00:00Z',
-      }),
+      }]),
     });
     const result = await checkForUpdate();
     expect(result.currentVersion).toBe('0.0.1');
@@ -61,12 +70,12 @@ describe('checkForUpdate', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      json: async () => ([{
         tag_name: 'v0.0.1',
         name: 'Release 0.0.1',
         html_url: 'https://github.com/GV-megumi/yande-gallery-desktop/releases/tag/v0.0.1',
         published_at: '2026-04-01T12:00:00Z',
-      }),
+      }]),
     });
     const result = await checkForUpdate();
     expect(result.hasUpdate).toBe(false);
@@ -107,12 +116,12 @@ describe('checkForUpdate', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      json: async () => ([{
         tag_name: 'v0.0.2',
         name: 'Release 0.0.2',
         html_url: 'https://example.com',
         published_at: '2026-04-11T12:00:00Z',
-      }),
+      }]),
     });
 
     const first = await checkForUpdate();
@@ -128,12 +137,12 @@ describe('checkForUpdate', () => {
     mockFetch.mockResolvedValueOnce({
       ok: true,
       status: 200,
-      json: async () => ({
+      json: async () => ([{
         tag_name: 'v0.0.2',
         name: 'Release 0.0.2',
         html_url: 'https://example.com',
         published_at: '2026-04-11T12:00:00Z',
-      }),
+      }]),
     });
     await checkForUpdate();
     await checkForUpdate();

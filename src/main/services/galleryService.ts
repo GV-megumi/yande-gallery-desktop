@@ -537,7 +537,7 @@ export async function syncGalleryFolder(id: number): Promise<{
   const countRow = await get<{ cnt: number }>(
     db,
     'SELECT COUNT(*) as cnt FROM images WHERE filepath LIKE ?',
-    [`${gallery.folderPath}%`]
+    [`${gallery.folderPath}${path.sep}%`]
   );
   const imageCount = countRow?.cnt ?? 0;
   const lastScannedAt = new Date().toISOString();
