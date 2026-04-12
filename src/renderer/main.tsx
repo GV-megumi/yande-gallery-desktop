@@ -19,7 +19,7 @@ if (!window.electronAPI) {
 }
 
 // 检测是否为子窗口（通过 URL hash 判断）
-const SUB_WINDOW_TYPES = ['tag-search', 'artist', 'character'];
+const SUB_WINDOW_TYPES = ['tag-search', 'artist', 'character', 'secondary-menu'];
 const hashType = window.location.hash.replace('#', '').split('?')[0];
 const isSubWindow = SUB_WINDOW_TYPES.includes(hashType);
 if (isSubWindow) {

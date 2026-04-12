@@ -171,6 +171,9 @@ type NavigationEntry =
   | { type: 'character'; name: string; siteId?: number | null };
 
 export const AppContent: React.FC = () => {
+  /** 侧边栏当前展示哪组二级菜单（仅控制左侧列表，不影响右侧内容） */
+  const [sidebarSection, setSidebarSection] = useState<'gallery' | 'booru' | 'google'>('gallery');
+  /** 右侧内容当前所属的 section（仅在用户点击二级菜单时更新） */
   const [selectedKey, setSelectedKey] = useState('gallery');
   const [selectedSubKey, setSelectedSubKey] = useState('recent');
   const [selectedBooruSubKey, setSelectedBooruSubKey] = useState('posts');
@@ -329,9 +332,10 @@ export const AppContent: React.FC = () => {
   }, [sidebarWidth]);
 
   const openSettings = useCallback(() => {
-    if (selectedKey === 'gallery') setSelectedSubKey('settings');
-    else setSelectedBooruSubKey('settings');
-  }, [selectedKey]);
+    if (sidebarSection === 'gallery') { setSelectedKey('gallery'); setSelectedSubKey('settings'); }
+    else { setSelectedKey('booru'); setSelectedBooruSubKey('settings'); }
+    setSidebarSection(sidebarSection);
+  }, [sidebarSection]);
 
   const focusSearch = useCallback(() => {
     const searchInput = document.querySelector<HTMLInputElement>(
@@ -795,13 +799,11 @@ export const AppContent: React.FC = () => {
           {/* 一级菜单（支持长按拖拽排序） */}
           <SortableMenu
             items={orderedMainItems}
-            selectedKey={selectedKey}
+            selectedKey={sidebarSection}
             onSelect={(key) => {
-              console.log(`[App] 主菜单切换: ${key}`);
-              setSelectedKey(key); setNavigationStack([]);
-              setActivePinnedId(null);
-              // 不再强制重置子菜单选中项，保留用户上次浏览位置
-              // 子菜单默认值由 useEffect 在为空时兜底设置
+              console.log(`[App] 主菜单切换侧边栏: ${key}`);
+              setSidebarSection(key as 'gallery' | 'booru' | 'google');
+              // 只切换左侧二级菜单展示，不改变右侧内容页面
             }}
             onReorder={(keys) => { setMainOrder(keys); saveMenuOrder('main', keys); }}
             isCollapsed={isCollapsed}
@@ -812,19 +814,19 @@ export const AppContent: React.FC = () => {
 
         {/* ── 第二段：二级菜单（随一级更改，可滚动） ── */}
         <div style={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-          {/* 分区标签 */}
+          {/* 分区标签（跟随 sidebarSection，不跟 selectedKey） */}
           {!isCollapsed && (
             <div style={{ padding: `${spacing.md}px ${spacing.lg}px ${spacing.xs}px`, fontSize: 10, fontWeight: 700, color: colors.textTertiary, textTransform: 'uppercase' as const, letterSpacing: '1px', flexShrink: 0 }}>
-              {selectedKey === 'gallery' ? t('menu.browse') : selectedKey === 'booru' ? 'BOORU' : 'GOOGLE'}
+              {sidebarSection === 'gallery' ? t('menu.browse') : sidebarSection === 'booru' ? 'BOORU' : 'GOOGLE'}
             </div>
           )}
-          {/* 可滚动菜单列表 */}
+          {/* 可滚动菜单列表（跟随 sidebarSection） */}
           <div style={{ flex: 1, overflowY: 'auto', overflowX: 'hidden' }}>
-            {selectedKey === 'gallery' && (
+            {sidebarSection === 'gallery' && (
               <SortableMenu
                 items={orderedGalleryItems}
-                selectedKey={activePinnedId ? '' : selectedSubKey}
-                onSelect={(key) => { console.log(`[App] 图库子菜单: ${key}`); setSelectedSubKey(key); if (pinnedItems.some(p => p.section === 'gallery' && p.key === key)) { handlePinnedClick({ section: 'gallery', key }); } else { setActivePinnedId(null); } }}
+                selectedKey={activePinnedId ? '' : (selectedKey === 'gallery' ? selectedSubKey : '')}
+                onSelect={(key) => { console.log(`[App] 图库子菜单: ${key}`); setSelectedKey('gallery'); setSidebarSection('gallery'); setSelectedSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'gallery' && p.key === key)) { handlePinnedClick({ section: 'gallery', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setGalleryOrder(keys); saveMenuOrder('gallery', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
@@ -834,11 +836,11 @@ export const AppContent: React.FC = () => {
                 onOpenSubWindow={(key) => handleOpenSubWindow('gallery', key)}
               />
             )}
-            {selectedKey === 'booru' && (
+            {sidebarSection === 'booru' && (
               <SortableMenu
                 items={orderedBooruItems}
-                selectedKey={activePinnedId ? '' : selectedBooruSubKey}
-                onSelect={(key) => { console.log(`[App] Booru子菜单: ${key}`); setSelectedBooruSubKey(key); setNavigationStack([]); if (pinnedItems.some(p => p.section === 'booru' && p.key === key)) { handlePinnedClick({ section: 'booru', key }); } else { setActivePinnedId(null); } }}
+                selectedKey={activePinnedId ? '' : (selectedKey === 'booru' ? selectedBooruSubKey : '')}
+                onSelect={(key) => { console.log(`[App] Booru子菜单: ${key}`); setSelectedKey('booru'); setSidebarSection('booru'); setSelectedBooruSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'booru' && p.key === key)) { handlePinnedClick({ section: 'booru', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setBooruOrder(keys); saveMenuOrder('booru', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
@@ -848,11 +850,11 @@ export const AppContent: React.FC = () => {
                 onOpenSubWindow={(key) => handleOpenSubWindow('booru', key)}
               />
             )}
-            {selectedKey === 'google' && (
+            {sidebarSection === 'google' && (
               <SortableMenu
                 items={orderedGoogleItems}
-                selectedKey={activePinnedId ? '' : selectedGoogleSubKey}
-                onSelect={(key) => { console.log(`[App] 应用子菜单: ${key}`); setSelectedGoogleSubKey(key); if (pinnedItems.some(p => p.section === 'google' && p.key === key)) { handlePinnedClick({ section: 'google', key }); } else { setActivePinnedId(null); } }}
+                selectedKey={activePinnedId ? '' : (selectedKey === 'google' ? selectedGoogleSubKey : '')}
+                onSelect={(key) => { console.log(`[App] 应用子菜单: ${key}`); setSelectedKey('google'); setSidebarSection('google'); setSelectedGoogleSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'google' && p.key === key)) { handlePinnedClick({ section: 'google', key }); } else { setActivePinnedId(null); } }}
                 onReorder={(keys) => { setGoogleOrder(keys); saveMenuOrder('google', keys); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
@@ -914,7 +916,7 @@ export const AppContent: React.FC = () => {
           {/* 应用设置入口 */}
           {(() => {
             const settingsActiveKey = (selectedKey === 'booru' && selectedBooruSubKey === 'settings') || (selectedKey !== 'booru' && selectedSubKey === 'settings') ? 'settings' : '';
-            const handleSettingsClick = () => { if (selectedKey === 'booru') setSelectedBooruSubKey('settings'); else setSelectedSubKey('settings'); };
+            const handleSettingsClick = () => { if (sidebarSection === 'booru') { setSelectedKey('booru'); setSelectedBooruSubKey('settings'); } else { setSelectedKey('gallery'); setSelectedSubKey('settings'); } };
             const settingsItem = [{ key: 'settings', icon: <DotIcon color={iconColors.settings} icon={<SettingOutlined />} />, label: t('menu.settings') }];
             return isCollapsed
               ? renderIconMenu(settingsItem, settingsActiveKey, handleSettingsClick)
