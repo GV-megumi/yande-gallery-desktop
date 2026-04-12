@@ -364,18 +364,35 @@ export const SettingsPage: React.FC = () => {
     setSaving(true);
     try {
       if (!window.electronAPI) { message.error('系统功能不可用'); return; }
-      const proxyValues = await proxyForm.validateFields();
       const configResult = await window.electronAPI.config.get();
       if (!configResult.success || !configResult.data) { message.error('获取配置失败'); return; }
+
+      if (activeTab === 'proxy') {
+        await proxyForm.validateFields();
+      }
+
+      const currentProxy = configResult.data.network?.proxy || {
+        enabled: false,
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: 7890,
+        username: '',
+        password: ''
+      };
+      const proxyValues = proxyForm.getFieldsValue(true);
+      const nextProxy = { ...currentProxy };
+      if (proxyValues.proxyEnabled !== undefined) nextProxy.enabled = proxyValues.proxyEnabled;
+      if (proxyValues.proxyProtocol !== undefined) nextProxy.protocol = proxyValues.proxyProtocol;
+      if (proxyValues.proxyHost !== undefined) nextProxy.host = proxyValues.proxyHost;
+      if (proxyValues.proxyPort !== undefined) nextProxy.port = Number(proxyValues.proxyPort);
+      if (proxyValues.proxyUsername !== undefined) nextProxy.username = proxyValues.proxyUsername || '';
+      if (proxyValues.proxyPassword !== undefined) nextProxy.password = proxyValues.proxyPassword || '';
+
       const updatedConfig = {
         ...configResult.data,
         downloads: { ...configResult.data.downloads, path: downloadPath },
         thumbnails: { ...configResult.data.thumbnails, maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality },
-        network: { ...configResult.data.network, proxy: {
-          enabled: proxyValues.proxyEnabled, protocol: proxyValues.proxyProtocol,
-          host: proxyValues.proxyHost, port: Number(proxyValues.proxyPort),
-          username: proxyValues.proxyUsername || '', password: proxyValues.proxyPassword || ''
-        }},
+        network: { ...configResult.data.network, proxy: nextProxy },
       };
       const result = await window.electronAPI.config.save(updatedConfig);
       if (result.success) { message.success(t('settings.saveSuccess')); }
