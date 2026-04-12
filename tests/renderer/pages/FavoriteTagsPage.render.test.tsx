@@ -1,13 +1,14 @@
 /** @vitest-environment jsdom */
 
 import React from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import { FavoriteTagsPage } from '../../../src/renderer/pages/FavoriteTagsPage';
 
 const getFavoriteTagsWithDownloadState = vi.fn();
 const getSites = vi.fn();
 const getGalleries = vi.fn();
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock('../../../src/renderer/locales', () => ({
   useLocale: () => ({
@@ -21,6 +22,7 @@ vi.mock('../../../src/renderer/locales', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -38,7 +40,7 @@ beforeEach(() => {
   const originalGetComputedStyle = window.getComputedStyle.bind(window);
   Object.defineProperty(window, 'getComputedStyle', {
     writable: true,
-    value: (element: Element, pseudoElt?: string | null) => originalGetComputedStyle(element, pseudoElt || undefined),
+    value: (element: Element) => originalGetComputedStyle(element),
   });
 
   (window as any).electronAPI = {
@@ -68,6 +70,10 @@ beforeEach(() => {
       selectFolder: vi.fn(),
     },
   };
+});
+
+afterEach(() => {
+  consoleErrorSpy.mockRestore();
 });
 
 describe('FavoriteTagsPage render behavior', () => {
@@ -118,6 +124,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(screen.getByText('favoriteTags.completed')).toBeTruthy();
     expect(screen.getByText('common.export')).toBeTruthy();
     expect(screen.getByText('common.import')).toBeTruthy();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 
   it('图集绑定不一致时应显示 warning 提示', async () => {
@@ -160,5 +167,6 @@ describe('FavoriteTagsPage render behavior', () => {
     render(<FavoriteTagsPage />);
 
     expect(await screen.findByText('favoriteTags.galleryBindingMismatchAlert')).toBeTruthy();
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 });

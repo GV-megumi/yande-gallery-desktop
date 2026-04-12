@@ -3,6 +3,7 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SettingsPage } from '../../../src/renderer/pages/SettingsPage';
 
@@ -21,6 +22,8 @@ const testGoogle = vi.fn();
 const scanSubfolders = vi.fn();
 const setThemeMode = vi.fn();
 const setLocale = vi.fn();
+let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
+let renderResult: RenderResult;
 
 vi.mock('../../../src/renderer/hooks/useTheme', () => ({
   useTheme: () => ({
@@ -33,12 +36,81 @@ vi.mock('../../../src/renderer/locales', () => ({
   useLocale: () => ({
     locale: 'zh-CN',
     setLocale,
-    t: (key: string) => key,
+    t: (key: string) => {
+      const mapping: Record<string, string> = {
+        'settings.tabGeneral': '通用配置',
+        'settings.tabProxy': '代理配置',
+        'settings.tabAbout': '关于',
+        'settings.saveAll': '保存所有设置',
+        'settings.saveSuccess': '设置已保存',
+        'settings.saveFailed': '保存失败',
+        'settings.galleryFolders': '图库文件夹',
+        'settings.galleryFoldersFooter': '图库目录',
+        'settings.noFolders': '暂无文件夹',
+        'settings.addFolder': '添加文件夹',
+        'settings.scanFolder': '扫描文件夹',
+        'settings.deleteFolder': '删除文件夹',
+        'settings.deleteFolderConfirm': '确认删除',
+        'settings.download': '下载设置',
+        'settings.downloadPath': '下载路径',
+        'settings.notSet': '未设置',
+        'settings.thumbnails': '缩略图',
+        'settings.thumbnailsFooter': '缩略图设置',
+        'settings.thumbnailSize': '缩略图大小',
+        'settings.sizeSmall': '小',
+        'settings.sizeMedium': '中',
+        'settings.sizeLarge': '大',
+        'settings.sizeHD': '高清',
+        'settings.sizeUHD': '超清',
+        'settings.thumbnailQuality': '缩略图质量',
+        'settings.qualityStandard': '标准',
+        'settings.qualityGood': '良好',
+        'settings.qualityHigh': '高',
+        'settings.qualityVeryHigh': '很高',
+        'settings.qualityMax': '最高',
+        'settings.autoGenThumbnail': '自动生成缩略图',
+        'settings.autoGenThumbnailDesc': '自动生成',
+        'settings.appearance': '外观',
+        'settings.theme': '主题',
+        'settings.themeLight': '浅色',
+        'settings.themeDark': '深色',
+        'settings.themeSystem': '跟随系统',
+        'settings.language': '语言',
+        'settings.languageZh': '中文',
+        'settings.languageEn': 'English',
+        'settings.cacheManagement': '缓存管理',
+        'settings.cacheSize': '缓存大小',
+        'settings.cacheFiles': '个文件',
+        'settings.clearCache': '清理缓存',
+        'settings.clearCacheDesc': '清理缓存说明',
+        'settings.advanced': '高级',
+        'settings.reindexDb': '重建索引',
+        'settings.resetAll': '重置全部',
+        'settings.featureDev': '开发中',
+        'settings.about': '关于',
+        'settings.version': '版本',
+        'settings.proxyServer': '代理服务器',
+        'settings.networkFooter': '代理说明',
+        'settings.proxyEnabled': '启用代理',
+        'settings.proxyProtocol': '协议',
+        'settings.proxyHost': '主机',
+        'settings.proxyPort': '端口',
+        'settings.connectivityTest': '连通性测试',
+        'settings.testBaidu': '测试百度',
+        'settings.testGoogle': '测试谷歌',
+        'settings.baiduSuccess': '百度成功',
+        'settings.baiduFailed': '百度失败',
+        'settings.googleSuccess': '谷歌成功',
+        'settings.googleFailed': '谷歌失败'
+      };
+      return mapping[key] ?? key;
+    },
   }),
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
 
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -147,14 +219,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  consoleErrorSpy.mockRestore();
   cleanup();
 });
 
 describe('SettingsPage save behavior', () => {
   it('在通用设置页点击保存所有设置时应保留已有代理配置', async () => {
-    render(<SettingsPage />);
+    renderResult = render(<SettingsPage />);
 
-    const saveButton = await screen.findByRole('button', { name: /settings\.saveAll/i });
+    const actionButtons = await screen.findAllByRole('button');
+    const saveButton = actionButtons[actionButtons.length - 1];
     await userEvent.click(saveButton);
 
     await waitFor(() => {
@@ -175,5 +249,6 @@ describe('SettingsPage save behavior', () => {
         },
       })
     );
+    expect(consoleErrorSpy.mock.calls).toEqual([]);
   });
 });

@@ -186,7 +186,6 @@ const CacheManagementGroup: React.FC = () => {
 };
 
 export const SettingsPage: React.FC = () => {
-  const [form] = Form.useForm();
   const [saving, setSaving] = useState(false);
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -239,6 +238,16 @@ export const SettingsPage: React.FC = () => {
     loadConfig();
   }, []);
 
+  useEffect(() => {
+    if (activeTab !== 'proxy') return;
+    proxyForm.setFieldsValue({
+      proxyEnabled,
+      proxyProtocol,
+      proxyHost,
+      proxyPort: Number(proxyPort),
+    });
+  }, [activeTab, proxyEnabled, proxyProtocol, proxyHost, proxyPort, proxyForm]);
+
   const loadConfig = async () => {
     if (!window.electronAPI) return;
     console.log('[SettingsPage] 开始加载配置');
@@ -255,18 +264,12 @@ export const SettingsPage: React.FC = () => {
         setDownloadPath(dp);
         setThumbnailSize(ts);
         setThumbnailQuality(tq);
-        form.setFieldsValue({ downloadPath: dp, thumbnailSize: ts, thumbnailQuality: tq, autoGenerateThumbnail: true, language: 'zh-CN' });
 
         const proxy = config.network?.proxy || { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 };
         setProxyEnabled(proxy.enabled);
         setProxyProtocol(proxy.protocol || 'http');
         setProxyHost(proxy.host || '127.0.0.1');
         setProxyPort(String(proxy.port || 7890));
-        proxyForm.setFieldsValue({
-          proxyEnabled: proxy.enabled, proxyProtocol: proxy.protocol,
-          proxyHost: proxy.host, proxyPort: proxy.port,
-          proxyUsername: proxy.username || '', proxyPassword: proxy.password || ''
-        });
       }
     } catch (error) {
       console.error('Failed to load config:', error);
@@ -352,7 +355,6 @@ export const SettingsPage: React.FC = () => {
       const result = await window.electronAPI.system.selectFolder();
       if (result.success && result.data) {
         setDownloadPath(result.data);
-        form.setFieldsValue({ downloadPath: result.data });
       }
     } catch (error) {
       message.error('选择路径失败');
@@ -367,10 +369,6 @@ export const SettingsPage: React.FC = () => {
       const configResult = await window.electronAPI.config.get();
       if (!configResult.success || !configResult.data) { message.error('获取配置失败'); return; }
 
-      if (activeTab === 'proxy') {
-        await proxyForm.validateFields();
-      }
-
       const currentProxy = configResult.data.network?.proxy || {
         enabled: false,
         protocol: 'http',
@@ -379,14 +377,19 @@ export const SettingsPage: React.FC = () => {
         username: '',
         password: ''
       };
-      const proxyValues = proxyForm.getFieldsValue(true);
-      const nextProxy = { ...currentProxy };
-      if (proxyValues.proxyEnabled !== undefined) nextProxy.enabled = proxyValues.proxyEnabled;
-      if (proxyValues.proxyProtocol !== undefined) nextProxy.protocol = proxyValues.proxyProtocol;
-      if (proxyValues.proxyHost !== undefined) nextProxy.host = proxyValues.proxyHost;
-      if (proxyValues.proxyPort !== undefined) nextProxy.port = Number(proxyValues.proxyPort);
-      if (proxyValues.proxyUsername !== undefined) nextProxy.username = proxyValues.proxyUsername || '';
-      if (proxyValues.proxyPassword !== undefined) nextProxy.password = proxyValues.proxyPassword || '';
+
+      let nextProxy = currentProxy;
+      if (activeTab === 'proxy') {
+        await proxyForm.validateFields();
+        const proxyValues = proxyForm.getFieldsValue(true);
+        nextProxy = { ...currentProxy };
+        if (proxyValues.proxyEnabled !== undefined) nextProxy.enabled = proxyValues.proxyEnabled;
+        if (proxyValues.proxyProtocol !== undefined) nextProxy.protocol = proxyValues.proxyProtocol;
+        if (proxyValues.proxyHost !== undefined) nextProxy.host = proxyValues.proxyHost;
+        if (proxyValues.proxyPort !== undefined) nextProxy.port = Number(proxyValues.proxyPort);
+        if (proxyValues.proxyUsername !== undefined) nextProxy.username = proxyValues.proxyUsername || '';
+        if (proxyValues.proxyPassword !== undefined) nextProxy.password = proxyValues.proxyPassword || '';
+      }
 
       const updatedConfig = {
         ...configResult.data,
