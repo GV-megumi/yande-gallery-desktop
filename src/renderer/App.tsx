@@ -476,6 +476,19 @@ export const AppContent: React.FC = () => {
     navigateToTagSearch(query, siteId);
   };
 
+  /** 合并页面对应的默认 tab 映射 */
+  const MERGED_DEFAULT_TABS: Record<string, string> = {
+    'tag-management': 'favorite',
+    'download': 'downloads',
+  };
+
+  /** 在子窗口中打开二级菜单页面 */
+  const handleOpenSubWindow = useCallback((section: 'gallery' | 'booru' | 'google', key: string) => {
+    const tab = MERGED_DEFAULT_TABS[key];
+    console.log('[App] 单独窗口打开:', section, key, tab);
+    window.electronAPI?.window.openSecondaryMenu(section, key, tab);
+  }, []);
+
   // 导航栈顶部条目（当前显示的叠加页面）
   const topNavEntry = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
 
@@ -818,6 +831,7 @@ export const AppContent: React.FC = () => {
                 pinnedKeys={pinnedItems.filter(p => p.section === 'gallery').map(p => p.key)}
                 canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('gallery', key) : pinItem('gallery', key)}
+                onOpenSubWindow={(key) => handleOpenSubWindow('gallery', key)}
               />
             )}
             {selectedKey === 'booru' && (
@@ -831,6 +845,7 @@ export const AppContent: React.FC = () => {
                 pinnedKeys={pinnedItems.filter(p => p.section === 'booru').map(p => p.key)}
                 canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('booru', key) : pinItem('booru', key)}
+                onOpenSubWindow={(key) => handleOpenSubWindow('booru', key)}
               />
             )}
             {selectedKey === 'google' && (
@@ -844,6 +859,7 @@ export const AppContent: React.FC = () => {
                 pinnedKeys={pinnedItems.filter(p => p.section === 'google').map(p => p.key)}
                 canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('google', key) : pinItem('google', key)}
+                onOpenSubWindow={(key) => handleOpenSubWindow('google', key)}
               />
             )}
           </div>

@@ -538,6 +538,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openTagSearch: (tag: string, siteId?: number | null) => ipcRenderer.invoke('window:open-tag-search', tag, siteId),
     openArtist: (name: string, siteId?: number | null) => ipcRenderer.invoke('window:open-artist', name, siteId),
     openCharacter: (name: string, siteId?: number | null) => ipcRenderer.invoke('window:open-character', name, siteId),
+    openSecondaryMenu: (section: string, key: string, tab?: string) => ipcRenderer.invoke('window:open-secondary-menu', section, key, tab),
   },
 
   // 系统操作
@@ -710,6 +711,7 @@ declare global {
         openTagSearch: (tag: string, siteId?: number | null) => Promise<{ success: boolean }>;
         openArtist: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
         openCharacter: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
+        openSecondaryMenu: (section: string, key: string, tab?: string) => Promise<{ success: boolean }>;
       };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;

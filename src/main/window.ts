@@ -215,5 +215,13 @@ export function setupWindowIPC(): void {
     return { success: true };
   });
 
+  // 打开二级菜单页面子窗口
+  ipcMain.handle('window:open-secondary-menu', async (_event, section: string, key: string, tab?: string) => {
+    const params = new URLSearchParams({ section, key });
+    if (tab) params.set('tab', tab);
+    createSubWindow(`secondary-menu?${params.toString()}`);
+    return { success: true };
+  });
+
   console.log('[Window] 子窗口 IPC 处理器注册完成');
 }

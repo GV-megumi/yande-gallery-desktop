@@ -8,7 +8,7 @@
 
 import React, { useState } from 'react';
 import { Tooltip, Dropdown } from 'antd';
-import { PushpinOutlined } from '@ant-design/icons';
+import { PushpinOutlined, ExportOutlined } from '@ant-design/icons';
 import {
   DndContext,
   closestCenter,
@@ -47,6 +47,8 @@ export interface SortableMenuProps {
   canAddPin?: boolean;
   /** 固定/取消固定回调（currentlyPinned=true 表示当前已固定，点击后取消） */
   onPinToggle?: (key: string, currentlyPinned: boolean) => void;
+  /** 在子窗口中打开对应页面的回调 */
+  onOpenSubWindow?: (key: string) => void;
 }
 
 /** 单个可排序菜单项 */
@@ -59,7 +61,8 @@ const SortableItem: React.FC<{
   isPinned: boolean;
   canPin: boolean;
   onPinToggle?: (key: string, currentlyPinned: boolean) => void;
-}> = ({ item, isActive, isCollapsed, isDark, onClick, isPinned, canPin, onPinToggle }) => {
+  onOpenSubWindow?: (key: string) => void;
+}> = ({ item, isActive, isCollapsed, isDark, onClick, isPinned, canPin, onPinToggle, onOpenSubWindow }) => {
   const [hovered, setHovered] = useState(false);
 
   const {
@@ -119,20 +122,36 @@ const SortableItem: React.FC<{
     </div>
   );
 
-  // 右键上下文菜单（固定/取消固定）
-  const withContextMenu = onPinToggle ? (
+  // 右键上下文菜单（固定/取消固定 + 单独窗口打开）
+  const contextMenuItems = [];
+  if (onPinToggle) {
+    contextMenuItems.push({
+      key: 'pin-action',
+      icon: <PushpinOutlined style={{ transform: isPinned ? 'rotate(45deg)' : 'none' }} />,
+      label: isPinned ? '取消固定' : '固定到底部',
+      disabled: !isPinned && !canPin,
+    });
+  }
+  if (onOpenSubWindow) {
+    contextMenuItems.push({
+      key: 'open-sub-window',
+      icon: <ExportOutlined />,
+      label: '单独窗口打开',
+    });
+  }
+
+  const withContextMenu = contextMenuItems.length > 0 ? (
     <Dropdown
       trigger={['contextMenu']}
       menu={{
-        items: [
-          {
-            key: 'pin-action',
-            icon: <PushpinOutlined style={{ transform: isPinned ? 'rotate(45deg)' : 'none' }} />,
-            label: isPinned ? '取消固定' : '固定到底部',
-            disabled: !isPinned && !canPin,
-          },
-        ],
-        onClick: () => onPinToggle(item.key, isPinned),
+        items: contextMenuItems,
+        onClick: ({ key: menuKey }) => {
+          if (menuKey === 'pin-action' && onPinToggle) {
+            onPinToggle(item.key, isPinned);
+          } else if (menuKey === 'open-sub-window' && onOpenSubWindow) {
+            onOpenSubWindow(item.key);
+          }
+        },
       }}
     >
       {innerEl}
@@ -172,6 +191,7 @@ export const SortableMenu: React.FC<SortableMenuProps> = ({
   pinnedKeys = [],
   canAddPin = true,
   onPinToggle,
+  onOpenSubWindow,
 }) => {
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -210,6 +230,7 @@ export const SortableMenu: React.FC<SortableMenuProps> = ({
               isPinned={pinnedKeys.includes(item.key)}
               canPin={canAddPin || pinnedKeys.includes(item.key)}
               onPinToggle={onPinToggle}
+              onOpenSubWindow={onOpenSubWindow}
             />
           ))}
         </div>
