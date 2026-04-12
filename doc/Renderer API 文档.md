@@ -107,6 +107,8 @@
 - `pauseDownload(queueId)`
 - `resumeDownload(queueId)`
 
+说明：下载队列相关 Renderer API 使用的 `postId` 均为站点原始帖子 ID；主进程内部入库时会先映射到 `booru_posts.id`，读取队列返回给渲染层时再映射回原始帖子 ID。
+
 ### 图片缓存与标签缓存
 
 - `getCachedImageUrl(md5, extension)`

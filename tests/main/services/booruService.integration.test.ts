@@ -13,6 +13,33 @@ const state = {
     { id: 3, siteId: null, tagName: 'kawaii_chibi', reason: null, isActive: 1, createdAt: '2026-04-01' },
     { id: 4, siteId: 2, tagName: 'another_site', reason: null, isActive: 1, createdAt: '2026-04-01' },
   ] as Array<{ id: number; siteId: number | null; tagName: string; reason: null; isActive: number; createdAt: string }>,
+  booruPosts: [
+    {
+      id: 42,
+      siteId: 1,
+      postId: 1259292,
+      md5: 'd7561de4',
+      fileUrl: 'https://files.yande.re/sample.jpg',
+      previewUrl: 'https://files.yande.re/preview.jpg',
+      sampleUrl: 'https://files.yande.re/sample-small.jpg',
+      width: 1000,
+      height: 800,
+      fileSize: 123456,
+      fileExt: 'jpg',
+      rating: 's',
+      score: 100,
+      source: null,
+      tags: 'tag_a tag_b',
+      downloaded: 0,
+      localPath: null,
+      localImageId: null,
+      isFavorited: 0,
+      isLiked: 0,
+      createdAt: '2024-01-01',
+      updatedAt: '2024-01-01',
+    },
+  ] as Array<Record<string, any>>,
+  downloadQueue: [] as Array<Record<string, any>>,
   bindings: [
     {
       id: 1,
@@ -140,6 +167,34 @@ vi.mock('../../../src/main/services/database', () => ({
     if (/^\s*UPDATE\s+booru_favorite_tags\b/i.test(sql)) {
       applyFavoriteTagsUpdate(sql, params ?? []);
     }
+    if (/^\s*INSERT\s+INTO\s+booru_download_queue\b/i.test(sql)) {
+      const p = params ?? [];
+      const postFk = p[0];
+      const matchedPost = state.booruPosts.find(post => post.id === postFk);
+      if (!matchedPost) {
+        const err = new Error('SQLITE_CONSTRAINT: FOREIGN KEY constraint failed');
+        (err as any).errno = 19;
+        (err as any).code = 'SQLITE_CONSTRAINT';
+        throw err;
+      }
+      const existingIds = state.downloadQueue.map(item => item.id as number);
+      const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
+      lastInsertRowid = nextId;
+      state.downloadQueue.push({
+        id: nextId,
+        postId: p[0],
+        siteId: p[1],
+        status: 'pending',
+        priority: p[2],
+        targetPath: p[3],
+        createdAt: p[4],
+        updatedAt: p[5],
+        progress: 0,
+        downloadedBytes: 0,
+        totalBytes: 0,
+        retryCount: 0,
+      });
+    }
     if (/^\s*INSERT\s+INTO\s+booru_favorite_tags\b/i.test(sql)) {
       // 与 addFavoriteTag 的 INSERT 列顺序保持一致：
       // (siteId, tagName, labels, queryType, notes, sortOrder, createdAt, updatedAt)
@@ -214,6 +269,12 @@ vi.mock('../../../src/main/services/database', () => ({
     if (sql.includes('FROM booru_favorite_tags WHERE id = ?')) {
       return state.favoriteTags.find(tag => tag.id === params?.[0]);
     }
+    if (sql.includes('SELECT id FROM booru_posts WHERE siteId = ? AND postId = ?')) {
+      return state.booruPosts.find(post => post.siteId === params?.[0] && post.postId === params?.[1]);
+    }
+    if (sql.includes('SELECT id, status FROM booru_download_queue WHERE postId = ? AND siteId = ?')) {
+      return state.downloadQueue.find(item => item.postId === params?.[0] && item.siteId === params?.[1]);
+    }
     if (sql.includes('FROM booru_favorite_tag_download_bindings b') && sql.includes('WHERE b.favoriteTagId = ?')) {
       return state.bindings.find(binding => binding.favoriteTagId === params?.[0]);
     }
@@ -277,6 +338,26 @@ vi.mock('../../../src/main/services/database', () => ({
     return undefined;
   }),
   all: vi.fn(async (_db, sql: string, params?: any[]) => {
+    if (sql.includes('FROM booru_download_queue q') && sql.includes('INNER JOIN booru_posts p ON p.id = q.postId')) {
+      let rows = state.downloadQueue.map(item => {
+        const post = state.booruPosts.find(row => row.id === item.postId);
+        return {
+          ...item,
+          postId: post?.postId,
+        };
+      });
+      if (sql.includes('WHERE q.status = ?')) {
+        rows = rows.filter(item => item.status === params?.[0]);
+      }
+      return rows;
+    }
+    if (sql.includes('SELECT * FROM booru_download_queue')) {
+      let rows = [...state.downloadQueue];
+      if (sql.includes('WHERE status = ?')) {
+        rows = rows.filter(item => item.status === params?.[0]);
+      }
+      return rows;
+    }
     if (sql.includes('FROM booru_favorite_tags') && !sql.includes('booru_favorite_tag_download_bindings')) {
       const list = params ?? [];
       const { rows, nextParamIndex } = filterFavoriteTagsByParams(sql, list);
@@ -365,6 +446,19 @@ vi.mock('electron', () => ({
 describe('booruService integration-ish behavior', () => {
   beforeEach(() => {
     vi.resetModules();
+    state.downloadQueue = [];
+  });
+
+  it('addToDownloadQueue 应将 API postId 映射为 booru_posts.id 再入队', async () => {
+    const service = await import('../../../src/main/services/booruService');
+
+    const queueId = await service.addToDownloadQueue(1259292, 1, 0, 'D:/downloads/1259292.jpg');
+
+    expect(queueId).toBe(1);
+    expect(state.downloadQueue).toHaveLength(1);
+    expect(state.downloadQueue[0]?.postId).toBe(42);
+    expect(state.downloadQueue[0]?.siteId).toBe(1);
+    expect(state.downloadQueue[0]?.targetPath).toBe('D:/downloads/1259292.jpg');
   });
 
   it('getFavoriteTagsWithDownloadState 应返回带 binding 和 galleryName 的 enriched 结果', async () => {

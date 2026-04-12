@@ -404,7 +404,7 @@ class DownloadManager {
       this.broadcastStatus(queueId, 'downloading');
 
       // 获取帖子信息以获取URL
-      const post = await booruService.getBooruPostBySiteAndId(item.siteId, item.postId);
+      const post = await booruService.getBooruPostById(item.postId);
       if (!post) {
         throw new Error(`找不到帖子信息: ${item.postId}`);
       }
@@ -463,7 +463,7 @@ class DownloadManager {
       // 更新数据库状态（完成时写一次）
       await booruService.updateDownloadStatus(queueId, 'completed');
       await booruService.updateDownloadProgress(queueId, 100, downloadedLength, totalLength).catch(console.error);
-      await booruService.markPostAsDownloaded(item.postId, item.targetPath!);
+      await booruService.markPostAsDownloaded(post.id, item.targetPath!);
 
       // 通知前端
       this.broadcastStatus(queueId, 'completed');

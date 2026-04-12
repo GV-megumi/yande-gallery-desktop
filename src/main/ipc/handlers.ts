@@ -1164,7 +1164,7 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, async (_event: IpcMainInvokeEvent, status?: string) => {
     console.log('[IPC] 获取下载队列，状态:', status);
     try {
-      const queue = await booruService.getDownloadQueue(status);
+      const queue = await booruService.getDownloadQueueForDisplay(status);
       return { success: true, data: queue };
     } catch (error) {
       console.error('[IPC] 获取下载队列失败:', error);
