@@ -30,7 +30,16 @@ import {
 import { BooruPost } from '../../shared/types.js';
 
 /**
+ * 标签集合标准化：去空格、去重、排序后以空格拼接
+ * 作为批量下载任务去重的唯一键组成部分（path + normalizedTags）
+ */
+export function normalizeTagSet(tags: string[]): string {
+  return [...new Set(tags.map(tag => tag.trim()).filter(Boolean))].sort().join(' ');
+}
+
+/**
  * 创建批量下载任务
+ * 如果已存在相同 path + 标签集合的任务，返回已有任务并标记 deduplicated
  */
 export async function createBulkDownloadTask(
   options: BulkDownloadOptions
@@ -38,6 +47,33 @@ export async function createBulkDownloadTask(
   console.log('[bulkDownloadService] 创建批量下载任务:', options);
   try {
     const db = await getDatabase();
+    const normalizedTags = normalizeTagSet(options.tags);
+
+    // 去重检查：相同下载路径 + 标签集合视为同一任务
+    const existing = await get<any>(db, `
+      SELECT * FROM bulk_download_tasks WHERE path = ? AND tags = ? ORDER BY createdAt DESC LIMIT 1
+    `, [options.path, normalizedTags]);
+
+    if (existing) {
+      console.log('[bulkDownloadService] 发现已有相同任务，跳过创建:', existing.id);
+      const deduplicatedTask: BulkDownloadTask = {
+        id: existing.id,
+        siteId: existing.siteId,
+        path: existing.path,
+        tags: existing.tags,
+        blacklistedTags: existing.blacklistedTags,
+        notifications: Boolean(existing.notifications),
+        skipIfExists: Boolean(existing.skipIfExists),
+        quality: existing.quality,
+        perPage: existing.perPage,
+        concurrency: existing.concurrency,
+        createdAt: existing.createdAt,
+        updatedAt: existing.updatedAt,
+        deduplicated: true
+      };
+      return { success: true, data: deduplicatedTask };
+    }
+
     const now = new Date().toISOString();
     const taskId = uuidv4();
 
@@ -45,12 +81,12 @@ export async function createBulkDownloadTask(
       id: taskId,
       siteId: options.siteId,
       path: options.path,
-      tags: options.tags.join(' '),
+      tags: normalizedTags,
       blacklistedTags: options.blacklistedTags?.join(' '),
       notifications: options.notifications ?? true,
       skipIfExists: options.skipIfExists ?? true,
       quality: options.quality,
-      perPage: options.perPage ?? 20,
+      perPage: options.perPage ?? 200,
       concurrency: options.concurrency ?? 3,
       createdAt: now,
       updatedAt: now

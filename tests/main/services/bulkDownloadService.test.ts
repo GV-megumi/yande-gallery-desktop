@@ -35,7 +35,7 @@ function applyDefaults(options: BulkDownloadOptions) {
     notifications: options.notifications ?? true,
     skipIfExists: options.skipIfExists ?? true,
     quality: options.quality,
-    perPage: options.perPage ?? 20,
+    perPage: options.perPage ?? 200,
     concurrency: options.concurrency ?? 3,
   };
 }
@@ -90,6 +90,12 @@ function fallbackFileName(postId: number, md5: string | undefined | null, extens
   return `${postId}_${md5 || 'unknown'}.${extension}`;
 }
 
+// ========= 等价实现：标签集合标准化（去重键） =========
+
+function normalizeTagSet(tags: string[]): string {
+  return [...new Set(tags.map(tag => tag.trim()).filter(Boolean))].sort().join(' ');
+}
+
 // ========= 等价实现：标签解析 =========
 
 function parseTags(tagsStr: string): string[] {
@@ -109,9 +115,9 @@ describe('任务选项默认值', () => {
     expect(result.skipIfExists).toBe(true);
   });
 
-  it('应使用默认 perPage=20', () => {
+  it('应使用默认 perPage=200', () => {
     const result = applyDefaults({ siteId: 1, path: '/dl', tags: ['tag1'] });
-    expect(result.perPage).toBe(20);
+    expect(result.perPage).toBe(200);
   });
 
   it('应使用默认 concurrency=3', () => {
@@ -273,6 +279,43 @@ describe('回退文件名生成', () => {
   it('md5 为空字符串时应回退为 unknown（空字符串是 falsy）', () => {
     // 源码: post.md5 || 'unknown'，空字符串是 falsy
     expect(fallbackFileName(12345, '', 'webp')).toBe('12345_unknown.webp');
+  });
+});
+
+describe('标签集合标准化（normalizeTagSet）', () => {
+  it('应去除标签两端空格', () => {
+    expect(normalizeTagSet([' blue_eyes ', ' blonde_hair '])).toBe('blonde_hair blue_eyes');
+  });
+
+  it('应对标签去重', () => {
+    expect(normalizeTagSet(['blue_eyes', 'blonde_hair', 'blue_eyes'])).toBe('blonde_hair blue_eyes');
+  });
+
+  it('应按字母顺序排序', () => {
+    expect(normalizeTagSet(['zebra', 'apple', 'mango'])).toBe('apple mango zebra');
+  });
+
+  it('应过滤空字符串', () => {
+    expect(normalizeTagSet(['blue_eyes', '', '  ', 'blonde_hair'])).toBe('blonde_hair blue_eyes');
+  });
+
+  it('全部为空时应返回空字符串', () => {
+    expect(normalizeTagSet(['', '  ', ''])).toBe('');
+  });
+
+  it('空数组应返回空字符串', () => {
+    expect(normalizeTagSet([])).toBe('');
+  });
+
+  it('单个标签应原样返回（去空格后）', () => {
+    expect(normalizeTagSet([' solo '])).toBe('solo');
+  });
+
+  it('顺序不同但内容相同的标签集应产出相同结果', () => {
+    const a = normalizeTagSet(['tag_b', 'tag_a', 'tag_c']);
+    const b = normalizeTagSet(['tag_c', 'tag_a', 'tag_b']);
+    expect(a).toBe(b);
+    expect(a).toBe('tag_a tag_b tag_c');
   });
 });
 

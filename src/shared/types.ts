@@ -185,6 +185,7 @@ export interface BulkDownloadTask {
   concurrency: number;
   createdAt: string;
   updatedAt: string;
+  deduplicated?: boolean;
 }
 
 // 批量下载会话
