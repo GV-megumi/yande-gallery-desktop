@@ -474,11 +474,11 @@ export const AppContent: React.FC = () => {
     pushNavigation({ type: 'character', name, siteId });
   }, [pushNavigation]);
 
-  const handleSavedSearchRun = (query: string, siteId?: number | null) => {
+  const handleSavedSearchRun = useCallback((query: string, siteId?: number | null) => {
     console.log('[App] 执行保存的搜索:', query, siteId);
     setSelectedBooruSubKey('posts');
     navigateToTagSearch(query, siteId);
-  };
+  }, [navigateToTagSearch]);
 
   /** 合并页面对应的默认 tab 映射 */
   const MERGED_DEFAULT_TABS: Record<string, string> = {
@@ -668,8 +668,8 @@ export const AppContent: React.FC = () => {
     return null;
   };
 
-  /** 渲染基础页面（底层页面） */
-  const renderBasePage = () => {
+  /** 渲染基础页面（底层页面）— useMemo 避免 sidebarSection 变化时不必要的子组件重渲染 */
+  const basePage = useMemo(() => {
     const baseSuspended = navigationStack.length > 0;
     switch (selectedKey) {
       case 'gallery':
@@ -698,7 +698,7 @@ export const AppContent: React.FC = () => {
       default:
         return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
     }
-  };
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, navigationStack.length, navigateToTagSearch, navigateToArtist, navigateToCharacter, navigateToUser, handleSavedSearchRun]);
 
   // 是否有叠加页面（导航栈非空时表示有叠加页面）
   const hasOverlay = navigationStack.length > 0;
@@ -720,7 +720,6 @@ export const AppContent: React.FC = () => {
       );
     }
 
-    const basePage = renderBasePage();
     const hasStack = navigationStack.length > 0;
 
     // 始终保持一致的 React 树结构，避免基础页面因树结构变化而被卸载/重新挂载
@@ -1057,7 +1056,7 @@ export const AppContent: React.FC = () => {
 
         {/* 嵌入式全屏覆盖层：
             - position:absolute + top/bottom 确定像素高度（不依赖 height:100% 链）
-            - 直接调 renderBasePage()，跳过 renderBaseContent() 里无高度的包装 div */}
+            - 直接用 basePage（已 useMemo），跳过 renderBaseContent() 里无高度的包装 div */}
         {isEmbedPage && (
           <div
             className="ios-page-enter"
@@ -1073,7 +1072,7 @@ export const AppContent: React.FC = () => {
             }}
           >
             <Suspense fallback={suspenseFallback}>
-              {renderBasePage()}
+              {basePage}
             </Suspense>
           </div>
         )}

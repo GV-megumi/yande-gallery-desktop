@@ -517,7 +517,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       footer={null}
     >
       <div style={{ display: 'flex', height: '100%', flexDirection: 'column' }}>
-        {/* 顶部工具栏 — 精简：关闭 + 页码 + ID */}
+        {/* 顶部工具栏 — 精简：ID + 页码 + 关闭 */}
         <div style={{
           padding: `${spacing.sm}px ${spacing.lg}px`,
           borderBottom: `0.5px solid ${colors.separator}`,
@@ -528,12 +528,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
           zIndex: 10,
           minHeight: 48,
         }}>
-          <Button
-            icon={<CloseOutlined />}
-            onClick={onClose}
-          >
-            关闭
-          </Button>
+          {currentPost.postId ? (
+            <span style={{ color: colors.textTertiary, fontSize: fontSize.md }}>
+              ID: {currentPost.postId}
+            </span>
+          ) : <span />}
           {posts.length > 0 && (
             <span style={{
               fontSize: fontSize.md,
@@ -542,11 +541,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               {currentIndex + 1} / {posts.length}
             </span>
           )}
-          {currentPost.postId && (
-            <span style={{ color: colors.textTertiary, fontSize: fontSize.md }}>
-              ID: {currentPost.postId}
-            </span>
-          )}
+          <Button
+            icon={<CloseOutlined />}
+            onClick={onClose}
+          >
+            关闭
+          </Button>
         </div>
 
         {/* 主内容区域 */}

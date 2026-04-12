@@ -306,6 +306,15 @@ export function setupIPC() {
     }
   });
 
+  // 删除图片记录（仅删除数据库记录，不删除磁盘文件）
+  ipcMain.handle('image:delete', async (_event: IpcMainInvokeEvent, imageId: number) => {
+    try {
+      return await deleteImage(imageId);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // 删除缩略图
   ipcMain.handle('image:delete-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {

@@ -317,6 +317,30 @@ describe('标签集合标准化（normalizeTagSet）', () => {
     expect(a).toBe(b);
     expect(a).toBe('tag_a tag_b tag_c');
   });
+
+  it('应正确处理含冒号的标签（rating:safe 等）', () => {
+    expect(normalizeTagSet(['rating:safe', 'order:score'])).toBe('order:score rating:safe');
+  });
+
+  it('应正确处理含括号的标签', () => {
+    expect(normalizeTagSet(['touhou_(game)', 'fate/grand_order'])).toBe('fate/grand_order touhou_(game)');
+  });
+
+  it('应正确处理中文/日文标签', () => {
+    const result = normalizeTagSet(['東方project', '初音ミク']);
+    expect(result).toContain('東方project');
+    expect(result).toContain('初音ミク');
+    // 排序由 JS sort 决定，但两个标签都在
+    expect(result.split(' ')).toHaveLength(2);
+  });
+
+  it('应正确处理只有空格的标签（视为空）', () => {
+    expect(normalizeTagSet(['  '])).toBe('');
+  });
+
+  it('混合有效和无效标签时应只保留有效的', () => {
+    expect(normalizeTagSet(['valid', '', '  ', 'also_valid', ''])).toBe('also_valid valid');
+  });
 });
 
 describe('标签字符串解析', () => {

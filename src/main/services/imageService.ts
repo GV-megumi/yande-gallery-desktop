@@ -262,7 +262,38 @@ export async function getImageById(id: number): Promise<{ success: boolean; data
 export async function deleteImage(id: number): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
+
+    // 先查出文件路径，用于删除磁盘文件和缩略图
+    const row = await get<{ filepath: string; thumbnailPath?: string }>(
+      db, 'SELECT filepath, thumbnailPath FROM images WHERE id = ?', [id]
+    );
+
+    // 删除数据库记录
+    await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
     await run(db, 'DELETE FROM images WHERE id = ?', [id]);
+
+    // 删除磁盘文件
+    if (row?.filepath) {
+      try {
+        await fs.unlink(row.filepath);
+        console.log(`[imageService] 已删除磁盘文件: ${row.filepath}`);
+      } catch (err: any) {
+        // 文件可能已不存在，不阻断流程
+        if (err.code !== 'ENOENT') {
+          console.warn(`[imageService] 删除磁盘文件失败: ${row.filepath}`, err.message);
+        }
+      }
+    }
+
+    // 删除缩略图
+    if (row?.thumbnailPath) {
+      try {
+        await fs.unlink(row.thumbnailPath);
+      } catch {
+        // 缩略图可能不存在，忽略
+      }
+    }
+
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

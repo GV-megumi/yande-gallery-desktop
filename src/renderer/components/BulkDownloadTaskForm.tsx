@@ -123,7 +123,7 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
         siteId: sites.find(s => s.active)?.id,
         notifications: true,
         skipIfExists: true,
-        perPage: 20,
+        perPage: 200,
         concurrency: 3,
         quality: 'original'
       }}

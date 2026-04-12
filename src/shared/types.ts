@@ -478,6 +478,10 @@ export interface ListQueryParams {
   offset?: number;
   /** 默认 50；传 0 或省略 = 不分页（真正取全部，无兜底） */
   limit?: number;
+  /** 排序字段 */
+  sortKey?: 'tagName' | 'galleryName' | 'lastDownloadedAt';
+  /** 排序方向，默认 asc */
+  sortOrder?: 'asc' | 'desc';
 }
 
 export interface PaginatedResult<T> {

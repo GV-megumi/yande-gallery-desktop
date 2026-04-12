@@ -156,6 +156,14 @@ export const BooruBulkDownloadPage: React.FC = () => {
           return;
         }
 
+        // 去重检查：如果任务已存在，直接提示并关闭
+        if (createResult.data.deduplicated) {
+          message.info('任务已存在');
+          setFormVisible(false);
+          loadTasks();
+          return;
+        }
+
         const newTaskId = createResult.data.id;
         console.log('[BooruBulkDownloadPage] 任务创建成功，ID:', newTaskId);
 
@@ -446,6 +454,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
           setFormVisible(false);
           setEditingTask(undefined);
         }}
+        closable={false}
         footer={null}
         width={800}
         destroyOnHidden

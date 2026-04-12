@@ -294,3 +294,97 @@ describe('galleryService - checkFolderHasImages 逻辑', () => {
     expect(hasImagesInFiles(['anim.webp'], ['.jpg', '.png', '.webp'])).toBe(true);
   });
 });
+
+describe('galleryService - syncGalleryFolder 错误分支', () => {
+  // 模拟 syncGalleryFolder 中的错误处理逻辑
+
+  interface GalleryResult {
+    success: boolean;
+    data?: { id: number; folderPath: string; extensions: string[]; recursive: boolean };
+    error?: string;
+  }
+
+  interface ImportResult {
+    success: boolean;
+    data?: { imported: number; skipped: number };
+    error?: string;
+  }
+
+  function simulateSyncGalleryFolder(
+    getGalleryResult: GalleryResult,
+    importResult: ImportResult | null,
+    imageCount?: number
+  ): { success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string } {
+    // Step 1: 获取图集
+    if (!getGalleryResult.success || !getGalleryResult.data) {
+      return { success: false, error: getGalleryResult.error || '图集不存在' };
+    }
+
+    // Step 2: 扫描导入
+    if (!importResult || !importResult.success || !importResult.data) {
+      return { success: false, error: importResult?.error || '同步失败' };
+    }
+
+    // Step 3: 组装结果
+    const count = imageCount ?? 0;
+    return {
+      success: true,
+      data: {
+        imported: importResult.data.imported,
+        skipped: importResult.data.skipped,
+        imageCount: count,
+        lastScannedAt: new Date().toISOString(),
+      },
+    };
+  }
+
+  it('图集不存在时应返回错误', () => {
+    const result = simulateSyncGalleryFolder(
+      { success: false, error: '图集不存在' },
+      null
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('图集不存在');
+    expect(result.data).toBeUndefined();
+  });
+
+  it('图集查询成功但 data 为空时应返回错误', () => {
+    const result = simulateSyncGalleryFolder(
+      { success: true }, // data 为 undefined
+      null
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('图集不存在');
+  });
+
+  it('扫描导入失败时应返回错误', () => {
+    const result = simulateSyncGalleryFolder(
+      { success: true, data: { id: 1, folderPath: '/images', extensions: ['.jpg'], recursive: true } },
+      { success: false, error: '目录不存在' }
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('目录不存在');
+  });
+
+  it('扫描导入成功但 data 为空时应返回错误', () => {
+    const result = simulateSyncGalleryFolder(
+      { success: true, data: { id: 1, folderPath: '/images', extensions: ['.jpg'], recursive: true } },
+      { success: true } // data 为 undefined
+    );
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('同步失败');
+  });
+
+  it('全链路成功时应返回正确结果', () => {
+    const result = simulateSyncGalleryFolder(
+      { success: true, data: { id: 1, folderPath: '/images', extensions: ['.jpg'], recursive: true } },
+      { success: true, data: { imported: 3, skipped: 47 } },
+      50
+    );
+    expect(result.success).toBe(true);
+    expect(result.data?.imported).toBe(3);
+    expect(result.data?.skipped).toBe(47);
+    expect(result.data?.imageCount).toBe(50);
+    expect(result.data?.lastScannedAt).toBeTruthy();
+  });
+});

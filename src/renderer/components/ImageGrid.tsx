@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { Card, Image, Tag, Button, Modal, Descriptions, Space, message, Tooltip } from 'antd';
-import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined } from '@ant-design/icons';
+import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows, transitions, layout as layoutTokens } from '../styles/tokens';
@@ -72,6 +72,7 @@ interface ImageCardProps {
   thumbnailPath: string | null | undefined;
   onImageInfo: (image: any) => void;
   onPreviewClick: (previewSrc: string, imageId: number, filename: string) => void;
+  onReload: () => void;
   onSetCover?: (imageId: number) => void;
   currentGallery?: any;
 }
@@ -85,6 +86,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
   thumbnailPath,
   onImageInfo,
   onPreviewClick,
+  onReload,
   onSetCover,
   currentGallery,
 }) => {
@@ -134,8 +136,44 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
         }}
       );
     }
+    // 缩略图 & 删除操作
+    items.push(
+      { type: 'divider' },
+      { key: 'regenThumbnail', label: '重新获取缩略图', icon: <ReloadOutlined />, onClick: async () => {
+        if (image.filepath && window.electronAPI) {
+          const result = await window.electronAPI.image.generateThumbnail(image.filepath, true);
+          if (result.success) {
+            message.success('缩略图已更新');
+            onReload();
+          } else {
+            message.error('缩略图生成失败: ' + (result.error || ''));
+          }
+        }
+      }},
+      { key: 'deleteImage', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => {
+        Modal.confirm({
+          title: '确认删除',
+          content: `确定要删除「${image.filename}」吗？图集记录和文件都将被删除。`,
+          okText: '删除',
+          okType: 'danger',
+          cancelText: '取消',
+          closable: false,
+          onOk: async () => {
+            if (window.electronAPI) {
+              const result = await window.electronAPI.image.deleteImage(image.id);
+              if (result.success) {
+                message.success('已删除');
+                onReload();
+              } else {
+                message.error('删除失败: ' + (result.error || ''));
+              }
+            }
+          },
+        });
+      }},
+    );
     return items;
-  }, [image, onImageInfo, onSetCover, currentGallery]);
+  }, [image, onImageInfo, onSetCover, currentGallery, onReload]);
 
   return (
     <ContextMenu items={imageContextItems}>
@@ -471,6 +509,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                         thumbnailPath={thumbnailPaths[image.id]}
                         onImageInfo={handleImageInfo}
                         onPreviewClick={handlePreviewClick}
+                        onReload={onReload}
                         onSetCover={onSetCover}
                         currentGallery={currentGallery}
                       />

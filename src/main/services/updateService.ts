@@ -1,5 +1,10 @@
 import { app } from 'electron';
+import { createRequire } from 'module';
 import type { UpdateCheckResult } from '../../shared/types';
+
+// 开发模式下 app.getVersion() 返回 Electron 版本，需从 package.json 读取应用版本
+const require = createRequire(import.meta.url);
+const appVersion: string = require('../../../package.json').version;
 
 const REPO_OWNER = 'GV-megumi';
 const REPO_NAME = 'yande-gallery-desktop';
@@ -46,9 +51,9 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
     return cachedResult;
   }
 
-  const currentVersion = app.getVersion();
+  const currentVersion = appVersion;
   const checkedAt = new Date().toISOString();
-  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+  const url = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=1`;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
@@ -79,12 +84,30 @@ export async function checkForUpdate(): Promise<UpdateCheckResult> {
       return result;
     }
 
-    const json = await response.json() as {
+    const releases = await response.json() as Array<{
       tag_name?: string;
       name?: string;
       html_url?: string;
       published_at?: string;
-    };
+    }>;
+    const json = releases[0];
+    if (!json) {
+      // 仓库没有任何 Release
+      const result: UpdateCheckResult = {
+        currentVersion,
+        latestVersion: null,
+        hasUpdate: false,
+        releaseUrl: null,
+        releaseName: null,
+        publishedAt: null,
+        error: null,
+        checkedAt,
+      };
+      cachedResult = result;
+      cachedAt = now;
+      console.log('[updateService] 仓库暂无 Release');
+      return result;
+    }
 
     const latestVersion = json.tag_name ? json.tag_name.replace(/^v/i, '') : null;
     const hasUpdate = latestVersion ? compareSemver(latestVersion, currentVersion) > 0 : false;

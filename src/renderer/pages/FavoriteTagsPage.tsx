@@ -133,38 +133,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   // 是否处于非默认排序模式（非按标签名升序）
   const isCustomSortActive = sortKey !== 'tagName' || sortOrder !== 'asc';
 
-  const sortedTags = useMemo(() => {
-    const list = [...favoriteTags];
-    list.sort((a, b) => {
-      let cmp = 0;
-      switch (sortKey) {
-        case 'tagName':
-          cmp = a.tagName.localeCompare(b.tagName);
-          break;
-        case 'galleryName': {
-          const aName = a.galleryName || '';
-          const bName = b.galleryName || '';
-          if (!aName && bName) return 1;
-          if (aName && !bName) return -1;
-          cmp = aName.localeCompare(bName);
-          if (cmp === 0) cmp = a.tagName.localeCompare(b.tagName);
-          break;
-        }
-        case 'lastDownloadedAt': {
-          const aTime = a.downloadBinding?.lastCompletedAt || a.downloadBinding?.lastStartedAt || '';
-          const bTime = b.downloadBinding?.lastCompletedAt || b.downloadBinding?.lastStartedAt || '';
-          if (!aTime && bTime) return 1;
-          if (aTime && !bTime) return -1;
-          cmp = aTime.localeCompare(bTime);
-          if (cmp === 0) cmp = a.tagName.localeCompare(b.tagName);
-          break;
-        }
-      }
-      return sortOrder === 'desc' ? -cmp : cmp;
-    });
-    return list;
-  }, [favoriteTags, sortKey, sortOrder]);
-
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
     return () => clearTimeout(timer);
@@ -183,6 +151,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         keyword: debouncedKeyword.trim() || undefined,
         offset,
         limit: pageSize,
+        sortKey,
+        sortOrder,
       });
       if (result.success && result.data) {
         setFavoriteTags(result.data.items);
@@ -197,7 +167,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     } finally {
       setLoading(false);
     }
-  }, [filterSiteId, debouncedKeyword, page, pageSize, t]);
+  }, [filterSiteId, debouncedKeyword, page, pageSize, sortKey, sortOrder, t]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -244,6 +214,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       sessionId: string;
       progress: number;
     }) => {
+      // 进度事件只更新本地状态，不重新查询后端（事件频率太高）
       setFavoriteTags(prev => prev.map(tag => {
         const sessionId = tag.downloadBinding?.lastSessionId;
         if (!sessionId || sessionId !== data.sessionId || !tag.runtimeProgress) {
@@ -258,8 +229,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           },
         };
       }));
-
-      scheduleRefresh();
     });
 
     const removeStatusListener = window.electronAPI?.system?.onBulkDownloadRecordStatus?.((data: {
@@ -743,18 +712,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           <Tooltip title={t('favoriteTags.searchTag')}>
             <Button type="link" size="small" icon={<SearchOutlined />} onClick={() => handleTagClick(record)} />
           </Tooltip>
-          <Tooltip title={t('favoriteTags.download')}>
-            <Tooltip title={getDownloadDisabledReason(record) || t('favoriteTags.download')}>
-              <span>
-                <Button
-                  type="link"
-                  size="small"
-                  icon={<DownloadOutlined />}
-                  disabled={record.siteId == null}
-                  onClick={() => handleDownloadClick(record)}
-                />
-              </span>
-            </Tooltip>
+          <Tooltip title={getDownloadDisabledReason(record) || t('favoriteTags.download')}>
+            <span>
+              <Button
+                type="link"
+                size="small"
+                icon={<DownloadOutlined />}
+                disabled={record.siteId == null}
+                onClick={() => handleDownloadClick(record)}
+              />
+            </span>
           </Tooltip>
           <Tooltip title={t('favoriteTags.configureDownload')}>
             <Button type="link" size="small" icon={<SettingOutlined />} danger={record.galleryBindingConsistent === false} onClick={() => openDownloadConfig(record)} />
@@ -828,7 +795,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               </Select>
               <Select
                 value={sortKey}
-                onChange={(val) => setSortKey(val)}
+                onChange={(val) => { setSortKey(val); setPage(1); }}
                 options={[
                   { label: '按标签名', value: 'tagName' },
                   { label: '按图集名', value: 'galleryName' },
@@ -839,7 +806,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
               <Tooltip title={sortOrder === 'asc' ? '升序' : '降序'}>
                 <Button
                   icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
-                  onClick={() => setSortOrder(o => o === 'asc' ? 'desc' : 'asc')}
+                  onClick={() => { setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPage(1); }}
                 />
               </Tooltip>
               <Input
@@ -922,7 +889,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Card>
         {isCustomSortActive ? (
           <Table
-            dataSource={sortedTags}
+            dataSource={favoriteTags}
             columns={columns}
             rowKey="id"
             loading={loading}
@@ -939,9 +906,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
           />
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
-            <SortableContext items={sortedTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext items={favoriteTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
               <Table
-                dataSource={sortedTags}
+                dataSource={favoriteTags}
                 columns={columns}
                 rowKey="id"
                 loading={loading}

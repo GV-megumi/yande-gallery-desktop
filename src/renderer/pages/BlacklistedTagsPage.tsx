@@ -247,7 +247,7 @@ export const BlacklistedTagsPage: React.FC = () => {
             ))}
           </Select>
           <Input
-            placeholder="搜索标签"
+            placeholder="搜索黑名单标签"
             allowClear
             prefix={<SearchOutlined />}
             value={keyword}

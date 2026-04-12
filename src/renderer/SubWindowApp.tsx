@@ -131,7 +131,7 @@ const renderSecondaryMenuPage = (section: string, key: string, tab?: string): Re
     if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={openTagSearchWindow} />;
     if (key === 'tag-management') return <BooruTagManagementPage onTagClick={openTagSearchWindow} defaultTab={(tab as 'favorite' | 'blacklist') ?? 'favorite'} />;
     if (key === 'download') return <BooruDownloadHubPage defaultTab={(tab as 'downloads' | 'bulk') ?? 'downloads'} />;
-    if (key === 'saved-searches') return <BooruSavedSearchesPage />;
+    if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={openTagSearchWindow} />;
     if (key === 'booru-settings') return <BooruSettingsPage />;
     if (key === 'settings') return <SettingsPage />;
   }

@@ -237,7 +237,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getThumbnail: (imagePath: string) =>
       ipcRenderer.invoke('image:get-thumbnail', imagePath),
     deleteThumbnail: (imagePath: string) =>
-      ipcRenderer.invoke('image:delete-thumbnail', imagePath)
+      ipcRenderer.invoke('image:delete-thumbnail', imagePath),
+    deleteImage: (imageId: number) =>
+      ipcRenderer.invoke('image:delete', imageId),
   },
 
   // Booru API (新增)
@@ -588,6 +590,7 @@ declare global {
         generateThumbnail: (imagePath: string, force?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>;
         getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
         deleteThumbnail: (imagePath: string) => Promise<{ success: boolean; error?: string }>;
+        deleteImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
       };
       // Booru API (新增)
       booru: {
