@@ -330,6 +330,7 @@ export const BlacklistedTagsPage: React.FC = () => {
       <Modal
         title="添加黑名单标签"
         open={addModalVisible}
+        closable={false}
         onCancel={() => {
           setAddModalVisible(false);
           form.resetFields();

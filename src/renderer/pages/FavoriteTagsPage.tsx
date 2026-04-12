@@ -965,6 +965,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.addTitle')}
         open={addModalVisible}
+        closable={false}
         onCancel={() => { setAddModalVisible(false); form.resetFields(); }}
         onOk={() => form.submit()}
         okText={t('details.favorite')}
@@ -993,6 +994,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.configTitle', { name: configuringTag?.tagName || '' })}
         open={!!configuringTag}
+        closable={false}
         footer={null}
         onCancel={() => {
           setConfiguringTag(null);
@@ -1039,6 +1041,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             <Switch />
           </Form.Item>
           <Space style={{ width: '100%', justifyContent: 'flex-end' }}>
+            <Button onClick={() => { setConfiguringTag(null); downloadForm.resetFields(); }} disabled={savingDownloadConfig}>{t('common.cancel')}</Button>
             <Button onClick={() => configuringTag && saveDownloadBinding(configuringTag, false)} loading={savingDownloadConfig}>{t('common.save')}</Button>
             <Button type="primary" onClick={() => configuringTag && saveDownloadBinding(configuringTag, true)} loading={savingDownloadConfig}>{t('favoriteTags.saveAndDownload')}</Button>
           </Space>
@@ -1048,7 +1051,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.historyTitle', { name: historyTag?.tagName || '' })}
         open={historyVisible}
-        footer={null}
+        closable={false}
+        footer={
+          <Button onClick={() => { setHistoryVisible(false); setHistoryTag(null); setDownloadHistory([]); }}>
+            {t('common.close')}
+          </Button>
+        }
         width={640}
         onCancel={() => {
           setHistoryVisible(false);
@@ -1118,6 +1126,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.editTitle', { name: editingTag?.tagName || '' })}
         open={!!editingTag}
+        closable={false}
         onCancel={() => { setEditingTag(null); form.resetFields(); }}
         onOk={() => form.submit()}
         okText={t('common.save')}

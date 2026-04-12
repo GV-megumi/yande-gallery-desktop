@@ -152,6 +152,7 @@ export function ImportTagsDialog<T extends AnyRecord>({
       open={open}
       title={title}
       width={560}
+      closable={false}
       onCancel={handleCancel}
       footer={null}
       maskClosable={!committing}

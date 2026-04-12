@@ -3,7 +3,7 @@
  * 显示所有可用的快捷键列表
  */
 import React from 'react';
-import { Modal, Typography, Tag } from 'antd';
+import { Modal, Typography, Tag, Button } from 'antd';
 import { useLocale } from '../locales';
 import { SHORTCUT_KEYS, formatShortcutKey } from '../hooks/useKeyboardShortcuts';
 import { colors, spacing, fontSize } from '../styles/tokens';
@@ -61,8 +61,9 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
     <Modal
       title={t('shortcuts.title')}
       open={open}
+      closable={false}
       onCancel={onClose}
-      footer={null}
+      footer={<Button onClick={onClose}>{t('common.close')}</Button>}
       width={480}
     >
       {/* 导航 */}

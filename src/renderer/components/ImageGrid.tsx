@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Card, Image, Tag, Button, Modal, Descriptions, Space, message } from 'antd';
+import { Card, Image, Tag, Button, Modal, Descriptions, Space, message, Tooltip } from 'antd';
 import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
@@ -211,31 +211,34 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
           )}
           {/* 右上角信息按钮 -- 圆形 */}
           {!isThumbnailLoading && (
-            <Button
-              type="text"
-              size="small"
-              icon={<TagsOutlined />}
-              onClick={(e) => {
-                e.stopPropagation();
-                onImageInfo(image);
-              }}
-              style={{
-                position: 'absolute',
-                top: 6,
-                right: 6,
-                width: 28,
-                height: 28,
-                borderRadius: radius.round,
-                background: 'rgba(0, 0, 0, 0.35)',
-                backdropFilter: 'blur(8px)',
-                color: '#FFFFFF',
-                zIndex: zIndex.sticky,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                border: 'none',
-              }}
-            />
+            <Tooltip title="查看信息">
+              <Button
+                type="text"
+                size="small"
+                icon={<TagsOutlined />}
+                aria-label="查看信息"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onImageInfo(image);
+                }}
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 28,
+                  height: 28,
+                  borderRadius: radius.round,
+                  background: 'rgba(0, 0, 0, 0.35)',
+                  backdropFilter: 'blur(8px)',
+                  color: '#FFFFFF',
+                  zIndex: zIndex.sticky,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                }}
+              />
+            </Tooltip>
           )}
         </div>
     </div>
@@ -518,7 +521,12 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
       <Modal
         open={!!selectedImage}
         title="图片信息"
-        footer={null}
+        closable={false}
+        footer={
+          <Button onClick={() => { console.log('[ImageGrid] 关闭图片信息'); setSelectedImage(null); }}>
+            关闭
+          </Button>
+        }
         onCancel={() => {
           console.log('[ImageGrid] 关闭图片信息');
           setSelectedImage(null);

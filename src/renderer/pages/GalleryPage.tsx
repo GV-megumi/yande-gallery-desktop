@@ -1092,7 +1092,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       <Modal
         open={!!selectedGalleryInfo}
         title="图集信息"
-        footer={null}
+        closable={false}
+        footer={
+          <Button onClick={() => { console.log('[GalleryPage] 关闭图集信息模态框'); setSelectedGalleryInfo(null); }}>
+            关闭
+          </Button>
+        }
         onCancel={() => {
           console.log('[GalleryPage] 关闭图集信息模态框');
           setSelectedGalleryInfo(null);

@@ -75,6 +75,7 @@ export const BatchTagAddModal: React.FC<BatchTagAddModalProps> = ({
       open={open}
       title={title}
       width={480}
+      closable={false}
       onCancel={handleCancel}
       onOk={handleOk}
       okText="保存"
