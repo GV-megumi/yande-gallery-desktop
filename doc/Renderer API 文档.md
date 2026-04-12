@@ -45,7 +45,13 @@
 - `setGalleryCover(id, coverImageId)`：设置图库封面
 - `getImagesByFolder(folderPath, page?, pageSize?)`：获取指定目录图片
 - `scanAndImportFolder(folderPath, extensions?, recursive?)`：扫描并导入目录
+- `syncGalleryFolder(id)`：同步指定图库的文件夹，重新扫描并导入新文件，返回 `{ imported, skipped, imageCount, lastScannedAt }`
 - `scanSubfolders(rootPath, extensions?)`：扫描子目录并批量创建图库
+- `reportInvalidImage(imageId)`：标记图片为无效
+- `getInvalidImages(page?, pageSize?)`：分页获取无效图片列表
+- `getInvalidImageCount()`：获取无效图片总数
+- `deleteInvalidImage(id)`：删除单个无效图片记录
+- `clearInvalidImages()`：清空所有无效图片记录
 
 ## `config`
 
@@ -65,6 +71,7 @@
 - `generateThumbnail(imagePath, force?)`：生成缩略图
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
+- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）
 
 ## `booru`
 
@@ -150,6 +157,12 @@
 - `getFavoriteTagsWithDownloadState(params?: ListQueryParams)`：同上，返回值带下载状态字段
 - `updateFavoriteTag(id, updates)`：`updates.siteId` 只允许把"全局"标签（原 `siteId === null`）指派到某个站点，已绑定站点的标签不可再改
 - `isFavoriteTag(siteId, tagName)`
+- `getFavoriteTagDownloadBinding(favoriteTagId)`：获取收藏标签的下载绑定配置
+- `getFavoriteTagDownloadHistory(favoriteTagId)`：获取收藏标签的下载历史
+- `getGallerySourceFavoriteTags(galleryId)`：获取图库关联的来源收藏标签
+- `upsertFavoriteTagDownloadBinding(input)`：创建或更新收藏标签的下载绑定
+- `removeFavoriteTagDownloadBinding(favoriteTagId)`：删除收藏标签的下载绑定
+- `startFavoriteTagBulkDownload(favoriteTagId)`：基于收藏标签启动批量下载，返回 `{ taskId, sessionId, deduplicated? }`；当检测到重复任务时 `deduplicated` 为 `true`
 - `getFavoriteTagLabels()`
 - `addFavoriteTagLabel(name, color?)`
 - `removeFavoriteTagLabel(id)`
@@ -250,13 +263,18 @@
 
 ## `window`
 
-面向从其他上下文打开特定 Booru 页面。
+面向子窗口管理：从主窗口或子窗口中打开新的子窗口页面。
 
 注意：这里的 `window.electronAPI.window` 是一个命名空间，不是浏览器原生 `window` API。
+
+子窗口分为两类：
+- **专用子窗口**：`openTagSearch` / `openArtist` / `openCharacter`，以 URL hash 参数指定页面类型和查询参数
+- **二级菜单子窗口**：`openSecondaryMenu`，可在独立窗口中打开主窗口侧边栏的任意二级菜单页面，由 `SubWindowApp.tsx` 通过 `secondary-menu` 路由类型渲染
 
 - `openTagSearch(tag, siteId?)`
 - `openArtist(name, siteId?)`
 - `openCharacter(name, siteId?)`
+- `openSecondaryMenu(section, key, tab?)`：在新子窗口中打开指定的二级菜单页面；`section` 为顶层区域（`gallery` / `booru` / `google`），`key` 为页面标识，`tab` 为可选的页内子导航初始 tab
 
 ## `system`
 

@@ -55,6 +55,18 @@
 - `BooruDownloadPage.tsx`
 - `BooruBulkDownloadPage.tsx`
 - `BooruSettingsPage.tsx`
+- `BooruDownloadHubPage.tsx`（Hub：合并下载管理 + 批量下载）
+- `BooruTagManagementPage.tsx`（Hub：合并收藏标签 + 黑名单）
+- `FavoriteTagsPage.tsx`、`BlacklistedTagsPage.tsx`（由 Hub 页面内嵌）
+
+### 页面合并与页内子导航
+
+部分 Booru 二级菜单已合并为 Hub 页面，通过 Ant Design `Segmented` 组件提供页内 tab 切换：
+
+- **下载中心**（`BooruDownloadHubPage`）：合并"下载管理"和"批量下载"两个 tab
+- **标签管理**（`BooruTagManagementPage`）：合并"收藏标签"和"黑名单"两个 tab
+
+Hub 页面同时挂载两个子页面，用 `display:none` 隐藏非活跃页，切换时保持各自状态。这些 Hub 页面也支持在子窗口中打开（通过 `window.openSecondaryMenu`）。
 
 ## 当前功能分层
 
@@ -86,6 +98,8 @@
 
 - 单帖下载队列
 - 批量下载任务 / 会话
+- 收藏标签下载绑定：为收藏标签配置下载路径和参数，一键创建批量下载任务
+- 批量下载任务去重：按下载路径 + 标签集合去重，避免创建重复任务
 - 图片缓存统计与清理
 - 文件名模板系统
 - 数据备份恢复
