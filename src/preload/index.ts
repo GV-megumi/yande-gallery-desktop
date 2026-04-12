@@ -198,6 +198,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('gallery:get-images-by-folder', folderPath, page, pageSize),
     scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
       ipcRenderer.invoke('gallery:scan-and-import-folder', folderPath, extensions, recursive),
+    syncGalleryFolder: (id: number) =>
+      ipcRenderer.invoke('gallery:sync-gallery-folder', id),
     scanSubfolders: (rootPath: string, extensions?: string[]) =>
       ipcRenderer.invoke('gallery:scan-subfolders', rootPath, extensions),
     reportInvalidImage: (imageId: number) =>
@@ -735,6 +737,7 @@ declare global {
         setGalleryCover: (id: number, coverImageId: number) => Promise<{ success: boolean; error?: string }>;
         getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
+        syncGalleryFolder: (id: number) => Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string }>;
         scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;
         reportInvalidImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
         getInvalidImages: (page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;

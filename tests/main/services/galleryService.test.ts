@@ -182,6 +182,88 @@ describe('galleryService - 唯一名称生成', () => {
   });
 });
 
+describe('galleryService - syncGalleryFolder 结果结构', () => {
+  // 模拟 syncGalleryFolder 的返回结构验证
+  interface SyncResult {
+    imported: number;
+    skipped: number;
+    imageCount: number;
+    lastScannedAt: string;
+  }
+
+  function buildSyncResult(
+    importResult: { imported: number; skipped: number },
+    imageCount: number
+  ): SyncResult {
+    return {
+      imported: importResult.imported,
+      skipped: importResult.skipped,
+      imageCount,
+      lastScannedAt: new Date().toISOString(),
+    };
+  }
+
+  it('应正确组装同步结果', () => {
+    const result = buildSyncResult({ imported: 5, skipped: 10 }, 15);
+    expect(result.imported).toBe(5);
+    expect(result.skipped).toBe(10);
+    expect(result.imageCount).toBe(15);
+    expect(result.lastScannedAt).toBeTruthy();
+    // lastScannedAt 应为合法 ISO 字符串
+    expect(new Date(result.lastScannedAt).toISOString()).toBe(result.lastScannedAt);
+  });
+
+  it('全部跳过时 imported 应为 0', () => {
+    const result = buildSyncResult({ imported: 0, skipped: 20 }, 20);
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(20);
+    expect(result.imageCount).toBe(20);
+  });
+
+  it('空文件夹时所有计数应为 0', () => {
+    const result = buildSyncResult({ imported: 0, skipped: 0 }, 0);
+    expect(result.imported).toBe(0);
+    expect(result.skipped).toBe(0);
+    expect(result.imageCount).toBe(0);
+  });
+
+  it('imageCount 应反映实际总数（含已有 + 新增）', () => {
+    // 模拟：文件夹原有 50 张，新导入 3 张，跳过 50 张（已存在）
+    const result = buildSyncResult({ imported: 3, skipped: 50 }, 53);
+    expect(result.imported).toBe(3);
+    expect(result.imageCount).toBe(53);
+  });
+});
+
+describe('galleryService - syncGalleryFolder 扩展名处理', () => {
+  function resolveExtensions(galleryExtensions: string[] | undefined | null): string[] {
+    const defaults = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+    return galleryExtensions && galleryExtensions.length > 0
+      ? galleryExtensions
+      : defaults;
+  }
+
+  it('图集有自定义扩展名时应使用自定义值', () => {
+    expect(resolveExtensions(['.png', '.webp'])).toEqual(['.png', '.webp']);
+  });
+
+  it('图集扩展名为空数组时应使用默认值', () => {
+    const result = resolveExtensions([]);
+    expect(result).toHaveLength(6);
+    expect(result).toContain('.jpg');
+  });
+
+  it('图集扩展名为 undefined 时应使用默认值', () => {
+    const result = resolveExtensions(undefined);
+    expect(result).toHaveLength(6);
+  });
+
+  it('图集扩展名为 null 时应使用默认值', () => {
+    const result = resolveExtensions(null);
+    expect(result).toHaveLength(6);
+  });
+});
+
 describe('galleryService - checkFolderHasImages 逻辑', () => {
   // 模拟检查文件夹是否包含图片
   function hasImagesInFiles(filenames: string[], extensions: string[]): boolean {

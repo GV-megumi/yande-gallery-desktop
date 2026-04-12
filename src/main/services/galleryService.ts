@@ -502,6 +502,65 @@ async function checkFolderHasImages(folderPath: string, extensions: string[]): P
 }
 
 /**
+ * 同步图集文件夹：重新扫描指定图集的文件夹，导入新增图片并更新统计信息
+ * @param id 图集ID
+ * @returns 同步结果（新导入数、跳过数、当前图片总数、扫描时间）
+ */
+export async function syncGalleryFolder(id: number): Promise<{
+  success: boolean;
+  data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string };
+  error?: string;
+}> {
+  console.log('[galleryService] 同步图集文件夹:', id);
+
+  // 1. 获取图集信息
+  const galleryResult = await getGallery(id);
+  if (!galleryResult.success || !galleryResult.data) {
+    return { success: false, error: galleryResult.error || '图集不存在' };
+  }
+
+  const gallery = galleryResult.data;
+
+  // 2. 使用图集配置的扩展名，无配置时使用默认值
+  const extensions = gallery.extensions && gallery.extensions.length > 0
+    ? gallery.extensions
+    : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+
+  // 3. 复用已有的扫描导入逻辑
+  const importResult = await scanAndImportFolder(gallery.folderPath, extensions, gallery.recursive ?? true);
+  if (!importResult.success || !importResult.data) {
+    return { success: false, error: importResult.error || '同步失败' };
+  }
+
+  // 4. 查询该文件夹下的图片总数（直接 COUNT 查询，避免加载全部数据）
+  const db = await getDatabase();
+  const countRow = await get<{ cnt: number }>(
+    db,
+    'SELECT COUNT(*) as cnt FROM images WHERE filepath LIKE ?',
+    [`${gallery.folderPath}%`]
+  );
+  const imageCount = countRow?.cnt ?? 0;
+  const lastScannedAt = new Date().toISOString();
+
+  // 5. 更新图集统计信息
+  await updateGalleryStats(id, imageCount, lastScannedAt);
+
+  console.log(
+    `[galleryService] 同步完成: galleryId=${id}, imported=${importResult.data.imported}, skipped=${importResult.data.skipped}, imageCount=${imageCount}`
+  );
+
+  return {
+    success: true,
+    data: {
+      imported: importResult.data.imported,
+      skipped: importResult.data.skipped,
+      imageCount,
+      lastScannedAt,
+    },
+  };
+}
+
+/**
  * 生成唯一的图集名称（处理重名）
  */
 async function generateUniqueGalleryName(baseName: string): Promise<string> {

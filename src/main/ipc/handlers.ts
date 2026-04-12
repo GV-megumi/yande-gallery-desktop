@@ -27,6 +27,7 @@ import {
   deleteGallery,
   setGalleryCover,
   updateGalleryStats,
+  syncGalleryFolder,
   scanSubfoldersAndCreateGalleries
 } from '../services/galleryService.js';
 import { hashPasswordSHA1 } from '../services/moebooruClient.js';
@@ -443,6 +444,14 @@ export function setupIPC() {
   ipcMain.handle('gallery:update-gallery-stats', async (_event: IpcMainInvokeEvent, id: number, imageCount: number, lastScannedAt: string) => {
     try {
       return await updateGalleryStats(id, imageCount, lastScannedAt);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle('gallery:sync-gallery-folder', async (_event: IpcMainInvokeEvent, id: number) => {
+    try {
+      return await syncGalleryFolder(id);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
