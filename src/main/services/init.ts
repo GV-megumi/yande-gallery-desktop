@@ -57,9 +57,16 @@ export async function initializeApp(): Promise<{ success: boolean; error?: strin
  * 后台恢复未完成的下载任务（普通下载 + 批量下载）
  * 在应用启动时自动调用，不阻塞主流程
  */
+let resumeDownloadsTimer: ReturnType<typeof setTimeout> | null = null;
+
 function resumeDownloadsInBackground(): void {
+  if (resumeDownloadsTimer) {
+    clearTimeout(resumeDownloadsTimer);
+  }
+
   // 延迟 2 秒执行，让窗口和 IPC 先初始化完成
-  setTimeout(async () => {
+  resumeDownloadsTimer = setTimeout(async () => {
+    resumeDownloadsTimer = null;
     console.log('[init] 开始后台恢复未完成的下载任务...');
 
     // 恢复普通下载队列
