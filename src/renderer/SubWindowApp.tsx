@@ -10,13 +10,13 @@ import { colors, spacing, fontSize } from './styles/tokens';
 
 // 直接打开的子窗口页面：使用 React.lazy 实现代码分割，与 App.tsx 保持一致
 const BooruTagSearchPage = React.lazy(() =>
-  import('./pages/BooruTagSearchPage').then((m) => ({ default: m.BooruTagSearchPage }))
+  import('./pages/BooruTagSearchPage').then(m => ({ default: m.BooruTagSearchPage }))
 );
 const BooruArtistPage = React.lazy(() =>
-  import('./pages/BooruArtistPage').then((m) => ({ default: m.BooruArtistPage }))
+  import('./pages/BooruArtistPage').then(m => ({ default: m.BooruArtistPage }))
 );
 const BooruCharacterPage = React.lazy(() =>
-  import('./pages/BooruCharacterPage').then((m) => ({ default: m.BooruCharacterPage }))
+  import('./pages/BooruCharacterPage').then(m => ({ default: m.BooruCharacterPage }))
 );
 
 // 二级菜单页面：使用 React.lazy 实现代码分割
