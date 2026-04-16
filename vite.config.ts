@@ -26,10 +26,6 @@ export default defineConfig({
             return 'vendor-react';
           }
 
-          // antd 核心 UI（不含 icons）
-          if (/node_modules[\\/]antd[\\/]/.test(id)) {
-            return 'vendor-antd-core';
-          }
           // antd 图标
           if (/node_modules[\\/]@ant-design[\\/]icons[\\/]/.test(id)) {
             return 'vendor-antd-icons';
@@ -41,6 +37,24 @@ export default defineConfig({
           // rc-* (antd 底层组件)
           if (/node_modules[\\/]rc-[\w-]+[\\/]/.test(id)) {
             return 'vendor-antd-rc';
+          }
+
+          // antd 内部按子模块进一步拆分（顺序：更具体路径在前）
+          // date-picker / calendar / time-picker（dayjs 依赖重）
+          if (/node_modules[\\/]antd[\\/](es|lib)[\\/](date-picker|calendar|time-picker)[\\/]/.test(id)) {
+            return 'vendor-antd-datepicker';
+          }
+          // form / input / select / upload 等表单组件
+          if (/node_modules[\\/]antd[\\/](es|lib)[\\/](form|input|input-number|select|upload|checkbox|radio|switch|slider|cascader|auto-complete|tree-select|mentions)[\\/]/.test(id)) {
+            return 'vendor-antd-form';
+          }
+          // table / tree / list / transfer 等大型数据展示组件
+          if (/node_modules[\\/]antd[\\/](es|lib)[\\/](table|tree|list|transfer|virtual-list)[\\/]/.test(id)) {
+            return 'vendor-antd-data';
+          }
+          // 其他 antd 核心（message / modal / button / tag / card / tabs 等通用组件）
+          if (/node_modules[\\/]antd[\\/]/.test(id)) {
+            return 'vendor-antd-core';
           }
 
           // dnd-kit
