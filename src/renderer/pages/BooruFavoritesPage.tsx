@@ -10,6 +10,7 @@ import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { spacing } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
+import { useBooruPostActions } from '../hooks/useBooruPostActions';
 
 const { Title } = Typography;
 
@@ -35,8 +36,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
-  const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
-  const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   // 收藏夹分组状态
@@ -68,6 +67,17 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     logPrefix: '[BooruFavoritesPage]'
   });
 
+  // Post 操作（下载、服务端收藏/取消收藏）统一走 useBooruPostActions
+  const postActions = useBooruPostActions({
+    siteId: selectedSiteId,
+    updatePosts: (updater) => setPosts(prev => updater(prev)),
+    toggleLocalFavorite: toggleFavorite,
+    addToDownload: (postId, siteId) => window.electronAPI.booru.addToDownload(postId, siteId),
+    serverFavorite: (siteId, postId) => window.electronAPI.booru.serverFavorite(siteId, postId),
+    serverUnfavorite: (siteId, postId) => window.electronAPI.booru.serverUnfavorite(siteId, postId),
+    message,
+  });
+
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
@@ -78,28 +88,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     borderRadius: 8,
     margin: 24
   });
-
-  // 服务端喜欢状态管理
-  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
-
-  const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
-    if (!selectedSiteId) return;
-    const isCurrentlyFavorited = serverFavorites.has(post.postId);
-    try {
-      if (isCurrentlyFavorited) {
-        await window.electronAPI.booru.serverUnfavorite(selectedSiteId, post.postId);
-        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
-        message.success('已取消喜欢');
-      } else {
-        await window.electronAPI.booru.serverFavorite(selectedSiteId, post.postId);
-        setServerFavorites(prev => new Set(prev).add(post.postId));
-        message.success('已喜欢');
-      }
-    } catch (error) {
-      console.error('[BooruFavoritesPage] 切换喜欢失败:', error);
-      message.error('操作失败');
-    }
-  }, [selectedSiteId, serverFavorites]);
 
   // 加载外观配置
   const loadAppearanceConfig = async () => {
@@ -255,23 +243,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
   };
 
-  // 处理下载
-  const handleDownload = async (post: BooruPost) => {
-    console.log('[BooruFavoritesPage] 下载图片:', post.postId);
-    try {
-      if (!window.electronAPI || !selectedSiteId) return;
-
-      const result = await window.electronAPI.booru.addToDownload(post.postId, selectedSiteId);
-      if (result.success) {
-        message.success('已添加到下载队列');
-      } else {
-        message.error('下载失败: ' + result.error);
-      }
-    } catch (error) {
-      console.error('[BooruFavoritesPage] 下载失败:', error);
-      message.error('下载失败');
-    }
-  };
+  // 处理下载（委托给 useBooruPostActions）
+  const handleDownload = (post: BooruPost) => postActions.download(post);
 
   // 处理标签点击（导航到标签搜索页面）
   const handleTagClick = (tag: string) => {
@@ -283,11 +256,10 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
   };
 
-  // 处理图片预览
+  // 处理图片预览（委托给 useBooruPostActions）
   const handlePreview = (post: BooruPost) => {
     console.log('[BooruFavoritesPage] 预览图片:', post.postId);
-    setSelectedPost(post);
-    setDetailsPageOpen(true);
+    postActions.openDetails(post);
   };
 
   // 获取预览URL（委托给统一的 url 工具函数）
@@ -507,8 +479,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
               onTagClick={handleTagClick}
-              onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-              serverFavorites={serverFavorites}
+              onToggleServerFavorite={selectedSite?.username ? postActions.toggleServerFavorite : undefined}
+              serverFavorites={postActions.serverFavorites}
             />
 
             <PaginationControl
@@ -527,23 +499,20 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
 
       {/* 图片详情页面 */}
       <BooruPostDetailsPage
-        open={detailsPageOpen && !suspended}
-        post={selectedPost}
+        open={postActions.detailOpen && !suspended}
+        post={postActions.selectedPost}
         site={selectedSite || null}
         posts={sortedPosts}
-        initialIndex={selectedPost ? sortedPosts.findIndex(p => p.postId === selectedPost.postId) : 0}
-        onClose={() => {
-          setDetailsPageOpen(false);
-          setSelectedPost(null);
-        }}
+        initialIndex={postActions.selectedPost ? sortedPosts.findIndex(p => p.postId === postActions.selectedPost!.postId) : 0}
+        onClose={postActions.closeDetails}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={(tag: string) => {
           console.log('[BooruFavoritesPage] 详情页标签点击，打开子窗口:', tag);
           window.electronAPI?.window.openTagSearch(tag, selectedSiteId);
         }}
-        isServerFavorited={(p) => serverFavorites.has(p.postId)}
-        onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+        isServerFavorited={postActions.isServerFavorited}
+        onToggleServerFavorite={selectedSite?.username ? postActions.toggleServerFavorite : undefined}
         onArtistClick={(name: string) => {
           console.log('[BooruFavoritesPage] 详情页艺术家点击，打开子窗口:', name);
           window.electronAPI?.window.openArtist(name, selectedSiteId);
