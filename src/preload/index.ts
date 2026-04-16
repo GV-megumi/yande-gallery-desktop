@@ -158,6 +158,23 @@ contextBridge.exposeInMainWorld('electronAPI', {
 console.log('[Preload] electronAPI exposed successfully');
 
 // TypeScript类型声明
+//
+// 注意：该 Window.electronAPI 类型声明包含**主窗口** preload 暴露的全部域（db / image /
+// booru / booruPreferences / pagePreferences / bulkDownload / window / system / gallery /
+// config 等共计十余个域）。
+//
+// 轻量子窗口（tag-search / artist / character，由 src/main/window.ts 按 hash 前缀分流到
+// build/preload/subwindow.js）的 preload 只实现 4 个域：
+//   window / booru / booruPreferences / system
+// （定义见 src/preload/subwindow-index.ts，实现复用 src/preload/shared/ 下的工厂）。
+//
+// 在子窗口上下文中访问 db / gallery / config / image / bulkDownload / pagePreferences 等
+// 其他域会在 TS 层通过编译，但运行时为 undefined（静默错误，调用 .xxx() 才会抛 TypeError）。
+//
+// 子窗口页面（BooruTagSearchPage / BooruArtistPage / BooruCharacterPage 及其依赖的
+// hooks / components）开发时应避免引用这些域。
+// 如未来需要强类型隔离，可提取 SubWindowElectronAPI 接口供子窗口页面使用，
+// 并在 subwindow-index.ts 中做对应的 declare module 声明。当前作为已知设计选择保留。
 declare global {
   interface Window {
     electronAPI: {

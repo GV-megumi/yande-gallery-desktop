@@ -8,6 +8,33 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 /**
+ * 轻量子窗口 hash 前缀白名单。
+ * 这些类型的子窗口使用精简 preload（build/preload/subwindow.js），
+ * 仅暴露 window/booru/booruPreferences/system 四个域。
+ * 其他类型（如 secondary-menu）使用主 preload（build/preload/index.js）。
+ * 新增轻量子窗口类型时需同步更新此处。
+ *
+ * 暂不导出给 renderer / subwindow-index 共享，避免 renderer 引 main 代码破坏边界。
+ */
+export const LIGHTWEIGHT_SUBWINDOW_PREFIXES = ['tag-search', 'artist', 'character'] as const;
+
+/**
+ * 判断给定 hash（不含前导 '#'）是否属于轻量子窗口路由。
+ * 归一化为小写以防御未来调用方的大小写漂移。
+ * 严格匹配前缀边界（=、?、&、#、/），避免类似 'artist-foo' 这种串误命中。
+ */
+function isLightweightSubwindowHash(hash: string): boolean {
+  const normalized = hash.toLowerCase();
+  return LIGHTWEIGHT_SUBWINDOW_PREFIXES.some((prefix) =>
+    normalized === prefix
+      || normalized.startsWith(`${prefix}?`)
+      || normalized.startsWith(`${prefix}&`)
+      || normalized.startsWith(`${prefix}#`)
+      || normalized.startsWith(`${prefix}/`)
+  );
+}
+
+/**
  * 解析运行时图标路径：
  * - 开发模式：从编译后的 build/main 回到仓库根，取 assets/icon.png
  * - 生产模式：extraResources 把 assets 拷到 process.resourcesPath 下
@@ -289,7 +316,8 @@ export function createSubWindow(hash: string): BrowserWindow {
   //   - secondary-menu 子窗口会 lazy 加载 Gallery / BooruPage / Settings 等重型页面，
   //     仍使用主 preload（build/preload/index.js），维持完整 API 暴露。
   // 实现 TP-06 子窗口暴露面最小化原则，不影响其他 webPreferences（contextIsolation 等）。
-  const isLightweightSubwindow = /^(tag-search|artist|character)\b/.test(hash);
+  // 前缀白名单与判断逻辑抽到模块顶部 LIGHTWEIGHT_SUBWINDOW_PREFIXES / isLightweightSubwindowHash。
+  const isLightweightSubwindow = isLightweightSubwindowHash(hash);
   const preloadPath = path.join(
     __dirname,
     isLightweightSubwindow ? '../preload/subwindow.js' : '../preload/index.js'
