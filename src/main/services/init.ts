@@ -1,5 +1,5 @@
 import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir } from './config.js';
-import { initDatabase } from './database.js';
+import { initDatabase, closeDatabase } from './database.js';
 import { createGallery, getGalleries } from './galleryService.js';
 import { normalizePath } from '../utils/path.js';
 import { downloadManager } from './downloadManager.js';
@@ -10,6 +10,8 @@ import { cleanExpiredTags } from './booruService.js';
  * 初始化应用（加载配置 + 初始化数据库 + 初始化图库）
  */
 export async function initializeApp(): Promise<{ success: boolean; error?: string }> {
+  hasShutdownAppResources = false;
+
   try {
     console.log('[init] 正在初始化应用...');
 
@@ -58,11 +60,47 @@ export async function initializeApp(): Promise<{ success: boolean; error?: strin
  * 在应用启动时自动调用，不阻塞主流程
  */
 let resumeDownloadsTimer: ReturnType<typeof setTimeout> | null = null;
+let hasShutdownAppResources = false;
 
-function resumeDownloadsInBackground(): void {
+function clearResumeDownloadsTimer(): void {
   if (resumeDownloadsTimer) {
     clearTimeout(resumeDownloadsTimer);
+    resumeDownloadsTimer = null;
   }
+}
+
+async function freezeActiveTasksForShutdown(): Promise<void> {
+  const pausedDownloads = await downloadManager.pauseAll();
+  if (!pausedDownloads) {
+    throw new Error('pause all failed');
+  }
+
+  const sessions = await bulkDownloadService.getActiveBulkDownloadSessions();
+  for (const session of sessions) {
+    if (session.status !== 'running' && session.status !== 'dryRun') {
+      continue;
+    }
+
+    const pauseResult = await bulkDownloadService.pauseBulkDownloadSession(session.id);
+    if (!pauseResult.success) {
+      throw new Error(pauseResult.error || `pause bulk session failed: ${session.id}`);
+    }
+  }
+}
+
+export async function shutdownAppResources(): Promise<void> {
+  if (hasShutdownAppResources) {
+    return;
+  }
+
+  clearResumeDownloadsTimer();
+  await freezeActiveTasksForShutdown();
+  await closeDatabase();
+  hasShutdownAppResources = true;
+}
+
+function resumeDownloadsInBackground(): void {
+  clearResumeDownloadsTimer();
 
   // 延迟 2 秒执行，让窗口和 IPC 先初始化完成
   resumeDownloadsTimer = setTimeout(async () => {

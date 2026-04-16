@@ -57,11 +57,15 @@
 
 面向配置读取、保存和配置事件。
 
-- `get()`：获取当前配置
+- `get()`：获取当前去敏 `RendererSafeAppConfig`
 - `save(newConfig)`：保存配置
 - `updateGalleryFolders(folders)`：更新图库目录配置
 - `reload()`：重新加载配置
 - `onConfigChanged(callback)`：监听配置变更，返回取消订阅函数
+  - 回调签名：`(config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void`
+  - 主进程只广播摘要 `{ version, sections }`，preload 层在收到摘要后会自动重新调用 `config.get()` 拉取最新去敏配置并传入回调的第一个参数，**不会**通过事件通道下发敏感字段
+  - `summary.sections` 给出受影响的路径集合（例如 `'network'`、`'ui.pagePreferences.favoriteTags'`），可用于按区块选择性更新 UI
+  - `summary.version` 是单调递增的时间戳，异步订阅者可用来识别是否收到过期事件
 
 ## `image`
 
@@ -369,7 +373,8 @@ unsubscribe();
 
 当前完整的订阅型接口包括：
 
-- `config.onConfigChanged`
+- `config.onConfigChanged`（事件仅包含 `{ version, sections }` 摘要，preload 会自动回调去敏 config，详见 `config` 小节）
+- `booruPreferences.appearance.onChanged`（同样基于 `config:changed` 摘要事件，preload 自动拉取最新 appearance DTO）
 - `booru.onFavoritesRepairDone`
 - `booru.onDownloadProgress`
 - `booru.onDownloadStatus`

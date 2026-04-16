@@ -19,23 +19,34 @@ vi.mock('../../../src/renderer/locales', () => ({
   }),
 }));
 
+const favoriteTagsPageSpy = vi.fn(({ active, onTagClick }: { active?: boolean; onTagClick?: unknown }) => (
+  <div
+    data-testid="favorite-tags-page"
+    data-active={String(Boolean(active))}
+  >
+    FavoriteTagsPage{onTagClick ? ' (with onTagClick)' : ''}
+  </div>
+));
+const blacklistedTagsPageSpy = vi.fn(({ active }: { active?: boolean }) => (
+  <div data-testid="blacklisted-tags-page" data-active={String(Boolean(active))}>BlacklistedTagsPage</div>
+));
+
 // mock child pages as simple placeholders
 vi.mock('../../../src/renderer/pages/FavoriteTagsPage', () => ({
-  FavoriteTagsPage: (props: any) => (
-    <div data-testid="favorite-tags-page">
-      FavoriteTagsPage{props.onTagClick ? ' (with onTagClick)' : ''}
-    </div>
-  ),
+  FavoriteTagsPage: (props: { active?: boolean; onTagClick?: unknown }) => favoriteTagsPageSpy(props),
 }));
 
 vi.mock('../../../src/renderer/pages/BlacklistedTagsPage', () => ({
-  BlacklistedTagsPage: () => <div data-testid="blacklisted-tags-page">BlacklistedTagsPage</div>,
+  BlacklistedTagsPage: (props: { active?: boolean }) => blacklistedTagsPageSpy(props),
 }));
 
 import { BooruTagManagementPage } from '../../../src/renderer/pages/BooruTagManagementPage';
 
 describe('BooruTagManagementPage', () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
 
   it('should show favorite-tags tab by default', async () => {
     render(<BooruTagManagementPage />);
@@ -79,5 +90,29 @@ describe('BooruTagManagementPage', () => {
     const handleTagClick = vi.fn();
     render(<BooruTagManagementPage onTagClick={handleTagClick} />);
     expect(await screen.findByText(/with onTagClick/)).toBeTruthy();
+  });
+
+  it('should pass active flag so hidden pages can stop side effects', async () => {
+    const user = userEvent.setup();
+    render(<BooruTagManagementPage />);
+
+    expect(await screen.findByTestId('favorite-tags-page')).toBeTruthy();
+    expect(screen.getByTestId('favorite-tags-page').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('blacklisted-tags-page').getAttribute('data-active')).toBe('false');
+
+    await user.click(screen.getByText('\u9ed1\u540d\u5355'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('favorite-tags-page').getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId('blacklisted-tags-page').getAttribute('data-active')).toBe('true');
+    });
+  });
+
+  it('should pass inactive to both child pages when the whole hub is hidden', async () => {
+    render(<BooruTagManagementPage active={false} defaultTab="blacklist" />);
+
+    expect(await screen.findByTestId('favorite-tags-page')).toBeTruthy();
+    expect(screen.getByTestId('favorite-tags-page').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('blacklisted-tags-page').getAttribute('data-active')).toBe('false');
   });
 });

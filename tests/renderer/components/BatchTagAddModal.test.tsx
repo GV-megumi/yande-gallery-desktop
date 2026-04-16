@@ -67,6 +67,21 @@ describe('BatchTagAddModal', () => {
     expect(screen.getByLabelText('分组')).toBeTruthy();
   });
 
+  it('空闲时应保留系统关闭按钮', () => {
+    render(
+      <BatchTagAddModal
+        open
+        title="批量添加收藏标签"
+        sites={sites}
+        onCancel={() => {}}
+        onSubmit={async () => {}}
+      />
+    );
+    const dialog = screen.getByRole('dialog', { name: '批量添加收藏标签' });
+    const modal = dialog.closest('.ant-modal');
+    expect(modal?.querySelector('.ant-modal-close')).toBeTruthy();
+  });
+
   it('空 tagNames 阻止提交', async () => {
     const onSubmit = vi.fn();
     render(

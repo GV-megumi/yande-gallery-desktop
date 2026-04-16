@@ -11,8 +11,9 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import { BrowserWindow } from 'electron';
-import { getDatabase, run, get, all } from './database.js';
+import { BrowserWindow, Notification } from 'electron';
+import { IPC_CHANNELS } from '../ipc/channels.js';
+import { getDatabase, run, runWithChanges, get, all } from './database.js';
 import { getProxyConfig } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
@@ -28,6 +29,100 @@ import {
   BulkDownloadRecordStatus
 } from '../../shared/types.js';
 import { BooruPost } from '../../shared/types.js';
+import {
+  buildDownloadTempPath,
+  replaceFileWithTemp,
+  validateDownloadedFileSize,
+} from './downloadFileProtocol.js';
+import { restoreOrCreateMainWindow } from '../window.js';
+
+function parseContentLengthHeader(contentLength: unknown): number | null {
+  if (typeof contentLength !== 'string' || contentLength.trim() === '') {
+    return null;
+  }
+
+  const parsed = Number.parseInt(contentLength, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+const DESKTOP_NOTIFICATION_STATUSES = new Set<BulkDownloadSessionStatus>([
+  'completed',
+  'failed',
+  'allSkipped',
+]);
+
+function isDesktopNotificationStatus(status: BulkDownloadSessionStatus | undefined): status is 'completed' | 'failed' | 'allSkipped' {
+  return Boolean(status) && DESKTOP_NOTIFICATION_STATUSES.has(status);
+}
+
+async function getBulkDownloadSessionNotificationContext(sessionId: string): Promise<{
+  previousStatus: BulkDownloadSessionStatus;
+  notificationsEnabled: boolean;
+  tags: string;
+  originType?: BulkDownloadSession['originType'] | null;
+  error?: string | null;
+} | null> {
+  const db = await getDatabase();
+  const sessionRow = await get<any>(db, `
+    SELECT s.status, s.originType, s.error, t.notifications, t.tags
+    FROM bulk_download_sessions s
+    INNER JOIN bulk_download_tasks t ON s.taskId = t.id
+    WHERE s.id = ? AND s.deletedAt IS NULL
+  `, [sessionId]);
+
+  if (!sessionRow) {
+    return null;
+  }
+
+  return {
+    previousStatus: sessionRow.status as BulkDownloadSessionStatus,
+    notificationsEnabled: Boolean(sessionRow.notifications),
+    tags: sessionRow.tags,
+    originType: sessionRow.originType ?? null,
+    error: sessionRow.error ?? null,
+  };
+}
+
+function focusExistingMainWindowFromNotification(): void {
+  restoreOrCreateMainWindow();
+}
+
+function showDesktopNotificationForSession(context: {
+  status: 'completed' | 'failed' | 'allSkipped';
+  tags: string;
+  originType?: BulkDownloadSession['originType'] | null;
+  error?: string | null;
+}): void {
+  if (typeof Notification !== 'function') {
+    return;
+  }
+  if (typeof Notification.isSupported === 'function' && !Notification.isSupported()) {
+    return;
+  }
+
+  const scopeLabel = context.originType === 'favoriteTag' ? '收藏标签下载' : '批量下载';
+  const bodyBase = context.tags ? `标签：${context.tags}` : '请打开应用查看详情';
+  const content = context.status === 'completed'
+    ? {
+        title: `${scopeLabel}已完成`,
+        body: bodyBase,
+      }
+    : context.status === 'failed'
+      ? {
+          title: `${scopeLabel}失败`,
+          body: context.error ? `错误：${context.error}` : '请打开应用查看详情',
+        }
+      : {
+          title: `${scopeLabel}需人工处理`,
+          body: '本次任务全部跳过，请检查下载目录、去重规则或标签条件。',
+        };
+
+  const notification = new Notification(content);
+  notification.on('click', () => {
+    focusExistingMainWindowFromNotification();
+  });
+  notification.show();
+}
 
 /**
  * 标签集合标准化：去空格、去重、排序后以空格拼接
@@ -420,6 +515,10 @@ export async function updateBulkDownloadSession(
 ): Promise<void> {
   console.log('[bulkDownloadService] 更新会话:', sessionId, updates);
   try {
+    const nextStatus = updates.status;
+    const notificationContext = isDesktopNotificationStatus(nextStatus)
+      ? await getBulkDownloadSessionNotificationContext(sessionId)
+      : null;
     const db = await getDatabase();
     const setValues: string[] = [];
     const params: any[] = [];
@@ -448,10 +547,24 @@ export async function updateBulkDownloadSession(
     if (setValues.length > 0) {
       params.push(sessionId);
       await run(db, `
-        UPDATE bulk_download_sessions 
-        SET ${setValues.join(', ')} 
+        UPDATE bulk_download_sessions
+        SET ${setValues.join(', ')}
         WHERE id = ? AND deletedAt IS NULL
       `, params);
+    }
+
+    if (
+      notificationContext
+      && nextStatus
+      && notificationContext.notificationsEnabled
+      && notificationContext.previousStatus !== nextStatus
+    ) {
+      showDesktopNotificationForSession({
+        status: nextStatus,
+        tags: notificationContext.tags,
+        originType: notificationContext.originType,
+        error: updates.error ?? notificationContext.error,
+      });
     }
   } catch (error) {
     console.error('[bulkDownloadService] 更新会话失败:', error);
@@ -661,11 +774,9 @@ export async function getBulkDownloadRecordsBySession(
                       }
                     });
                     
-                    const serverSize = headResponse.headers['content-length'] 
-                      ? parseInt(headResponse.headers['content-length'], 10) 
-                      : null;
-                    
-                    if (serverSize && fileSize === serverSize) {
+                    const serverSize = parseContentLengthHeader(headResponse.headers['content-length']);
+
+                    if (serverSize !== null && fileSize === serverSize) {
                       // 文件完整，修复状态
                       console.log(`[bulkDownloadService] 修复状态: ${record.fileName} (文件已完整)`);
                       await run(db, `
@@ -682,22 +793,7 @@ export async function getBulkDownloadRecordsBySession(
                       record.totalBytes = serverSize;
                     }
                   } catch (headError) {
-                    // HEAD 请求失败，如果文件存在且不为空，也认为可能已完成
-                    // 但只在 skipIfExists 模式下修复
-                    if (task.skipIfExists) {
-                      console.log(`[bulkDownloadService] 修复状态（跳过验证）: ${record.fileName}`);
-                      await run(db, `
-                        UPDATE bulk_download_records 
-                        SET status = ?, fileSize = ?, progress = 100, downloadedBytes = ?, totalBytes = ?
-                        WHERE url = ? AND sessionId = ?
-                      `, ['completed', fileSize, fileSize, fileSize, record.url, sessionId]);
-                      
-                      record.status = 'completed';
-                      record.fileSize = fileSize;
-                      record.progress = 100;
-                      record.downloadedBytes = fileSize;
-                      record.totalBytes = fileSize;
-                    }
+                    console.warn(`[bulkDownloadService] 修复状态时无法验证文件完整性，保留原状态: ${record.fileName}`);
                   }
                 }
               } catch (statError) {
@@ -775,89 +871,133 @@ export async function startBulkDownloadSession(
   sessionId: string
 ): Promise<{ success: boolean; error?: string }> {
   console.log('[bulkDownloadService] 启动批量下载会话:', sessionId);
-  try {
-    const db = await getDatabase();
-    const sessionRow = await get<any>(db, `
-      SELECT s.*, t.*
-      FROM bulk_download_sessions s
-      INNER JOIN bulk_download_tasks t ON s.taskId = t.id
-      WHERE s.id = ? AND s.deletedAt IS NULL
-    `, [sessionId]);
 
-    if (!sessionRow) {
-      return { success: false, error: '会话不存在' };
-    }
-
-    const task: BulkDownloadTask = {
-      id: sessionRow.taskId,
-      siteId: sessionRow.siteId,
-      path: sessionRow.path,
-      tags: sessionRow.tags,
-      blacklistedTags: sessionRow.blacklistedTags,
-      notifications: Boolean(sessionRow.notifications),
-      skipIfExists: Boolean(sessionRow.skipIfExists),
-      quality: sessionRow.quality,
-      perPage: sessionRow.perPage,
-      concurrency: sessionRow.concurrency,
-      createdAt: sessionRow.createdAt,
-      updatedAt: sessionRow.updatedAt
-    };
-
-    // 检查目录是否存在
-    if (!fs.existsSync(task.path)) {
-      await updateBulkDownloadSession(sessionId, {
-        status: 'failed',
-        error: '目录不存在: ' + task.path
-      });
-      return { success: false, error: '目录不存在' };
-    }
-
-    // 更新状态为 dryRun（扫描阶段）
-    await updateBulkDownloadSession(sessionId, {
-      status: 'dryRun',
-      currentPage: 1
-    });
-
-    // 执行 Dry Run：扫描所有页面并创建记录
-    const dryRunResult = await performDryRun(sessionId, task);
-    if (!dryRunResult.success) {
-      await updateBulkDownloadSession(sessionId, {
-        status: 'failed',
-        error: dryRunResult.error
-      });
-      return { success: false, error: dryRunResult.error };
-    }
-
-    // 检查是否有待下载的记录
-    const pendingCount = await getBulkDownloadSessionStats(sessionId);
-    if (pendingCount.pending === 0) {
-      await updateBulkDownloadSession(sessionId, {
-        status: 'allSkipped'
-      });
-      return { success: true };
-    }
-
-    // 更新状态为 running
-    await updateBulkDownloadSession(sessionId, {
-      status: 'running',
-      totalPages: dryRunResult.totalPages
-    });
-
-    // 开始下载
-    startDownloadingSession(sessionId, task).catch(error => {
-      console.error('[bulkDownloadService] 下载过程出错:', error);
-      updateBulkDownloadSession(sessionId, {
-        status: 'failed',
-        error: error.message
-      });
-    });
-
-    return { success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[bulkDownloadService] 启动会话失败:', errorMessage);
-    return { success: false, error: errorMessage };
+  const existingStartPromise = activeSessionStartPromises.get(sessionId);
+  if (existingStartPromise) {
+    console.log('[bulkDownloadService] 会话启动中，复用现有启动流程');
+    return existingStartPromise;
   }
+
+  const startPromise = (async (): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const db = await getDatabase();
+      const sessionRow = await get<any>(db, `
+        SELECT s.*, t.*
+        FROM bulk_download_sessions s
+        INNER JOIN bulk_download_tasks t ON s.taskId = t.id
+        WHERE s.id = ? AND s.deletedAt IS NULL
+      `, [sessionId]);
+
+      if (!sessionRow) {
+        return { success: false, error: '会话不存在' };
+      }
+
+      const task: BulkDownloadTask = {
+        id: sessionRow.taskId,
+        siteId: sessionRow.siteId,
+        path: sessionRow.path,
+        tags: sessionRow.tags,
+        blacklistedTags: sessionRow.blacklistedTags,
+        notifications: Boolean(sessionRow.notifications),
+        skipIfExists: Boolean(sessionRow.skipIfExists),
+        quality: sessionRow.quality,
+        perPage: sessionRow.perPage,
+        concurrency: sessionRow.concurrency,
+        createdAt: sessionRow.createdAt,
+        updatedAt: sessionRow.updatedAt
+      };
+
+      // 检查目录是否存在
+      if (!fs.existsSync(task.path)) {
+        await updateBulkDownloadSession(sessionId, {
+          status: 'failed',
+          error: '目录不存在: ' + task.path
+        });
+        return { success: false, error: '目录不存在' };
+      }
+
+      const currentStatus = sessionRow.status as BulkDownloadSessionStatus;
+
+      if (currentStatus === 'dryRun') {
+        console.log('[bulkDownloadService] 会话正在 Dry Run，忽略重复启动');
+        return { success: true };
+      }
+
+      if (currentStatus === 'running') {
+        console.log('[bulkDownloadService] 会话已在运行，保持现有生命周期');
+        const activePromise = activeDownloadSessionPromises.get(sessionId);
+        if (!activePromise) {
+          // 运行中但内存里没有活跃下载循环，说明可能是旧循环已退出或留下了僵尸 downloading 记录。
+          // 先把悬挂中的 in-flight 记录重置回 pending，再幂等拉起下载循环，避免卡在 running + downloading 的忙等状态。
+          await resetInFlightRecordsToPending(sessionId);
+          startDownloadingSession(sessionId, task).catch(error => {
+            console.error('[bulkDownloadService] 下载过程出错:', error);
+            updateBulkDownloadSession(sessionId, {
+              status: 'failed',
+              error: error.message
+            });
+          });
+        }
+        return { success: true };
+      }
+
+      // 更新状态为 dryRun（扫描阶段）
+      await updateBulkDownloadSession(sessionId, {
+        status: 'dryRun',
+        currentPage: 1
+      });
+
+      // 执行 Dry Run：扫描所有页面并创建记录
+      const dryRunResult = await performDryRun(sessionId, task);
+      if (!dryRunResult.success) {
+        await updateBulkDownloadSession(sessionId, {
+          status: 'failed',
+          error: dryRunResult.error
+        });
+        return { success: false, error: dryRunResult.error };
+      }
+
+      // 等待旧下载循环在暂停/取消后完全退出，避免快速继续时旧循环的中止结果污染新一轮状态
+      await waitForDownloadSessionToStop(sessionId);
+      await resetInFlightRecordsToPending(sessionId);
+
+      // 检查是否有待下载的记录
+      const pendingCount = await getBulkDownloadSessionStats(sessionId);
+      if (pendingCount.pending === 0) {
+        await updateBulkDownloadSession(sessionId, {
+          status: 'allSkipped'
+        });
+        return { success: true };
+      }
+
+      // 更新状态为 running
+      sessionStopReasons.delete(sessionId);
+      await updateBulkDownloadSession(sessionId, {
+        status: 'running',
+        totalPages: dryRunResult.totalPages
+      });
+
+      // 开始下载
+      startDownloadingSession(sessionId, task).catch(error => {
+        console.error('[bulkDownloadService] 下载过程出错:', error);
+        updateBulkDownloadSession(sessionId, {
+          status: 'failed',
+          error: error.message
+        });
+      });
+
+      return { success: true };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[bulkDownloadService] 启动会话失败:', errorMessage);
+      return { success: false, error: errorMessage };
+    } finally {
+      activeSessionStartPromises.delete(sessionId);
+    }
+  })();
+
+  activeSessionStartPromises.set(sessionId, startPromise);
+  return startPromise;
 }
 
 /**
@@ -1103,6 +1243,115 @@ async function generateBulkDownloadFileName(
 
 // 正在运行的下载会话映射：sessionId -> AbortController（用于避免重复启动和中止下载）
 const activeDownloadSessions = new Map<string, AbortController>();
+const activeDownloadSessionPromises = new Map<string, Promise<void>>();
+const activeDownloadSessionWorkers = new Map<string, Set<Promise<void>>>();
+const activeSessionStartPromises = new Map<string, Promise<{ success: boolean; error?: string }>>();
+const sessionStopReasons = new Map<string, 'paused' | 'cancelled'>();
+
+function isAbortError(error: unknown): boolean {
+  if (!error || (typeof error !== 'object' && typeof error !== 'string')) {
+    return false;
+  }
+
+  const message = typeof error === 'string'
+    ? error.toLowerCase()
+    : typeof (error as { message?: unknown }).message === 'string'
+      ? (error as { message: string }).message.toLowerCase()
+      : '';
+  const name = typeof error === 'object' && typeof (error as { name?: unknown }).name === 'string'
+    ? (error as { name: string }).name.toLowerCase()
+    : '';
+  const code = typeof error === 'object' && typeof (error as { code?: unknown }).code === 'string'
+    ? (error as { code: string }).code.toUpperCase()
+    : '';
+
+  return (
+    name === 'aborterror'
+    || code === 'ERR_CANCELED'
+    || message.includes('abort')
+    || message.includes('canceled')
+    || message.includes('cancelled')
+  );
+}
+
+async function getSessionStatus(sessionId: string): Promise<BulkDownloadSessionStatus | null> {
+  const db = await getDatabase();
+  const session = await get<{ status: BulkDownloadSessionStatus }>(db, `
+    SELECT status FROM bulk_download_sessions WHERE id = ?
+  `, [sessionId]);
+  return session?.status || null;
+}
+
+async function isUserInitiatedSessionAbort(sessionId: string, error: unknown): Promise<boolean> {
+  if (!isAbortError(error)) {
+    return false;
+  }
+
+  const stopReason = sessionStopReasons.get(sessionId);
+  if (stopReason === 'paused' || stopReason === 'cancelled') {
+    return true;
+  }
+
+  const sessionStatus = await getSessionStatus(sessionId);
+  return sessionStatus === 'paused' || sessionStatus === 'cancelled';
+}
+
+async function waitForDownloadSessionToStop(sessionId: string): Promise<void> {
+  const activePromise = activeDownloadSessionPromises.get(sessionId);
+  if (!activePromise) {
+    return;
+  }
+
+  await activePromise;
+}
+
+async function claimPendingRecords(
+  sessionId: string,
+  limit: number
+): Promise<BulkDownloadRecord[]> {
+  if (limit <= 0) {
+    return [];
+  }
+
+  const pendingRecords = await getBulkDownloadRecordsBySession(sessionId, 'pending');
+  if (pendingRecords.length === 0) {
+    return [];
+  }
+
+  const db = await getDatabase();
+  const claimedRecords: BulkDownloadRecord[] = [];
+
+  for (const record of pendingRecords) {
+    if (claimedRecords.length >= limit) {
+      break;
+    }
+
+    const result = await runWithChanges(db, `
+      UPDATE bulk_download_records
+      SET status = ?, error = NULL
+      WHERE status = ? AND url = ? AND sessionId = ?
+    `, ['downloading', 'pending', record.url, sessionId]);
+
+    if ((result?.changes ?? 0) > 0) {
+      claimedRecords.push({
+        ...record,
+        status: 'downloading',
+        error: undefined,
+      });
+    }
+  }
+
+  return claimedRecords;
+}
+
+async function resetInFlightRecordsToPending(sessionId: string): Promise<void> {
+  const db = await getDatabase();
+  await run(db, `
+    UPDATE bulk_download_records
+    SET status = ?, error = NULL, progress = 0, downloadedBytes = 0, totalBytes = 0, fileSize = NULL
+    WHERE sessionId = ? AND status = ?
+  `, ['pending', sessionId, 'downloading']);
+}
 
 /**
  * 开始下载会话中的所有记录
@@ -1112,17 +1361,20 @@ async function startDownloadingSession(
   task: BulkDownloadTask
 ): Promise<void> {
   console.log('[bulkDownloadService] 开始下载会话:', sessionId);
-  
-  // 如果已经在运行，直接返回
-  if (activeDownloadSessions.has(sessionId)) {
-    console.log('[bulkDownloadService] 会话已在下载中，跳过');
-    return;
+
+  // 如果已经在运行，直接返回当前循环，避免同一会话并发启动多个下载循环
+  const activePromise = activeDownloadSessionPromises.get(sessionId);
+  if (activePromise) {
+    console.log('[bulkDownloadService] 会话已在下载中，复用现有下载循环');
+    return activePromise;
   }
 
-  const sessionAbortController = new AbortController();
-  activeDownloadSessions.set(sessionId, sessionAbortController);
+  const downloadLoopPromise = (async () => {
+    const sessionAbortController = new AbortController();
+    activeDownloadSessions.set(sessionId, sessionAbortController);
+    const sessionWorkers = new Set<Promise<void>>();
+    activeDownloadSessionWorkers.set(sessionId, sessionWorkers);
 
-  try {
     // 事件驱动的并发下载（替代 200ms 轮询循环，降低 CPU 空转）
     const maxConcurrency = task.concurrency || 3;
     /** 浏览模式下的并发上限 */
@@ -1144,7 +1396,7 @@ async function startDownloadingSession(
     const onBrowsingChange = (isBrowsing: boolean) => {
       if (!isBrowsing && wakeup) wakeup();
     };
-    networkScheduler.onChange(onBrowsingChange);
+    const unsubscribeBrowsing = networkScheduler.onChange(onBrowsingChange);
 
     // 工作函数：处理单个下载任务
     const processDownload = async (record: BulkDownloadRecord) => {
@@ -1170,73 +1422,96 @@ async function startDownloadingSession(
       return new Promise<void>((resolve) => { wakeup = resolve; });
     };
 
+    // 等待活跃任务状态变化，避免“仍有下载进行中但暂无 pending”时空转
+    const waitForActivityChange = (): Promise<void> => {
+      return new Promise<void>((resolve) => { wakeup = resolve; });
+    };
+
     // 事件驱动的主调度循环
     const downloadLoop = async () => {
-      while (!isStopped) {
-        try {
-          // 检查会话状态
-          const db = await getDatabase();
-          const session = await get<any>(db, `
-            SELECT status FROM bulk_download_sessions WHERE id = ?
-          `, [sessionId]);
+      try {
+        while (!isStopped) {
+          try {
+            // 检查会话状态
+            const db = await getDatabase();
+            const session = await get<any>(db, `
+              SELECT status FROM bulk_download_sessions WHERE id = ?
+            `, [sessionId]);
 
-          if (session?.status !== 'running') {
-            console.log('[bulkDownloadService] 会话已停止，停止下载');
-            isStopped = true;
-            break;
-          }
-
-          // 等待有空闲槽位（事件驱动）
-          await waitForSlot();
-          if (isStopped) break;
-
-          // 获取待下载的记录
-          const needMore = getEffectiveConcurrency() - activeCount;
-          if (needMore <= 0) continue;
-
-          const pendingRecords = await getBulkDownloadRecordsBySession(sessionId, 'pending');
-
-          if (pendingRecords.length === 0) {
-            // 检查是否全部完成
-            if (activeCount === 0) {
-              const stats = await getBulkDownloadSessionStats(sessionId);
-              if (stats.completed + stats.failed === stats.total) {
-                await updateBulkDownloadSession(sessionId, {
-                  status: 'completed',
-                  completedAt: new Date().toISOString()
-                });
-                isStopped = true;
-                break;
-              }
+            if (session?.status !== 'running') {
+              console.log('[bulkDownloadService] 会话已停止，停止下载');
+              isStopped = true;
+              break;
             }
-            // 还有活跃任务在运行，等待它们完成后再检查
-            await waitForSlot();
-            continue;
-          }
 
-          // 启动新的下载任务（最多启动 needMore 个）
-          const recordsToStart = pendingRecords.slice(0, needMore);
-          for (const record of recordsToStart) {
-            processDownload(record).catch((error) => {
-              console.error(`[bulkDownloadService] processDownload 出错:`, error);
-            });
+            // 等待有空闲槽位（事件驱动）
+            await waitForSlot();
+            if (isStopped) break;
+
+            // 原子领取待下载的记录，避免同一条 pending 记录被重复调度
+            const needMore = getEffectiveConcurrency() - activeCount;
+            if (needMore <= 0) continue;
+
+            const recordsToStart = await claimPendingRecords(sessionId, needMore);
+
+            if (recordsToStart.length === 0) {
+              // 检查是否全部完成
+              if (activeCount === 0) {
+                const stats = await getBulkDownloadSessionStats(sessionId);
+                if (stats.completed + stats.failed === stats.total) {
+                  await updateBulkDownloadSession(sessionId, {
+                    status: 'completed',
+                    completedAt: new Date().toISOString()
+                  });
+                  isStopped = true;
+                  break;
+                }
+
+                // 没有活跃任务也没有可领取记录，但统计尚未收敛时，短暂让出事件循环后重试
+                // 避免 pause/restart 竞态下等待一个永远不会到来的 activity 事件
+                await new Promise(resolve => setTimeout(resolve, 20));
+                continue;
+              }
+
+              // 仍有活跃任务在运行，等待任务完成后再继续，避免空转
+              await waitForActivityChange();
+              continue;
+            }
+
+            for (const record of recordsToStart) {
+              let workerPromise: Promise<void>;
+              workerPromise = processDownload(record)
+                .catch((error) => {
+                  console.error(`[bulkDownloadService] processDownload 出错:`, error);
+                })
+                .finally(() => {
+                  sessionWorkers.delete(workerPromise);
+                });
+              sessionWorkers.add(workerPromise);
+            }
+          } catch (error) {
+            console.error('[bulkDownloadService] downloadLoop 循环出错:', error);
+            // 出错后短暂等待再继续
+            await new Promise(resolve => setTimeout(resolve, 1000));
           }
-        } catch (error) {
-          console.error('[bulkDownloadService] downloadLoop 循环出错:', error);
-          // 出错后短暂等待再继续
-          await new Promise(resolve => setTimeout(resolve, 1000));
         }
+      } finally {
+        if (sessionWorkers.size > 0) {
+          await Promise.allSettled(Array.from(sessionWorkers));
+        }
+        unsubscribeBrowsing();
+        activeDownloadSessions.delete(sessionId);
+        activeDownloadSessionPromises.delete(sessionId);
+        activeDownloadSessionWorkers.delete(sessionId);
+        sessionStopReasons.delete(sessionId);
       }
     };
 
-    // 启动事件驱动的调度循环
-    downloadLoop().catch((error) => {
-      console.error('[bulkDownloadService] downloadLoop 启动失败:', error);
-    });
-  } finally {
-    // 下载循环结束时清理会话标记
-    activeDownloadSessions.delete(sessionId);
-  }
+    await downloadLoop();
+  })();
+
+  activeDownloadSessionPromises.set(sessionId, downloadLoopPromise);
+  return downloadLoopPromise;
 }
 
 /**
@@ -1250,16 +1525,10 @@ async function downloadRecord(
 ): Promise<void> {
   try {
     const db = await getDatabase();
-    
-    // 更新状态为 downloading
-    await run(db, `
-      UPDATE bulk_download_records 
-      SET status = ? 
-      WHERE url = ? AND sessionId = ?
-    `, ['downloading', record.url, sessionId]);
 
     const filePath = path.join(task.path, record.fileName);
-    
+    const tempPath = buildDownloadTempPath(filePath);
+
     // 确保目录存在
     const dir = path.dirname(filePath);
     if (!fs.existsSync(dir)) {
@@ -1287,34 +1556,20 @@ async function downloadRecord(
               }
             });
             
-            const serverSize = headResponse.headers['content-length'] 
-              ? parseInt(headResponse.headers['content-length'], 10) 
-              : null;
-            
-            if (serverSize && existingSize === serverSize) {
+            const serverSize = parseContentLengthHeader(headResponse.headers['content-length']);
+
+            if (serverSize !== null && existingSize === serverSize) {
               // 文件大小匹配，确认已完成
               isComplete = true;
               console.log(`[bulkDownloadService] 文件已存在且完整: ${record.fileName} (${existingSize} bytes)`);
-            } else if (!serverSize) {
-              // 无法获取服务器大小，但文件存在且不为空，认为可能已完成
-              isComplete = true;
-              console.log(`[bulkDownloadService] 文件已存在（无法验证大小）: ${record.fileName} (${existingSize} bytes)`);
+            } else if (serverSize === null) {
+              console.log(`[bulkDownloadService] 无法获取 content-length，将重新下载并保留现有最终文件: ${record.fileName}`);
             } else {
-              // 文件大小不匹配，需要重新下载
-              console.log(`[bulkDownloadService] 文件大小不匹配，将重新下载: ${record.fileName} (本地: ${existingSize}, 服务器: ${serverSize})`);
-              fs.unlinkSync(filePath);
+              // 文件大小不匹配，需要重新下载，但保留当前最终文件，待新 .part 校验完成后再覆盖
+              console.log(`[bulkDownloadService] 文件大小不匹配，将重新下载并保留现有最终文件: ${record.fileName} (本地: ${existingSize}, 服务器: ${serverSize})`);
             }
           } catch (headError) {
-            // HEAD 请求失败，如果文件存在且不为空，认为可能已完成
-            // 但如果是 skipIfExists 模式，直接跳过
-            if (task.skipIfExists) {
-              isComplete = true;
-              console.log(`[bulkDownloadService] 文件已存在（跳过验证）: ${record.fileName} (${existingSize} bytes)`);
-            } else {
-              // 非 skipIfExists 模式，删除不完整的文件
-              console.log(`[bulkDownloadService] 无法验证文件完整性，删除可能不完整的文件: ${record.fileName}`);
-              fs.unlinkSync(filePath);
-            }
+            console.log(`[bulkDownloadService] 无法验证文件完整性，将重新下载并保留现有最终文件: ${record.fileName}`);
           }
           
           if (isComplete) {
@@ -1328,7 +1583,7 @@ async function downloadRecord(
             // 广播状态变化到前端
             const windows = BrowserWindow.getAllWindows();
             for (const win of windows) {
-              win.webContents.send('bulk-download:record-status', {
+              win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
                 sessionId: sessionId,
                 url: record.url,
                 status: 'completed',
@@ -1363,9 +1618,9 @@ async function downloadRecord(
     for (let retry = 0; retry <= maxDownloadRetries; retry++) {
       try {
         // 如果重试，先清除可能存在的部分文件
-        if (retry > 0 && fs.existsSync(filePath)) {
-          console.log(`[bulkDownloadService] 重试下载，清除部分文件: ${filePath}`);
-          fs.unlinkSync(filePath);
+        if (retry > 0 && fs.existsSync(tempPath)) {
+          console.log(`[bulkDownloadService] 重试下载，清除部分文件: ${tempPath}`);
+          fs.unlinkSync(tempPath);
           // 重试前等待一段时间
           await new Promise(resolve => setTimeout(resolve, 1000 * retry));
         }
@@ -1391,7 +1646,7 @@ async function downloadRecord(
           ? parseInt(response.headers['content-length'], 10) 
           : null;
 
-    const writer = fs.createWriteStream(filePath);
+    const writer = fs.createWriteStream(tempPath);
         let downloadedBytes = 0;
         let lastProgressUpdate = Date.now();
         const progressUpdateInterval = 500; // 每500ms更新一次进度（和单张下载一致，减少数据库写入）
@@ -1401,7 +1656,7 @@ async function downloadRecord(
           const progress = total && total > 0 ? Math.round((bytes / total) * 100) : 0;
           const windows = BrowserWindow.getAllWindows();
           for (const win of windows) {
-            win.webContents.send('bulk-download:record-progress', {
+            win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_PROGRESS, {
               sessionId: sessionId,
               url: record.url,
               progress: progress,
@@ -1520,7 +1775,7 @@ async function downloadRecord(
                 try {
                   // 等待一下让文件系统同步
                   await new Promise(resolve => setTimeout(resolve, 200));
-                  const currentSize = fs.existsSync(filePath) ? fs.statSync(filePath).size : 0;
+                  const currentSize = fs.existsSync(tempPath) ? fs.statSync(tempPath).size : 0;
                   if (currentSize > 0 && currentSize === downloadedBytes) {
                     // 文件大小匹配，可能已经完成，直接 resolve
                     // 注意：这里 resolve 后，外层代码会验证文件并更新状态
@@ -1548,10 +1803,13 @@ async function downloadRecord(
         // 验证文件是否完整下载
         let actualSize: number;
         try {
-          actualSize = fs.statSync(filePath).size;
+          actualSize = fs.statSync(tempPath).size;
         } catch (statError) {
           throw new Error(`无法读取下载的文件: ${statError instanceof Error ? statError.message : String(statError)}`);
         }
+
+        validateDownloadedFileSize(actualSize, expectedSize);
+        replaceFileWithTemp(tempPath, filePath);
         
         // 强制更新最终进度（确保显示100%）
         broadcastProgress(actualSize, expectedSize || actualSize);
@@ -1561,15 +1819,6 @@ async function downloadRecord(
           console.warn('[bulkDownloadService] 更新进度失败（继续）:', progressError);
         }
         
-        if (expectedSize && actualSize !== expectedSize) {
-          const percentage = expectedSize > 0 ? Math.round((actualSize / expectedSize) * 100) : 0;
-          throw new Error(`File size mismatch: expected ${expectedSize} bytes, got ${actualSize} bytes (${percentage}% downloaded)`);
-        }
-
-        if (actualSize === 0) {
-          throw new Error('Downloaded file is empty');
-        }
-
         downloadSuccess = true;
         console.log(`[bulkDownloadService] 下载成功: ${record.fileName} (${actualSize} bytes)`);
 
@@ -1618,7 +1867,7 @@ async function downloadRecord(
         try {
           const windows = BrowserWindow.getAllWindows();
           for (const win of windows) {
-            win.webContents.send('bulk-download:record-status', {
+            win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
               sessionId: sessionId,
               url: record.url,
               status: 'completed',
@@ -1638,10 +1887,14 @@ async function downloadRecord(
       } catch (error: any) {
         lastError = error instanceof Error ? error : new Error(String(error));
         const errorMessage = lastError.message;
-        
+
+        // 用户主动暂停/取消触发的中断不应进入重试，否则旧循环可能在新一轮启动前迟迟不退出
+        if (isAbortError(error) || abortSignal?.aborted) {
+          throw lastError;
+        }
+
         // 判断是否可重试的错误
-        const isRetryableError = 
-          errorMessage.includes('aborted') ||
+        const isRetryableError =
           errorMessage.includes('ECONNRESET') ||
           errorMessage.includes('ETIMEDOUT') ||
           errorMessage.includes('timeout') ||
@@ -1678,32 +1931,40 @@ async function downloadRecord(
 
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const abortedByUser = await isUserInitiatedSessionAbort(sessionId, error);
+
+    if (abortedByUser) {
+      console.log('[bulkDownloadService] 下载因用户暂停/取消而中止，不标记为失败:', record.url);
+      return;
+    }
+
     console.error('[bulkDownloadService] 下载记录失败:', record.url, errorMessage);
-    
-    // 下载失败时清除可能存在的损坏文件
+
+    // 下载失败时清除可能存在的损坏临时文件
     const filePath = path.join(task.path, record.fileName);
+    const tempPath = buildDownloadTempPath(filePath);
     try {
-      if (fs.existsSync(filePath)) {
-        console.log('[bulkDownloadService] 清除损坏文件:', filePath);
-        fs.unlinkSync(filePath);
+      if (fs.existsSync(tempPath)) {
+        console.log('[bulkDownloadService] 清除损坏临时文件:', tempPath);
+        fs.unlinkSync(tempPath);
       }
     } catch (unlinkError) {
-      console.warn('[bulkDownloadService] 清除文件失败:', filePath, unlinkError);
+      console.warn('[bulkDownloadService] 清除临时文件失败:', tempPath, unlinkError);
       // 清除文件失败不影响错误处理流程
     }
-    
+
     // 更新状态为 failed
     const db = await getDatabase();
     await run(db, `
-      UPDATE bulk_download_records 
-      SET status = ?, error = ? 
+      UPDATE bulk_download_records
+      SET status = ?, error = ?
       WHERE url = ? AND sessionId = ?
     `, ['failed', errorMessage, record.url, sessionId]);
-    
+
     // 广播状态变化到前端（通知下载失败）
     const windows = BrowserWindow.getAllWindows();
     for (const win of windows) {
-      win.webContents.send('bulk-download:record-status', {
+      win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
         sessionId: sessionId,
         url: record.url,
         status: 'failed',
@@ -1721,11 +1982,12 @@ export async function pauseBulkDownloadSession(
 ): Promise<{ success: boolean; error?: string }> {
   console.log('[bulkDownloadService] 暂停会话:', sessionId);
   try {
+    sessionStopReasons.set(sessionId, 'paused');
+
     // 中止正在进行的下载请求
     const controller = activeDownloadSessions.get(sessionId);
     if (controller) {
       controller.abort();
-      activeDownloadSessions.delete(sessionId);
       console.log('[bulkDownloadService] 已中止会话的进行中下载');
     }
 
@@ -1747,11 +2009,12 @@ export async function cancelBulkDownloadSession(
 ): Promise<{ success: boolean; error?: string }> {
   console.log('[bulkDownloadService] 取消会话:', sessionId);
   try {
+    sessionStopReasons.set(sessionId, 'cancelled');
+
     // 中止正在进行的下载请求
     const controller = activeDownloadSessions.get(sessionId);
     if (controller) {
       controller.abort();
-      activeDownloadSessions.delete(sessionId);
       console.log('[bulkDownloadService] 已中止会话的进行中下载');
     }
 
@@ -1775,13 +2038,14 @@ export async function cancelBulkDownloadSession(
           let cleanedCount = 0;
           for (const record of incompleteRecords) {
             const filePath = path.join(task.path, record.fileName);
+            const tempPath = buildDownloadTempPath(filePath);
             try {
-              if (fs.existsSync(filePath)) {
-                fs.unlinkSync(filePath);
+              if (fs.existsSync(tempPath)) {
+                fs.unlinkSync(tempPath);
                 cleanedCount++;
               }
             } catch (unlinkErr) {
-              console.warn(`[bulkDownloadService] 清理部分文件失败: ${filePath}`, unlinkErr);
+              console.warn(`[bulkDownloadService] 清理部分文件失败: ${tempPath}`, unlinkErr);
             }
           }
           if (cleanedCount > 0) {
@@ -1831,7 +2095,7 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
   try {
     const db = await getDatabase();
 
-    // 查找所有 running 或 paused 状态且未删除的会话（dryRun 不恢复，因为扫描状态无法续接）
+    // 查找所有 running 状态且未删除的会话（paused 只能手动恢复，dryRun 无法续接）
     const runningSessions = await all<any>(db, `
       SELECT
         s.*,
@@ -1849,7 +2113,7 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
         t.updatedAt as task_updatedAt
       FROM bulk_download_sessions s
       INNER JOIN bulk_download_tasks t ON s.taskId = t.id
-      WHERE s.deletedAt IS NULL AND s.status IN ('running', 'paused')
+      WHERE s.deletedAt IS NULL AND s.status = 'running'
     `);
 
     if (runningSessions.length === 0) {
@@ -1865,11 +2129,7 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
       const sessionId = row.id;
 
       // 将 downloading 状态的记录重置为 pending（因为程序重启后内存中的下载已丢失）
-      await run(db, `
-        UPDATE bulk_download_records
-        SET status = 'pending'
-        WHERE sessionId = ? AND status = 'downloading'
-      `, [sessionId]);
+      await resetInFlightRecordsToPending(sessionId);
 
       // 检查是否还有待下载的记录
       const stats = await getBulkDownloadSessionStats(sessionId);
@@ -1898,7 +2158,11 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
         updatedAt: row.task_updatedAt
       };
 
+      await waitForDownloadSessionToStop(sessionId);
+      await resetInFlightRecordsToPending(sessionId);
+
       // 确保会话状态为 running
+      sessionStopReasons.delete(sessionId);
       await updateBulkDownloadSession(sessionId, { status: 'running' });
 
       // 启动下载
@@ -1970,13 +2234,14 @@ export async function retryAllFailedRecords(
     // 批量重试前清除所有失败记录对应的损坏文件
     for (const failedRecord of failedRecords) {
       const filePath = path.join(task.path, failedRecord.fileName);
+      const tempPath = buildDownloadTempPath(filePath);
       try {
-        if (fs.existsSync(filePath)) {
-          console.log('[bulkDownloadService] 批量重试前清除损坏文件:', filePath);
-          fs.unlinkSync(filePath);
+        if (fs.existsSync(tempPath)) {
+          console.log('[bulkDownloadService] 批量重试前清除损坏临时文件:', tempPath);
+          fs.unlinkSync(tempPath);
         }
       } catch (unlinkError) {
-        console.warn('[bulkDownloadService] 清除文件失败:', filePath, unlinkError);
+        console.warn('[bulkDownloadService] 清除临时文件失败:', tempPath, unlinkError);
         // 清除文件失败不影响重试流程
       }
     }
@@ -1991,6 +2256,9 @@ export async function retryAllFailedRecords(
     // 根据会话状态决定是否需要启动下载
     if (sessionRow.status === 'completed' || sessionRow.status === 'failed') {
       // 会话已结束，重新启动下载
+      await waitForDownloadSessionToStop(sessionId);
+      await resetInFlightRecordsToPending(sessionId);
+      sessionStopReasons.delete(sessionId);
       await updateBulkDownloadSession(sessionId, {
         status: 'running'
       });
@@ -2005,10 +2273,15 @@ export async function retryAllFailedRecords(
       });
     } else if (sessionRow.status === 'paused') {
       // 会话已暂停，恢复为运行状态
+      await waitForDownloadSessionToStop(sessionId);
+      await resetInFlightRecordsToPending(sessionId);
+      sessionStopReasons.delete(sessionId);
       await updateBulkDownloadSession(sessionId, {
         status: 'running'
       });
-      // 下载循环会自动处理新的 pending 记录
+      startDownloadingSession(sessionId, task).catch(error => {
+        console.error('[bulkDownloadService] 恢复暂停会话下载失败:', error);
+      });
     } else if (sessionRow.status === 'running') {
       // 会话正在运行，下载循环会自动获取并处理新的 pending 记录
       console.log('[bulkDownloadService] 会话正在运行，记录已重置为 pending，等待下载循环处理');
@@ -2097,18 +2370,22 @@ export async function retryFailedRecord(
 
     // 重试前清除可能存在的损坏文件
     const filePath = path.join(task.path, record.fileName);
+    const tempPath = buildDownloadTempPath(filePath);
     try {
-      if (fs.existsSync(filePath)) {
-        console.log('[bulkDownloadService] 重试前清除损坏文件:', filePath);
-        fs.unlinkSync(filePath);
+      if (fs.existsSync(tempPath)) {
+        console.log('[bulkDownloadService] 重试前清除损坏临时文件:', tempPath);
+        fs.unlinkSync(tempPath);
       }
     } catch (unlinkError) {
-      console.warn('[bulkDownloadService] 清除文件失败:', filePath, unlinkError);
+      console.warn('[bulkDownloadService] 清除临时文件失败:', tempPath, unlinkError);
       // 清除文件失败不影响重试流程
     }
 
     // 如果会话未运行，启动下载会话
     if (sessionRow.status !== 'running') {
+      await waitForDownloadSessionToStop(sessionId);
+      await resetInFlightRecordsToPending(sessionId);
+      sessionStopReasons.delete(sessionId);
       await updateBulkDownloadSession(sessionId, {
         status: 'running'
       });

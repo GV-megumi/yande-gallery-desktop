@@ -141,9 +141,24 @@ describe('IPC_CHANNELS', () => {
     }
   });
 
+  it('应包含页面偏好通道', () => {
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_FAVORITE_TAGS).toBe('page-preferences:get-favorite-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_FAVORITE_TAGS).toBe('page-preferences:save-favorite-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_BLACKLISTED_TAGS).toBe('page-preferences:get-blacklisted-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_BLACKLISTED_TAGS).toBe('page-preferences:save-blacklisted-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_GALLERY).toBe('page-preferences:get-gallery');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_GALLERY).toBe('page-preferences:save-gallery');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_APP_SHELL).toBe('page-preferences:get-app-shell');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_APP_SHELL).toBe('page-preferences:save-app-shell');
+  });
+
+  it('应包含 Booru 外观偏好通道', () => {
+    expect(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE).toBe('booru-preferences:get-appearance');
+  });
+
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(123);
+    expect(keys.length).toBe(175);
   });
 });

@@ -200,7 +200,6 @@ export const SettingsPage: React.FC = () => {
   const [downloadPath, setDownloadPath] = useState('');
   const [thumbnailSize, setThumbnailSize] = useState(800);
   const [thumbnailQuality, setThumbnailQuality] = useState(92);
-  const [autoGenThumbnail, setAutoGenThumbnail] = useState(true);
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyProtocol, setProxyProtocol] = useState('http');
   const [proxyHost, setProxyHost] = useState('127.0.0.1');
@@ -375,21 +374,22 @@ export const SettingsPage: React.FC = () => {
         protocol: 'http',
         host: '127.0.0.1',
         port: 7890,
-        username: '',
-        password: ''
       };
 
-      let nextProxy = currentProxy;
+      let nextProxy = {
+        enabled: currentProxy.enabled,
+        protocol: currentProxy.protocol,
+        host: currentProxy.host,
+        port: currentProxy.port,
+      };
       if (activeTab === 'proxy') {
         await proxyForm.validateFields();
         const proxyValues = proxyForm.getFieldsValue(true);
-        nextProxy = { ...currentProxy };
+        nextProxy = { ...nextProxy };
         if (proxyValues.proxyEnabled !== undefined) nextProxy.enabled = proxyValues.proxyEnabled;
         if (proxyValues.proxyProtocol !== undefined) nextProxy.protocol = proxyValues.proxyProtocol;
         if (proxyValues.proxyHost !== undefined) nextProxy.host = proxyValues.proxyHost;
         if (proxyValues.proxyPort !== undefined) nextProxy.port = Number(proxyValues.proxyPort);
-        if (proxyValues.proxyUsername !== undefined) nextProxy.username = proxyValues.proxyUsername || '';
-        if (proxyValues.proxyPassword !== undefined) nextProxy.password = proxyValues.proxyPassword || '';
       }
 
       const updatedConfig = {
@@ -590,6 +590,7 @@ export const SettingsPage: React.FC = () => {
             />
             <SettingsRow
               label={t('settings.thumbnailQuality')}
+              isLast
               extra={
                 <Select
                   value={thumbnailQuality}
@@ -603,17 +604,6 @@ export const SettingsPage: React.FC = () => {
                   <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
                   <Option value={95}>{t('settings.qualityMax')}</Option>
                 </Select>
-              }
-            />
-            <SettingsRow
-              label={t('settings.autoGenThumbnail')}
-              description={t('settings.autoGenThumbnailDesc')}
-              isLast
-              extra={
-                <Switch
-                  checked={autoGenThumbnail}
-                  onChange={setAutoGenThumbnail}
-                />
               }
             />
           </SettingsGroup>
@@ -695,16 +685,6 @@ export const SettingsPage: React.FC = () => {
                 </Space>
               }
               isLast
-            />
-          </SettingsGroup>
-
-          {/* 高级 */}
-          <SettingsGroup title={t('settings.advanced')}>
-            <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
-            <SettingsRow
-              label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}
-              isLast
-              onClick={() => message.info(t('settings.featureDev'))}
             />
           </SettingsGroup>
 

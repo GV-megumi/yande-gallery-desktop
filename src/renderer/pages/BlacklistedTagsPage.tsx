@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, Popconfirm, Modal, Form, Select, Empty, Switch, App, Tooltip } from 'antd';
 import { DeleteOutlined, PlusOutlined, StopOutlined, ImportOutlined, ExportOutlined, CheckCircleOutlined, CloseCircleOutlined, SearchOutlined } from '@ant-design/icons';
 import type { BlacklistedTag } from '../../shared/types';
@@ -10,7 +10,11 @@ import { ImportTagsDialog } from '../components/ImportTagsDialog';
  * 黑名单标签管理页面
  * 管理用户设置的黑名单标签，包含黑名单标签的图片在浏览时自动隐藏
  */
-export const BlacklistedTagsPage: React.FC = () => {
+interface BlacklistedTagsPageProps {
+  active?: boolean;
+}
+
+export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active = true }) => {
   const { message } = App.useApp();
   const [blacklistedTags, setBlacklistedTags] = useState<BlacklistedTag[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,6 +28,11 @@ export const BlacklistedTagsPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [preferencesHydrationVersion, setPreferencesHydrationVersion] = useState(0);
+  const skipNextKeywordResetRef = useRef(false);
+  const preferencesHydrationRunIdRef = useRef(0);
+  const preferencesHydratingRef = useRef(false);
   const [form] = Form.useForm();
 
   // 搜索关键字防抖，避免每次按键都打服务端
@@ -58,6 +67,14 @@ export const BlacklistedTagsPage: React.FC = () => {
     }
   }, [filterSiteId, debouncedKeyword, page, pageSize, message]);
 
+  useEffect(() => {
+    if (skipNextKeywordResetRef.current) {
+      skipNextKeywordResetRef.current = false;
+      return;
+    }
+    setPage(1);
+  }, [debouncedKeyword]);
+
   // 加载站点列表
   const loadSites = useCallback(async () => {
     try {
@@ -71,12 +88,94 @@ export const BlacklistedTagsPage: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!active) {
+      setPreferencesHydrated(false);
+      preferencesHydratingRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+    const runId = preferencesHydrationRunIdRef.current + 1;
+    preferencesHydrationRunIdRef.current = runId;
+    preferencesHydratingRef.current = true;
+    setPreferencesHydrated(false);
+
+    const loadPreferences = async () => {
+      try {
+        const result = await window.electronAPI.pagePreferences.blacklistedTags.get();
+        if (!result.success || cancelled || preferencesHydrationRunIdRef.current !== runId) {
+          return;
+        }
+
+        const preferences = result.data;
+        if (preferences) {
+          skipNextKeywordResetRef.current = Boolean(preferences.keyword !== undefined);
+          setFilterSiteId(preferences.filterSiteId);
+          setKeyword(preferences.keyword ?? '');
+          setDebouncedKeyword(preferences.keyword ?? '');
+          setPage(preferences.page ?? 1);
+          setPageSize(preferences.pageSize ?? 20);
+        }
+      } catch (error) {
+        console.error('[BlacklistedTagsPage] 加载页面偏好失败:', error);
+      } finally {
+        if (!cancelled && preferencesHydrationRunIdRef.current === runId) {
+          preferencesHydratingRef.current = false;
+          setPreferencesHydrated(true);
+          setPreferencesHydrationVersion(runId);
+        }
+      }
+    };
+
+    loadPreferences();
     loadSites();
-  }, [loadSites]);
+
+    return () => {
+      cancelled = true;
+      if (preferencesHydrationRunIdRef.current === runId) {
+        preferencesHydratingRef.current = false;
+      }
+    };
+  }, [active, loadSites]);
 
   useEffect(() => {
+    if (!active || !preferencesHydrated || preferencesHydratingRef.current) {
+      return;
+    }
     loadBlacklistedTags();
-  }, [loadBlacklistedTags]);
+  }, [active, preferencesHydrated, preferencesHydrationVersion, loadBlacklistedTags]);
+
+  useEffect(() => {
+    if (!active || !preferencesHydrated || preferencesHydratingRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    const hydrationVersionAtEffect = preferencesHydrationVersion;
+
+    const savePreferences = async () => {
+      try {
+        if (cancelled || preferencesHydratingRef.current || hydrationVersionAtEffect !== preferencesHydrationRunIdRef.current) {
+          return;
+        }
+
+        await window.electronAPI.pagePreferences.blacklistedTags.save({
+          filterSiteId,
+          keyword,
+          page,
+          pageSize,
+        });
+      } catch (error) {
+        console.error('[BlacklistedTagsPage] 保存页面偏好失败:', error);
+      }
+    };
+
+    savePreferences();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, keyword, page, pageSize]);
 
   // 添加单个黑名单标签
   const handleAdd = async (values: any) => {
@@ -330,7 +429,9 @@ export const BlacklistedTagsPage: React.FC = () => {
       <Modal
         title="添加黑名单标签"
         open={addModalVisible}
-        closable={false}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => {
           setAddModalVisible(false);
           form.resetFields();

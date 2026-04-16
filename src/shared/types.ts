@@ -48,21 +48,26 @@ export interface ApiResponse<T> {
 
 // ========= Booru 相关类型定义 (新增) =========
 
-// Booru站点配置
+// Booru站点安全配置（renderer 可见）
 export interface BooruSite {
   id: number;
   name: string;
   url: string;
   type: 'moebooru' | 'danbooru' | 'gelbooru';
-  salt?: string;
   version?: string;
-  apiKey?: string;
   username?: string;
-  passwordHash?: string;
+  authenticated?: boolean;
   favoriteSupport: boolean;
   active: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+// Booru站点完整配置（仅主进程/持久化层使用）
+export interface BooruSiteRecord extends Omit<BooruSite, 'authenticated'> {
+  salt?: string;
+  apiKey?: string;
+  passwordHash?: string;
 }
 
 // Booru图片
@@ -439,6 +444,25 @@ export interface BooruUserProfile {
 
 // 投票分数：1=up, 0=neutral, -1=down
 export type VoteScore = 1 | 0 | -1;
+
+// ========= 配置变更事件 =========
+
+/**
+ * 主进程在 `config:changed` 事件中广播的摘要负载。
+ *
+ * 为了避免在事件中下发完整的敏感配置对象，主进程仅告知渲染端
+ * "有哪些配置区块发生了变化"；渲染端收到后应按需通过
+ * `config:get` 或 `booru-preferences:get-appearance` 等只读通道
+ * 重新拉取最新的去敏配置数据。
+ *
+ * - `version`: 单调递增或时间戳式的版本号，用于订阅端去重/节流。
+ * - `sections`: 受影响的配置路径集合，常见取值包括
+ *   `'network'`、`'google'`、`'ui.pagePreferences.favoriteTags'` 等。
+ */
+export interface ConfigChangedSummary {
+  version: number;
+  sections: string[];
+}
 
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {

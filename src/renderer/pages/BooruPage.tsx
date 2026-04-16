@@ -92,37 +92,23 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 14,
-    margin: 20
+    borderRadius: 8,
+    margin: 24
   });
 
   // 加载外观配置
   const loadAppearanceConfig = async () => {
     console.log('[BooruPage] 加载外观配置');
     try {
-      if (!window.electronAPI) {
+      if (!window.electronAPI?.booruPreferences?.appearance) {
         console.error('[BooruPage] electronAPI is not available');
         return;
       }
 
-      const result = await window.electronAPI.config.get();
+      const result = await window.electronAPI.booruPreferences.appearance.get();
       if (result.success && result.data) {
-        const config = result.data;
-        const booruConfig = config.booru || {
-          appearance: {
-            gridSize: 330,
-            previewQuality: 'auto',
-            itemsPerPage: 20,
-            paginationPosition: 'bottom',
-            pageMode: 'pagination',
-            spacing: 16,
-            borderRadius: 14,
-            margin: 20
-          }
-        };
-
-        console.log('[BooruPage] 外观配置加载成功:', booruConfig.appearance);
-        setAppearanceConfig(booruConfig.appearance);
+        console.log('[BooruPage] 外观配置加载成功:', result.data);
+        setAppearanceConfig(result.data);
       } else {
         console.error('[BooruPage] 加载外观配置失败:', result.error);
       }
@@ -546,16 +532,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
   // 监听配置变更事件（事件驱动，替代轮询）
   useEffect(() => {
-    if (!window.electronAPI?.config?.onConfigChanged) return;
-    const unsubscribe = window.electronAPI.config.onConfigChanged((config: any) => {
+    if (!window.electronAPI?.booruPreferences?.appearance?.onChanged) return;
+    const unsubscribe = window.electronAPI.booruPreferences.appearance.onChanged((appearance) => {
       console.log('[BooruPage] 收到配置变更事件');
-      const booruConfig = config?.booru?.appearance;
-      if (booruConfig) {
-        setAppearanceConfig(booruConfig);
-      } else {
-        // 配置结构不包含 booru.appearance 时重新加载完整配置
-        loadAppearanceConfig();
-      }
+      setAppearanceConfig(appearance);
     });
     return () => unsubscribe();
   }, []);

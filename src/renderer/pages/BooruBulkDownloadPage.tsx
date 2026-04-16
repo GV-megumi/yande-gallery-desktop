@@ -23,7 +23,11 @@ import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask }
 import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
 import { BulkDownloadSessionCard } from '../components/BulkDownloadSessionCard';
 
-export const BooruBulkDownloadPage: React.FC = () => {
+interface BooruBulkDownloadPageProps {
+  active?: boolean;
+}
+
+export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ active = true }) => {
   const { message } = App.useApp();
   const [sessions, setSessions] = useState<BulkDownloadSession[]>([]);
   const [tasks, setTasks] = useState<BulkDownloadTask[]>([]);
@@ -85,10 +89,14 @@ export const BooruBulkDownloadPage: React.FC = () => {
 
   // 下载恢复已移至 init.ts，程序启动时自动后台恢复，无需手动触发
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     loadSessions();
     loadTasks();
     loadSites();
-  }, []);
+  }, [active]);
 
   // 分离活跃会话和历史会话
   const { activeSessions, historySessions } = useMemo(() => {
@@ -109,6 +117,10 @@ export const BooruBulkDownloadPage: React.FC = () => {
 
   // 定期刷新会话状态（仅在存在活跃会话时刷新）
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     // 如果没有活跃会话，不设置定时器
     if (activeSessions.length === 0) {
       return;
@@ -129,7 +141,7 @@ export const BooruBulkDownloadPage: React.FC = () => {
       if (interval) clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [activeSessions.length]); // 当活跃会话数量变化时重新设置定时器
+  }, [active, activeSessions.length]); // 当页面可见性或活跃会话数量变化时重新设置定时器
 
   // 创建或更新任务
   const handleCreateOrUpdateTask = async (options: BulkDownloadOptions, taskId?: string) => {
@@ -450,11 +462,13 @@ export const BooruBulkDownloadPage: React.FC = () => {
       <Modal
         title={editingTask ? '编辑批量下载任务' : '创建批量下载任务'}
         open={formVisible}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => {
           setFormVisible(false);
           setEditingTask(undefined);
         }}
-        closable={false}
         footer={null}
         width={800}
         destroyOnHidden

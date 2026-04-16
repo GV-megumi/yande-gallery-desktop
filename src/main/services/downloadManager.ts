@@ -4,11 +4,17 @@ import path from 'path';
 import { pipeline } from 'stream/promises';
 import axios from 'axios';
 import { BrowserWindow } from 'electron';
+import { IPC_CHANNELS } from '../ipc/channels.js';
 import * as booruService from './booruService.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
 import { getConfig, getProxyConfig, getDownloadsPath } from './config.js';
 import { BooruPost, DownloadQueueItem } from '../../shared/types';
 import { networkScheduler } from './networkScheduler.js';
+import {
+  buildDownloadTempPath,
+  replaceFileWithTemp,
+  validateDownloadedFileSize,
+} from './downloadFileProtocol.js';
 
 /** 浏览模式下的最大并发数（让出带宽给图片预览） */
 const BROWSING_MODE_CONCURRENCY = 1;
@@ -24,6 +30,7 @@ class DownloadManager {
   private maxConcurrent: number = 3;
   private isPaused: boolean = false;
   private hasResumedOnStartup: boolean = false; // 标记是否已经在启动时恢复过
+  private userInterruptedStatuses = new Map<number, 'paused'>();
 
   /** 缓存窗口引用，避免每次广播都调用 getAllWindows() */
   private cachedWindows: BrowserWindow[] = [];
@@ -121,9 +128,10 @@ class DownloadManager {
     // 取消所有活跃的下载
     for (const [queueId, download] of this.activeDownloads) {
       try {
+        this.userInterruptedStatuses.set(queueId, 'paused');
         download.cancelToken.abort();
-        await booruService.updateDownloadStatus(queueId, 'pending'); // 重置为 pending 而不是 paused
-        this.broadcastStatus(queueId, 'pending');
+        await booruService.updateDownloadStatus(queueId, 'paused');
+        this.broadcastStatus(queueId, 'paused');
       } catch (error) {
         console.error(`[DownloadManager] 暂停任务 #${queueId} 失败:`, error);
       }
@@ -155,6 +163,7 @@ class DownloadManager {
       const activeDownload = this.activeDownloads.get(queueId);
       if (activeDownload) {
         // 取消正在进行的下载
+        this.userInterruptedStatuses.set(queueId, 'paused');
         activeDownload.cancelToken.abort();
         this.activeDownloads.delete(queueId);
       }
@@ -180,6 +189,8 @@ class DownloadManager {
     console.log(`[DownloadManager] 恢复下载任务 #${queueId}`);
     
     try {
+      this.userInterruptedStatuses.delete(queueId);
+
       // 更新数据库状态为 pending
       await booruService.updateDownloadStatus(queueId, 'pending');
       this.broadcastStatus(queueId, 'pending');
@@ -215,15 +226,16 @@ class DownloadManager {
       const downloadPath = getDownloadsPath();
       const targetPath = await this.generateDownloadFileName(post, siteId, downloadPath);
 
-      // 重试前清除可能存在的损坏文件
+      // 重试前仅清除可能残留的临时文件，避免误删最终目标文件
+      const tempPath = buildDownloadTempPath(targetPath);
       try {
-        await fsPromises.access(targetPath);
-        console.log(`[DownloadManager] 重试前清除损坏文件: ${targetPath}`);
-        await fsPromises.unlink(targetPath);
+        await fsPromises.access(tempPath);
+        console.log(`[DownloadManager] 重试前清除损坏临时文件: ${tempPath}`);
+        await fsPromises.unlink(tempPath);
       } catch (unlinkError: any) {
         // ENOENT 表示文件不存在，忽略；其他错误警告
         if (unlinkError?.code !== 'ENOENT') {
-          console.warn(`[DownloadManager] 清除文件失败:`, unlinkError);
+          console.warn(`[DownloadManager] 清除临时文件失败:`, unlinkError);
         }
       }
 
@@ -259,7 +271,7 @@ class DownloadManager {
   private broadcastQueueStatus() {
     const status = this.getQueueStatus();
     for (const win of this.getWindows()) {
-      win.webContents.send('booru:download-queue-status', status);
+      win.webContents.send(IPC_CHANNELS.BOORU_DOWNLOAD_QUEUE_STATUS, status);
     }
   }
 
@@ -430,6 +442,7 @@ class DownloadManager {
       const totalLength = parseInt(response.headers['content-length'] || '0', 10);
       let downloadedLength = 0;
       let lastUpdate = Date.now();
+      const tempPath = buildDownloadTempPath(item.targetPath!);
 
       // 使用 Transform 流监控进度
       const { Transform } = await import('stream');
@@ -451,10 +464,14 @@ class DownloadManager {
         }
       });
 
-      const writer = fs.createWriteStream(item.targetPath!);
+      const writer = fs.createWriteStream(tempPath);
 
       // 使用 pipeline 自动处理背压和错误传播
       await pipeline(response.data, progressStream, writer);
+
+      const actualSize = (await fsPromises.stat(tempPath)).size;
+      validateDownloadedFileSize(actualSize, totalLength > 0 ? totalLength : null);
+      replaceFileWithTemp(tempPath, item.targetPath!);
 
       // pipeline 成功完成
       console.log(`[DownloadManager] 下载完成 #${queueId}`);
@@ -462,7 +479,7 @@ class DownloadManager {
 
       // 更新数据库状态（完成时写一次）
       await booruService.updateDownloadStatus(queueId, 'completed');
-      await booruService.updateDownloadProgress(queueId, 100, downloadedLength, totalLength).catch(console.error);
+      await booruService.updateDownloadProgress(queueId, 100, actualSize, totalLength || actualSize).catch(console.error);
       await booruService.markPostAsDownloaded(post.id, item.targetPath!);
 
       // 通知前端
@@ -477,8 +494,8 @@ class DownloadManager {
       // 下载失败时清除可能存在的损坏文件（异步）
       try {
         if (item.targetPath) {
-          await fsPromises.unlink(item.targetPath);
-          console.log(`[DownloadManager] 下载失败，已清除损坏文件: ${item.targetPath}`);
+          await fsPromises.unlink(buildDownloadTempPath(item.targetPath));
+          console.log(`[DownloadManager] 下载失败，已清除损坏临时文件: ${buildDownloadTempPath(item.targetPath)}`);
         }
       } catch (unlinkError: any) {
         if (unlinkError?.code !== 'ENOENT') {
@@ -493,8 +510,21 @@ class DownloadManager {
    * 处理下载错误
    * 注意：调用方应在调用此方法前清除损坏文件
    */
+  private isAbortError(errorMessage: string): boolean {
+    return errorMessage.includes('aborted') || errorMessage.includes('AbortError');
+  }
+
   private async handleDownloadError(queueId: number, errorMessage: string) {
     this.activeDownloads.delete(queueId);
+
+    const interruptedStatus = this.userInterruptedStatuses.get(queueId);
+    if (interruptedStatus && this.isAbortError(errorMessage)) {
+      this.userInterruptedStatuses.delete(queueId);
+      this.processQueue();
+      return;
+    }
+
+    this.userInterruptedStatuses.delete(queueId);
     await booruService.updateDownloadStatus(queueId, 'failed', errorMessage);
     this.broadcastStatus(queueId, 'failed', errorMessage);
     this.processQueue();
@@ -505,7 +535,7 @@ class DownloadManager {
    */
   private broadcastProgress(id: number, progress: number, downloaded: number, total: number) {
     for (const win of this.getWindows()) {
-      win.webContents.send('booru:download-progress', {
+      win.webContents.send(IPC_CHANNELS.BOORU_DOWNLOAD_PROGRESS, {
         id,
         progress,
         downloadedBytes: downloaded,
@@ -519,7 +549,7 @@ class DownloadManager {
    */
   private broadcastStatus(id: number, status: string, error?: string) {
     for (const win of this.getWindows()) {
-      win.webContents.send('booru:download-status', {
+      win.webContents.send(IPC_CHANNELS.BOORU_DOWNLOAD_STATUS, {
         id,
         status,
         error

@@ -59,8 +59,10 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
     previewQuality: 'auto' as string,
     itemsPerPage: 20,
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
+    pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 14,
+    borderRadius: 8,
+    margin: 24,
   });
 
   const { favorites, toggleFavorite, setFavorites } = useFavorite({
@@ -113,18 +115,10 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   // 加载外观配置
   const loadAppearanceConfig = async () => {
     try {
-      if (!window.electronAPI) return;
-      const result = await window.electronAPI.config.get();
-      if (result.success && result.data?.booru?.appearance) {
-        const a = result.data.booru.appearance;
-        setAppearanceConfig({
-          gridSize: a.gridSize || 330,
-          previewQuality: a.previewQuality || 'auto',
-          itemsPerPage: a.itemsPerPage || 20,
-          paginationPosition: a.paginationPosition || 'bottom',
-          spacing: a.spacing || 16,
-          borderRadius: a.borderRadius || 8,
-        });
+      if (!window.electronAPI?.booruPreferences?.appearance) return;
+      const result = await window.electronAPI.booruPreferences.appearance.get();
+      if (result.success && result.data) {
+        setAppearanceConfig(result.data);
       }
     } catch (error) {
       console.error('[BooruCharacterPage] 加载外观配置失败:', error);
@@ -232,7 +226,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   const handleDownload = async (post: BooruPost) => {
     if (!selectedSiteId || !window.electronAPI) return;
     try {
-      const result = await window.electronAPI.download.addToQueue(selectedSiteId, post);
+      const result = await window.electronAPI.booru.addToDownload(post.postId, selectedSiteId);
       if (result.success) message.success('已添加到下载队列');
       else message.error('添加失败: ' + result.error);
     } catch (error) {

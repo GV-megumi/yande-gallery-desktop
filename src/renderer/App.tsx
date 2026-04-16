@@ -219,35 +219,41 @@ export const AppContent: React.FC = () => {
   const orderedBooruItems  = useMemo(() => applyOrder(booruSubMenuItems, booruOrder),  [booruSubMenuItems, booruOrder, applyOrder]);
   const orderedGoogleItems = useMemo(() => applyOrder(googleSubMenuItems, googleOrder), [googleSubMenuItems, googleOrder, applyOrder]);
 
-  /** 持久化某个菜单的排序到 config.yaml */
-  const saveMenuOrder = useCallback(async (section: 'main' | 'gallery' | 'booru' | 'google', keys: string[]) => {
+  /** 持久化某个菜单的排序到偏好接口 */
+  const saveMenuOrder = useCallback(async (
+    section: 'main' | 'gallery' | 'booru' | 'google',
+    keys: string[],
+    rollback?: () => void,
+  ) => {
     try {
-      const result = await window.electronAPI.config.get();
-      if (!result.success) return;
-      const newConfig = {
-        ...result.data,
-        ui: {
-          ...result.data?.ui,
-          menuOrder: { ...result.data?.ui?.menuOrder, [section]: keys },
+      const result = await window.electronAPI.pagePreferences.appShell.save({
+        menuOrder: {
+          [section]: keys,
         },
-      };
-      await window.electronAPI.config.save(newConfig);
+      });
+      if (!result.success) {
+        throw new Error(result.error || 'save failed');
+      }
       console.log(`[App] 菜单排序已保存: ${section}`, keys);
     } catch (err) {
       console.error('[App] 保存菜单排序失败:', err);
+      rollback?.();
+      message.error('菜单排序保存失败');
     }
   }, []);
 
-  /** 持久化固定菜单项到 config.yaml */
-  const savePinnedItems = useCallback(async (items: PinnedItem[]) => {
+  /** 持久化固定菜单项到偏好接口 */
+  const savePinnedItems = useCallback(async (items: PinnedItem[], rollback?: () => void) => {
     try {
-      const result = await window.electronAPI.config.get();
-      if (!result.success) return;
-      const newConfig = { ...result.data, ui: { ...result.data?.ui, pinnedItems: items } };
-      await window.electronAPI.config.save(newConfig);
+      const result = await window.electronAPI.pagePreferences.appShell.save({ pinnedItems: items });
+      if (!result.success) {
+        throw new Error(result.error || 'save failed');
+      }
       console.log('[App] 固定菜单项已保存', items);
     } catch (err) {
       console.error('[App] 保存固定菜单项失败:', err);
+      rollback?.();
+      message.error('固定项保存失败');
     }
   }, []);
 
@@ -256,7 +262,7 @@ export const AppContent: React.FC = () => {
     setPinnedItems(prev => {
       if (prev.length >= 5 || prev.some(p => p.section === section && p.key === key)) return prev;
       const next = [...prev, { section, key }];
-      savePinnedItems(next);
+      savePinnedItems(next, () => setPinnedItems(prev));
       console.log('[App] 已固定菜单项:', section, key);
       return next;
     });
@@ -265,15 +271,22 @@ export const AppContent: React.FC = () => {
   /** 取消固定一个菜单项，并清理其缓存 */
   const unpinItem = useCallback((section: PinnedItem['section'], key: string) => {
     const pinId = `${section}:${key}`;
+    const previousMounted = mountedPinnedIds;
+    const previousActive = activePinnedId;
     setPinnedItems(prev => {
+      const previous = prev;
       const next = prev.filter(p => !(p.section === section && p.key === key));
-      savePinnedItems(next);
+      savePinnedItems(next, () => {
+        setPinnedItems(previous);
+        setMountedPinnedIds(previousMounted);
+        setActivePinnedId(previousActive);
+      });
       console.log('[App] 已取消固定菜单项:', section, key);
       return next;
     });
     setMountedPinnedIds(prev => { const s = new Set(prev); s.delete(pinId); return s; });
     setActivePinnedId(cur => cur === pinId ? null : cur);
-  }, [savePinnedItems]);
+  }, [activePinnedId, mountedPinnedIds, savePinnedItems]);
 
   /** 关闭固定页面缓存（不取消固定，只卸载缓存） */
   const closePin = useCallback((section: PinnedItem['section'], key: string) => {
@@ -363,10 +376,10 @@ export const AppContent: React.FC = () => {
             console.error('[App] 数据库初始化失败:', result.error);
             message.error('数据库初始化失败: ' + result.error);
           }
-          // 加载已保存的菜单排序
-          const cfgResult = await window.electronAPI.config.get();
-          if (cfgResult.success && cfgResult.data?.ui?.menuOrder) {
-            const order = cfgResult.data.ui.menuOrder;
+          // 加载 App 壳层偏好
+          const appShellResult = await window.electronAPI.pagePreferences.appShell.get();
+          if (appShellResult.success && appShellResult.data?.menuOrder) {
+            const order = appShellResult.data.menuOrder;
             if (order.main?.length)    setMainOrder(order.main);
             if (order.gallery?.length) setGalleryOrder(order.gallery);
             if (order.booru?.length) {
@@ -382,12 +395,15 @@ export const AppContent: React.FC = () => {
                 .map(k => BOORU_ORDER_MIGRATION[k] ?? k)
                 .filter(k => { if (seen.has(k)) return false; seen.add(k); return true; });
               setBooruOrder(migratedBooruOrder);
+              if (migratedBooruOrder.length !== order.booru.length || migratedBooruOrder.some((key, index) => key !== order.booru?.[index])) {
+                saveMenuOrder('booru', migratedBooruOrder);
+              }
             }
             if (order.google?.length)  setGoogleOrder(order.google);
             console.log('[App] 菜单排序已加载', order);
           }
           // 加载固定菜单项（含旧 key 迁移）
-          if (cfgResult.data?.ui?.pinnedItems?.length) {
+          if (appShellResult.data?.pinnedItems?.length) {
             const PINNED_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
               'favorite-tags':   { key: 'tag-management', defaultTab: 'favorite' },
               'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
@@ -395,7 +411,7 @@ export const AppContent: React.FC = () => {
               'bulk-download':   { key: 'download',       defaultTab: 'bulk' },
             };
             let migrated = false;
-            const raw = (cfgResult.data.ui.pinnedItems as PinnedItem[]).slice(0, 5);
+            const raw = appShellResult.data.pinnedItems as PinnedItem[];
             const migratedPins: PinnedItem[] = [];
             const seen = new Set<string>();
             for (const pin of raw) {
@@ -409,6 +425,9 @@ export const AppContent: React.FC = () => {
               if (!seen.has(dedupKey)) {
                 seen.add(dedupKey);
                 migratedPins.push(newPin);
+              }
+              if (migratedPins.length >= 5) {
+                break;
               }
             }
             setPinnedItems(migratedPins);
@@ -653,8 +672,8 @@ export const AppContent: React.FC = () => {
       if (key === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
       if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
       if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={false} />;
-      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} defaultTab={(pin.defaultTab as 'favorite' | 'blacklist') ?? 'favorite'} />;
-      if (key === 'download') return <BooruDownloadHubPage defaultTab={(pin.defaultTab as 'downloads' | 'bulk') ?? 'downloads'} />;
+      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} defaultTab={(pin.defaultTab as 'favorite' | 'blacklist') ?? 'favorite'} active={activePinnedId === `${section}:${key}`} />;
+      if (key === 'download') return <BooruDownloadHubPage defaultTab={(pin.defaultTab as 'downloads' | 'bulk') ?? 'downloads'} active={activePinnedId === `${section}:${key}`} />;
       if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
       if (key === 'booru-settings') return <BooruSettingsPage />;
       if (key === 'settings') return <SettingsPage />;
@@ -683,8 +702,8 @@ export const AppContent: React.FC = () => {
         if (selectedBooruSubKey === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
         if (selectedBooruSubKey === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
         if (selectedBooruSubKey === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
-        if (selectedBooruSubKey === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} />;
-        if (selectedBooruSubKey === 'download') return <BooruDownloadHubPage />;
+        if (selectedBooruSubKey === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} active={!activePinnedId} />;
+        if (selectedBooruSubKey === 'download') return <BooruDownloadHubPage active={!activePinnedId} />;
         if (selectedBooruSubKey === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
         if (selectedBooruSubKey === 'booru-settings') return <BooruSettingsPage />;
         if (selectedBooruSubKey === 'settings') return <SettingsPage />;
@@ -697,7 +716,7 @@ export const AppContent: React.FC = () => {
       default:
         return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
     }
-  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, navigationStack.length, navigateToTagSearch, navigateToArtist, navigateToCharacter, navigateToUser, handleSavedSearchRun]);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, activePinnedId, navigationStack.length, navigateToTagSearch, navigateToArtist, navigateToCharacter, navigateToUser, handleSavedSearchRun]);
 
   // 是否有叠加页面（导航栈非空时表示有叠加页面）
   const hasOverlay = navigationStack.length > 0;
@@ -799,11 +818,14 @@ export const AppContent: React.FC = () => {
             items={orderedMainItems}
             selectedKey={sidebarSection}
             onSelect={(key) => {
-              console.log(`[App] 主菜单切换侧边栏: ${key}`);
-              setSidebarSection(key as 'gallery' | 'booru' | 'google');
-              // 只切换左侧二级菜单展示，不改变右侧内容页面
+              const nextSection = key as 'gallery' | 'booru' | 'google';
+              console.log(`[App] 主菜单切换分区: ${nextSection}`);
+              setSidebarSection(nextSection);
+              setSelectedKey(nextSection);
+              setNavigationStack([]);
+              setActivePinnedId(null);
             }}
-            onReorder={(keys) => { setMainOrder(keys); saveMenuOrder('main', keys); }}
+            onReorder={(keys) => { const previous = mainOrder; setMainOrder(keys); saveMenuOrder('main', keys, () => setMainOrder(previous)); }}
             isCollapsed={isCollapsed}
             isDark={isDark}
             style={{ borderBottom: `1px solid ${colors.separator}`, paddingBottom: spacing.xs }}
@@ -825,7 +847,7 @@ export const AppContent: React.FC = () => {
                 items={orderedGalleryItems}
                 selectedKey={activePinnedId ? '' : (selectedKey === 'gallery' ? selectedSubKey : '')}
                 onSelect={(key) => { console.log(`[App] 图库子菜单: ${key}`); setSelectedKey('gallery'); setSidebarSection('gallery'); setSelectedSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'gallery' && p.key === key)) { handlePinnedClick({ section: 'gallery', key }); } else { setActivePinnedId(null); } }}
-                onReorder={(keys) => { setGalleryOrder(keys); saveMenuOrder('gallery', keys); }}
+                onReorder={(keys) => { const previous = galleryOrder; setGalleryOrder(keys); saveMenuOrder('gallery', keys, () => setGalleryOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'gallery').map(p => p.key)}
@@ -839,7 +861,7 @@ export const AppContent: React.FC = () => {
                 items={orderedBooruItems}
                 selectedKey={activePinnedId ? '' : (selectedKey === 'booru' ? selectedBooruSubKey : '')}
                 onSelect={(key) => { console.log(`[App] Booru子菜单: ${key}`); setSelectedKey('booru'); setSidebarSection('booru'); setSelectedBooruSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'booru' && p.key === key)) { handlePinnedClick({ section: 'booru', key }); } else { setActivePinnedId(null); } }}
-                onReorder={(keys) => { setBooruOrder(keys); saveMenuOrder('booru', keys); }}
+                onReorder={(keys) => { const previous = booruOrder; setBooruOrder(keys); saveMenuOrder('booru', keys, () => setBooruOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'booru').map(p => p.key)}
@@ -853,7 +875,7 @@ export const AppContent: React.FC = () => {
                 items={orderedGoogleItems}
                 selectedKey={activePinnedId ? '' : (selectedKey === 'google' ? selectedGoogleSubKey : '')}
                 onSelect={(key) => { console.log(`[App] 应用子菜单: ${key}`); setSelectedKey('google'); setSidebarSection('google'); setSelectedGoogleSubKey(key); setNavigationStack([]); setActivePinnedId(null); if (pinnedItems.some(p => p.section === 'google' && p.key === key)) { handlePinnedClick({ section: 'google', key }); } else { setActivePinnedId(null); } }}
-                onReorder={(keys) => { setGoogleOrder(keys); saveMenuOrder('google', keys); }}
+                onReorder={(keys) => { const previous = googleOrder; setGoogleOrder(keys); saveMenuOrder('google', keys, () => setGoogleOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'google').map(p => p.key)}
@@ -1023,7 +1045,7 @@ export const AppContent: React.FC = () => {
               display: (isEmbedPage || activePinnedId) ? 'none' : undefined,
             }}
           >
-            {!isEmbedPage && !activePinnedId && (
+            {!isEmbedPage && (
               <Suspense fallback={suspenseFallback}>
                 {renderBaseContent()}
               </Suspense>

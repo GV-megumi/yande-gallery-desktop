@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined } from '@ant-design/icons';
+import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
@@ -11,6 +12,11 @@ import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
 
 const { Search } = Input;
+
+const areGalleryPreferencesEqual = (
+  left?: GalleryPagePreferencesBySubTab,
+  right?: GalleryPagePreferencesBySubTab,
+) => JSON.stringify(left ?? {}) === JSON.stringify(right ?? {});
 
 // 添加样式，限制超大屏幕上最多5列
 const galleryGridStyle = `
@@ -57,7 +63,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [allGalleries, setAllGalleries] = useState<any[]>([]);
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
-  const [sourceFavoriteTags, setSourceFavoriteTags] = useState<any[]>([]);
+  const [detailSourceFavoriteTags, setDetailSourceFavoriteTags] = useState<any[]>([]);
+  const [modalSourceFavoriteTags, setModalSourceFavoriteTags] = useState<any[]>([]);
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchPage, setSearchPage] = useState(1);
@@ -66,6 +73,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   // 图集排序相关状态
   const [gallerySortKey, setGallerySortKey] = useState<'name' | 'createdAt' | 'updatedAt'>('updatedAt');
   const [gallerySortOrder, setGallerySortOrder] = useState<'asc' | 'desc'>('desc');
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [preferencesHydrationVersion, setPreferencesHydrationVersion] = useState(0);
+  const preferencesHydrationRunIdRef = useRef(0);
+  const preferencesHydratingRef = useRef(false);
+  const skipNextPreferenceSaveRef = useRef(false);
+  const lastSavedPreferencesRef = useRef<GalleryPagePreferencesBySubTab | undefined>(undefined);
+  const galleryDetailRequestRunIdRef = useRef(0);
+  const galleryInfoRequestRunIdRef = useRef(0);
 
   // 同步文件夹状态
   const [syncing, setSyncing] = useState(false);
@@ -125,6 +140,41 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     } catch (error) {
       console.error('[GalleryPage] 图集更新失败:', error);
     }
+  };
+
+  const handleDeleteGallery = (gallery: any) => {
+    Modal.confirm({
+      title: '删除图集',
+      content: `确定要删除图集“${gallery.name}”吗？此操作只会删除图集记录及其关联记录，不会删除本地文件。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: async () => {
+        try {
+          const result = await window.electronAPI.gallery.deleteGallery(gallery.id);
+          if (result.success) {
+            message.success('图集已删除');
+            if (selectedGallery?.id === gallery.id) {
+              galleryDetailRequestRunIdRef.current += 1;
+              setSelectedGallery(null);
+              setGalleryImages([]);
+              setDetailSourceFavoriteTags([]);
+            }
+            if (selectedGalleryInfo?.id === gallery.id) {
+              galleryInfoRequestRunIdRef.current += 1;
+              setSelectedGalleryInfo(null);
+              setModalSourceFavoriteTags([]);
+            }
+            await loadGalleries();
+          } else {
+            message.error(result.error || '删除失败');
+          }
+        } catch (error) {
+          console.error('[GalleryPage] 图集删除失败:', error);
+          message.error('删除图集失败');
+        }
+      }
+    });
   };
 
   // 加载最近图片
@@ -192,11 +242,19 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   };
 
   // 加载图集列表
-  const loadGalleries = async () => {
+  const loadGalleries = async (options?: {
+    query?: string;
+    sortKey?: 'name' | 'createdAt' | 'updatedAt';
+    sortOrder?: 'asc' | 'desc';
+  }) => {
     if (!window.electronAPI) {
       console.error('electronAPI is not available');
       return;
     }
+
+    const nextQuery = options?.query ?? gallerySearchQuery;
+    const nextSortKey = options?.sortKey ?? gallerySortKey;
+    const nextSortOrder = options?.sortOrder ?? gallerySortOrder;
 
     console.log('[GalleryPage] 开始加载图集列表');
     setLoading(true);
@@ -205,21 +263,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       if (result.success) {
         const galleryList = result.data || [];
         console.log(`[GalleryPage] 图集列表加载成功，共 ${galleryList.length} 个图集`);
-        // 先保存原始数据到 allGalleries
         setAllGalleries(galleryList);
-        // 根据搜索查询过滤图集
-        let filtered;
-        if (gallerySearchQuery.trim()) {
-          filtered = galleryList.filter((gallery: any) =>
-            gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
-          );
-          console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
-        } else {
-          filtered = galleryList;
-        }
-        // 对过滤后的图集进行排序
-        const sorted = sortGalleries(filtered);
-        setGalleries(sorted);
+        setGalleries(filterAndSortGalleries(galleryList, nextQuery, nextSortKey, nextSortOrder));
       } else {
         console.error('[GalleryPage] 加载图集失败:', result.error);
         message.error('加载图集失败: ' + result.error);
@@ -237,19 +282,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const handleGallerySearch = (query: string) => {
     console.log(`[GalleryPage] 搜索图集，查询条件: ${query}`);
     setGallerySearchQuery(query);
-    let filtered;
-    if (!query.trim()) {
-      console.log('[GalleryPage] 图集搜索条件为空，显示全部图集');
-      filtered = allGalleries;
-    } else {
-      filtered = allGalleries.filter((gallery: any) =>
-        gallery.name.toLowerCase().includes(query.toLowerCase())
-      );
-      console.log(`[GalleryPage] 图集搜索结果数量: ${filtered.length}`);
-    }
-    // 对搜索结果应用排序
-    const sorted = sortGalleries(filtered);
-    setGalleries(sorted);
+    setGalleries(filterAndSortGalleries(allGalleries, query, gallerySortKey, gallerySortOrder));
   };
 
   // 搜索图片（支持分页，每次只加载一页，每页20张避免内存问题）
@@ -303,24 +336,37 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
   const loadGalleryImages = async (galleryId: number) => {
     if (!window.electronAPI) return;
 
+    const requestRunId = galleryDetailRequestRunIdRef.current + 1;
+    galleryDetailRequestRunIdRef.current = requestRunId;
+    const isLatestRequest = () => galleryDetailRequestRunIdRef.current === requestRunId;
+
     console.log(`[GalleryPage] 开始加载图集图片，图集ID: ${galleryId}`);
     setLoading(true);
     try {
       // 每次加载新图集时重置可见数量
       setGalleryVisibleCount(200);
       const galleryResult = await window.electronAPI.gallery.getGallery(galleryId);
+      if (!isLatestRequest()) {
+        return;
+      }
       if (galleryResult.success && galleryResult.data) {
         const gallery = galleryResult.data;
         const sourceResult = await window.electronAPI.booru.getGallerySourceFavoriteTags(galleryId);
+        if (!isLatestRequest()) {
+          return;
+        }
         if (sourceResult.success && sourceResult.data) {
-          setSourceFavoriteTags(sourceResult.data);
+          setDetailSourceFavoriteTags(sourceResult.data);
         } else {
-          setSourceFavoriteTags([]);
+          setDetailSourceFavoriteTags([]);
         }
         const folderPath = gallery.folderPath;
         console.log(`[GalleryPage] 图集 "${gallery.name}" 路径: ${folderPath}`);
         // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
         const result = await window.electronAPI.gallery.getImagesByFolder(folderPath, 1, 1000);
+        if (!isLatestRequest()) {
+          return;
+        }
         if (result.success) {
           const data = result.data || [];
           console.log(`[GalleryPage] 图集图片加载成功，数量: ${data.length}`);
@@ -331,8 +377,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             console.log('[GalleryPage] 图集无封面，自动设置第一张图片为封面');
             try {
               await window.electronAPI.gallery.setGalleryCover(galleryId, data[0].id);
+              if (!isLatestRequest()) {
+                return;
+              }
               // 更新选中的图集信息
               const updatedResult = await window.electronAPI.gallery.getGallery(galleryId);
+              if (!isLatestRequest()) {
+                return;
+              }
               if (updatedResult.success && updatedResult.data) {
                 setSelectedGallery(updatedResult.data);
                 // 刷新图集列表
@@ -350,11 +402,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
         console.error('[GalleryPage] 获取图集信息失败:', galleryResult.error);
       }
     } catch (error) {
-      console.error('Failed to load gallery images:', error);
-      message.error('加载图集图片失败');
+      if (isLatestRequest()) {
+        console.error('Failed to load gallery images:', error);
+        message.error('加载图集图片失败');
+      }
     } finally {
-      setLoading(false);
-      console.log('[GalleryPage] 图集图片加载完成');
+      if (isLatestRequest()) {
+        setLoading(false);
+        console.log('[GalleryPage] 图集图片加载完成');
+      }
     }
   };
 
@@ -476,15 +532,28 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     }
   };
 
+  const persistPreferences = async (preferences: GalleryPagePreferencesBySubTab) => {
+    try {
+      await window.electronAPI.pagePreferences.gallery.save(preferences);
+      lastSavedPreferencesRef.current = preferences;
+    } catch (error) {
+      console.error('[GalleryPage] 保存页面偏好失败:', error);
+    }
+  };
+
   // 对图集列表进行排序
-  const sortGalleries = (galleryList: any[]): any[] => {
-    console.log(`[GalleryPage] 开始对图集进行排序，排序字段: ${gallerySortKey}, 排序顺序: ${gallerySortOrder}`);
+  const sortGalleries = (
+    galleryList: any[],
+    sortKey: 'name' | 'createdAt' | 'updatedAt' = gallerySortKey,
+    sortOrder: 'asc' | 'desc' = gallerySortOrder,
+  ): any[] => {
+    console.log(`[GalleryPage] 开始对图集进行排序，排序字段: ${sortKey}, 排序顺序: ${sortOrder}`);
 
     const sorted = [...galleryList].sort((a, b) => {
       let aValue: any;
       let bValue: any;
 
-      switch (gallerySortKey) {
+      switch (sortKey) {
         case 'name':
           aValue = a.name?.toLowerCase() || '';
           bValue = b.name?.toLowerCase() || '';
@@ -501,8 +570,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
           return 0;
       }
 
-      if (aValue < bValue) return gallerySortOrder === 'asc' ? -1 : 1;
-      if (aValue > bValue) return gallerySortOrder === 'asc' ? 1 : -1;
+      if (aValue < bValue) return sortOrder === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortOrder === 'asc' ? 1 : -1;
       return 0;
     });
 
@@ -510,66 +579,211 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
     return sorted;
   };
 
-  useEffect(() => {
-    console.log(`[GalleryPage] 切换标签页到: ${subTab}`);
-    if (subTab === 'recent') {
-      console.log('[GalleryPage] 初始化"最近图片"模式');
-      // 切换到"最近图片"时，重置可见数量
-      setRecentVisibleCount(200);
-      setIsSearchMode(false);
-      setSearchQuery('');
-      // 切换tab时先清空其他模式的数据
-      console.log('[GalleryPage] 清空其他模式的数据');
-      setAllImages([]);
-      setGalleryImages([]);
-      loadRecentImages(2000);
-    } else if (subTab === 'all') {
-      console.log('[GalleryPage] 初始化"所有图片"模式');
-      setAllPage(1);
-      setIsSearchMode(false);
-      setSearchQuery('');
-      // 切换tab时先清空其他模式的数据
-      console.log('[GalleryPage] 清空其他模式的数据');
-      setRecentImages([]);
-      setGalleryImages([]);
-      setAllImages([]);
-      loadImages(1, 20);
-    } else if (subTab === 'galleries') {
-      console.log('[GalleryPage] 初始化"图集"模式');
-      // 切换tab时先清空其他模式的数据
-      console.log('[GalleryPage] 清空其他模式的数据');
-      setRecentImages([]);
-      setAllImages([]);
-      setGalleryImages([]);
-      loadGalleries();
+  const filterAndSortGalleries = (
+    galleryList: any[],
+    query: string = gallerySearchQuery,
+    sortKey: 'name' | 'createdAt' | 'updatedAt' = gallerySortKey,
+    sortOrder: 'asc' | 'desc' = gallerySortOrder,
+  ) => {
+    const normalizedQuery = query.trim().toLowerCase();
+    const filtered = normalizedQuery
+      ? galleryList.filter((gallery: any) => gallery.name.toLowerCase().includes(normalizedQuery))
+      : galleryList;
+
+    if (normalizedQuery) {
+      console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
+    } else {
+      console.log('[GalleryPage] 显示全部图集');
     }
+
+    return sortGalleries(filtered, sortKey, sortOrder);
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    const runId = preferencesHydrationRunIdRef.current + 1;
+    preferencesHydrationRunIdRef.current = runId;
+    preferencesHydratingRef.current = true;
+    setPreferencesHydrated(false);
+
+    const hydratePreferences = async () => {
+      try {
+        const result = await window.electronAPI.pagePreferences.gallery.get();
+        if (!result.success || cancelled || preferencesHydrationRunIdRef.current !== runId) {
+          return;
+        }
+
+        const allPreferences = result.data?.all;
+        const galleriesPreferences = result.data?.galleries;
+        skipNextPreferenceSaveRef.current = true;
+        lastSavedPreferencesRef.current = result.data;
+
+        console.log(`[GalleryPage] 切换标签页到: ${subTab}`);
+        if (subTab === 'recent') {
+          console.log('[GalleryPage] 初始化"最近图片"模式');
+          galleryDetailRequestRunIdRef.current += 1;
+          galleryInfoRequestRunIdRef.current += 1;
+          setSelectedGalleryInfo(null);
+          setModalSourceFavoriteTags([]);
+          setRecentVisibleCount(200);
+          setIsSearchMode(false);
+          setSearchQuery('');
+          console.log('[GalleryPage] 清空其他模式的数据');
+          setAllImages([]);
+          setGalleryImages([]);
+          loadRecentImages(2000);
+        } else if (subTab === 'all') {
+          console.log('[GalleryPage] 初始化"所有图片"模式');
+          galleryDetailRequestRunIdRef.current += 1;
+          galleryInfoRequestRunIdRef.current += 1;
+          setSelectedGalleryInfo(null);
+          setModalSourceFavoriteTags([]);
+          const nextSearchQuery = allPreferences?.searchQuery ?? '';
+          const nextIsSearchMode = allPreferences?.isSearchMode ?? false;
+          const nextAllPage = allPreferences?.allPage ?? 1;
+          const nextSearchPage = allPreferences?.searchPage ?? 1;
+
+          setAllPage(nextAllPage);
+          setIsSearchMode(nextIsSearchMode);
+          setSearchQuery(nextSearchQuery);
+          console.log('[GalleryPage] 清空其他模式的数据');
+          setRecentImages([]);
+          setGalleryImages([]);
+          setAllImages([]);
+
+          if (nextIsSearchMode && nextSearchQuery.trim()) {
+            setSearchPage(nextSearchPage);
+            loadSearch(nextSearchQuery, nextSearchPage, 20);
+          } else {
+            loadImages(nextAllPage, 20);
+          }
+        } else if (subTab === 'galleries') {
+          console.log('[GalleryPage] 初始化"图集"模式');
+          setGallerySearchQuery(galleriesPreferences?.gallerySearchQuery ?? '');
+          setGallerySortKey(galleriesPreferences?.gallerySortKey ?? 'updatedAt');
+          setGallerySortOrder(galleriesPreferences?.gallerySortOrder ?? 'desc');
+          setGallerySort(galleriesPreferences?.gallerySort ?? 'time');
+          console.log('[GalleryPage] 清空其他模式的数据');
+          galleryDetailRequestRunIdRef.current += 1;
+          galleryInfoRequestRunIdRef.current += 1;
+          setRecentImages([]);
+          setAllImages([]);
+          setGalleryImages([]);
+          setSelectedGallery(null);
+          setDetailSourceFavoriteTags([]);
+          setModalSourceFavoriteTags([]);
+          await loadGalleries({
+            query: galleriesPreferences?.gallerySearchQuery ?? '',
+            sortKey: galleriesPreferences?.gallerySortKey ?? 'updatedAt',
+            sortOrder: galleriesPreferences?.gallerySortOrder ?? 'desc',
+          });
+          if (galleriesPreferences?.selectedGalleryId) {
+            const galleryResult = await window.electronAPI.gallery.getGallery(galleriesPreferences.selectedGalleryId);
+            if (galleryResult.success && galleryResult.data && !cancelled && preferencesHydrationRunIdRef.current === runId) {
+              setSelectedGallery(galleryResult.data);
+              loadGalleryImages(galleriesPreferences.selectedGalleryId);
+            }
+          }
+        }
+      } catch (error) {
+        console.error('[GalleryPage] 加载页面偏好失败:', error);
+      } finally {
+        if (!cancelled && preferencesHydrationRunIdRef.current === runId) {
+          preferencesHydratingRef.current = false;
+          setPreferencesHydrated(true);
+          setPreferencesHydrationVersion(runId);
+        }
+      }
+    };
+
+    const loadSearch = (query: string, page: number, pageSize: number) => {
+      handleSearch(query, page, pageSize);
+    };
+
+    hydratePreferences();
+
+    return () => {
+      cancelled = true;
+      if (preferencesHydrationRunIdRef.current === runId) {
+        preferencesHydratingRef.current = false;
+      }
+    };
   }, [subTab]);
 
-  // 当图集搜索查询改变时，重新过滤图集列表
   useEffect(() => {
-    if (subTab === 'galleries' && allGalleries.length > 0) {
-      console.log(`[GalleryPage] 图集搜索查询变更: ${gallerySearchQuery}`);
-      if (!gallerySearchQuery.trim()) {
-        console.log('[GalleryPage] 显示全部图集');
-        setGalleries(allGalleries);
-      } else {
-        const filtered = allGalleries.filter((gallery: any) =>
-          gallery.name.toLowerCase().includes(gallerySearchQuery.toLowerCase())
-        );
-        console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
-        setGalleries(filtered);
-      }
+    if (!preferencesHydrated || preferencesHydratingRef.current) {
+      return;
     }
-  }, [gallerySearchQuery, allGalleries, subTab]);
 
-  // 当图集排序参数改变时，重新排序图集列表
-  useEffect(() => {
-    if (subTab === 'galleries' && galleries.length > 0) {
-      console.log(`[GalleryPage] 排序参数变更，重新排序 ${galleries.length} 个图集`);
-      const sorted = sortGalleries(galleries);
-      setGalleries(sorted);
+    const hydrationVersionAtEffect = preferencesHydrationVersion;
+    let nextPreferences: GalleryPagePreferencesBySubTab | undefined;
+
+    if (subTab === 'all') {
+      if (preferencesHydratingRef.current || hydrationVersionAtEffect !== preferencesHydrationRunIdRef.current) {
+        return;
+      }
+      nextPreferences = {
+        all: {
+          searchQuery,
+          isSearchMode,
+          allPage,
+          searchPage,
+        },
+      };
     }
-  }, [gallerySortKey, gallerySortOrder, subTab]);
+
+    if (subTab === 'galleries') {
+      if (preferencesHydratingRef.current || hydrationVersionAtEffect !== preferencesHydrationRunIdRef.current) {
+        return;
+      }
+      nextPreferences = {
+        galleries: {
+          gallerySearchQuery,
+          gallerySortKey,
+          gallerySortOrder,
+          selectedGalleryId: selectedGallery?.id,
+          gallerySort,
+        },
+      };
+    }
+
+    if (!nextPreferences) {
+      return;
+    }
+
+    if (skipNextPreferenceSaveRef.current) {
+      skipNextPreferenceSaveRef.current = false;
+      return;
+    }
+
+    const skipBecauseAlreadySaved = areGalleryPreferencesEqual(nextPreferences, lastSavedPreferencesRef.current);
+    if (skipBecauseAlreadySaved) {
+      return;
+    }
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) {
+        return;
+      }
+      persistPreferences(nextPreferences);
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort]);
+
+  // 当图集查询或排序参数改变时，重新派生图集列表
+  useEffect(() => {
+    if (subTab !== 'galleries') {
+      return;
+    }
+
+    console.log(`[GalleryPage] 图集派生条件变更: query=${gallerySearchQuery}, sortKey=${gallerySortKey}, sortOrder=${gallerySortOrder}`);
+    setGalleries(filterAndSortGalleries(allGalleries, gallerySearchQuery, gallerySortKey, gallerySortOrder));
+  }, [gallerySearchQuery, gallerySortKey, gallerySortOrder, allGalleries, subTab]);
 
   // 内容容器 ref，用于监听滚动
   const contentRef = useRef<HTMLDivElement>(null);
@@ -863,8 +1077,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                   <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md }}>
                     <Button onClick={() => {
                       console.log('[GalleryPage] 返回图集列表');
+                      galleryDetailRequestRunIdRef.current += 1;
                       setSelectedGallery(null);
                       setGalleryImages([]);
+                      setDetailSourceFavoriteTags([]);
                     }}>
                       返回
                     </Button>
@@ -945,8 +1161,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                             </Descriptions.Item>
                           )}
                           <Descriptions.Item label="来源收藏标签">
-                            {sourceFavoriteTags.length > 0
-                              ? sourceFavoriteTags.map((tag: any) => (
+                            {detailSourceFavoriteTags.length > 0
+                              ? detailSourceFavoriteTags.map((tag: any) => (
                                   <Tooltip key={tag.id} title={
                                     <div>
                                       <div>状态: {tag.downloadBinding?.lastStatus || '未配置'}</div>
@@ -1028,9 +1244,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                     menu={{
                       items: [
                         { key: 'edit', label: '编辑', icon: <EditOutlined /> },
+                        { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
                       ],
                       onClick: ({ key }) => {
                         if (key === 'edit') handleOpenEditGallery(gallery);
+                        if (key === 'delete') handleDeleteGallery(gallery);
                       },
                     }}
                   >
@@ -1050,9 +1268,31 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                         coverImage={gallery.coverImage}
                         thumbnailPath={coverThumbnails[gallery.id] || null}
                         getImageUrl={getImageUrl}
-                        onInfoClick={() => {
+                        onInfoClick={async () => {
+                        const requestRunId = galleryInfoRequestRunIdRef.current + 1;
+                        galleryInfoRequestRunIdRef.current = requestRunId;
+                        const isLatestRequest = () => galleryInfoRequestRunIdRef.current === requestRunId;
+
                         console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
                         setSelectedGalleryInfo(gallery);
+                        setModalSourceFavoriteTags([]);
+                        try {
+                          const sourceResult = await window.electronAPI.booru.getGallerySourceFavoriteTags(gallery.id);
+                          if (!isLatestRequest()) {
+                            return;
+                          }
+                          if (sourceResult.success && sourceResult.data) {
+                            setModalSourceFavoriteTags(sourceResult.data);
+                          } else {
+                            setModalSourceFavoriteTags([]);
+                          }
+                        } catch (error) {
+                          if (!isLatestRequest()) {
+                            return;
+                          }
+                          console.error('[GalleryPage] 加载图集来源收藏标签失败:', error);
+                          setModalSourceFavoriteTags([]);
+                        }
                       }}
                       />
                       {/* 文字区域 */}
@@ -1089,26 +1329,30 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       {renderContent()}
       
       {/* 图集信息模态框 */}
-      <Modal
-        open={!!selectedGalleryInfo}
-        title="图集信息"
-        closable={false}
-        footer={
-          <Button onClick={() => { console.log('[GalleryPage] 关闭图集信息模态框'); setSelectedGalleryInfo(null); }}>
-            关闭
-          </Button>
-        }
-        onCancel={() => {
-          console.log('[GalleryPage] 关闭图集信息模态框');
-          setSelectedGalleryInfo(null);
-        }}
-        width={600}
-      >
-        {selectedGalleryInfo && (
+      {selectedGalleryInfo && (
+        <Modal
+          open
+          title="图集信息"
+          closable
+          maskClosable
+          keyboard
+          footer={
+            <Button onClick={() => { console.log('[GalleryPage] 关闭图集信息模态框'); galleryInfoRequestRunIdRef.current += 1; setSelectedGalleryInfo(null); setModalSourceFavoriteTags([]); }}>
+              关闭
+            </Button>
+          }
+          onCancel={() => {
+            console.log('[GalleryPage] 关闭图集信息模态框');
+            galleryInfoRequestRunIdRef.current += 1;
+            setSelectedGalleryInfo(null);
+            setModalSourceFavoriteTags([]);
+          }}
+          width={600}
+        >
           <Descriptions bordered column={1}>
             <Descriptions.Item label="图集名称">{selectedGalleryInfo.name}</Descriptions.Item>
             <Descriptions.Item label="文件夹路径">
-              <span 
+              <span
                 style={{ color: colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
                 onClick={() => {
                   if (selectedGalleryInfo.folderPath && window.electronAPI) {
@@ -1139,15 +1383,37 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                 {selectedGalleryInfo.extensions.join(', ')}
               </Descriptions.Item>
             )}
+            <Descriptions.Item label="来源收藏标签">
+              {modalSourceFavoriteTags.length > 0
+                ? modalSourceFavoriteTags.map((tag: any) => (
+                    <Tooltip key={tag.id} title={
+                      <div>
+                        <div>状态: {tag.downloadBinding?.lastStatus || '未配置'}</div>
+                        {tag.downloadBinding?.lastCompletedAt && (
+                          <div>上次下载: {new Date(tag.downloadBinding.lastCompletedAt).toLocaleString()}</div>
+                        )}
+                      </div>
+                    }>
+                      <Tag
+                        color={tag.downloadBinding?.lastStatus === 'completed' ? 'success' : tag.downloadBinding?.lastStatus === 'failed' ? 'error' : 'blue'}
+                      >
+                        {tag.tagName}
+                      </Tag>
+                    </Tooltip>
+                  ))
+                : '-'}
+            </Descriptions.Item>
           </Descriptions>
-        )}
-      </Modal>
+        </Modal>
+      )}
 
       {/* 编辑图集模态框 */}
       <Modal
         open={editModalOpen}
         title="编辑图集"
-        closable={false}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => { setEditModalOpen(false); setEditingGallery(null); }}
         onOk={handleSaveGalleryEdit}
         okText="保存"

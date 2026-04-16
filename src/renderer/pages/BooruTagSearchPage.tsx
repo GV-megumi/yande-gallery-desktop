@@ -95,8 +95,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 14,
-    margin: 20
+    borderRadius: 8,
+    margin: 24
   });
 
   // 标签详情信息
@@ -242,27 +242,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   const loadAppearanceConfig = async () => {
     console.log('[BooruTagSearchPage] 加载外观配置');
     try {
-      if (!window.electronAPI) {
+      if (!window.electronAPI?.booruPreferences?.appearance) {
         console.error('[BooruTagSearchPage] electronAPI is not available');
         return;
       }
 
-      const result = await window.electronAPI.config.get();
+      const result = await window.electronAPI.booruPreferences.appearance.get();
       if (result.success && result.data) {
-        const booruConfig = result.data.booru;
-        if (booruConfig?.appearance) {
-          console.log('[BooruTagSearchPage] 加载外观配置成功:', booruConfig.appearance);
-          setAppearanceConfig({
-            gridSize: booruConfig.appearance.gridSize || 330,
-            previewQuality: booruConfig.appearance.previewQuality || 'auto',
-            itemsPerPage: booruConfig.appearance.itemsPerPage || 20,
-            paginationPosition: booruConfig.appearance.paginationPosition || 'bottom',
-            pageMode: booruConfig.appearance.pageMode || 'pagination',
-            spacing: booruConfig.appearance.spacing || 16,
-            borderRadius: booruConfig.appearance.borderRadius || 8,
-            margin: booruConfig.appearance.margin || 24
-          });
-        }
+        console.log('[BooruTagSearchPage] 加载外观配置成功:', result.data);
+        setAppearanceConfig(result.data);
       }
     } catch (error) {
       console.error('[BooruTagSearchPage] 加载外观配置失败:', error);
@@ -418,8 +406,13 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
-  // 处理标签点击：在当前页面更新搜索（用于相关标签推荐）
-  const handleTagClickInPlace = (tag: string) => {
+  // 处理标签点击：父层提供导航回调时委托父层，否则在当前页面更新搜索
+  const handleTagClick = (tag: string) => {
+    if (onTagClick) {
+      onTagClick(tag, selectedSiteId);
+      return;
+    }
+
     console.log('[BooruTagSearchPage] 点击标签（页内搜索）:', tag);
     lastSearchedTagRef.current = tag; // 标记为已搜索，避免 effect 重复触发
     setSearchTag(tag);
@@ -559,7 +552,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: spacing.xs, marginTop: spacing.xs }}>
                 <Text type="secondary" style={{ fontSize: fontSize.sm }}>关联标签:</Text>
                 {implicationTags.slice(0, 10).map((tag) => (
-                  <Tag key={tag} style={{ cursor: 'pointer', marginBottom: 0 }} onClick={() => handleTagClickInPlace(tag)}>
+                  <Tag key={tag} style={{ cursor: 'pointer', marginBottom: 0 }} onClick={() => handleTagClick(tag)}>
                     {tag}
                   </Tag>
                 ))}
@@ -582,7 +575,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               <Tag
                 key={tag}
                 style={{ cursor: 'pointer', marginBottom: 2, fontSize: fontSize.xs }}
-                onClick={() => handleTagClickInPlace(tag)}
+                onClick={() => handleTagClick(tag)}
               >
                 {tag.replace(/_/g, ' ')} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
               </Tag>
@@ -649,7 +642,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
-              onTagClick={handleTagClickInPlace}
+              onTagClick={handleTagClick}
               onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
               serverFavorites={serverFavorites}
             />

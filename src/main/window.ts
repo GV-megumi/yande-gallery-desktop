@@ -1,4 +1,5 @@
 import { BrowserWindow, screen, ipcMain, app } from 'electron';
+import { IPC_CHANNELS } from './ipc/channels.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -11,7 +12,7 @@ const __dirname = path.dirname(__filename);
  * - 开发模式：从编译后的 build/main 回到仓库根，取 assets/icon.png
  * - 生产模式：extraResources 把 assets 拷到 process.resourcesPath 下
  */
-function resolveAppIconPath(): string | undefined {
+export function resolveAppIconPath(): string | undefined {
   const candidates = app.isPackaged
     ? [path.join(process.resourcesPath, 'assets', 'icon.png')]
     : [
@@ -22,6 +23,130 @@ function resolveAppIconPath(): string | undefined {
     if (fs.existsSync(p)) return p;
   }
   return undefined;
+}
+
+const ALLOWED_DEV_ORIGIN = {
+  protocol: 'http:',
+  hostname: 'localhost',
+  port: '5173',
+} as const;
+
+const ALLOWED_WEBVIEW_HOSTS = new Set([
+  'drive.google.com',
+  'photos.google.com',
+  'gemini.google.com',
+]);
+
+let isAppQuitting = false;
+let isCloseToTrayEnabled = false;
+let mainWindowFactory: (() => BrowserWindow) | null = null;
+let mainWindowRef: BrowserWindow | null = null;
+
+export function markAppQuitting(): void {
+  isAppQuitting = true;
+}
+
+export function setCloseToTrayEnabled(enabled: boolean): void {
+  isCloseToTrayEnabled = enabled;
+}
+
+export function setMainWindowFactory(factory: (() => BrowserWindow) | null): void {
+  mainWindowFactory = factory;
+}
+
+export function restoreOrCreateMainWindow(): BrowserWindow {
+  const mainWindow = mainWindowRef && typeof mainWindowRef.isDestroyed === 'function' && !mainWindowRef.isDestroyed()
+    ? mainWindowRef
+    : null;
+
+  if (mainWindow) {
+    if (typeof mainWindow.isMinimized === 'function' && mainWindow.isMinimized()) {
+      mainWindow.restore();
+    }
+    if (typeof mainWindow.show === 'function') {
+      mainWindow.show();
+    }
+    if (typeof mainWindow.focus === 'function') {
+      mainWindow.focus();
+    }
+    return mainWindow;
+  }
+
+  const nextMainWindow = mainWindowFactory ? mainWindowFactory() : createWindow();
+  mainWindowRef = nextMainWindow;
+  return nextMainWindow;
+}
+
+function isTrustedAppUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  if (
+    parsed.protocol === ALLOWED_DEV_ORIGIN.protocol
+    && parsed.hostname === ALLOWED_DEV_ORIGIN.hostname
+    && parsed.port === ALLOWED_DEV_ORIGIN.port
+  ) {
+    return true;
+  }
+
+  if (parsed.protocol !== 'file:') {
+    return false;
+  }
+
+  const trustedRendererEntry = path.resolve(__dirname, '../renderer/index.html');
+
+  try {
+    return path.resolve(fileURLToPath(parsed)) === trustedRendererEntry;
+  } catch {
+    return false;
+  }
+}
+
+function isAllowedWebviewUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  return parsed.protocol === 'https:' && ALLOWED_WEBVIEW_HOSTS.has(parsed.hostname);
+}
+
+function attachSecurityGuards(window: BrowserWindow): void {
+  window.webContents.setWindowOpenHandler(({ url }) => {
+    if (isTrustedAppUrl(url)) {
+      return { action: 'allow' };
+    }
+    console.warn('[Window] 阻止新窗口打开:', url);
+    return { action: 'deny' };
+  });
+
+  window.webContents.on('will-navigate', (event, url) => {
+    if (isTrustedAppUrl(url)) return;
+    console.warn('[Window] 阻止页面导航:', url);
+    event.preventDefault();
+  });
+
+  window.webContents.on('will-attach-webview', (event, webPreferences, params) => {
+    const src = params.src ?? '';
+    if (!isAllowedWebviewUrl(src)) {
+      console.warn('[Window] 阻止附加非白名单 webview:', src);
+      event.preventDefault();
+      return;
+    }
+
+    delete webPreferences.preload;
+    webPreferences.nodeIntegration = false;
+    webPreferences.contextIsolation = true;
+    webPreferences.webSecurity = true;
+    webPreferences.allowRunningInsecureContent = false;
+    webPreferences.sandbox = true;
+  });
 }
 
 export function createWindow(): BrowserWindow {
@@ -63,12 +188,15 @@ export function createWindow(): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: absolutePreloadPath,
-      webSecurity: false, // 禁用 webSecurity 以允许加载外部图片
-      webviewTag: true,   // 允许使用 <webview> 嵌入外部页面
+      webSecurity: true,
+      webviewTag: true,
     },
     titleBarStyle: process.platform === 'darwin' ? 'hiddenInset' : 'default',
     show: false // 先不显示，等加载完成后再显示
   });
+
+  mainWindowRef = mainWindow;
+  attachSecurityGuards(mainWindow);
 
   // 监听 preload 错误
   mainWindow.webContents.on('preload-error', (event, preloadPath, error) => {
@@ -104,9 +232,21 @@ export function createWindow(): BrowserWindow {
     // }
   });
 
-  mainWindow.on('close', () => {
+  mainWindow.on('close', (event) => {
+    if (isAppQuitting || !isCloseToTrayEnabled) {
+      return;
+    }
+
+    event.preventDefault();
+    mainWindow.hide();
     // 保存窗口状态
     // saveWindowState(mainWindow.getBounds())
+  });
+
+  mainWindow.on('closed', () => {
+    if (mainWindowRef === mainWindow) {
+      mainWindowRef = null;
+    }
   });
 
   return mainWindow;
@@ -157,10 +297,12 @@ export function createSubWindow(hash: string): BrowserWindow {
       nodeIntegration: false,
       contextIsolation: true,
       preload: absolutePreloadPath,
-      webSecurity: false
+      webSecurity: true
     },
     show: false
   });
+
+  attachSecurityGuards(subWindow);
 
   subWindows.add(subWindow);
   console.log('[Window] 创建子窗口, hash:', hash, '当前子窗口数:', subWindows.size);
@@ -189,7 +331,7 @@ export function createSubWindow(hash: string): BrowserWindow {
  */
 export function setupWindowIPC(): void {
   // 打开标签搜索子窗口
-  ipcMain.handle('window:open-tag-search', async (_event, tag: string, siteId?: number | null) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_TAG_SEARCH, async (_event, tag: string, siteId?: number | null) => {
     const params = new URLSearchParams();
     params.set('tag', tag);
     if (siteId != null) params.set('siteId', String(siteId));
@@ -198,7 +340,7 @@ export function setupWindowIPC(): void {
   });
 
   // 打开艺术家子窗口
-  ipcMain.handle('window:open-artist', async (_event, name: string, siteId?: number | null) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_ARTIST, async (_event, name: string, siteId?: number | null) => {
     const params = new URLSearchParams();
     params.set('name', name);
     if (siteId != null) params.set('siteId', String(siteId));
@@ -207,7 +349,7 @@ export function setupWindowIPC(): void {
   });
 
   // 打开角色子窗口
-  ipcMain.handle('window:open-character', async (_event, name: string, siteId?: number | null) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_CHARACTER, async (_event, name: string, siteId?: number | null) => {
     const params = new URLSearchParams();
     params.set('name', name);
     if (siteId != null) params.set('siteId', String(siteId));
@@ -216,7 +358,7 @@ export function setupWindowIPC(): void {
   });
 
   // 打开二级菜单页面子窗口
-  ipcMain.handle('window:open-secondary-menu', async (_event, section: string, key: string, tab?: string) => {
+  ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, async (_event, section: string, key: string, tab?: string) => {
     const params = new URLSearchParams({ section, key });
     if (tab) params.set('tab', tab);
     createSubWindow(`secondary-menu?${params.toString()}`);

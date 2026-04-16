@@ -26,6 +26,33 @@ import { BooruSite } from '../../shared/types';
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
 
+const BOORU_APPEARANCE_FIELDS = [
+  'gridSize',
+  'previewQuality',
+  'itemsPerPage',
+  'paginationPosition',
+  'spacing',
+  'borderRadius',
+  'margin',
+  'maxCacheSizeMB'
+] as const;
+
+type BooruAppearanceField = (typeof BOORU_APPEARANCE_FIELDS)[number];
+type BooruAppearanceConfig = Partial<Record<BooruAppearanceField, unknown>>;
+
+const sanitizeAppearanceConfig = (appearance: unknown): BooruAppearanceConfig => {
+  if (!appearance || typeof appearance !== 'object') {
+    return {};
+  }
+
+  return BOORU_APPEARANCE_FIELDS.reduce<BooruAppearanceConfig>((sanitized, field) => {
+    if (Object.prototype.hasOwnProperty.call(appearance, field)) {
+      sanitized[field] = (appearance as Record<string, unknown>)[field];
+    }
+    return sanitized;
+  }, {});
+};
+
 // 缓存统计信息显示组件
 const CacheStatsDisplay: React.FC = () => {
   const [stats, setStats] = useState<{ sizeMB: number; fileCount: number } | null>(null);
@@ -153,30 +180,16 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   const loadAppearanceConfig = async () => {
     console.log('[BooruSettingsPage] 加载外观配置');
     try {
-      if (!window.electronAPI) {
-        console.error('[BooruSettingsPage] electronAPI is not available');
+      if (!window.electronAPI?.booruPreferences?.appearance) {
+        console.error('[BooruSettingsPage] appearance API is not available');
         return;
       }
 
-      const result = await window.electronAPI.config.get();
+      const result = await window.electronAPI.booruPreferences.appearance.get();
       if (result.success && result.data) {
-        const config = result.data;
-        const booruConfig = config.booru || {
-          appearance: {
-            gridSize: 220,
-            previewQuality: 'auto',
-            itemsPerPage: 20,
-            paginationPosition: 'bottom',
-            pageMode: 'pagination',
-            spacing: 16,
-            borderRadius: 14,
-            margin: 20,
-            maxCacheSizeMB: 500
-          }
-        };
-
-        console.log('[BooruSettingsPage] 外观配置加载成功:', booruConfig.appearance);
-        appearanceForm.setFieldsValue(booruConfig.appearance);
+        const sanitizedAppearance = sanitizeAppearanceConfig(result.data);
+        console.log('[BooruSettingsPage] 外观配置加载成功:', sanitizedAppearance);
+        appearanceForm.setFieldsValue(sanitizedAppearance);
       } else {
         console.error('[BooruSettingsPage] 加载外观配置失败:', result.error);
       }
@@ -393,7 +406,9 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     console.log('[BooruSettingsPage] 打开编辑站点对话框:', site.name);
     setEditingSite(site);
     form.setFieldsValue({
-      ...site
+      ...site,
+      salt: undefined,
+      apiKey: undefined,
     });
     setModalVisible(true);
   };
@@ -448,19 +463,28 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
   // 提交站点表单
   const handleSubmit = async (values: any) => {
+    const payload = { ...values };
     // 确保URL有协议（自动添加 https://）
-    if (values.url && !values.url.startsWith('http://') && !values.url.startsWith('https://')) {
-      values.url = 'https://' + values.url;
-      console.log('[BooruSettingsPage] 自动添加协议到URL:', values.url);
+    if (payload.url && !payload.url.startsWith('http://') && !payload.url.startsWith('https://')) {
+      payload.url = 'https://' + payload.url;
+      console.log('[BooruSettingsPage] 自动添加协议到URL:', payload.url);
     }
 
-    console.log('[BooruSettingsPage] 提交站点表单:', values);
+    if (editingSite) {
+      if (!payload.salt) {
+        delete payload.salt;
+      }
+      if (!payload.apiKey) {
+        delete payload.apiKey;
+      }
+    }
+
     try {
       if (!window.electronAPI) return;
 
       if (editingSite) {
         // 编辑
-        const result = await window.electronAPI.booru.updateSite(editingSite.id, values);
+        const result = await window.electronAPI.booru.updateSite(editingSite.id, payload);
         if (result.success) {
           console.log('[BooruSettingsPage] 更新站点成功:', editingSite.name);
           message.success('更新站点成功');
@@ -472,7 +496,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         }
       } else {
         // 新增
-        const result = await window.electronAPI.booru.addSite(values);
+        const result = await window.electronAPI.booru.addSite(payload);
         if (result.success) {
           console.log('[BooruSettingsPage] 添加站点成功:', values.name);
           message.success('添加站点成功');
@@ -491,7 +515,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
   // 保存外观配置
   const handleSaveAppearance = async (values: any) => {
-    console.log('[BooruSettingsPage] 保存外观配置:', values);
+    const sanitizedAppearance = sanitizeAppearanceConfig(values);
+    console.log('[BooruSettingsPage] 保存外观配置:', sanitizedAppearance);
     setSavingAppearance(true);
     try {
       if (!window.electronAPI) {
@@ -513,7 +538,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         ...configResult.data,
         booru: {
           ...(configResult.data.booru || {}),
-          appearance: values
+          appearance: sanitizedAppearance
         }
       };
 
@@ -696,7 +721,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       key: 'auth',
       width: 120,
       render: (_: any, record: BooruSite) => (
-        record.username ? (
+        record.authenticated && record.username ? (
           <Tag icon={<CheckCircleOutlined />} color="success">{record.username}</Tag>
         ) : (
           <Tag color="default">未登录</Tag>
@@ -725,7 +750,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
               设为默认
             </Button>
           )}
-          {record.username ? (
+          {record.authenticated ? (
             <Button
               size="small"
               icon={<LogoutOutlined />}
@@ -854,7 +879,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     previewQuality: 'auto',
                     itemsPerPage: 20,
                     paginationPosition: 'bottom',
-                    pageMode: 'pagination',
                     spacing: 16,
                     borderRadius: 8,
                     margin: 24,
@@ -918,17 +942,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     </Select>
                   </Form.Item>
 
-                  <Form.Item
-                    label="页面模式"
-                    name="pageMode"
-                    tooltip="选择翻页模式或无限滚动模式"
-                  >
-                    <Select>
-                      <Option value="pagination">翻页</Option>
-                      <Option value="infinite">无限滚动</Option>
-                    </Select>
-                  </Form.Item>
-
                   <Divider orientation="left">样式设置</Divider>
 
                   <Form.Item
@@ -989,16 +1002,17 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
                   <Form.Item
                     label="缓存目录最大大小"
-                    name="maxCacheSizeMB"
                     tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
                   >
                     <Space.Compact style={{ width: '100%' }}>
-                      <InputNumber
-                        min={100}
-                        max={5000}
-                        step={100}
-                        style={{ width: '100%' }}
-                      />
+                      <Form.Item name="maxCacheSizeMB" noStyle>
+                        <InputNumber
+                          min={100}
+                          max={5000}
+                          step={100}
+                          style={{ width: '100%' }}
+                        />
+                      </Form.Item>
                       <Button disabled style={{ cursor: 'default' }}>MB</Button>
                     </Space.Compact>
                   </Form.Item>
@@ -1272,9 +1286,9 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
           <Form.Item
             name="salt"
             label="密码盐值"
-            help="用于密码哈希，如：choujin-steiner--{0}--"
+            help="读取接口不回显现有值；留空表示保留当前盐值，用于密码哈希，如：choujin-steiner--{0}--"
           >
-            <Input placeholder="留空使用默认值" />
+            <Input placeholder="留空保留当前值；仅在需要覆盖时填写" />
           </Form.Item>
 
           <Divider orientation="left">认证配置</Divider>
@@ -1283,8 +1297,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
             <Input placeholder="可选" />
           </Form.Item>
 
-          <Form.Item name="apiKey" label="API Key">
-            <Input placeholder="可选" />
+          <Form.Item name="apiKey" label="API Key" extra="读取接口不回显现有值；留空表示保留当前 API Key，仅在需要覆盖时填写。">
+            <Input placeholder="留空保留当前值；仅在需要覆盖时填写" />
           </Form.Item>
 
           <Divider orientation="left">其他选项</Divider>

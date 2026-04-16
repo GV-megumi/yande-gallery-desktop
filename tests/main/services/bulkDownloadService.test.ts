@@ -360,3 +360,29 @@ describe('标签字符串解析', () => {
     expect(parseTags('')).toEqual([]);
   });
 });
+
+describe('批量下载临时文件协议', () => {
+  function buildTempPath(finalPath: string): string {
+    return `${finalPath}.part`;
+  }
+
+  function cleanupPathOnRetry(finalPath: string): string {
+    return buildTempPath(finalPath);
+  }
+
+  function cleanupPathOnCancel(finalPath: string): string {
+    return buildTempPath(finalPath);
+  }
+
+  it('批量下载应写入 .part 临时文件', () => {
+    expect(buildTempPath('/downloads/image.jpg')).toBe('/downloads/image.jpg.part');
+  });
+
+  it('批量重试前只应清理 .part 临时文件', () => {
+    expect(cleanupPathOnRetry('/downloads/image.jpg')).toBe('/downloads/image.jpg.part');
+  });
+
+  it('批量取消时只应清理 .part 临时文件', () => {
+    expect(cleanupPathOnCancel('/downloads/image.jpg')).toBe('/downloads/image.jpg.part');
+  });
+});

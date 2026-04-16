@@ -6,7 +6,6 @@ import {
   DownloadOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  DeleteOutlined,
   SyncOutlined,
   ClearOutlined,
   ReloadOutlined,
@@ -38,7 +37,11 @@ interface QueueStatus {
   maxConcurrent: number;
 }
 
-export const BooruDownloadPage: React.FC = () => {
+interface BooruDownloadPageProps {
+  active?: boolean;
+}
+
+export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = true }) => {
   const { message } = App.useApp();
   const [activeDownloads, setActiveDownloads] = useState<DownloadQueueItem[]>([]);
   const [completedDownloads, setCompletedDownloads] = useState<DownloadQueueItem[]>([]);
@@ -275,6 +278,10 @@ export const BooruDownloadPage: React.FC = () => {
 
   // 监听下载进度
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     // 加载队列
     loadQueue();
 
@@ -313,7 +320,7 @@ export const BooruDownloadPage: React.FC = () => {
       if (removeStatusListener) removeStatusListener();
       if (removeQueueStatusListener) removeQueueStatusListener();
     };
-  }, [loadQueue]);
+  }, [active, loadQueue]);
 
   // 格式化字节数
   const formatBytes = (bytes: number) => {
@@ -483,30 +490,27 @@ export const BooruDownloadPage: React.FC = () => {
       width: 120,
       render: (_: any, record: DownloadQueueItem) => (
         <Space>
-          {/* 暂停/恢复按钮 */}
           {record.status === 'paused' ? (
             <Tooltip title="恢复下载">
-              <Button 
-                type="text" 
-                icon={<PlayCircleOutlined />} 
+              <Button
+                type="text"
+                icon={<PlayCircleOutlined />}
+                aria-label="恢复下载"
                 onClick={() => handleResumeDownload(record.id)}
                 style={{ color: '#52c41a' }}
               />
             </Tooltip>
           ) : (
             <Tooltip title="暂停下载">
-              <Button 
-                type="text" 
-                icon={<PauseCircleOutlined />} 
+              <Button
+                type="text"
+                icon={<PauseCircleOutlined />}
+                aria-label="暂停下载"
                 onClick={() => handlePauseDownload(record.id)}
                 disabled={record.status === 'pending'}
               />
             </Tooltip>
           )}
-          {/* 删除按钮 */}
-          <Popconfirm title="确定取消下载吗？" onConfirm={() => { /* TODO: 实现取消 */ }}>
-            <Button type="text" danger icon={<DeleteOutlined />} />
-          </Popconfirm>
         </Space>
       )
     }

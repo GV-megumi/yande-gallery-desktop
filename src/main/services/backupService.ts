@@ -1,4 +1,11 @@
-import { getConfig, saveConfig, type AppConfig } from './config.js';
+import {
+  getConfig,
+  saveConfig,
+  toRendererSafeUiConfig,
+  type AppConfig,
+  type ConfigSaveInput,
+  type RendererSafeAppConfig,
+} from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
 
 export const BACKUP_TABLES = [
@@ -22,7 +29,7 @@ export type BackupTableName = (typeof BACKUP_TABLES)[number];
 export interface AppBackupData {
   version: 1;
   exportedAt: string;
-  config: AppConfig;
+  config: RendererSafeAppConfig;
   tables: Record<BackupTableName, Record<string, unknown>[]>;
 }
 
@@ -45,6 +52,68 @@ export function summarizeBackupTables(data: AppBackupData): BackupSummaryItem[] 
     table,
     count: Array.isArray(data.tables[table]) ? data.tables[table].length : 0,
   }));
+}
+
+function projectBackupSafeConfig(config: {
+  dataPath?: AppConfig['dataPath'];
+  database: AppConfig['database'];
+  downloads: AppConfig['downloads'];
+  galleries: AppConfig['galleries'];
+  thumbnails: AppConfig['thumbnails'];
+  app: AppConfig['app'];
+  yande: AppConfig['yande'];
+  logging: AppConfig['logging'];
+  network: {
+    proxy: {
+      enabled: boolean;
+      protocol: AppConfig['network']['proxy']['protocol'];
+      host: string;
+      port: number;
+    };
+  };
+  google?: {
+    clientId: string;
+    drive: NonNullable<AppConfig['google']>['drive'];
+    photos: NonNullable<AppConfig['google']>['photos'];
+  };
+  ui?: AppConfig['ui'];
+  booru?: AppConfig['booru'];
+}): RendererSafeAppConfig {
+  return {
+    dataPath: config.dataPath,
+    database: config.database,
+    downloads: config.downloads,
+    galleries: config.galleries,
+    thumbnails: config.thumbnails,
+    app: config.app,
+    yande: config.yande,
+    logging: config.logging,
+    network: {
+      proxy: {
+        enabled: config.network.proxy.enabled,
+        protocol: config.network.proxy.protocol,
+        host: config.network.proxy.host,
+        port: config.network.proxy.port,
+      },
+    },
+    google: config.google
+      ? {
+          clientId: config.google.clientId,
+          drive: config.google.drive,
+          photos: config.google.photos,
+        }
+      : undefined,
+    ui: toRendererSafeUiConfig(config.ui),
+    booru: config.booru,
+  };
+}
+
+export function createBackupSafeConfig(config: AppConfig): RendererSafeAppConfig {
+  return projectBackupSafeConfig(config);
+}
+
+export function sanitizeImportedBackupConfig(config: RendererSafeAppConfig): ConfigSaveInput {
+  return projectBackupSafeConfig(config);
 }
 
 export function isValidBackupData(value: unknown): value is AppBackupData {
@@ -84,9 +153,38 @@ export async function createAppBackupData(): Promise<AppBackupData> {
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
-    config: getConfig(),
+    config: createBackupSafeConfig(getConfig()),
     tables,
   };
+}
+
+async function snapshotCurrentBackupTables(db: sqlite3.Database): Promise<Record<BackupTableName, Record<string, unknown>[]>> {
+  const tables = {} as Record<BackupTableName, Record<string, unknown>[]>;
+
+  for (const table of BACKUP_TABLES) {
+    tables[table] = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+  }
+
+  return tables;
+}
+
+async function restoreBackupTablesSnapshot(
+  db: sqlite3.Database,
+  tables: Record<BackupTableName, Record<string, unknown>[]>
+): Promise<void> {
+  await runInTransaction(db, async () => {
+    for (const table of [...BACKUP_RESTORE_ORDER].reverse()) {
+      await run(db, `DELETE FROM ${table}`);
+    }
+
+    for (const table of BACKUP_RESTORE_ORDER) {
+      const rows = tables[table] ?? [];
+      for (const row of rows) {
+        const { sql, values } = buildInsertStatement(table, row);
+        await run(db, sql, values as any[]);
+      }
+    }
+  });
 }
 
 export async function restoreAppBackupData(
@@ -99,8 +197,10 @@ export async function restoreAppBackupData(
 
   const mode = options.mode ?? 'merge';
   const db = await getDatabase();
+  const previousConfig = getConfig();
+  const previousTables = await snapshotCurrentBackupTables(db);
+  let importedConfigApplied = false;
 
-  await saveConfig(backupData.config);
   await run(db, 'PRAGMA foreign_keys = OFF');
 
   try {
@@ -119,6 +219,18 @@ export async function restoreAppBackupData(
         }
       }
     });
+
+    const importedConfigSaveResult = await saveConfig(sanitizeImportedBackupConfig(backupData.config));
+    if (!importedConfigSaveResult.success) {
+      await restoreBackupTablesSnapshot(db, previousTables);
+      throw new Error(importedConfigSaveResult.error || 'save imported config failed');
+    }
+    importedConfigApplied = true;
+  } catch (error) {
+    if (importedConfigApplied) {
+      await saveConfig(previousConfig);
+    }
+    throw error;
   } finally {
     await run(db, 'PRAGMA foreign_keys = ON');
   }

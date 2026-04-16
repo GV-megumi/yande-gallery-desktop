@@ -75,8 +75,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
-    borderRadius: 14,
-    margin: 20
+    borderRadius: 8,
+    margin: 24
   });
 
   // 服务端喜欢状态管理
@@ -105,27 +105,15 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const loadAppearanceConfig = async () => {
     console.log('[BooruFavoritesPage] 加载外观配置');
     try {
-      if (!window.electronAPI) {
+      if (!window.electronAPI?.booruPreferences?.appearance) {
         console.error('[BooruFavoritesPage] electronAPI is not available');
         return;
       }
 
-      const result = await window.electronAPI.config.get();
+      const result = await window.electronAPI.booruPreferences.appearance.get();
       if (result.success && result.data) {
-        const booruConfig = result.data.booru;
-        if (booruConfig?.appearance) {
-          console.log('[BooruFavoritesPage] 加载外观配置成功:', booruConfig.appearance);
-          setAppearanceConfig({
-            gridSize: booruConfig.appearance.gridSize || 330,
-            previewQuality: booruConfig.appearance.previewQuality || 'auto',
-            itemsPerPage: booruConfig.appearance.itemsPerPage || 20,
-            paginationPosition: booruConfig.appearance.paginationPosition || 'bottom',
-            pageMode: booruConfig.appearance.pageMode || 'pagination',
-            spacing: booruConfig.appearance.spacing || 16,
-            borderRadius: booruConfig.appearance.borderRadius || 8,
-            margin: booruConfig.appearance.margin || 24
-          });
-        }
+        console.log('[BooruFavoritesPage] 加载外观配置成功:', result.data);
+        setAppearanceConfig(result.data);
       }
     } catch (error) {
       console.error('[BooruFavoritesPage] 加载外观配置失败:', error);

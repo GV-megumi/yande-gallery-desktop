@@ -49,6 +49,76 @@ export interface TokenDefaultOptions {
 
 // ============= 配置类型定义 =============
 
+export interface PinnedItemConfig {
+  key: string;
+  section: 'gallery' | 'booru' | 'google';
+  defaultTab?: string;
+}
+
+export interface FavoriteTagsPagePreference {
+  filterSiteId?: number;
+  sortKey?: 'tagName' | 'galleryName' | 'lastDownloadedAt';
+  sortOrder?: 'asc' | 'desc';
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface BlacklistedTagsPagePreference {
+  filterSiteId?: number;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface GalleryAllPagePreference {
+  searchQuery?: string;
+  isSearchMode?: boolean;
+  allPage?: number;
+  searchPage?: number;
+}
+
+export interface GalleryGalleriesPagePreference {
+  gallerySearchQuery?: string;
+  gallerySortKey?: 'name' | 'createdAt' | 'updatedAt';
+  gallerySortOrder?: 'asc' | 'desc';
+  selectedGalleryId?: number;
+  gallerySort?: 'time' | 'name';
+}
+
+export interface GalleryPagePreferencesBySubTab {
+  all?: GalleryAllPagePreference;
+  galleries?: GalleryGalleriesPagePreference;
+}
+
+export interface AppShellPagePreference {
+  menuOrder?: {
+    main?: string[];
+    gallery?: string[];
+    booru?: string[];
+    google?: string[];
+  };
+  pinnedItems?: PinnedItemConfig[];
+}
+
+export interface PagePreferencesConfig {
+  favoriteTags?: FavoriteTagsPagePreference;
+  blacklistedTags?: BlacklistedTagsPagePreference;
+  galleryBySubTab?: GalleryPagePreferencesBySubTab;
+  appShell?: AppShellPagePreference;
+}
+
+export interface UIConfig {
+  menuOrder?: {
+    main?: string[];
+    gallery?: string[];
+    booru?: string[];
+    google?: string[];
+  };
+  pinnedItems?: PinnedItemConfig[];
+  pagePreferences?: PagePreferencesConfig;
+}
+
 export interface AppConfig {
   // 数据存储根目录（数据库、缩略图、缓存、日志等）
   // 支持绝对路径和相对路径（相对于 configDir）
@@ -120,14 +190,7 @@ export interface AppConfig {
       thumbnailSize: number;
     };
   };
-  ui?: {
-    menuOrder?: {
-      main?: string[];
-      gallery?: string[];
-      booru?: string[];
-      google?: string[];
-    };
-  };
+  ui?: UIConfig;
   booru?: {
     appearance: {
       gridSize: number; // 图片网格大小（像素）
@@ -154,6 +217,27 @@ export interface GalleryFolder {
   recursive: boolean;
   extensions: string[];
 }
+
+export type BooruAppearancePreference = AppConfig['booru']['appearance'];
+
+export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
+export type RendererSafeGoogleConfig = Omit<NonNullable<AppConfig['google']>, 'clientSecret'>;
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'google'> & {
+  network: {
+    proxy: RendererSafeProxyConfig;
+  };
+  google?: RendererSafeGoogleConfig;
+};
+
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<any>
+    ? T[K]
+    : T[K] extends object
+      ? DeepPartial<T[K]>
+      : T[K];
+};
+
+export type ConfigSaveInput = DeepPartial<RendererSafeAppConfig>;
 
 // ============= 默认配置 =============
 
@@ -293,6 +377,15 @@ let configDir: string = '';
 
 // 数据存储根目录（由 config.yaml dataPath 决定）
 let dataDir: string = '';
+
+// 记录最近一次待保存的配置快照与版本，避免并发保存基于旧快照互相覆盖
+let configSaveVersion = 0;
+let latestDurableSaveVersion = 0;
+let latestTerminalOutcomeVersion = 0;
+let latestTerminalOutcome: { success: boolean; error?: string } | null = null;
+let latestQueuedConfig: AppConfig | null = null;
+let configSaveCommitLock: Promise<void> = Promise.resolve();
+const configSaveOutcomes = new Map<number, Promise<{ success: boolean; error?: string }>>();
 
 // 默认配置目录名
 const DEFAULT_CONFIG_DIR_NAME = '.yandegallery';
@@ -651,6 +744,341 @@ export function getConfig(): AppConfig {
   return config;
 }
 
+function sanitizeRendererSafeProxyConfig(
+  incomingProxy?: Partial<AppConfig['network']['proxy']>
+): Partial<AppConfig['network']['proxy']> | undefined {
+  if (!incomingProxy) {
+    return undefined;
+  }
+
+  return {
+    enabled: incomingProxy.enabled,
+    protocol: incomingProxy.protocol,
+    host: incomingProxy.host,
+    port: incomingProxy.port,
+  };
+}
+
+function sanitizeRendererSafeGoogleConfig(
+  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
+): Partial<NonNullable<AppConfig['google']>> | undefined {
+  if (!incomingGoogle) {
+    return undefined;
+  }
+
+  return {
+    clientId: incomingGoogle.clientId,
+    drive: incomingGoogle.drive
+      ? {
+          enabled: incomingGoogle.drive.enabled,
+          defaultViewMode: incomingGoogle.drive.defaultViewMode,
+          imageOnly: incomingGoogle.drive.imageOnly,
+          downloadPath: incomingGoogle.drive.downloadPath,
+        }
+      : undefined,
+    photos: incomingGoogle.photos
+      ? {
+          enabled: incomingGoogle.photos.enabled,
+          downloadPath: incomingGoogle.photos.downloadPath,
+          uploadAlbumName: incomingGoogle.photos.uploadAlbumName,
+          thumbnailSize: incomingGoogle.photos.thumbnailSize,
+        }
+      : undefined,
+  };
+}
+
+function rebuildProxyConfig(
+  currentProxy: AppConfig['network']['proxy'],
+  incomingProxy?: Partial<AppConfig['network']['proxy']>
+): AppConfig['network']['proxy'] {
+  return {
+    enabled: incomingProxy?.enabled ?? currentProxy.enabled,
+    protocol: incomingProxy?.protocol ?? currentProxy.protocol,
+    host: incomingProxy?.host ?? currentProxy.host,
+    port: incomingProxy?.port ?? currentProxy.port,
+    username: currentProxy.username,
+    password: currentProxy.password,
+  };
+}
+
+function rebuildGoogleConfig(
+  currentGoogle: AppConfig['google'],
+  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
+): AppConfig['google'] {
+  if (!currentGoogle && !incomingGoogle) {
+    return undefined;
+  }
+
+  if (!incomingGoogle) {
+    return currentGoogle;
+  }
+
+  return {
+    clientId: incomingGoogle.clientId ?? currentGoogle?.clientId ?? '',
+    clientSecret: currentGoogle?.clientSecret ?? '',
+    drive: {
+      enabled: incomingGoogle.drive?.enabled ?? currentGoogle?.drive.enabled ?? false,
+      defaultViewMode: incomingGoogle.drive?.defaultViewMode ?? currentGoogle?.drive.defaultViewMode ?? 'grid',
+      imageOnly: incomingGoogle.drive?.imageOnly ?? currentGoogle?.drive.imageOnly ?? true,
+      downloadPath: incomingGoogle.drive?.downloadPath ?? currentGoogle?.drive.downloadPath ?? '',
+    },
+    photos: {
+      enabled: incomingGoogle.photos?.enabled ?? currentGoogle?.photos.enabled ?? false,
+      downloadPath: incomingGoogle.photos?.downloadPath ?? currentGoogle?.photos.downloadPath ?? '',
+      uploadAlbumName: incomingGoogle.photos?.uploadAlbumName ?? currentGoogle?.photos.uploadAlbumName ?? '',
+      thumbnailSize: incomingGoogle.photos?.thumbnailSize ?? currentGoogle?.photos.thumbnailSize ?? 256,
+    },
+  };
+}
+
+function clampPinnedItems(
+  pinnedItems?: PinnedItemConfig[]
+): PinnedItemConfig[] | undefined {
+  if (!pinnedItems) {
+    return undefined;
+  }
+
+  return pinnedItems.slice(0, 5);
+}
+
+function rebuildPagePreferences(
+  currentPagePreferences?: PagePreferencesConfig,
+  incomingPagePreferences?: PagePreferencesConfig,
+  currentUi?: UIConfig
+): PagePreferencesConfig | undefined {
+  if (!currentPagePreferences && !incomingPagePreferences && !currentUi) {
+    return undefined;
+  }
+
+  return {
+    favoriteTags: incomingPagePreferences?.favoriteTags
+      ? {
+          filterSiteId: incomingPagePreferences.favoriteTags.filterSiteId ?? currentPagePreferences?.favoriteTags?.filterSiteId,
+          sortKey: incomingPagePreferences.favoriteTags.sortKey ?? currentPagePreferences?.favoriteTags?.sortKey,
+          sortOrder: incomingPagePreferences.favoriteTags.sortOrder ?? currentPagePreferences?.favoriteTags?.sortOrder,
+          keyword: incomingPagePreferences.favoriteTags.keyword ?? currentPagePreferences?.favoriteTags?.keyword,
+          page: incomingPagePreferences.favoriteTags.page ?? currentPagePreferences?.favoriteTags?.page,
+          pageSize: incomingPagePreferences.favoriteTags.pageSize ?? currentPagePreferences?.favoriteTags?.pageSize,
+        }
+      : currentPagePreferences?.favoriteTags,
+    blacklistedTags: incomingPagePreferences?.blacklistedTags
+      ? {
+          filterSiteId: incomingPagePreferences.blacklistedTags.filterSiteId ?? currentPagePreferences?.blacklistedTags?.filterSiteId,
+          keyword: incomingPagePreferences.blacklistedTags.keyword ?? currentPagePreferences?.blacklistedTags?.keyword,
+          page: incomingPagePreferences.blacklistedTags.page ?? currentPagePreferences?.blacklistedTags?.page,
+          pageSize: incomingPagePreferences.blacklistedTags.pageSize ?? currentPagePreferences?.blacklistedTags?.pageSize,
+        }
+      : currentPagePreferences?.blacklistedTags,
+    galleryBySubTab: incomingPagePreferences?.galleryBySubTab
+      ? {
+          all: incomingPagePreferences.galleryBySubTab.all
+            ? {
+                searchQuery: incomingPagePreferences.galleryBySubTab.all.searchQuery ?? currentPagePreferences?.galleryBySubTab?.all?.searchQuery,
+                isSearchMode: incomingPagePreferences.galleryBySubTab.all.isSearchMode ?? currentPagePreferences?.galleryBySubTab?.all?.isSearchMode,
+                allPage: incomingPagePreferences.galleryBySubTab.all.allPage ?? currentPagePreferences?.galleryBySubTab?.all?.allPage,
+                searchPage: incomingPagePreferences.galleryBySubTab.all.searchPage ?? currentPagePreferences?.galleryBySubTab?.all?.searchPage,
+              }
+            : currentPagePreferences?.galleryBySubTab?.all,
+          galleries: incomingPagePreferences.galleryBySubTab.galleries
+            ? {
+                gallerySearchQuery: incomingPagePreferences.galleryBySubTab.galleries.gallerySearchQuery ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySearchQuery,
+                gallerySortKey: incomingPagePreferences.galleryBySubTab.galleries.gallerySortKey ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySortKey,
+                gallerySortOrder: incomingPagePreferences.galleryBySubTab.galleries.gallerySortOrder ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySortOrder,
+                selectedGalleryId: incomingPagePreferences.galleryBySubTab.galleries.selectedGalleryId ?? currentPagePreferences?.galleryBySubTab?.galleries?.selectedGalleryId,
+                gallerySort: incomingPagePreferences.galleryBySubTab.galleries.gallerySort ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySort,
+              }
+            : currentPagePreferences?.galleryBySubTab?.galleries,
+        }
+      : currentPagePreferences?.galleryBySubTab,
+    appShell: incomingPagePreferences?.appShell
+      ? {
+          menuOrder: {
+            main: incomingPagePreferences.appShell.menuOrder?.main ?? currentPagePreferences?.appShell?.menuOrder?.main ?? currentUi?.menuOrder?.main,
+            gallery: incomingPagePreferences.appShell.menuOrder?.gallery ?? currentPagePreferences?.appShell?.menuOrder?.gallery ?? currentUi?.menuOrder?.gallery,
+            booru: incomingPagePreferences.appShell.menuOrder?.booru ?? currentPagePreferences?.appShell?.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
+            google: incomingPagePreferences.appShell.menuOrder?.google ?? currentPagePreferences?.appShell?.menuOrder?.google ?? currentUi?.menuOrder?.google,
+          },
+          pinnedItems: clampPinnedItems(incomingPagePreferences.appShell.pinnedItems ?? currentPagePreferences?.appShell?.pinnedItems ?? currentUi?.pinnedItems),
+        }
+      : currentPagePreferences?.appShell
+        ? {
+            menuOrder: {
+              main: currentPagePreferences.appShell.menuOrder?.main ?? currentUi?.menuOrder?.main,
+              gallery: currentPagePreferences.appShell.menuOrder?.gallery ?? currentUi?.menuOrder?.gallery,
+              booru: currentPagePreferences.appShell.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
+              google: currentPagePreferences.appShell.menuOrder?.google ?? currentUi?.menuOrder?.google,
+            },
+            pinnedItems: clampPinnedItems(currentPagePreferences.appShell.pinnedItems ?? currentUi?.pinnedItems),
+          }
+        : currentUi?.menuOrder || currentUi?.pinnedItems
+          ? {
+              menuOrder: currentUi.menuOrder
+                ? {
+                    main: currentUi.menuOrder.main,
+                    gallery: currentUi.menuOrder.gallery,
+                    booru: currentUi.menuOrder.booru,
+                    google: currentUi.menuOrder.google,
+                  }
+                : undefined,
+              pinnedItems: clampPinnedItems(currentUi.pinnedItems),
+            }
+          : undefined,
+  };
+}
+
+export function toRendererSafeUiConfig(source?: UIConfig): UIConfig | undefined {
+  if (!source) {
+    return undefined;
+  }
+
+  const pagePreferences = source.pagePreferences
+    ? {
+        ...(source.pagePreferences.favoriteTags ? { favoriteTags: source.pagePreferences.favoriteTags } : {}),
+        ...(source.pagePreferences.blacklistedTags ? { blacklistedTags: source.pagePreferences.blacklistedTags } : {}),
+        ...(source.pagePreferences.galleryBySubTab ? { galleryBySubTab: source.pagePreferences.galleryBySubTab } : {}),
+      }
+    : undefined;
+
+  if (!pagePreferences || Object.keys(pagePreferences).length === 0) {
+    return undefined;
+  }
+
+  return {
+    pagePreferences,
+  };
+}
+
+export function toRendererSafeConfig(source: AppConfig): RendererSafeAppConfig {
+  const safeUi = toRendererSafeUiConfig(source.ui);
+
+  return {
+    ...source,
+    ui: safeUi,
+    network: {
+      ...source.network,
+      proxy: {
+        enabled: source.network.proxy.enabled,
+        protocol: source.network.proxy.protocol,
+        host: source.network.proxy.host,
+        port: source.network.proxy.port,
+      },
+    },
+    google: source.google
+      ? {
+          clientId: source.google.clientId,
+          drive: source.google.drive,
+          photos: source.google.photos,
+        }
+      : undefined,
+  };
+}
+
+export function mergeSensitiveConfig(currentConfig: AppConfig, incomingConfig: AppConfig): AppConfig {
+  return {
+    ...incomingConfig,
+    network: {
+      ...incomingConfig.network,
+      proxy: rebuildProxyConfig(currentConfig.network.proxy, incomingConfig.network?.proxy),
+    },
+    google: rebuildGoogleConfig(currentConfig.google, incomingConfig.google),
+  };
+}
+
+export function getBooruAppearancePreference(source: Pick<AppConfig, 'booru'> | undefined): BooruAppearancePreference {
+  const currentAppearance = source?.booru?.appearance;
+  const defaultAppearance = DEFAULT_CONFIG.booru!.appearance;
+
+  return {
+    gridSize: currentAppearance?.gridSize ?? defaultAppearance.gridSize,
+    previewQuality: currentAppearance?.previewQuality ?? defaultAppearance.previewQuality,
+    itemsPerPage: currentAppearance?.itemsPerPage ?? defaultAppearance.itemsPerPage,
+    paginationPosition: currentAppearance?.paginationPosition ?? defaultAppearance.paginationPosition,
+    pageMode: currentAppearance?.pageMode ?? defaultAppearance.pageMode,
+    spacing: currentAppearance?.spacing ?? defaultAppearance.spacing,
+    borderRadius: currentAppearance?.borderRadius ?? defaultAppearance.borderRadius,
+    margin: currentAppearance?.margin ?? defaultAppearance.margin,
+    maxCacheSizeMB: currentAppearance?.maxCacheSizeMB ?? defaultAppearance.maxCacheSizeMB,
+  };
+}
+
+export function normalizeConfigSaveInput(currentConfig: AppConfig, input: ConfigSaveInput): AppConfig {
+  return {
+    dataPath: input.dataPath ?? currentConfig.dataPath,
+    database: {
+      path: input.database?.path ?? currentConfig.database.path,
+      logging: input.database?.logging ?? currentConfig.database.logging,
+    },
+    downloads: {
+      path: input.downloads?.path ?? currentConfig.downloads.path,
+      createSubfolders: input.downloads?.createSubfolders ?? currentConfig.downloads.createSubfolders,
+      subfolderFormat: input.downloads?.subfolderFormat ?? currentConfig.downloads.subfolderFormat,
+    },
+    galleries: {
+      folders: input.galleries?.folders ?? currentConfig.galleries.folders,
+    },
+    thumbnails: {
+      cachePath: input.thumbnails?.cachePath ?? currentConfig.thumbnails.cachePath,
+      maxWidth: input.thumbnails?.maxWidth ?? currentConfig.thumbnails.maxWidth,
+      maxHeight: input.thumbnails?.maxHeight ?? currentConfig.thumbnails.maxHeight,
+      quality: input.thumbnails?.quality ?? currentConfig.thumbnails.quality,
+      format: input.thumbnails?.format ?? currentConfig.thumbnails.format,
+    },
+    app: {
+      recentImagesCount: input.app?.recentImagesCount ?? currentConfig.app.recentImagesCount,
+      pageSize: input.app?.pageSize ?? currentConfig.app.pageSize,
+      defaultViewMode: input.app?.defaultViewMode ?? currentConfig.app.defaultViewMode,
+      showImageInfo: input.app?.showImageInfo ?? currentConfig.app.showImageInfo,
+      autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
+      autoScanInterval: input.app?.autoScanInterval ?? currentConfig.app.autoScanInterval,
+    },
+    yande: {
+      apiUrl: input.yande?.apiUrl ?? currentConfig.yande.apiUrl,
+      pageSize: input.yande?.pageSize ?? currentConfig.yande.pageSize,
+      downloadTimeout: input.yande?.downloadTimeout ?? currentConfig.yande.downloadTimeout,
+      maxConcurrentDownloads: input.yande?.maxConcurrentDownloads ?? currentConfig.yande.maxConcurrentDownloads,
+    },
+    logging: {
+      level: input.logging?.level ?? currentConfig.logging.level,
+      filePath: input.logging?.filePath ?? currentConfig.logging.filePath,
+      consoleOutput: input.logging?.consoleOutput ?? currentConfig.logging.consoleOutput,
+      maxFileSize: input.logging?.maxFileSize ?? currentConfig.logging.maxFileSize,
+      maxFiles: input.logging?.maxFiles ?? currentConfig.logging.maxFiles,
+    },
+    network: {
+      proxy: rebuildProxyConfig(currentConfig.network.proxy, sanitizeRendererSafeProxyConfig(input.network?.proxy)),
+    },
+    google: rebuildGoogleConfig(currentConfig.google, sanitizeRendererSafeGoogleConfig(input.google)),
+    ui: input.ui
+      ? {
+          menuOrder: {
+            main: input.ui.menuOrder?.main ?? currentConfig.ui?.menuOrder?.main,
+            gallery: input.ui.menuOrder?.gallery ?? currentConfig.ui?.menuOrder?.gallery,
+            booru: input.ui.menuOrder?.booru ?? currentConfig.ui?.menuOrder?.booru,
+            google: input.ui.menuOrder?.google ?? currentConfig.ui?.menuOrder?.google,
+          },
+          pinnedItems: clampPinnedItems(input.ui.pinnedItems ?? currentConfig.ui?.pinnedItems),
+          pagePreferences: rebuildPagePreferences(currentConfig.ui?.pagePreferences, input.ui.pagePreferences, currentConfig.ui),
+        }
+      : currentConfig.ui,
+    booru: input.booru
+      ? {
+          appearance: getBooruAppearancePreference({
+            booru: {
+              appearance: {
+                ...currentConfig.booru?.appearance,
+                ...input.booru.appearance,
+              } as BooruAppearancePreference,
+            },
+          }),
+          download: {
+            filenameTemplate: input.booru.download?.filenameTemplate ?? currentConfig.booru?.download.filenameTemplate ?? DEFAULT_CONFIG.booru!.download.filenameTemplate,
+            tokenDefaults: input.booru.download?.tokenDefaults ?? currentConfig.booru?.download.tokenDefaults ?? DEFAULT_CONFIG.booru!.download.tokenDefaults,
+          },
+        }
+      : currentConfig.booru,
+  };
+}
+
 /**
  * 重新加载配置
  */
@@ -662,30 +1090,101 @@ export async function reloadConfig(configPath?: string): Promise<AppConfig> {
 /**
  * 保存配置到文件
  */
-export async function saveConfig(newConfig: AppConfig, configPath?: string): Promise<{ success: boolean; error?: string }> {
-  try {
+export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string): Promise<{ success: boolean; error?: string }> {
+  const saveVersion = configSaveVersion + 1;
+  let resolveOutcome!: (result: { success: boolean; error?: string }) => void;
+  const outcomePromise = new Promise<{ success: boolean; error?: string }>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  configSaveOutcomes.set(saveVersion, outcomePromise);
+
+  const savePromise = (async (): Promise<{ success: boolean; error?: string }> => {
+    const finalize = (result: { success: boolean; error?: string }) => {
+      latestTerminalOutcomeVersion = saveVersion;
+      latestTerminalOutcome = result;
+      resolveOutcome(result);
+      if (configSaveOutcomes.get(saveVersion) === outcomePromise) {
+        configSaveOutcomes.delete(saveVersion);
+      }
+      return result;
+    };
+    const cleanupStagingFile = async () => {
+      try {
+        await fs.unlink(stagingPath);
+      } catch {
+        // best-effort cleanup，忽略 staging 文件不存在或删除失败
+      }
+    };
+
     const configFilePath = configPath || path.join(configDir, 'config.yaml');
+    const currentConfig = latestQueuedConfig ?? config ?? DEFAULT_CONFIG;
+    const mergedConfig = mergeSensitiveConfig(currentConfig, normalizeConfigSaveInput(currentConfig, newConfig));
+    configSaveVersion = saveVersion;
+    const stagingPath = `${configFilePath}.tmp.${saveVersion}`;
 
-    // 更新内存中的配置
-    config = newConfig;
+    latestQueuedConfig = mergedConfig;
 
-    // 保存到文件
-    const yaml = await import('js-yaml');
-    const configYaml = yaml.dump(newConfig, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true
-    });
+    try {
+      // 先写入 staging 文件，只有确认自己仍是最新版本时才提交到真实配置文件
+      const yaml = await import('js-yaml');
+      const configYaml = yaml.dump(mergedConfig, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true
+      });
 
-    await fs.writeFile(configFilePath, configYaml, 'utf-8');
-    console.log('[config] 配置已保存:', configFilePath);
+      await fs.writeFile(stagingPath, configYaml, 'utf-8');
 
-    return { success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[config] 保存配置失败:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
+      let shouldCommit = false;
+      const commitTask = configSaveCommitLock.then(async () => {
+        if (saveVersion !== configSaveVersion) {
+          return;
+        }
+
+        shouldCommit = true;
+        await fs.rename(stagingPath, configFilePath);
+      });
+
+      configSaveCommitLock = commitTask.then(() => undefined, () => undefined);
+      await commitTask;
+
+      if (!shouldCommit) {
+        await cleanupStagingFile();
+
+        if (saveVersion <= latestDurableSaveVersion) {
+          return finalize({ success: true });
+        }
+
+        if (latestTerminalOutcomeVersion === configSaveVersion && latestTerminalOutcome) {
+          return finalize(latestTerminalOutcome);
+        }
+
+        const latestOutcome = configSaveOutcomes.get(configSaveVersion);
+        if (!latestOutcome) {
+          return finalize({ success: false, error: 'latest save outcome unavailable' });
+        }
+        return finalize(await latestOutcome);
+      }
+
+      latestDurableSaveVersion = saveVersion;
+      config = latestQueuedConfig ?? mergedConfig;
+      latestQueuedConfig = config;
+      initDataDir(config);
+      console.log('[config] 配置已保存:', configFilePath);
+      return finalize({ success: true });
+    } catch (error) {
+      await cleanupStagingFile();
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (saveVersion === configSaveVersion) {
+        latestQueuedConfig = config ?? DEFAULT_CONFIG;
+      }
+      console.error('[config] 保存配置失败:', errorMessage);
+      return finalize({ success: false, error: errorMessage });
+    }
+  })();
+
+  return savePromise;
 }
 
 /**
