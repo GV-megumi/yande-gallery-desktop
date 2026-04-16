@@ -140,6 +140,7 @@ celerybeat-schedule
 .agent/
 .agents/
 .trae/
+.worktrees/
 skills-lock.json
 .claude/settings.local.json
 
