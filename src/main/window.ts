@@ -282,7 +282,18 @@ export function createSubWindow(hash: string): BrowserWindow {
   const primaryDisplay = screen.getPrimaryDisplay();
   const { width, height } = primaryDisplay.workAreaSize;
 
-  const preloadPath = path.join(__dirname, '../preload/index.js');
+  // 按 hash 前缀分流 preload：
+  //   - tag-search / artist / character 子窗口只渲染对应的 3 个 Booru 页面，
+  //     使用精简 preload（src/preload/subwindow-index.ts → build/preload/subwindow.js），
+  //     只暴露 window / booru / booruPreferences / system 四个域。
+  //   - secondary-menu 子窗口会 lazy 加载 Gallery / BooruPage / Settings 等重型页面，
+  //     仍使用主 preload（build/preload/index.js），维持完整 API 暴露。
+  // 实现 TP-06 子窗口暴露面最小化原则，不影响其他 webPreferences（contextIsolation 等）。
+  const isLightweightSubwindow = /^(tag-search|artist|character)\b/.test(hash);
+  const preloadPath = path.join(
+    __dirname,
+    isLightweightSubwindow ? '../preload/subwindow.js' : '../preload/index.js'
+  );
   const absolutePreloadPath = path.resolve(preloadPath);
 
   const iconPath = resolveAppIconPath();

@@ -6,8 +6,24 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Preload 在 sandboxed 模式下运行，Electron 只允许 require 内置模块和 preload 文件自身。
-// 必须把 preload 打成单文件 bundle，把 IPC_CHANNELS 等跨文件依赖内联进来。
+// Preload 在 sandboxed 模式下运行，Electron 只允许 require 内置模块和 preload 文件自身，
+// 不支持加载 split 出来的共享 chunk。必须把每个 preload 打成单文件 bundle，
+// 把 IPC_CHANNELS、createXxxApi 工厂等跨文件依赖完整内联进去。
+//
+// 本项目有两个 preload 入口（主窗口 index / 轻量子窗口 subwindow），两个入口要同时
+// 满足"每个都是单文件"的约束。Rollup 多入口模式默认会把共享模块抽成 shared chunk，
+// 与此冲突。解决方案：用 PRELOAD_ENTRY 环境变量选择一个入口，按 lib 模式单入口构建，
+// 在 npm script 里运行两次（见 package.json 的 build:preload）。
+const ENTRY_KEY = (process.env.PRELOAD_ENTRY || 'index') as 'index' | 'subwindow';
+const ENTRY_SOURCE: Record<'index' | 'subwindow', string> = {
+  index: path.join(__dirname, 'src/preload/index.ts'),
+  subwindow: path.join(__dirname, 'src/preload/subwindow-index.ts'),
+};
+const ENTRY_FILE: Record<'index' | 'subwindow', string> = {
+  index: 'index.js',
+  subwindow: 'subwindow.js',
+};
+
 export default defineConfig({
   // Vite 会自动用 esbuild 处理 TS，不需要独立的 tsconfig（tsconfig.preload.json 只管 tsc 类型检查）。
   esbuild: {
@@ -50,19 +66,22 @@ export default defineConfig({
   ],
   build: {
     outDir: path.join(__dirname, 'build/preload'),
-    emptyOutDir: true,
+    // emptyOutDir 只能在第一次构建（index）时清空输出目录；
+    // 第二次构建（subwindow）必须保留第一次的产物，否则会被清空。
+    emptyOutDir: ENTRY_KEY === 'index',
     target: 'node22',
     minify: false,
     sourcemap: true,
     lib: {
-      entry: path.join(__dirname, 'src/preload/index.ts'),
+      entry: ENTRY_SOURCE[ENTRY_KEY],
       formats: ['cjs'],
-      fileName: () => 'index.js',
+      fileName: () => ENTRY_FILE[ENTRY_KEY],
     },
     rollupOptions: {
       // Electron 内置模块不 bundle，preload 运行时由 Electron 注入
       external: ['electron'],
       output: {
+        // lib 单入口 + inlineDynamicImports=true 保证所有依赖被内联到当前入口。
         inlineDynamicImports: true,
       },
     },
