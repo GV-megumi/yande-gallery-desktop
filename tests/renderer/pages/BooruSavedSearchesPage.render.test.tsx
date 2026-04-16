@@ -110,7 +110,7 @@ describe('BooruSavedSearchesPage render behavior', () => {
       { timeout: 15_000 }
     );
 
-    // 等待断言首次触发后再检查参数细节
+    // mock 已被调用，同步检查参数
     expect(updateSavedSearch).toHaveBeenCalledWith(1, {
       name: '蓝色系-更新',
       query: 'blue_eyes rating:s',
@@ -133,12 +133,18 @@ describe('BooruSavedSearchesPage render behavior', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /^保\s*存$/ }));
 
-    await waitFor(() => {
-      expect(updateSavedSearch).toHaveBeenCalledWith(1, {
-        name: '蓝色系',
-        query: 'blue_eyes',
-        siteId: null,
-      });
+    await waitFor(
+      () => {
+        expect(updateSavedSearch).toHaveBeenCalled();
+      },
+      { timeout: 15_000 }
+    );
+
+    // mock 已被调用，同步检查参数
+    expect(updateSavedSearch).toHaveBeenCalledWith(1, {
+      name: '蓝色系',
+      query: 'blue_eyes',
+      siteId: null,
     });
   });
 });
