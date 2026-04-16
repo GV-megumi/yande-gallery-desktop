@@ -441,8 +441,6 @@ const zhCN = {
     thumbnailsFooter: '更大的缩略图尺寸和质量会占用更多磁盘空间。',
     thumbnailSize: '缩略图尺寸',
     thumbnailQuality: '缩略图质量',
-    autoGenThumbnail: '自动生成缩略图',
-    autoGenThumbnailDesc: '导入新图片时自动生成',
     sizeSmall: '小 (300px)',
     sizeMedium: '中 (400px)',
     sizeLarge: '大 (600px)',

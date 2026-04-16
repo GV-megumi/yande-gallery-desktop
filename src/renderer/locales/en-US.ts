@@ -443,8 +443,6 @@ const enUS: LocaleMessages = {
     thumbnailsFooter: 'Larger thumbnail size and quality use more disk space.',
     thumbnailSize: 'Thumbnail Size',
     thumbnailQuality: 'Thumbnail Quality',
-    autoGenThumbnail: 'Auto Generate',
-    autoGenThumbnailDesc: 'Auto-generate thumbnails for new images',
     sizeSmall: 'Small (300px)',
     sizeMedium: 'Medium (400px)',
     sizeLarge: 'Large (600px)',
