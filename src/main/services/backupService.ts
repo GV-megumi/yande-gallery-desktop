@@ -54,6 +54,39 @@ export function summarizeBackupTables(data: AppBackupData): BackupSummaryItem[] 
   }));
 }
 
+// 敏感列剔除表：按表名声明哪些字段不允许进入备份文件。
+// 站点凭证(salt/apiKey/passwordHash)即便已被 renderer 端去敏
+// 也绝不允许随备份导出，避免导出文件被明文分发或同步到云端。
+const SENSITIVE_COLUMNS_BY_TABLE: Partial<Record<BackupTableName, readonly string[]>> = {
+  booru_sites: ['salt', 'apiKey', 'passwordHash'] as const,
+};
+
+function sanitizeBackupRow(table: BackupTableName, row: Record<string, unknown>): Record<string, unknown> {
+  const sensitive = SENSITIVE_COLUMNS_BY_TABLE[table];
+  if (!sensitive || sensitive.length === 0) {
+    return row;
+  }
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (sensitive.includes(key)) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+function sanitizeBackupTableRows(
+  table: BackupTableName,
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const sensitive = SENSITIVE_COLUMNS_BY_TABLE[table];
+  if (!sensitive || sensitive.length === 0) {
+    return rows;
+  }
+  return rows.map((row) => sanitizeBackupRow(table, row));
+}
+
 function projectBackupSafeConfig(config: {
   dataPath?: AppConfig['dataPath'];
   database: AppConfig['database'];
@@ -147,7 +180,9 @@ export async function createAppBackupData(): Promise<AppBackupData> {
   const tables = {} as Record<BackupTableName, Record<string, unknown>[]>;
 
   for (const table of BACKUP_TABLES) {
-    tables[table] = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    const rawRows = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    // 按表剔除敏感列，确保备份文件不会携带站点凭证等不应外流的字段。
+    tables[table] = sanitizeBackupTableRows(table, rawRows);
   }
 
   return {
@@ -214,7 +249,9 @@ export async function restoreAppBackupData(
       for (const table of BACKUP_RESTORE_ORDER) {
         const rows = backupData.tables[table] ?? [];
         for (const row of rows) {
-          const { sql, values } = buildInsertStatement(table, row);
+          // 即便备份文件中残留了 salt / apiKey / passwordHash 这类敏感列，
+          // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
+          const { sql, values } = buildInsertStatement(table, sanitizeBackupRow(table, row));
           await run(db, sql, values as any[]);
         }
       }

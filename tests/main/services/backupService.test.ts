@@ -215,6 +215,144 @@ describe('restoreAppBackupData', () => {
   });
 });
 
+describe('booru_sites backup column sanitization', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.clearAllMocks();
+  });
+
+  it('导出备份时应从 booru_sites 行中移除 salt / apiKey / passwordHash 等凭证列', async () => {
+    const booruSitesRows = [
+      {
+        id: 1,
+        name: 'Yande',
+        url: 'https://yande.re',
+        type: 'moebooru',
+        salt: 'secret-salt',
+        apiKey: 'secret-key',
+        username: 'alice',
+        passwordHash: 'secret-hash',
+        favoriteSupport: 1,
+        active: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-02T00:00:00.000Z',
+      },
+    ];
+
+    vi.doMock('../../../src/main/services/config.js', () => ({
+      getConfig: vi.fn(() => ({
+        dataPath: 'data',
+        database: { path: 'gallery.db', logging: true },
+        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        galleries: { folders: [] },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
+        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
+        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
+        network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
+        booru: {
+          appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
+          download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
+        },
+      })),
+      saveConfig: vi.fn(async () => ({ success: true })),
+      toRendererSafeUiConfig,
+    }));
+
+    const allMock = vi.fn(async (_db: unknown, sql: string) => {
+      if (sql === 'SELECT * FROM booru_sites') {
+        return booruSitesRows;
+      }
+      return [];
+    });
+
+    vi.doMock('../../../src/main/services/database.js', () => ({
+      getDatabase: vi.fn(async () => ({})),
+      all: allMock,
+      run: vi.fn(async () => undefined),
+      runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+    }));
+
+    const { createAppBackupData } = await import('../../../src/main/services/backupService');
+    const backup = await createAppBackupData();
+
+    expect(backup.tables.booru_sites).toHaveLength(1);
+    const exportedSite = backup.tables.booru_sites[0];
+    expect(exportedSite).not.toHaveProperty('salt');
+    expect(exportedSite).not.toHaveProperty('apiKey');
+    expect(exportedSite).not.toHaveProperty('passwordHash');
+    // 非敏感字段应保留，便于恢复站点元数据
+    expect(exportedSite).toMatchObject({
+      id: 1,
+      name: 'Yande',
+      url: 'https://yande.re',
+      type: 'moebooru',
+      username: 'alice',
+      favoriteSupport: 1,
+      active: 1,
+    });
+  });
+
+  it('导入备份时若 booru_sites 行中仍残留 salt / apiKey / passwordHash，应丢弃这些字段，避免越界写回', async () => {
+    const incomingRows = [
+      {
+        id: 5,
+        name: 'Evil',
+        url: 'https://evil.example',
+        type: 'moebooru',
+        salt: 'should-not-write',
+        apiKey: 'should-not-write',
+        username: 'eve',
+        passwordHash: 'should-not-write',
+        favoriteSupport: 1,
+        active: 1,
+      },
+    ];
+
+    const backupData: AppBackupData = {
+      ...createBackupPayload(),
+      tables: {
+        ...createEmptyTables(),
+        booru_sites: incomingRows,
+      },
+    };
+
+    const saveConfigMock = vi.fn(async () => ({ success: true }));
+    const runInTransactionMock = vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => {
+      await callback();
+    });
+
+    const runMock = vi.fn(async () => undefined);
+    const allMock = vi.fn(async () => []);
+
+    vi.doMock('../../../src/main/services/config.js', () => ({
+      getConfig: vi.fn(() => ({})),
+      saveConfig: saveConfigMock,
+      toRendererSafeUiConfig,
+    }));
+
+    vi.doMock('../../../src/main/services/database.js', () => ({
+      getDatabase: vi.fn(async () => ({})),
+      all: allMock,
+      run: runMock,
+      runInTransaction: runInTransactionMock,
+    }));
+
+    const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
+    await restoreAppBackupData(backupData, { mode: 'replace' });
+
+    const insertBooruSiteCall = runMock.mock.calls.find(([_, sql]) =>
+      typeof sql === 'string' && sql.startsWith('INSERT OR REPLACE INTO booru_sites')
+    );
+    expect(insertBooruSiteCall).toBeTruthy();
+    const insertSql = insertBooruSiteCall![1] as string;
+    // 敏感列不应出现在实际写入 SQL 的列名中
+    expect(insertSql).not.toMatch(/\bsalt\b/);
+    expect(insertSql).not.toMatch(/\bapiKey\b/);
+    expect(insertSql).not.toMatch(/\bpasswordHash\b/);
+  });
+});
+
 describe('backup config sanitization', () => {
   const sourceConfig = {
     dataPath: 'data',
