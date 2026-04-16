@@ -6,10 +6,18 @@
 
 import React, { useMemo, Suspense } from 'react';
 import { App as AntApp } from 'antd';
-import { BooruTagSearchPage } from './pages/BooruTagSearchPage';
-import { BooruArtistPage } from './pages/BooruArtistPage';
-import { BooruCharacterPage } from './pages/BooruCharacterPage';
 import { colors, spacing, fontSize } from './styles/tokens';
+
+// 直接打开的子窗口页面：使用 React.lazy 实现代码分割，与 App.tsx 保持一致
+const BooruTagSearchPage = React.lazy(() =>
+  import('./pages/BooruTagSearchPage').then((m) => ({ default: m.BooruTagSearchPage }))
+);
+const BooruArtistPage = React.lazy(() =>
+  import('./pages/BooruArtistPage').then((m) => ({ default: m.BooruArtistPage }))
+);
+const BooruCharacterPage = React.lazy(() =>
+  import('./pages/BooruCharacterPage').then((m) => ({ default: m.BooruCharacterPage }))
+);
 
 // 二级菜单页面：使用 React.lazy 实现代码分割
 const GalleryPage = React.lazy(() => import('./pages/GalleryPage').then(m => ({ default: m.GalleryPage })));
@@ -168,13 +176,15 @@ const SubWindowContent: React.FC = () => {
           background: colors.bgLight,
           padding: spacing.lg,
         }}>
-          <BooruTagSearchPage
-            initialTag={tag}
-            initialSiteId={siteId}
-            onBack={handleClose}
-            onArtistClick={openArtistWindow}
-            onDetailTagClick={openTagSearchWindow}
-          />
+          <Suspense fallback={suspenseFallback}>
+            <BooruTagSearchPage
+              initialTag={tag}
+              initialSiteId={siteId}
+              onBack={handleClose}
+              onArtistClick={openArtistWindow}
+              onDetailTagClick={openTagSearchWindow}
+            />
+          </Suspense>
         </div>
       );
     }
@@ -192,13 +202,15 @@ const SubWindowContent: React.FC = () => {
           background: colors.bgLight,
           padding: spacing.lg,
         }}>
-          <BooruArtistPage
-            artistName={name}
-            initialSiteId={siteId}
-            onBack={handleClose}
-            onTagClick={openTagSearchWindow}
-            onDetailTagClick={openTagSearchWindow}
-          />
+          <Suspense fallback={suspenseFallback}>
+            <BooruArtistPage
+              artistName={name}
+              initialSiteId={siteId}
+              onBack={handleClose}
+              onTagClick={openTagSearchWindow}
+              onDetailTagClick={openTagSearchWindow}
+            />
+          </Suspense>
         </div>
       );
     }
@@ -216,13 +228,15 @@ const SubWindowContent: React.FC = () => {
           background: colors.bgLight,
           padding: spacing.lg,
         }}>
-          <BooruCharacterPage
-            characterName={name}
-            initialSiteId={siteId}
-            onBack={handleClose}
-            onTagClick={openTagSearchWindow}
-            onDetailTagClick={openTagSearchWindow}
-          />
+          <Suspense fallback={suspenseFallback}>
+            <BooruCharacterPage
+              characterName={name}
+              initialSiteId={siteId}
+              onBack={handleClose}
+              onTagClick={openTagSearchWindow}
+              onDetailTagClick={openTagSearchWindow}
+            />
+          </Suspense>
         </div>
       );
     }
