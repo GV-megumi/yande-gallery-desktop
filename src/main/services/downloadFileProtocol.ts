@@ -49,3 +49,30 @@ export function validateDownloadedFileSize(actualSize: number, expectedSize: num
     throw new Error(`File size mismatch: expected ${expectedSize} bytes, got ${actualSize} bytes`);
   }
 }
+
+import crypto from 'crypto';
+
+/**
+ * 校验已落盘文件的 MD5 指纹。
+ * - 当 expectedMd5 为 null/undefined 时不做校验，保持与旧行为兼容
+ * - 当实际指纹与 Booru 提供的 md5 不一致时抛出错误，由上层决定是删除 .part 还是重试
+ *
+ * 计算仅涉及一次顺序读取，典型图片 (<10MB) 的开销可忽略；对大文件可以后续
+ * 替换为流式计算。
+ */
+export function validateDownloadedFileMd5(filePath: string, expectedMd5: string | null | undefined): void {
+  if (!expectedMd5) {
+    return;
+  }
+
+  const normalizedExpected = expectedMd5.trim().toLowerCase();
+  if (normalizedExpected.length === 0) {
+    return;
+  }
+
+  const content = fs.readFileSync(filePath);
+  const actual = crypto.createHash('md5').update(content).digest('hex');
+  if (actual !== normalizedExpected) {
+    throw new Error(`File md5 mismatch: expected ${normalizedExpected}, got ${actual}`);
+  }
+}

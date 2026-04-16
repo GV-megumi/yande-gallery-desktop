@@ -13,6 +13,7 @@ import { networkScheduler } from './networkScheduler.js';
 import {
   buildDownloadTempPath,
   replaceFileWithTemp,
+  validateDownloadedFileMd5,
   validateDownloadedFileSize,
 } from './downloadFileProtocol.js';
 
@@ -471,6 +472,17 @@ class DownloadManager {
 
       const actualSize = (await fsPromises.stat(tempPath)).size;
       validateDownloadedFileSize(actualSize, totalLength > 0 ? totalLength : null);
+      // 如果 Booru post 返回了 md5 指纹，就在替换最终文件前再做一次校验，
+      // 防止中间人替换或代理/CDN 缓存污染导致的内容不一致。
+      try {
+        validateDownloadedFileMd5(tempPath, post.md5);
+      } catch (md5Error) {
+        // 校验失败时清理 .part 文件，不要保留到最终目录
+        try {
+          await fsPromises.unlink(tempPath);
+        } catch {}
+        throw md5Error;
+      }
       replaceFileWithTemp(tempPath, item.targetPath!);
 
       // pipeline 成功完成

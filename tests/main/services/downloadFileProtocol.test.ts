@@ -8,6 +8,7 @@ import {
   replaceFileWithTemp,
   shouldDeleteTargetOnFailure,
   shouldDeleteTempFileOnFailure,
+  validateDownloadedFileMd5,
   validateDownloadedFileSize,
 } from '../../../src/main/services/downloadFileProtocol.js';
 
@@ -76,6 +77,40 @@ describe('downloadFileProtocol', () => {
 
     expect(fs.readFileSync(finalPath, 'utf8')).toBe('new-content');
     expect(fs.existsSync(tempPath)).toBe(false);
+  });
+
+  it('当未传入 expectedMd5 时应跳过 md5 校验', () => {
+    const dir = createTempDir();
+    const filePath = path.join(dir, 'image.jpg');
+    fs.writeFileSync(filePath, 'hello world');
+
+    expect(() => validateDownloadedFileMd5(filePath, null)).not.toThrow();
+    expect(() => validateDownloadedFileMd5(filePath, undefined)).not.toThrow();
+    expect(() => validateDownloadedFileMd5(filePath, '')).not.toThrow();
+    expect(() => validateDownloadedFileMd5(filePath, '   ')).not.toThrow();
+  });
+
+  it('当 expectedMd5 与文件实际 md5 一致时不应抛错', () => {
+    const dir = createTempDir();
+    const filePath = path.join(dir, 'image.jpg');
+    fs.writeFileSync(filePath, 'hello world');
+    // md5("hello world") = 5eb63bbbe01eeed093cb22bb8f5acdc3
+    expect(() =>
+      validateDownloadedFileMd5(filePath, '5eb63bbbe01eeed093cb22bb8f5acdc3'),
+    ).not.toThrow();
+    // 大小写不敏感
+    expect(() =>
+      validateDownloadedFileMd5(filePath, '5EB63BBBE01EEED093CB22BB8F5ACDC3'),
+    ).not.toThrow();
+  });
+
+  it('当 expectedMd5 与文件实际 md5 不一致时应抛出 md5 mismatch 错误', () => {
+    const dir = createTempDir();
+    const filePath = path.join(dir, 'image.jpg');
+    fs.writeFileSync(filePath, 'hello world');
+    expect(() =>
+      validateDownloadedFileMd5(filePath, '00000000000000000000000000000000'),
+    ).toThrow(/File md5 mismatch/);
   });
 
   it('final 已存在且替换失败时应保住原 final', () => {
