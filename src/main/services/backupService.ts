@@ -1,3 +1,4 @@
+import type sqlite3 from 'sqlite3';
 import {
   getConfig,
   saveConfig,

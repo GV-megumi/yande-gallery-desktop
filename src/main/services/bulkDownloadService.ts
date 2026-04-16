@@ -52,7 +52,7 @@ const DESKTOP_NOTIFICATION_STATUSES = new Set<BulkDownloadSessionStatus>([
 ]);
 
 function isDesktopNotificationStatus(status: BulkDownloadSessionStatus | undefined): status is 'completed' | 'failed' | 'allSkipped' {
-  return Boolean(status) && DESKTOP_NOTIFICATION_STATUSES.has(status);
+  return typeof status === 'string' && DESKTOP_NOTIFICATION_STATUSES.has(status as 'completed' | 'failed' | 'allSkipped');
 }
 
 async function getBulkDownloadSessionNotificationContext(sessionId: string): Promise<{
@@ -555,7 +555,7 @@ export async function updateBulkDownloadSession(
 
     if (
       notificationContext
-      && nextStatus
+      && isDesktopNotificationStatus(nextStatus)
       && notificationContext.notificationsEnabled
       && notificationContext.previousStatus !== nextStatus
     ) {

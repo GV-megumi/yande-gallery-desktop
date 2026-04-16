@@ -218,7 +218,7 @@ export interface GalleryFolder {
   extensions: string[];
 }
 
-export type BooruAppearancePreference = AppConfig['booru']['appearance'];
+export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
 
 export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
 export type RendererSafeGoogleConfig = Omit<NonNullable<AppConfig['google']>, 'clientSecret'>;
@@ -1068,6 +1068,7 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
                 ...currentConfig.booru?.appearance,
                 ...input.booru.appearance,
               } as BooruAppearancePreference,
+              download: currentConfig.booru?.download ?? DEFAULT_CONFIG.booru!.download,
             },
           }),
           download: {
