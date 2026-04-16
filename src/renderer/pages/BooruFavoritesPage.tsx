@@ -243,9 +243,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
   };
 
-  // 处理下载（委托给 useBooruPostActions）
-  const handleDownload = (post: BooruPost) => postActions.download(post);
-
   // 处理标签点击（导航到标签搜索页面）
   const handleTagClick = (tag: string) => {
     console.log('[BooruFavoritesPage] 点击标签:', tag);
@@ -474,7 +471,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               borderRadius={appearanceConfig.borderRadius}
               selectedSite={selectedSite || null}
               onPreview={handlePreview}
-              onDownload={handleDownload}
+              onDownload={postActions.download}
               onToggleFavorite={handleToggleFavorite}
               favorites={favorites}
               getPreviewUrl={getPreviewUrl}
@@ -506,7 +503,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         initialIndex={postActions.selectedPost ? sortedPosts.findIndex(p => p.postId === postActions.selectedPost!.postId) : 0}
         onClose={postActions.closeDetails}
         onToggleFavorite={handleToggleFavorite}
-        onDownload={handleDownload}
+        onDownload={postActions.download}
         onTagClick={(tag: string) => {
           console.log('[BooruFavoritesPage] 详情页标签点击，打开子窗口:', tag);
           window.electronAPI?.window.openTagSearch(tag, selectedSiteId);

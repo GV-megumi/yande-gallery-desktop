@@ -214,10 +214,11 @@ describe('BooruFavoritesPage · useBooruPostActions 集成', () => {
     const serverFavBtn = await screen.findByTestId('grid-server-favorite-101');
     fireEvent.click(serverFavBtn);
 
+    // 精确断言：初始 serverFavorites 为空集合，首次点击应是 serverFavorite(1, 101)，
+    // 不应错误地调用 serverUnfavorite（防止 wrong-dispatch 误报通过）
     await waitFor(() => {
-      expect(
-        booruApi.serverFavorite.mock.calls.length + booruApi.serverUnfavorite.mock.calls.length
-      ).toBeGreaterThan(0);
+      expect(booruApi.serverFavorite).toHaveBeenCalledWith(1, 101);
     });
+    expect(booruApi.serverUnfavorite).not.toHaveBeenCalled();
   });
 });
