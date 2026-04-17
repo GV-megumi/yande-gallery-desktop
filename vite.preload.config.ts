@@ -68,7 +68,8 @@ export default defineConfig({
     outDir: path.join(__dirname, 'build/preload'),
     // emptyOutDir 只能在第一次构建（index）时清空输出目录；
     // 第二次构建（subwindow）必须保留第一次的产物，否则会被清空。
-    emptyOutDir: ENTRY_KEY === 'index',
+    // watch 模式下两个入口并发运行，互相会删对方产物，统一禁止 empty（PRELOAD_NO_EMPTY=true）。
+    emptyOutDir: ENTRY_KEY === 'index' && !process.env.PRELOAD_NO_EMPTY,
     target: 'node22',
     minify: false,
     sourcemap: true,

@@ -9,6 +9,10 @@
  *
  * 跨平台在 package.json 里设 env 要 cross-env；为避免新增依赖，
  * 改用这份小 node 脚本显式分两步触发构建。
+ *
+ * 用法：
+ *   node scripts/build-preload.mjs           — 普通串行构建（CI / 生产）
+ *   node scripts/build-preload.mjs --watch   — watch 模式：先全量构建，再并发 watch 两个入口
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -18,17 +22,26 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
 
+const isWatch = process.argv.includes('--watch');
+
 /**
- * 调用 `vite build` 一次，通过环境变量 PRELOAD_ENTRY 指定要构建的入口。
+ * 调用 `vite build` 一次（非 watch），通过环境变量 PRELOAD_ENTRY 指定要构建的入口。
+ * @param {string} entry - 'index' 或 'subwindow'
+ * @param {{ noEmpty?: boolean }} [opts]
  */
-function runViteBuild(entry) {
+function runViteBuild(entry, opts = {}) {
   return new Promise((resolve, reject) => {
+    const env = {
+      ...process.env,
+      PRELOAD_ENTRY: entry,
+      ...(opts.noEmpty ? { PRELOAD_NO_EMPTY: 'true' } : {}),
+    };
     // Windows 下 npx 是 .cmd 脚本，spawn 需要 shell:true 才能解析；
     // POSIX 下也可以用 shell:true（只是略慢）。统一打开避免平台分叉。
     const child = spawn('npx', ['vite', 'build', '--config', 'vite.preload.config.ts'], {
       cwd: projectRoot,
       stdio: 'inherit',
-      env: { ...process.env, PRELOAD_ENTRY: entry },
+      env,
       shell: true,
     });
     child.on('error', reject);
@@ -39,13 +52,100 @@ function runViteBuild(entry) {
   });
 }
 
+/**
+ * 启动 `vite build --watch` 子进程，stdout/stderr 带前缀透传。
+ * @param {string} entry - 'index' 或 'subwindow'
+ * @returns {import('node:child_process').ChildProcess}
+ */
+function spawnViteWatch(entry) {
+  const prefix = `[preload:${entry}]`;
+  const env = {
+    ...process.env,
+    PRELOAD_ENTRY: entry,
+    PRELOAD_NO_EMPTY: 'true',
+  };
+  const child = spawn(
+    'npx',
+    ['vite', 'build', '--watch', '--config', 'vite.preload.config.ts'],
+    {
+      cwd: projectRoot,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env,
+      shell: true,
+    }
+  );
+
+  child.stdout.on('data', (data) => {
+    const lines = String(data).split('\n');
+    for (const line of lines) {
+      if (line.trim()) process.stdout.write(`${prefix} ${line}\n`);
+    }
+  });
+  child.stderr.on('data', (data) => {
+    const lines = String(data).split('\n');
+    for (const line of lines) {
+      if (line.trim()) process.stderr.write(`${prefix} ${line}\n`);
+    }
+  });
+
+  child.on('error', (err) => {
+    console.error(`${prefix} 子进程错误:`, err);
+  });
+  child.on('exit', (code, signal) => {
+    if (code !== 0 && signal !== 'SIGINT' && signal !== 'SIGTERM' && code !== null) {
+      console.error(`${prefix} 子进程退出，退出码 ${code}`);
+    }
+  });
+
+  return child;
+}
+
 async function main() {
-  // 按顺序串行构建：index 在先（clean 输出目录），subwindow 在后（保留 index 产物）。
-  console.log('[build-preload] 构建主窗口 preload (index) ...');
-  await runViteBuild('index');
-  console.log('[build-preload] 构建轻量子窗口 preload (subwindow) ...');
-  await runViteBuild('subwindow');
-  console.log('[build-preload] 完成');
+  if (isWatch) {
+    // Watch 模式：先同步全量构建作为 baseline，再并发 watch 两个入口。
+    console.log('[build-preload] watch 模式：先执行全量构建作为 baseline ...');
+    console.log('[build-preload] 构建主窗口 preload (index) ...');
+    await runViteBuild('index');
+    console.log('[build-preload] 构建子窗口 preload (subwindow) ...');
+    await runViteBuild('subwindow');
+    console.log('[build-preload] baseline 构建完成，启动双入口 watch ...');
+
+    const children = [spawnViteWatch('index'), spawnViteWatch('subwindow')];
+
+    // 收到退出信号时，优雅关闭所有子进程
+    const shutdown = (signal) => {
+      console.log(`\n[build-preload] 收到 ${signal}，关闭子进程 ...`);
+      for (const child of children) {
+        try {
+          child.kill(signal);
+        } catch (_) {
+          // 子进程可能已退出，忽略错误
+        }
+      }
+      // 等待子进程退出后再退出主进程
+      let exited = 0;
+      for (const child of children) {
+        child.on('exit', () => {
+          exited++;
+          if (exited === children.length) {
+            process.exit(0);
+          }
+        });
+      }
+      // 超时保底：3 秒后强制退出
+      setTimeout(() => process.exit(0), 3000).unref();
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  } else {
+    // 普通串行构建（CI / 生产）：按顺序构建，index 在先（clean 输出目录），subwindow 在后（保留 index 产物）。
+    console.log('[build-preload] 构建主窗口 preload (index) ...');
+    await runViteBuild('index');
+    console.log('[build-preload] 构建轻量子窗口 preload (subwindow) ...');
+    await runViteBuild('subwindow');
+    console.log('[build-preload] 完成');
+  }
 }
 
 main().catch((error) => {

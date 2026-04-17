@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "concurrently \"npm run dev:main\" \"npm run dev:preload\" \"npm run dev:renderer\"",
     "dev:main": "tsc -p tsconfig.main.json --watch",
-    "dev:preload": "vite build --watch --config vite.preload.config.ts",
+    "dev:preload": "node scripts/build-preload.mjs --watch",
     "dev:renderer": "vite",
     "build": "npm run build:main && npm run build:preload && npm run build:renderer",
     "build:main": "tsc -p tsconfig.main.json",
