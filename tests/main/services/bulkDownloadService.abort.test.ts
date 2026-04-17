@@ -1,3 +1,6 @@
+// 注意：channels.ts 是无副作用的常量模块，可直接 import 使用。
+// 不要 vi.mock(channels.js) 透传 IPC_CHANNELS —— vi.mock 会被 hoist 到 import 之前，
+// factory 里引用 top-level import 会触发 'Cannot access __vi_import_X__ before initialization'。
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import fs from 'fs';
 import os from 'os';

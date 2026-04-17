@@ -1,5 +1,8 @@
+// 注意：channels.ts 是无副作用的常量模块，可直接 import 使用。
+// 不要 vi.mock(channels.js) 透传 IPC_CHANNELS —— vi.mock 会被 hoist 到 import 之前，
+// factory 里引用 top-level import 会触发 'Cannot access __vi_import_X__ before initialization'。
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { existsSync, readFileSync } from 'fs';
+import { existsSync, readFileSync, readdirSync } from 'fs';
 import path from 'path';
 import { IPC_CHANNELS } from '../../../src/main/ipc/channels.ts';
 
@@ -151,19 +154,21 @@ describe('setupIPC source-level registration coverage', () => {
   // 从主 preload 搬到 src/preload/shared/create*Api.ts factory 文件。
   // 测试意图（"调用以 IPC_CHANNELS.X 形式存在而非裸字符串"）不变，
   // 但断言范围应扩展到整个 preload 层（主 preload + factory + 子窗口 preload）。
-  const factoryDir = path.resolve(process.cwd(), 'src/preload/shared');
-  const windowFactorySource = readFileSync(path.join(factoryDir, 'createWindowApi.ts'), 'utf-8');
-  const booruFactorySource = readFileSync(path.join(factoryDir, 'createBooruApi.ts'), 'utf-8');
-  const systemFactorySource = readFileSync(path.join(factoryDir, 'createSystemApi.ts'), 'utf-8');
-  const booruPreferencesFactorySource = readFileSync(path.join(factoryDir, 'createBooruPreferencesApi.ts'), 'utf-8');
-  const subwindowPreloadSource = readFileSync(path.resolve(process.cwd(), 'src/preload/subwindow-index.ts'), 'utf-8');
-  const preloadLayerSource =
-    preloadSource +
-    '\n' + windowFactorySource +
-    '\n' + booruFactorySource +
-    '\n' + systemFactorySource +
-    '\n' + booruPreferencesFactorySource +
-    '\n' + subwindowPreloadSource;
+  //
+  // 用 readdirSync 自动覆盖 src/preload/shared/ 下全部 factory 文件，
+  // 避免未来新增 factory（如 createGalleryApi.ts）时硬编码列表过期、
+  // 断言静默漏检。
+  const preloadDir = path.resolve(process.cwd(), 'src/preload');
+  const sharedDir = path.join(preloadDir, 'shared');
+  const sharedFactorySources = readdirSync(sharedDir)
+    .filter((name) => name.endsWith('.ts'))
+    .map((name) => readFileSync(path.join(sharedDir, name), 'utf-8'));
+  const subwindowPreloadSource = readFileSync(path.join(preloadDir, 'subwindow-index.ts'), 'utf-8');
+  const preloadLayerSource = [
+    preloadSource,
+    ...sharedFactorySources,
+    subwindowPreloadSource,
+  ].join('\n');
 
   it('应在真实 handlers.ts 中注册 favorite-tag 下载相关 handlers', () => {
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE');
@@ -191,7 +196,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(existsSync(legacyHandlersPath)).toBe(false);
   });
 
-  it('preload 应直接复用 channels.ts 导出的 IPC_CHANNELS，避免继续维护第二份通道表', () => {
+  it('preload 层应直接复用 channels.ts 导出的 IPC_CHANNELS，避免继续维护第二份通道表', () => {
     // not.toContain 检查：仍用 preloadSource，范围精确（主 preload 不应包含这些旧模式）
     expect(preloadSource).not.toContain('hashPassword: (salt: string, password: string) =>');
     expect(preloadSource).not.toContain('IPC_CHANNELS.BOORU_HASH_PASSWORD');
@@ -311,7 +316,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(source).not.toContain("webContents.send('booru:favorites-repair-done'");
   });
 
-  it('window、下载进度与批量下载记录事件也应收敛到 IPC_CHANNELS，避免 preload 与主进程继续共享裸字符串', () => {
+  it('window、下载进度与批量下载记录事件也应收敛到 IPC_CHANNELS，避免 preload 层与主进程继续共享裸字符串', () => {
     expect(channelsSource).toContain("WINDOW_OPEN_TAG_SEARCH: 'window:open-tag-search'");
     expect(channelsSource).toContain("WINDOW_OPEN_ARTIST: 'window:open-artist'");
     expect(channelsSource).toContain("WINDOW_OPEN_CHARACTER: 'window:open-character'");
