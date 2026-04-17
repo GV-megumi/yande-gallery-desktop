@@ -147,6 +147,24 @@ describe('setupIPC source-level registration coverage', () => {
   const preloadSource = readFileSync(preloadPath, 'utf-8');
   const channelsSource = readFileSync(channelsPath, 'utf-8');
 
+  // TW-08: TW-05 把 window/booru/booruPreferences/system 4 个域的 IPC 调用
+  // 从主 preload 搬到 src/preload/shared/create*Api.ts factory 文件。
+  // 测试意图（"调用以 IPC_CHANNELS.X 形式存在而非裸字符串"）不变，
+  // 但断言范围应扩展到整个 preload 层（主 preload + factory + 子窗口 preload）。
+  const factoryDir = path.resolve(process.cwd(), 'src/preload/shared');
+  const windowFactorySource = readFileSync(path.join(factoryDir, 'createWindowApi.ts'), 'utf-8');
+  const booruFactorySource = readFileSync(path.join(factoryDir, 'createBooruApi.ts'), 'utf-8');
+  const systemFactorySource = readFileSync(path.join(factoryDir, 'createSystemApi.ts'), 'utf-8');
+  const booruPreferencesFactorySource = readFileSync(path.join(factoryDir, 'createBooruPreferencesApi.ts'), 'utf-8');
+  const subwindowPreloadSource = readFileSync(path.resolve(process.cwd(), 'src/preload/subwindow-index.ts'), 'utf-8');
+  const preloadLayerSource =
+    preloadSource +
+    '\n' + windowFactorySource +
+    '\n' + booruFactorySource +
+    '\n' + systemFactorySource +
+    '\n' + booruPreferencesFactorySource +
+    '\n' + subwindowPreloadSource;
+
   it('应在真实 handlers.ts 中注册 favorite-tag 下载相关 handlers', () => {
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE');
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING');
@@ -174,39 +192,42 @@ describe('setupIPC source-level registration coverage', () => {
   });
 
   it('preload 应直接复用 channels.ts 导出的 IPC_CHANNELS，避免继续维护第二份通道表', () => {
+    // not.toContain 检查：仍用 preloadSource，范围精确（主 preload 不应包含这些旧模式）
     expect(preloadSource).not.toContain('hashPassword: (salt: string, password: string) =>');
     expect(preloadSource).not.toContain('IPC_CHANNELS.BOORU_HASH_PASSWORD');
-    expect(preloadSource).toContain("import { IPC_CHANNELS } from '../main/ipc/channels.js';");
     expect(preloadSource).not.toContain('const IPC_CHANNELS = {');
-    expect(preloadSource).toContain("exportBackup: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_EXPORT_BACKUP)");
-    expect(preloadSource).toContain("importBackup: (mode: 'merge' | 'replace' = 'merge') => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_IMPORT_BACKUP, mode)");
-    expect(preloadSource).toContain("booruPreferences: {");
-    expect(preloadSource).toContain("appearance: {");
-    expect(preloadSource).toContain("get: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.CONFIG_CHANGED, subscription)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE)");
     expect(preloadSource).not.toContain("callback(getBooruAppearancePreference(config))");
     expect(preloadSource).not.toContain("getBooruAppearancePreference,");
     expect(preloadSource).not.toContain("function getBooruAppearanceFromConfig(");
-    expect(preloadSource).toContain("getTagRelationships: (siteId: number, name: string) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAG_RELATIONSHIPS, siteId, name)");
-    expect(preloadSource).toContain("reportPost: (siteId: number, postId: number, reason: string) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_REPORT_POST, siteId, postId, reason)");
-    expect(preloadSource).toContain("getImageMetadata: (request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_IMAGE_METADATA, request)");
-    expect(preloadSource).toContain("getWiki: (siteId: number, title: string) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_WIKI, siteId, title)");
-    expect(preloadSource).toContain("getForumTopics: (siteId: number, page?: number, limit?: number) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_TOPICS, siteId, page, limit)");
-    expect(preloadSource).toContain("getForumPosts: (siteId: number, topicId: number, page?: number, limit?: number) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_POSTS, siteId, topicId, page, limit)");
-    expect(preloadSource).toContain("getProfile: (siteId: number) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_PROFILE, siteId)");
-    expect(preloadSource).toContain("getUserProfile: (siteId: number, params: { userId?: number; username?: string }) =>");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_USER_PROFILE, siteId, params)");
-    expect(preloadSource).toContain("testBaidu: () => ipcRenderer.invoke(IPC_CHANNELS.NETWORK_TEST_BAIDU)");
-    expect(preloadSource).toContain("testGoogle: () => ipcRenderer.invoke(IPC_CHANNELS.NETWORK_TEST_GOOGLE)");
+    // 主 preload 仍应保留 IPC_CHANNELS 导入语句
+    expect(preloadSource).toContain("import { IPC_CHANNELS } from '../main/ipc/channels.js';");
+    // toContain 检查：用 preloadLayerSource（含 factory）——TW-05 把 IPC 调用搬到了 factory 文件
+    expect(preloadLayerSource).toContain("exportBackup: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_EXPORT_BACKUP)");
+    expect(preloadLayerSource).toContain("importBackup: (mode: 'merge' | 'replace' = 'merge') => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_IMPORT_BACKUP, mode)");
+    expect(preloadLayerSource).toContain("booruPreferences: {");
+    expect(preloadLayerSource).toContain("appearance: {");
+    expect(preloadLayerSource).toContain("get: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.CONFIG_CHANGED, subscription)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE)");
+    expect(preloadLayerSource).toContain("getTagRelationships: (siteId: number, name: string) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_TAG_RELATIONSHIPS, siteId, name)");
+    expect(preloadLayerSource).toContain("reportPost: (siteId: number, postId: number, reason: string) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_REPORT_POST, siteId, postId, reason)");
+    expect(preloadLayerSource).toContain("getImageMetadata: (request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_IMAGE_METADATA, request)");
+    expect(preloadLayerSource).toContain("getWiki: (siteId: number, title: string) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_WIKI, siteId, title)");
+    expect(preloadLayerSource).toContain("getForumTopics: (siteId: number, page?: number, limit?: number) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_TOPICS, siteId, page, limit)");
+    expect(preloadLayerSource).toContain("getForumPosts: (siteId: number, topicId: number, page?: number, limit?: number) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FORUM_POSTS, siteId, topicId, page, limit)");
+    expect(preloadLayerSource).toContain("getProfile: (siteId: number) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_PROFILE, siteId)");
+    expect(preloadLayerSource).toContain("getUserProfile: (siteId: number, params: { userId?: number; username?: string }) =>");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_USER_PROFILE, siteId, params)");
+    expect(preloadLayerSource).toContain("testBaidu: () => ipcRenderer.invoke(IPC_CHANNELS.NETWORK_TEST_BAIDU)");
+    expect(preloadLayerSource).toContain("testGoogle: () => ipcRenderer.invoke(IPC_CHANNELS.NETWORK_TEST_GOOGLE)");
   });
 
   it('channels.ts 应收录 preload 和 handlers 当前共同使用的新增通道常量', () => {
@@ -301,18 +322,20 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("BULK_DOWNLOAD_RECORD_PROGRESS: 'bulk-download:record-progress'");
     expect(channelsSource).toContain("BULK_DOWNLOAD_RECORD_STATUS: 'bulk-download:record-status'");
 
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_TAG_SEARCH, tag, siteId)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_ARTIST, name, siteId)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_CHARACTER, name, siteId)");
-    expect(preloadSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, section, key, tab)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_PROGRESS, subscription)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_STATUS, subscription)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_QUEUE_STATUS, subscription)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_PROGRESS, subscription)");
-    expect(preloadSource).toContain("ipcRenderer.on(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, subscription)");
-    expect(preloadSource).not.toContain("ipcRenderer.invoke('window:");
-    expect(preloadSource).not.toContain("ipcRenderer.on('booru:download-");
-    expect(preloadSource).not.toContain("ipcRenderer.on('bulk-download:record-");
+    // toContain 检查：用 preloadLayerSource（含 factory）——TW-05 把 IPC 调用搬到了 factory 文件
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_TAG_SEARCH, tag, siteId)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_ARTIST, name, siteId)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_CHARACTER, name, siteId)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, section, key, tab)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_PROGRESS, subscription)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_STATUS, subscription)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_QUEUE_STATUS, subscription)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_PROGRESS, subscription)");
+    expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, subscription)");
+    // not.toContain 检查：用 preloadLayerSource 更严格（整个 preload 层均不应出现裸字符串）
+    expect(preloadLayerSource).not.toContain("ipcRenderer.invoke('window:");
+    expect(preloadLayerSource).not.toContain("ipcRenderer.on('booru:download-");
+    expect(preloadLayerSource).not.toContain("ipcRenderer.on('bulk-download:record-");
   });
 });
 
