@@ -5,10 +5,6 @@ import path from 'path';
 import { Readable } from 'stream';
 import { IPC_CHANNELS } from '../../../src/main/ipc/channels.ts';
 
-vi.mock('../../../src/main/ipc/channels.js', () => ({
-  IPC_CHANNELS,
-}));
-
 type TestMode = 'pause' | 'cancel' | 'pause-race' | 'pause-restart-race' | 'pause-restart-overlap' | 'cancel-code' | 'network-error';
 
 interface MockState {

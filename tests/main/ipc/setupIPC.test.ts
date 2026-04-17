@@ -28,10 +28,6 @@ vi.mock('electron', () => ({
   },
 }));
 
-vi.mock('../../../src/main/ipc/channels.js', () => ({
-  IPC_CHANNELS,
-}));
-
 vi.mock('../../../src/main/services/config.js', async () => {
   const actual = await vi.importActual<typeof import('../../../src/main/services/config.js')>('../../../src/main/services/config.js');
   return {
