@@ -112,12 +112,22 @@ async function main() {
 
     const children = [spawnViteWatch('index'), spawnViteWatch('subwindow')];
 
+    // 守卫：避免用户连按 Ctrl+C 时 shutdown 被调多次，
+    // 导致 exit 监听器累积、process.exit 被多次调用。
+    let shuttingDown = false;
+
     // 收到退出信号时，优雅关闭所有子进程
     const shutdown = (signal) => {
+      if (shuttingDown) return;
+      shuttingDown = true;
       console.log(`\n[build-preload] 收到 ${signal}，关闭子进程 ...`);
       for (const child of children) {
         try {
-          child.kill(signal);
+          // Windows 上 ChildProcess.kill 始终走 TerminateProcess 硬杀，
+          // 无论传什么 signal 名都不会真的发送该信号；传 signal 反而会让
+          // vite 没机会 flush watcher 状态。统一用无参 kill()（默认 SIGTERM），
+          // 在 Unix 上仍能让子进程优雅退出，在 Windows 上等价硬杀。
+          child.kill();
         } catch (_) {
           // 子进程可能已退出，忽略错误
         }
