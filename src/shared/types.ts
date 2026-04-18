@@ -147,15 +147,16 @@ export interface SearchHistoryItem {
 // ========= 批量下载相关类型定义 =========
 
 // 批量下载任务状态
-export type BulkDownloadSessionStatus = 
-  | 'pending' 
-  | 'dryRun' 
-  | 'running' 
-  | 'completed' 
-  | 'allSkipped' 
-  | 'failed' 
-  | 'paused' 
-  | 'suspended' 
+export type BulkDownloadSessionStatus =
+  | 'pending'      // 创建后、startSession 调用前的初始状态
+  | 'queued'       // 已加入队列，等待并发槽位
+  | 'dryRun'       // 扫描阶段（活跃）
+  | 'running'      // 下载中（活跃）
+  | 'completed'
+  | 'allSkipped'
+  | 'failed'
+  | 'paused'
+  | 'suspended'
   | 'cancelled';
 
 export type FavoriteTagDownloadDisplayStatus =

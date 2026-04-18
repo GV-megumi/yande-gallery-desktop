@@ -205,6 +205,22 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
               开始
             </Button>
           )}
+          {session.status === 'queued' && (
+            <Popconfirm
+              title="确定要取消排队吗？"
+              onConfirm={handleCancel}
+              disabled={cancelling}
+            >
+              <Button
+                danger
+                icon={<StopOutlined />}
+                loading={cancelling}
+                disabled={cancelling}
+              >
+                {cancelling ? '取消中...' : '取消（出队）'}
+              </Button>
+            </Popconfirm>
+          )}
           {session.status === 'running' && (
             <Button
               icon={<PauseOutlined />}

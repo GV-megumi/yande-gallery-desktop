@@ -88,6 +88,7 @@ describe('bulkDownloadService.resumeRunningSessions', () => {
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: () => undefined,
       getConfig: () => ({ booru: { download: {} } }),
+      getMaxConcurrentBulkDownloadSessions: () => 3,
     }));
 
     vi.doMock('../../../src/main/services/booruClientFactory.js', () => ({

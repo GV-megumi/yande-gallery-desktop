@@ -95,6 +95,7 @@ describe('bulkDownloadService desktop notifications', () => {
 
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: () => undefined,
+      getMaxConcurrentBulkDownloadSessions: () => 3,
     }));
 
     vi.doMock('../../../src/main/services/booruClientFactory.js', () => ({

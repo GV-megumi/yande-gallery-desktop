@@ -57,6 +57,23 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     }
   };
 
+  // 检查会话是否进入排队状态，若是则弹提示
+  // 注意：startSession 对 queued 会话返回 {success:true}，UI 需要自行查状态
+  const notifyIfQueued = async (sessionId: string) => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.bulkDownload.getActiveSessions();
+      if (result.success && result.data) {
+        const target = result.data.find(s => s.id === sessionId);
+        if (target && target.status === 'queued') {
+          message.info('已加入队列，等待其他下载完成');
+        }
+      }
+    } catch (error) {
+      console.error('[BooruBulkDownloadPage] 检查队列状态失败:', error);
+    }
+  };
+
   // 加载已保存的任务
   const loadTasks = async () => {
     try {
@@ -100,16 +117,17 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
 
   // 分离活跃会话和历史会话
   const { activeSessions, historySessions } = useMemo(() => {
-    const active = sessions.filter(s => 
-      s.status === 'pending' || 
-      s.status === 'dryRun' || 
-      s.status === 'running' || 
+    const active = sessions.filter(s =>
+      s.status === 'pending' ||
+      s.status === 'queued' ||
+      s.status === 'dryRun' ||
+      s.status === 'running' ||
       s.status === 'paused'
     );
-    const history = sessions.filter(s => 
-      s.status === 'completed' || 
-      s.status === 'failed' || 
-      s.status === 'cancelled' || 
+    const history = sessions.filter(s =>
+      s.status === 'completed' ||
+      s.status === 'failed' ||
+      s.status === 'cancelled' ||
       s.status === 'allSkipped'
     );
     return { activeSessions: active, historySessions: history };
@@ -208,6 +226,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
             console.log('[BooruBulkDownloadPage] 下载已启动');
             // 刷新会话列表
             loadSessions();
+            // 若新会话因并发闸门被打成 queued，提示用户
+            notifyIfQueued(sessionId);
           } catch (error) {
             console.error('[BooruBulkDownloadPage] 后台启动下载出错:', error);
             message.error('启动下载失败: ' + (error instanceof Error ? error.message : '未知错误'));
@@ -248,6 +268,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
           }
           // ③ 成功后再刷一次，反映 running 状态
           loadSessions();
+          // 若新会话因并发闸门被打成 queued，提示用户
+          notifyIfQueued(sessionId);
         } catch (err) {
           console.error('启动下载失败:', err);
           message.error('启动下载失败');

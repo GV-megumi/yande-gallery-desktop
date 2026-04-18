@@ -192,6 +192,10 @@ export interface AppConfig {
     };
   };
   ui?: UIConfig;
+  bulkDownload?: {
+    /** 同一时刻允许的批量下载活跃会话数（dryRun + running），超限会话进入 queued */
+    maxConcurrentSessions?: number;
+  };
   booru?: {
     appearance: {
       gridSize: number; // 图片网格大小（像素）
@@ -301,6 +305,9 @@ const DEFAULT_CONFIG: AppConfig = {
       username: '',
       password: ''
     }
+  },
+  bulkDownload: {
+    maxConcurrentSessions: 3,
   },
   booru: {
     appearance: {
@@ -1073,6 +1080,13 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
           pagePreferences: rebuildPagePreferences(currentConfig.ui?.pagePreferences, input.ui.pagePreferences, currentConfig.ui),
         }
       : currentConfig.ui,
+    bulkDownload: (input.bulkDownload !== undefined || currentConfig.bulkDownload !== undefined)
+      ? {
+          maxConcurrentSessions: input.bulkDownload?.maxConcurrentSessions
+            ?? currentConfig.bulkDownload?.maxConcurrentSessions
+            ?? 3,
+        }
+      : currentConfig.bulkDownload,
     booru: input.booru
       ? {
           appearance: getBooruAppearancePreference({
@@ -1289,6 +1303,20 @@ export function getAppConfig() {
 export function getNetworkConfig() {
   const cfg = getConfig();
   return cfg.network;
+}
+
+/**
+ * 获取批量下载并发上限（dryRun + running 同时活跃的最大数量）
+ * 默认 3；配置项非正数或非数字时也回退为 3
+ */
+export function getMaxConcurrentBulkDownloadSessions(): number {
+  try {
+    const n = getConfig()?.bulkDownload?.maxConcurrentSessions;
+    if (typeof n === 'number' && n > 0) return n;
+  } catch {
+    // 配置尚未加载（如某些测试环境），回退默认值
+  }
+  return 3;
 }
 
 /**

@@ -14,7 +14,7 @@ import path from 'path';
 import { BrowserWindow, Notification } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { getDatabase, run, runWithChanges, get, all } from './database.js';
-import { getProxyConfig } from './config.js';
+import { getProxyConfig, getMaxConcurrentBulkDownloadSessions } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
 import * as booruService from './booruService.js';
@@ -519,6 +519,73 @@ export async function hasActiveSessionForTask(taskId: string): Promise<boolean> 
 }
 
 /**
+ * 当前 active = dryRun | running 的会话数（用于并发闸门判定）。
+ * 注意：pending/queued/paused 不计入，因为它们不占用实际下载槽位。
+ */
+export async function countActiveSessions(): Promise<number> {
+  const db = await getDatabase();
+  const row = await get<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM bulk_download_sessions
+     WHERE deletedAt IS NULL AND status IN ('dryRun', 'running')`,
+  );
+  return row?.n ?? 0;
+}
+
+/**
+ * 调度器锁：保证 "查活跃数 + 置 queued / 进入 dryRun" 这对操作串行，
+ * 避免多个 startBulkDownloadSession 并发撞上同一空槽。
+ * 使用 Promise 链串行化，失败不阻塞后续任务（catch 后回到 resolved）。
+ */
+let schedulerMutex: Promise<unknown> = Promise.resolve();
+function withScheduler<T>(fn: () => Promise<T>): Promise<T> {
+  const next = schedulerMutex.then(() => fn());
+  // 即使 next reject，也让 mutex 回到 resolved，避免阻塞后续调度
+  schedulerMutex = next.catch(() => undefined);
+  return next;
+}
+
+/**
+ * 取第一个 queued 会话 id（FIFO，按 startedAt 升序；缺失 startedAt 时回退到 createdAt / id）。
+ * bulk_download_sessions 没有 createdAt 字段，改用 startedAt；为安全起见 COALESCE 到 id。
+ */
+async function getNextQueuedSessionId(): Promise<string | null> {
+  const db = await getDatabase();
+  const row = await get<{ id: string }>(
+    db,
+    `SELECT id FROM bulk_download_sessions
+     WHERE deletedAt IS NULL AND status = 'queued'
+     ORDER BY COALESCE(startedAt, id) ASC
+     LIMIT 1`,
+  );
+  return row?.id ?? null;
+}
+
+/**
+ * 若有空槽，取下一个 queued 会话重新进入 startBulkDownloadSession。
+ * - 锁内执行 "计数 + 取下一个 + 置 pending"，避免并发撞同一空槽；
+ * - 锁外再调用 startBulkDownloadSession（会再次过闸门），避免阻塞当前 finally。
+ */
+export async function promoteNextQueued(): Promise<void> {
+  const nextId = await withScheduler(async () => {
+    const max = getMaxConcurrentBulkDownloadSessions();
+    const active = await countActiveSessions();
+    if (active >= max) return null;
+    const id = await getNextQueuedSessionId();
+    if (!id) return null;
+    // 在锁内把状态改回 pending，避免再被 getNextQueuedSessionId 取到
+    await updateBulkDownloadSession(id, { status: 'pending' });
+    return id;
+  });
+  if (!nextId) return;
+  // 递归调用：startBulkDownloadSession 内部会再过闸门
+  // 不 await，避免阻塞当前 finally
+  startBulkDownloadSession(nextId).catch(err => {
+    console.error('[bulkDownloadService] promoteNextQueued 启动失败:', err);
+  });
+}
+
+/**
  * 更新会话状态
  */
 export async function updateBulkDownloadSession(
@@ -931,6 +998,7 @@ export async function startBulkDownloadSession(
           status: 'failed',
           error: '目录不存在: ' + task.path
         });
+        promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
         return { success: false, error: '目录不存在' };
       }
 
@@ -948,14 +1016,40 @@ export async function startBulkDownloadSession(
           // 运行中但内存里没有活跃下载循环，说明可能是旧循环已退出或留下了僵尸 downloading 记录。
           // 先把悬挂中的 in-flight 记录重置回 pending，再幂等拉起下载循环，避免卡在 running + downloading 的忙等状态。
           await resetInFlightRecordsToPending(sessionId);
-          startDownloadingSession(sessionId, task).catch(error => {
-            console.error('[bulkDownloadService] 下载过程出错:', error);
-            updateBulkDownloadSession(sessionId, {
-              status: 'failed',
-              error: error.message
+          startDownloadingSession(sessionId, task)
+            .catch(error => {
+              console.error('[bulkDownloadService] 下载过程出错:', error);
+              return updateBulkDownloadSession(sessionId, {
+                status: 'failed',
+                error: error.message
+              });
+            })
+            .finally(() => {
+              promoteNextQueued().catch(err => {
+                console.error('[bulkDownloadService] promoteNextQueued failed:', err);
+              });
             });
-          });
         }
+        return { success: true };
+      }
+
+      if (currentStatus === 'queued') {
+        // queued 会话由 promoteNextQueued 调度器负责推进，此处仅在调度器调用时
+        // （status 已被 promoteNextQueued 改回 pending）才会往下走；外部重复调用直接忽略。
+        console.log('[bulkDownloadService] 会话当前仍在队列中，忽略外部 start 调用');
+        return { success: true };
+      }
+
+      // ── 并发闸门：超上限时打成 queued 立刻返回 ──
+      const shouldQueue = await withScheduler(async () => {
+        const max = getMaxConcurrentBulkDownloadSessions();
+        const active = await countActiveSessions();
+        if (active < max) return false;
+        await updateBulkDownloadSession(sessionId, { status: 'queued' });
+        console.log('[bulkDownloadService] 会话进入等待队列:', sessionId);
+        return true;
+      });
+      if (shouldQueue) {
         return { success: true };
       }
 
@@ -972,6 +1066,7 @@ export async function startBulkDownloadSession(
           status: 'failed',
           error: dryRunResult.error
         });
+        promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
         return { success: false, error: dryRunResult.error };
       }
 
@@ -985,6 +1080,7 @@ export async function startBulkDownloadSession(
         await updateBulkDownloadSession(sessionId, {
           status: 'allSkipped'
         });
+        promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
         return { success: true };
       }
 
@@ -996,13 +1092,20 @@ export async function startBulkDownloadSession(
       });
 
       // 开始下载
-      startDownloadingSession(sessionId, task).catch(error => {
-        console.error('[bulkDownloadService] 下载过程出错:', error);
-        updateBulkDownloadSession(sessionId, {
-          status: 'failed',
-          error: error.message
+      startDownloadingSession(sessionId, task)
+        .catch(error => {
+          console.error('[bulkDownloadService] 下载过程出错:', error);
+          return updateBulkDownloadSession(sessionId, {
+            status: 'failed',
+            error: error.message
+          });
+        })
+        .finally(() => {
+          // 下载结束（成功 / 失败 / 取消 / 暂停 均由内部写 DB 后到达），推进队列
+          promoteNextQueued().catch(err => {
+            console.error('[bulkDownloadService] promoteNextQueued failed:', err);
+          });
         });
-      });
 
       return { success: true };
     } catch (error) {
@@ -2012,6 +2115,8 @@ export async function pauseBulkDownloadSession(
     await updateBulkDownloadSession(sessionId, {
       status: 'paused'
     });
+    // 暂停释放槽位后，推进下一个 queued
+    promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2075,6 +2180,8 @@ export async function cancelBulkDownloadSession(
       console.warn('[bulkDownloadService] 清理部分文件时出错:', cleanupError);
     }
 
+    // 取消释放槽位后，推进下一个 queued
+    promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2142,7 +2249,8 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
     console.log(`[bulkDownloadService] 发现 ${runningSessions.length} 个需要恢复的批量下载会话`);
 
     let resumedCount = 0;
-
+    // 先把所有待恢复的会话打为 queued（或直接 completed），统一交给调度器按闸门拉起。
+    // 这样重启后大量 running 会话不会瞬间全部启动撞上站点限流。
     for (const row of runningSessions) {
       const sessionId = row.id;
 
@@ -2161,39 +2269,26 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
         continue;
       }
 
-      const task: BulkDownloadTask = {
-        id: row.task_id,
-        siteId: row.task_siteId,
-        path: row.task_path,
-        tags: row.task_tags,
-        blacklistedTags: row.task_blacklistedTags,
-        notifications: Boolean(row.task_notifications),
-        skipIfExists: Boolean(row.task_skipIfExists),
-        quality: row.task_quality,
-        perPage: row.task_perPage,
-        concurrency: row.task_concurrency,
-        createdAt: row.task_createdAt,
-        updatedAt: row.task_updatedAt
-      };
-
       await waitForDownloadSessionToStop(sessionId);
       await resetInFlightRecordsToPending(sessionId);
 
-      // 确保会话状态为 running
+      // 先置 queued，交由调度器按并发闸门拉起
       sessionStopReasons.delete(sessionId);
-      await updateBulkDownloadSession(sessionId, { status: 'running' });
-
-      // 启动下载
-      console.log(`[bulkDownloadService] 恢复批量下载会话: ${sessionId}, 待下载: ${stats.pending}`);
-      startDownloadingSession(sessionId, task).catch(error => {
-        console.error(`[bulkDownloadService] 恢复会话 ${sessionId} 下载失败:`, error);
-        updateBulkDownloadSession(sessionId, {
-          status: 'failed',
-          error: error.message
-        });
-      });
+      await updateBulkDownloadSession(sessionId, { status: 'queued' });
+      console.log(`[bulkDownloadService] 会话入队等待恢复: ${sessionId}, 待下载: ${stats.pending}`);
 
       resumedCount++;
+    }
+
+    // 触发 maxConcurrent 次调度：调度器会并发地拉起前 N 个 queued 会话，
+    // 每个会话结束后 finally 会再次 promoteNextQueued 顶上。
+    if (resumedCount > 0) {
+      const max = getMaxConcurrentBulkDownloadSessions();
+      for (let i = 0; i < max; i++) {
+        promoteNextQueued().catch(err => {
+          console.error('[bulkDownloadService] 启动恢复调度失败:', err);
+        });
+      }
     }
 
     console.log(`[bulkDownloadService] 已恢复 ${resumedCount} 个批量下载会话`);

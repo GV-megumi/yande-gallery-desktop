@@ -348,6 +348,7 @@ describe('bulkDownloadService TP-03', () => {
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: vi.fn(() => undefined),
       getConfig: vi.fn(() => ({ booru: { download: {} } })),
+      getMaxConcurrentBulkDownloadSessions: vi.fn(() => 3),
     }));
 
     vi.doMock('../../../src/main/services/filenameGenerator.js', () => ({
