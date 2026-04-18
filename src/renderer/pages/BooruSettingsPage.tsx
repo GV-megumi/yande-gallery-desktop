@@ -1005,10 +1005,15 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
                   >
                     <Space.Compact style={{ width: '100%' }}>
-                      <Form.Item name="maxCacheSizeMB" noStyle>
+                      <Form.Item
+                        name="maxCacheSizeMB"
+                        noStyle
+                        rules={[
+                          { type: 'integer', min: 100, message: '缓存上限不能小于 100 MB' },
+                        ]}
+                      >
                         <InputNumber
                           min={100}
-                          max={5000}
                           step={100}
                           style={{ width: '100%' }}
                         />
