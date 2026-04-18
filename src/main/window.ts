@@ -408,7 +408,14 @@ export function setupWindowIPC(): void {
     const params = new URLSearchParams({ section, key });
     if (tab) params.set('tab', tab);
     if (extra) {
+      // 防御：extra 是 preload 暴露的公共 API，调用方若传 section/key/tab
+      // 会静默覆盖前面的定位参数，这里显式屏蔽保留键并告警，避免意外错位。
+      const RESERVED = new Set(['section', 'key', 'tab']);
       for (const [k, v] of Object.entries(extra)) {
+        if (RESERVED.has(k)) {
+          console.warn(`[Window] openSecondaryMenu extra 尝试覆盖保留键 "${k}"，已忽略`);
+          continue;
+        }
         if (v != null) params.set(k, String(v));
       }
     }

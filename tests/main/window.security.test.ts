@@ -292,4 +292,57 @@ describe('window.ts 安全边界行为', () => {
     expect(childInstance.show).not.toHaveBeenCalled();
     expect(childInstance.focus).not.toHaveBeenCalled();
   });
+
+  it('openSecondaryMenu extra 中的保留键 section/key/tab 应被屏蔽且告警', async () => {
+    const module = await import('../../src/main/window');
+    module.setupWindowIPC();
+
+    // 从注册的 ipcMain.handle 调用中提取 secondary-menu handler
+    const secondaryCall = mockIpcHandle.mock.calls.find(
+      (args: any[]) => args[0] === 'window:open-secondary-menu',
+    );
+    expect(secondaryCall).toBeTruthy();
+    const handler = secondaryCall![1] as (
+      _event: unknown,
+      section: string,
+      key: string,
+      tab?: string,
+      extra?: Record<string, string | number>,
+    ) => Promise<{ success: boolean }>;
+
+    // 注意：vi.spyOn(console, 'warn').mockImplementation(...) 在当前 vitest 版本下
+    // 会导致 warn 调用记录不到 spy.mock.calls，这里只做 spy，不替换实现。
+    const warnSpy = vi.spyOn(console, 'warn');
+
+    await handler({}, 'gallery', 'list', undefined, {
+      section: 'other',
+      key: 'evil',
+      tab: 'hijack',
+      galleryId: 5,
+    });
+
+    // 子窗口被创建，hash 应保留原始 section=gallery / key=list，不被 extra 覆盖
+    const subInstance = browserWindowInstances[browserWindowInstances.length - 1];
+    expect(subInstance).toBeTruthy();
+    const loadCall = subInstance.loadURL.mock.calls[0] ?? subInstance.loadFile.mock.calls[0];
+    expect(loadCall).toBeTruthy();
+    const hashArg = typeof loadCall[0] === 'string' && loadCall[0].includes('#')
+      ? loadCall[0].split('#')[1]
+      : (loadCall[1] as { hash: string }).hash;
+    const query = hashArg.split('?')[1] ?? '';
+    const parsed = new URLSearchParams(query);
+
+    expect(parsed.get('section')).toBe('gallery');
+    expect(parsed.get('key')).toBe('list');
+    expect(parsed.get('tab')).toBeNull();
+    expect(parsed.get('galleryId')).toBe('5');
+
+    // 每个被屏蔽的保留键都应记一条 warn
+    const warnMessages = warnSpy.mock.calls.map((args) => args.map(String).join(' '));
+    expect(warnMessages.some((m) => m.includes('"section"'))).toBe(true);
+    expect(warnMessages.some((m) => m.includes('"key"'))).toBe(true);
+    expect(warnMessages.some((m) => m.includes('"tab"'))).toBe(true);
+
+    warnSpy.mockRestore();
+  });
 });
