@@ -29,7 +29,11 @@ import {
   setGalleryCover,
   updateGalleryStats,
   syncGalleryFolder,
-  scanSubfoldersAndCreateGalleries
+  scanSubfoldersAndCreateGalleries,
+  listIgnoredFolders,
+  addIgnoredFolder,
+  updateIgnoredFolder,
+  removeIgnoredFolder
 } from '../services/galleryService.js';
 import { hashPasswordSHA1 } from '../services/moebooruClient.js';
 import { createBooruClient } from '../services/booruClientFactory.js';
@@ -720,6 +724,48 @@ export function setupIPC() {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
+
+  // ===== 图库忽略名单 CRUD（bug12） =====
+  ipcMain.handle(IPC_CHANNELS.GALLERY_LIST_IGNORED_FOLDERS, async (_event: IpcMainInvokeEvent) => {
+    try {
+      return await listIgnoredFolders();
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_ADD_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, folderPath: string, note?: string) => {
+      try {
+        return await addIgnoredFolder(folderPath, note);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_UPDATE_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, id: number, patch: { note?: string }) => {
+      try {
+        return await updateIgnoredFolder(id, patch);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_REMOVE_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, id: number) => {
+      try {
+        return await removeIgnoredFolder(id);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
 
   // ===== 配置管理 =====
   ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async (_event: IpcMainInvokeEvent) => {

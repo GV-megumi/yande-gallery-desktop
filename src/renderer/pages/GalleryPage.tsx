@@ -161,7 +161,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const handleDeleteGallery = (gallery: any) => {
     Modal.confirm({
       title: '删除图集',
-      content: `确定要删除图集“${gallery.name}”吗？此操作只会删除图集记录及其关联记录，不会删除本地文件。`,
+      content:
+        `确定要删除图集“${gallery.name}”吗？\n` +
+        '会同时清理该图集下的图片记录和缩略图，并把该文件夹加入"已忽略文件夹"，下次扫描时不会自动重建。\n' +
+        '磁盘原图不会被删除。',
       okText: '删除',
       okType: 'danger',
       cancelText: '取消',

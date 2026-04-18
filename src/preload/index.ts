@@ -53,6 +53,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_DELETE_INVALID_IMAGE, id),
     clearInvalidImages: () =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_CLEAR_INVALID_IMAGES),
+    // bug12：忽略文件夹 CRUD
+    listIgnoredFolders: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_LIST_IGNORED_FOLDERS),
+    addIgnoredFolder: (folderPath: string, note?: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_ADD_IGNORED_FOLDER, folderPath, note),
+    updateIgnoredFolder: (id: number, patch: { note?: string }) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UPDATE_IGNORED_FOLDER, id, patch),
+    removeIgnoredFolder: (id: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_REMOVE_IGNORED_FOLDER, id),
   },
 
   // 配置操作
@@ -351,6 +360,15 @@ declare global {
         getInvalidImageCount: () => Promise<{ success: boolean; data?: number; error?: string }>;
         deleteInvalidImage: (id: number) => Promise<{ success: boolean; error?: string }>;
         clearInvalidImages: () => Promise<{ success: boolean; data?: { deleted: number }; error?: string }>;
+        // bug12：忽略文件夹 CRUD
+        listIgnoredFolders: () => Promise<{
+          success: boolean;
+          data?: Array<{ id: number; folderPath: string; note: string | null; createdAt: string; updatedAt: string }>;
+          error?: string;
+        }>;
+        addIgnoredFolder: (folderPath: string, note?: string) => Promise<{ success: boolean; error?: string }>;
+        updateIgnoredFolder: (id: number, patch: { note?: string }) => Promise<{ success: boolean; error?: string }>;
+        removeIgnoredFolder: (id: number) => Promise<{ success: boolean; error?: string }>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;

@@ -221,8 +221,10 @@ describe('GalleryPage gallery delete action', () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     const confirmConfig = confirmSpy.mock.calls[0]?.[0];
-    expect(confirmConfig?.content).toContain('只会删除图集记录及其关联记录');
-    expect(confirmConfig?.content).toContain('不会删除本地文件');
+    // bug12：删除图集会级联清理数据库记录与缩略图，并将文件夹加入忽略名单，
+    // 但磁盘原图保留。弹窗文案需同时覆盖这几条关键信息。
+    expect(confirmConfig?.content).toContain('已忽略文件夹');
+    expect(confirmConfig?.content).toContain('磁盘原图不会被删除');
 
     await confirmConfig?.onOk?.();
 

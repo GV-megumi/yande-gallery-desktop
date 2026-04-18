@@ -3,12 +3,13 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Switch, Select, message, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined } from '@ant-design/icons';
+import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { UpdateCheckResult } from '../../shared/types';
 import pkgJson from '../../../package.json';
+import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
 
 const { Option } = Select;
 
@@ -208,6 +209,7 @@ export const SettingsPage: React.FC = () => {
   const [importingBackup, setImportingBackup] = useState(false);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [ignoredModalOpen, setIgnoredModalOpen] = useState(false);
 
   const handleCheckForUpdate = async () => {
     if (!window.electronAPI) return;
@@ -542,6 +544,9 @@ export const SettingsPage: React.FC = () => {
               )}
             </Spin>
             <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               padding: `${spacing.sm}px ${spacing.lg}px`,
               borderTop: `0.5px solid ${colors.separator}`,
             }}>
@@ -553,8 +558,18 @@ export const SettingsPage: React.FC = () => {
               >
                 {t('settings.addFolder')}
               </Button>
+              <Button
+                type="link"
+                icon={<StopOutlined />}
+                onClick={() => setIgnoredModalOpen(true)}
+                style={{ padding: 0, color: colors.textSecondary, fontWeight: 500 }}
+              >
+                {t('settings.ignoredFolders')}
+              </Button>
             </div>
           </SettingsGroup>
+
+          <IgnoredFoldersModal open={ignoredModalOpen} onClose={() => setIgnoredModalOpen(false)} />
 
           {/* 下载设置 */}
           <SettingsGroup title={t('settings.download')}>

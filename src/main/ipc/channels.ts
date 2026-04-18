@@ -31,6 +31,11 @@ export const IPC_CHANNELS = {
   GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count',
   GALLERY_DELETE_INVALID_IMAGE: 'gallery:delete-invalid-image',
   GALLERY_CLEAR_INVALID_IMAGES: 'gallery:clear-invalid-images',
+  // bug12：图库忽略名单 CRUD
+  GALLERY_LIST_IGNORED_FOLDERS: 'gallery:list-ignored-folders',
+  GALLERY_ADD_IGNORED_FOLDER: 'gallery:add-ignored-folder',
+  GALLERY_UPDATE_IGNORED_FOLDER: 'gallery:update-ignored-folder',
+  GALLERY_REMOVE_IGNORED_FOLDER: 'gallery:remove-ignored-folder',
 
   // 配置操作
   CONFIG_GET: 'config:get',
