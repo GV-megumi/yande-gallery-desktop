@@ -223,6 +223,7 @@ declare global {
         retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; error?: string }>;
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         clearDownloadRecords: (status: 'completed' | 'failed') => Promise<{ success: boolean; data?: number; error?: string }>;
+        deleteDownloadRecord: (queueId: number) => Promise<{ success: boolean; error?: string }>;
         pauseAllDownloads: () => Promise<{ success: boolean; error?: string }>;
         resumeAllDownloads: () => Promise<{ success: boolean; error?: string }>;
         resumePendingDownloads: () => Promise<{ success: boolean; data?: { resumed: number; total: number }; error?: string }>;

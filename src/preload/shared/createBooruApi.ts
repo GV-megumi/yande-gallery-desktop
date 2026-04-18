@@ -49,6 +49,8 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE, status),
     clearDownloadRecords: (status: 'completed' | 'failed') =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS, status),
+    deleteDownloadRecord: (queueId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_DOWNLOAD_RECORD, queueId),
     pauseAllDownloads: () =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_PAUSE_ALL_DOWNLOADS),
     resumeAllDownloads: () =>

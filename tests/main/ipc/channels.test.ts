@@ -161,7 +161,8 @@ describe('IPC_CHANNELS', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
     // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
-    expect(keys.length).toBe(185);
+    // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
+    expect(keys.length).toBe(186);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {

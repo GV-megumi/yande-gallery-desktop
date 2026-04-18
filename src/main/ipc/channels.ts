@@ -107,6 +107,7 @@ export const IPC_CHANNELS = {
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
   BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
+  BOORU_DELETE_DOWNLOAD_RECORD: 'booru:delete-download-record',
   BOORU_PAUSE_ALL_DOWNLOADS: 'booru:pause-all-downloads',
   BOORU_RESUME_ALL_DOWNLOADS: 'booru:resume-all-downloads',
   BOORU_RESUME_PENDING_DOWNLOADS: 'booru:resume-pending-downloads',

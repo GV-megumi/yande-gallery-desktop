@@ -77,6 +77,7 @@ const cancelDownload = vi.fn().mockResolvedValue({ success: true });
 const pauseAllDownloads = vi.fn().mockResolvedValue({ success: true });
 const resumeAllDownloads = vi.fn().mockResolvedValue({ success: true });
 const clearDownloadRecords = vi.fn().mockResolvedValue({ success: true, data: 0 });
+const deleteDownloadRecord = vi.fn().mockResolvedValue({ success: true });
 const retryDownload = vi.fn().mockResolvedValue({ success: true });
 const showItem = vi.fn().mockResolvedValue({ success: true });
 
@@ -117,6 +118,7 @@ describe('BooruDownloadPage active download actions', () => {
         pauseAllDownloads,
         resumeAllDownloads,
         clearDownloadRecords,
+        deleteDownloadRecord,
         retryDownload,
         onDownloadProgress: vi.fn(),
         onDownloadStatus: vi.fn(),
@@ -192,6 +194,62 @@ describe('BooruDownloadPage active download actions', () => {
     await user.click(confirmButton);
     await waitFor(() => {
       expect(cancelDownload).toHaveBeenCalledWith(202);
+    });
+  });
+
+  it('失败列表每行应提供图标式"重试下载"与"删除记录"按钮，风格与进行中列表一致', async () => {
+    downloadingQueue.splice(0, downloadingQueue.length);
+    pausedQueue.splice(0, pausedQueue.length);
+    failedQueue.splice(0, failedQueue.length, {
+      id: 303,
+      postId: 99999,
+      siteId: 1,
+      status: 'failed',
+      progress: 0,
+      downloadedBytes: 0,
+      totalBytes: 0,
+      retryCount: 1,
+      priority: 0,
+      targetPath: 'C:/downloads/failed.jpg',
+      errorMessage: 'canceled',
+      createdAt: '2026-04-14T00:00:00.000Z',
+      updatedAt: '2026-04-14T00:00:00.000Z',
+    });
+
+    const user = userEvent.setup();
+    renderPage();
+
+    // 切到"失败"标签页（用文本匹配，避免 Antd tab 的 aria 名称差异）
+    const failedTab = await screen.findByText(/失败\s*\(1\)/);
+    await user.click(failedTab);
+
+    await waitFor(() => {
+      expect(screen.getByText('99999')).toBeDefined();
+    });
+
+    const row = screen.getByText('99999').closest('tr');
+    expect(row).not.toBeNull();
+    const rowScope = within(row!);
+
+    // 反模式守卫：旧版是带文字的 primary 大按钮，没有 aria-label，getByRole 按
+    // 名称 "重试下载" 找不到；同时"删除记录"按钮根本不存在。
+    const retryBtn = rowScope.getByRole('button', { name: '重试下载' });
+    const deleteBtn = rowScope.getByRole('button', { name: '删除记录' });
+    expect(retryBtn).toBeDefined();
+    expect(deleteBtn).toBeDefined();
+
+    // 重试走 retryDownload(postId, siteId)
+    await user.click(retryBtn);
+    await waitFor(() => {
+      expect(retryDownload).toHaveBeenCalledWith(99999, 1);
+    });
+
+    // 删除走 Popconfirm → deleteDownloadRecord(queueId)
+    await user.click(deleteBtn);
+    const confirmDelete = await screen.findByRole('button', { name: '确认删除' });
+    await user.click(confirmDelete);
+    await waitFor(() => {
+      expect(deleteDownloadRecord).toHaveBeenCalledWith(303);
     });
   });
 });

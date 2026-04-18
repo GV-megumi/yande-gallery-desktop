@@ -1713,6 +1713,18 @@ export function setupIPC() {
     }
   });
 
+  // 删除单条下载记录（失败列表用于"单独删除指定失败项"）
+  ipcMain.handle(IPC_CHANNELS.BOORU_DELETE_DOWNLOAD_RECORD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 删除下载记录:', queueId);
+    try {
+      const ok = await booruService.deleteDownloadRecord(queueId);
+      return { success: ok };
+    } catch (error) {
+      console.error('[IPC] 删除下载记录失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // 暂停所有下载
   ipcMain.handle(IPC_CHANNELS.BOORU_PAUSE_ALL_DOWNLOADS, async () => {
     console.log('[IPC] 暂停所有下载');

@@ -262,6 +262,40 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     }
   };
 
+  // 重试单条失败下载
+  const handleRetryFailed = async (record: DownloadQueueItem) => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
+      if (result.success) {
+        message.success('已重新加入下载队列');
+        loadQueue();
+      } else {
+        message.error(result.error || '重试失败');
+      }
+    } catch (error) {
+      console.error('重试下载失败:', error);
+      message.error('重试下载失败');
+    }
+  };
+
+  // 删除单条失败记录
+  const handleDeleteFailed = async (queueId: number) => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.booru.deleteDownloadRecord(queueId);
+      if (result?.success) {
+        message.success('已删除记录');
+        loadQueue();
+      } else {
+        message.error(result?.error || '删除失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 删除下载记录失败:', error);
+      message.error('删除下载记录失败');
+    }
+  };
+
   // 重试所有失败的下载
   const handleRetryAllFailed = async () => {
     try {
@@ -800,29 +834,36 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
                     {
                       title: '操作',
                       key: 'action',
-                      width: 100,
+                      width: 120,
                       render: (_: any, record: DownloadQueueItem) => (
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<ReloadOutlined />}
-                          onClick={async () => {
-                            try {
-                              const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
-                              if (result.success) {
-                                message.success('已重新加入下载队列');
-                                loadQueue();
-                              } else {
-                                message.error(result.error || '重试失败');
-                              }
-                            } catch (error) {
-                              console.error('重试下载失败:', error);
-                              message.error('重试下载失败');
-                            }
-                          }}
-                        >
-                          重试
-                        </Button>
+                        <Space>
+                          <Tooltip title="重试下载">
+                            <Button
+                              type="text"
+                              icon={<ReloadOutlined />}
+                              aria-label="重试下载"
+                              onClick={() => handleRetryFailed(record)}
+                              style={{ color: '#1677ff' }}
+                            />
+                          </Tooltip>
+                          <Popconfirm
+                            title="删除这条失败记录？"
+                            description="仅删除失败记录，不会影响已下载文件。"
+                            okText="确认删除"
+                            cancelText="保留"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => handleDeleteFailed(record.id)}
+                          >
+                            <Tooltip title="删除记录">
+                              <Button
+                                type="text"
+                                danger
+                                icon={<DeleteOutlined />}
+                                aria-label="删除记录"
+                              />
+                            </Tooltip>
+                          </Popconfirm>
+                        </Space>
                       )
                     }
                   ]}
