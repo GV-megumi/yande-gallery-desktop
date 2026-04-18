@@ -290,15 +290,8 @@ const DEFAULT_CONFIG: AppConfig = {
     subfolderFormat: ['tags', 'date']
   },
   galleries: {
-    folders: [
-      {
-        path: 'images',
-        name: '默认图库',
-        autoScan: true,
-        recursive: true,
-        extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
-      }
-    ]
+    // 默认无图库，由用户通过设置页添加
+    folders: []
   },
   thumbnails: {
     cachePath: 'thumbnails',
@@ -569,6 +562,50 @@ export async function ensureDataDirectories(): Promise<void> {
 let config: AppConfig | null = null;
 
 /**
+ * 深合并用户配置与 DEFAULT_CONFIG
+ * - 用户显式写入的标量/数组值始终优先（即便是 0、false、空字符串、空数组）
+ * - 用户未提供的字段用默认值填充，并通过 wasFilled 报告是否发生过填充
+ * - 数组不做元素级合并；用户数组存在即整体保留
+ * - 保留用户自定义的 default 外字段（例如可选的 google 块）
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function deepMergeWithDefaults(defaults: unknown, user: unknown): { merged: unknown; wasFilled: boolean } {
+  // 标量或数组默认：只要用户未定义就视为缺失
+  if (!isPlainObject(defaults)) {
+    if (user === undefined) {
+      return { merged: defaults, wasFilled: true };
+    }
+    return { merged: user, wasFilled: false };
+  }
+
+  // 用户此层不是对象（undefined / null / 标量 / 数组），整体套用默认值
+  if (!isPlainObject(user)) {
+    return { merged: defaults, wasFilled: true };
+  }
+
+  const result: Record<string, unknown> = {};
+  let wasFilled = false;
+
+  for (const key of Object.keys(defaults)) {
+    const { merged, wasFilled: inner } = deepMergeWithDefaults(defaults[key], user[key]);
+    result[key] = merged;
+    if (inner) wasFilled = true;
+  }
+
+  // 保留用户自定义的、在 defaults 中不存在的键（例如可选的 google 配置）
+  for (const key of Object.keys(user)) {
+    if (!(key in result)) {
+      result[key] = user[key];
+    }
+  }
+
+  return { merged: result, wasFilled };
+}
+
+/**
  * 自动迁移旧格式路径
  * 旧版本的 database.path 等包含 data/ 前缀，需要去掉
  */
@@ -607,20 +644,30 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     const configData = await fs.readFile(configFilePath, 'utf-8');
 
     const yaml = await import('js-yaml');
-    const rawConfig = yaml.load(configData) as any;
+    // 空文件或内容为 null/标量时，退化为空对象以便后续与默认值合并
+    const loaded = yaml.load(configData);
+    const rawConfig = isPlainObject(loaded) ? loaded as Record<string, unknown> : {};
 
     // 自动迁移旧格式路径
     migrateOldPaths(rawConfig);
 
-    config = rawConfig as AppConfig;
+    // 与 DEFAULT_CONFIG 深合并，填充缺失字段
+    const { merged, wasFilled } = deepMergeWithDefaults(DEFAULT_CONFIG, rawConfig);
+    config = merged as AppConfig;
 
     console.log('[config] 配置文件加载成功:', configFilePath);
 
-    // 验证配置
+    // 验证配置（此时所有必有字段已由默认值兜底）
     validateConfig(config);
 
     // 初始化数据目录
     initDataDir(config);
+
+    // 若本次加载填补了默认值，回写到磁盘，使 yaml 始终自描述
+    if (wasFilled) {
+      console.log('[config] 检测到缺失字段，回写默认值到配置文件');
+      await writeConfigYaml(config, configFilePath);
+    }
 
     return config;
   } catch (error) {
@@ -726,46 +773,44 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 }
 
 /**
- * 保存默认配置文件
+ * 将配置对象写入 yaml 文件（共享给首次创建与补齐缺失字段两种路径）
+ * 失败时只记录日志，不抛出，避免阻塞主流程
  */
-async function saveDefaultConfig(configPath: string): Promise<void> {
+async function writeConfigYaml(cfg: AppConfig, configPath: string): Promise<void> {
   try {
     const configDirPath = path.dirname(configPath);
     await fs.mkdir(configDirPath, { recursive: true });
 
     const yaml = await import('js-yaml');
-    const configYaml = yaml.dump(DEFAULT_CONFIG, {
+    const configYaml = yaml.dump(cfg, {
       indent: 2,
       lineWidth: -1,
       noRefs: true
     });
 
     await fs.writeFile(configPath, configYaml, 'utf-8');
-    console.log('[config] 默认配置文件已创建:', configPath);
   } catch (error) {
-    console.error('[config] 创建默认配置文件失败:', error);
+    console.error('[config] 写入配置文件失败:', error);
   }
 }
 
 /**
+ * 保存默认配置文件
+ */
+async function saveDefaultConfig(configPath: string): Promise<void> {
+  await writeConfigYaml(DEFAULT_CONFIG, configPath);
+  console.log('[config] 默认配置文件已创建:', configPath);
+}
+
+/**
  * 验证配置
+ * 顶层字段（database.path / downloads.path / galleries.folders）不再强制要求用户提供，
+ * loadConfig 已保证与 DEFAULT_CONFIG 合并并回写。这里只负责检查用户自定义的图库条目是否完整。
  */
 function validateConfig(config: AppConfig): void {
   const errors: string[] = [];
 
-  if (!config.database?.path) {
-    errors.push('database.path 不能为空');
-  }
-
-  if (!config.downloads?.path) {
-    errors.push('downloads.path 不能为空');
-  }
-
-  if (!config.galleries?.folders || config.galleries.folders.length === 0) {
-    errors.push('galleries.folders 不能为空');
-  }
-
-  // 验证每个图库目录
+  // 仅当用户提供了图库条目时，才要求条目内字段齐全（空数组属于合法的"未配置"）
   config.galleries?.folders?.forEach((folder, index) => {
     if (!folder.path) {
       errors.push(`galleries.folders[${index}].path 不能为空`);
