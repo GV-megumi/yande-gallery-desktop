@@ -100,6 +100,8 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
       if (!window.electronAPI) return;
 
       // 获取不同状态的队列
+      // 注意：取消 (cancelled) 状态视为软删，不在 UI 展示；
+      // 通过 cancelDownload 写入，由数据库层保留历史记录。
       const pendingRes = await window.electronAPI.booru.getDownloadQueue('pending');
       const downloadingRes = await window.electronAPI.booru.getDownloadQueue('downloading');
       const pausedRes = await window.electronAPI.booru.getDownloadQueue('paused');
@@ -532,7 +534,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
           )}
           <Popconfirm
             title="取消并从队列中移除？"
-            description="将清理已下载的临时文件。"
+            description="将从队列中移除，并清理可能残留的临时文件。"
             okText="确认取消"
             cancelText="保留"
             okButtonProps={{ danger: true }}

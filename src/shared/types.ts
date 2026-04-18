@@ -122,7 +122,7 @@ export interface DownloadQueueItem {
   id: number;
   postId: number;
   siteId: number;
-  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'paused';
+  status: 'pending' | 'downloading' | 'completed' | 'failed' | 'paused' | 'cancelled';
   progress: number;
   downloadedBytes: number;
   totalBytes: number;
