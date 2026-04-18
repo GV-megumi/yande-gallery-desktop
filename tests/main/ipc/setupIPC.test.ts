@@ -331,7 +331,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_TAG_SEARCH, tag, siteId)");
     expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_ARTIST, name, siteId)");
     expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_CHARACTER, name, siteId)");
-    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, section, key, tab)");
+    expect(preloadLayerSource).toContain("ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, section, key, tab, extra)");
     expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_PROGRESS, subscription)");
     expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_STATUS, subscription)");
     expect(preloadLayerSource).toContain("ipcRenderer.on(IPC_CHANNELS.BOORU_DOWNLOAD_QUEUE_STATUS, subscription)");
