@@ -356,8 +356,8 @@ const DEFAULT_CONFIG: AppConfig = {
     appearance: {
       gridSize: 330,
       previewQuality: 'auto',
-      itemsPerPage: 20,
-      paginationPosition: 'bottom',
+      itemsPerPage: 60,
+      paginationPosition: 'both',
       pageMode: 'pagination',
       spacing: 16,
       borderRadius: 8,

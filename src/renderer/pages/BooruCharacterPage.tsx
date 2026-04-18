@@ -57,8 +57,8 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as string,
-    itemsPerPage: 20,
-    paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
+    itemsPerPage: 60,
+    paginationPosition: 'both' as 'top' | 'bottom' | 'both',
     pageMode: 'pagination' as 'pagination' | 'infinite',
     spacing: 16,
     borderRadius: 8,

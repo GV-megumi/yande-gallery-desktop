@@ -877,8 +877,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                   initialValues={{
                     gridSize: 220,
                     previewQuality: 'auto',
-                    itemsPerPage: 20,
-                    paginationPosition: 'bottom',
+                    itemsPerPage: 60,
+                    paginationPosition: 'both',
                     spacing: 16,
                     borderRadius: 8,
                     margin: 24,

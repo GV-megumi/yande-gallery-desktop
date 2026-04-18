@@ -38,8 +38,8 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
-    itemsPerPage: 20,
-    paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
+    itemsPerPage: 60,
+    paginationPosition: 'both' as 'top' | 'bottom' | 'both',
     spacing: 16,
     borderRadius: 8,
     margin: 24
