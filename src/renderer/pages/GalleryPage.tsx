@@ -1075,12 +1075,28 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                   border: `0.5px solid ${colors.separator}`,
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md }}>
-                    <Button onClick={() => {
+                    <Button onClick={async () => {
                       console.log('[GalleryPage] 返回图集列表');
                       galleryDetailRequestRunIdRef.current += 1;
                       setSelectedGallery(null);
                       setGalleryImages([]);
                       setDetailSourceFavoriteTags([]);
+                      // 显式同步落盘 selectedGalleryId=null，绕过 useEffect 中 250ms 防抖：
+                      // 用户返回后可能立刻切二级菜单，防抖会被 clearTimeout 取消，
+                      // 磁盘上旧的 selectedGalleryId 残留会导致下次进入"图集"时再次自动打开旧详情（Bug10）。
+                      try {
+                        await persistPreferences({
+                          galleries: {
+                            gallerySearchQuery,
+                            gallerySortKey,
+                            gallerySortOrder,
+                            gallerySort,
+                            selectedGalleryId: null,
+                          },
+                        });
+                      } catch (err) {
+                        console.warn('[GalleryPage] 清除 selectedGalleryId 失败:', err);
+                      }
                     }}>
                       返回
                     </Button>

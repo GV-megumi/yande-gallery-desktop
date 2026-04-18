@@ -82,7 +82,8 @@ export interface GalleryGalleriesPagePreference {
   gallerySearchQuery?: string;
   gallerySortKey?: 'name' | 'createdAt' | 'updatedAt';
   gallerySortOrder?: 'asc' | 'desc';
-  selectedGalleryId?: number;
+  /** null 表示"显式清空"（合并时从结果中移除），undefined 表示"不修改"（合并时保留旧值） */
+  selectedGalleryId?: number | null;
   gallerySort?: 'time' | 'name';
 }
 
@@ -880,13 +881,25 @@ function rebuildPagePreferences(
               }
             : currentPagePreferences?.galleryBySubTab?.all,
           galleries: incomingPagePreferences.galleryBySubTab.galleries
-            ? {
-                gallerySearchQuery: incomingPagePreferences.galleryBySubTab.galleries.gallerySearchQuery ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySearchQuery,
-                gallerySortKey: incomingPagePreferences.galleryBySubTab.galleries.gallerySortKey ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySortKey,
-                gallerySortOrder: incomingPagePreferences.galleryBySubTab.galleries.gallerySortOrder ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySortOrder,
-                selectedGalleryId: incomingPagePreferences.galleryBySubTab.galleries.selectedGalleryId ?? currentPagePreferences?.galleryBySubTab?.galleries?.selectedGalleryId,
-                gallerySort: incomingPagePreferences.galleryBySubTab.galleries.gallerySort ?? currentPagePreferences?.galleryBySubTab?.galleries?.gallerySort,
-              }
+            ? (() => {
+                const inGalleries = incomingPagePreferences.galleryBySubTab.galleries!;
+                const curGalleries = currentPagePreferences?.galleryBySubTab?.galleries;
+                // selectedGalleryId 三值合并语义：
+                //   null      -> 显式删除（结果为 undefined，对应磁盘清空）
+                //   undefined -> 不修改，保留旧值
+                //   number    -> 覆盖为新值
+                // 使用 `=== null` 精确判定 null，避免和 0/undefined 混淆（当前业务不会出现 id=0，但保留严格语义）
+                const resolvedSelectedGalleryId = inGalleries.selectedGalleryId === null
+                  ? undefined
+                  : (inGalleries.selectedGalleryId ?? curGalleries?.selectedGalleryId);
+                return {
+                  gallerySearchQuery: inGalleries.gallerySearchQuery ?? curGalleries?.gallerySearchQuery,
+                  gallerySortKey: inGalleries.gallerySortKey ?? curGalleries?.gallerySortKey,
+                  gallerySortOrder: inGalleries.gallerySortOrder ?? curGalleries?.gallerySortOrder,
+                  selectedGalleryId: resolvedSelectedGalleryId,
+                  gallerySort: inGalleries.gallerySort ?? curGalleries?.gallerySort,
+                };
+              })()
             : currentPagePreferences?.galleryBySubTab?.galleries,
         }
       : currentPagePreferences?.galleryBySubTab,

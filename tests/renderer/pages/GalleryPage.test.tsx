@@ -537,6 +537,46 @@ describe('GalleryPage gallery delete action', () => {
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
+  it('Bug10 回归：点击返回按钮时应 persistPreferences 带 selectedGalleryId=null 同步落盘', async () => {
+    getGalleryPagePreferences.mockResolvedValueOnce({
+      success: true,
+      data: {
+        galleries: {
+          gallerySearchQuery: 'keyword',
+          gallerySortKey: 'name',
+          gallerySortOrder: 'asc',
+          selectedGalleryId: 1,
+          gallerySort: 'name',
+        },
+      },
+    });
+
+    renderGalleriesPage();
+
+    // 等待 hydrate 自动打开详情视图
+    const backButton = await screen.findByRole('button', { name: /返\s*回/ });
+    await waitFor(() => {
+      expect(getGallery).toHaveBeenCalledWith(1);
+    });
+
+    // 清理 hydrate 期间可能的 save 调用记录，专注点击返回后的一次
+    saveGalleryPagePreferences.mockClear();
+
+    const user = userEvent.setup();
+    await user.click(backButton);
+
+    // 返回按钮 onClick 内 await persistPreferences，断言 save 被调用且 selectedGalleryId 为 null
+    await waitFor(() => {
+      expect(saveGalleryPagePreferences).toHaveBeenCalled();
+    });
+
+    // 找到第一次带 galleries 字段的调用并断言 selectedGalleryId === null
+    const callsWithGalleries = saveGalleryPagePreferences.mock.calls.filter(([arg]) => arg?.galleries !== undefined);
+    expect(callsWithGalleries.length).toBeGreaterThanOrEqual(1);
+    const payload = callsWithGalleries[0][0];
+    expect(payload.galleries.selectedGalleryId).toBeNull();
+  });
+
   it('切换 subTab 时应等待新子页 hydrate，且不应在 hydrate 后立即回写对应页面偏好', async () => {
     const allPreferences = {
       searchQuery: 'persisted all query',
