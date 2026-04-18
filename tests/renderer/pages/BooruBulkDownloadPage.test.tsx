@@ -6,6 +6,43 @@ import { render, waitFor, act, cleanup, fireEvent, screen } from '@testing-libra
 import { App } from 'antd';
 import { BooruBulkDownloadPage } from '../../../src/renderer/pages/BooruBulkDownloadPage';
 
+// Bug7 follow-up：测试 notifyIfQueued 直接读 startSession 返回值。
+// 页面通过 App.useApp() 拿 message，我们 spy 它，让 useApp 返回一个可观测的
+// message 对象，测试据此断言 message.info 是否被调、文本是否包含 "已加入队列"。
+const messageInfo = vi.fn();
+const messageError = vi.fn();
+const messageSuccess = vi.fn();
+const messageWarning = vi.fn();
+const fakeUseAppResult = {
+  message: {
+    info: messageInfo,
+    error: messageError,
+    success: messageSuccess,
+    warning: messageWarning,
+    open: vi.fn(),
+    loading: vi.fn(),
+    destroy: vi.fn(),
+  },
+  notification: {
+    open: vi.fn(),
+    info: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    destroy: vi.fn(),
+  },
+  modal: {
+    info: vi.fn(),
+    success: vi.fn(),
+    error: vi.fn(),
+    warning: vi.fn(),
+    confirm: vi.fn(),
+    destroyAll: vi.fn(),
+  },
+};
+// 直接改 App.useApp（App 是带 static 的组件函数，可以覆写其 useApp 属性）
+(App as any).useApp = () => fakeUseAppResult;
+
 vi.mock('../../../src/renderer/components/BulkDownloadTaskForm', () => ({
   BulkDownloadTaskForm: () => <div data-testid="bulk-download-task-form" />,
 }));
@@ -201,5 +238,174 @@ describe('BooruBulkDownloadPage handleStartFromTask (bug2 regression)', () => {
         await Promise.resolve();
       });
     }
+  });
+});
+
+describe('BooruBulkDownloadPage notifyIfQueued (bug7 follow-up I1/I2)', () => {
+  beforeEach(() => {
+    messageInfo.mockReset();
+    messageError.mockReset();
+    messageSuccess.mockReset();
+    messageWarning.mockReset();
+
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+  });
+
+  afterEach(() => {
+    cleanup();
+    delete (window as any).electronAPI;
+  });
+
+  // 守卫：startSession 返回 queued: true 时，UI 必须立即弹 "已加入队列" info，
+  // 不得再依赖后续 getActiveSessions 查 status（race-prone）。
+  it('当 startSession 返回 queued: true 时，应弹 message.info("已加入队列...")', async () => {
+    const taskFixture = {
+      id: 'task-q',
+      name: '队列测试任务',
+      siteId: 'site-1',
+      tags: [],
+      limit: 100,
+      options: {},
+      createdAt: '2026-04-18T00:00:00.000Z',
+      updatedAt: '2026-04-18T00:00:00.000Z',
+    } as any;
+
+    const getActiveSessionsLocal = vi.fn().mockResolvedValue({ success: true, data: [] });
+    const getTasksLocal = vi.fn().mockResolvedValue({ success: true, data: [taskFixture] });
+    const getSitesLocal = vi.fn().mockResolvedValue({ success: true, data: [] });
+    const createSession = vi.fn().mockResolvedValue({
+      success: true,
+      data: { id: 'session-queued' },
+    });
+    // 关键：startSession 返回 queued: true（闸门超限分支）
+    const startSession = vi.fn().mockResolvedValue({ success: true, queued: true });
+
+    (window as any).electronAPI = {
+      bulkDownload: {
+        getActiveSessions: getActiveSessionsLocal,
+        getTasks: getTasksLocal,
+        createSession,
+        startSession,
+      },
+      booru: {
+        getSites: getSitesLocal,
+      },
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await waitFor(() => {
+      expect(getTasksLocal).toHaveBeenCalled();
+    });
+
+    const startBtn = await screen.findByRole('button', { name: /开始/ });
+
+    await act(async () => {
+      fireEvent.click(startBtn);
+      // 让 handleStartFromTask 里 createSession → startSession 的后台 IIFE 跑完
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(startSession).toHaveBeenCalledWith('session-queued');
+    });
+
+    // 关键守卫：message.info 必须被调，且文本含 "已加入队列"
+    await waitFor(() => {
+      expect(messageInfo).toHaveBeenCalled();
+    });
+    const infoMessages = messageInfo.mock.calls.map(c => String(c[0]));
+    expect(infoMessages.some(m => m.includes('已加入队列'))).toBe(true);
+
+    // 反模式守卫：不应再靠 getActiveSessions 查 queued 状态
+    //（handleStartFromTask 只在 mount + createSession 成功 + startSession 成功这三处刷新
+    // 列表，没有再专门查 queued。我们确保没有任何一次 getActiveSessions 发生在
+    // startSession resolve 之后专门为判队列用的场景 —— 这里宽松断言：数量保持在常规
+    // 刷新范围内，不会额外多一次）
+    // 允许 mount + 两次 loadSessions = 3 次，不应该 >= 4（旧实现会多一次 notifyIfQueued 里的查询）
+    expect(getActiveSessionsLocal.mock.calls.length).toBeLessThanOrEqual(3);
+  });
+
+  // 反模式守卫：startSession 返回 queued: false / 省略 queued 时，不得弹 info
+  it('当 startSession 返回 queued: false（或字段缺失）时，不应弹 message.info', async () => {
+    const taskFixture = {
+      id: 'task-n',
+      name: '正常任务',
+      siteId: 'site-1',
+      tags: [],
+      limit: 100,
+      options: {},
+      createdAt: '2026-04-18T00:00:00.000Z',
+      updatedAt: '2026-04-18T00:00:00.000Z',
+    } as any;
+
+    const getActiveSessionsLocal = vi.fn().mockResolvedValue({ success: true, data: [] });
+    const getTasksLocal = vi.fn().mockResolvedValue({ success: true, data: [taskFixture] });
+    const getSitesLocal = vi.fn().mockResolvedValue({ success: true, data: [] });
+    const createSession = vi.fn().mockResolvedValue({
+      success: true,
+      data: { id: 'session-normal' },
+    });
+    // 关键：正常启动，无 queued 标记
+    const startSession = vi.fn().mockResolvedValue({ success: true });
+
+    (window as any).electronAPI = {
+      bulkDownload: {
+        getActiveSessions: getActiveSessionsLocal,
+        getTasks: getTasksLocal,
+        createSession,
+        startSession,
+      },
+      booru: {
+        getSites: getSitesLocal,
+      },
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await waitFor(() => {
+      expect(getTasksLocal).toHaveBeenCalled();
+    });
+
+    const startBtn = await screen.findByRole('button', { name: /开始/ });
+
+    await act(async () => {
+      fireEvent.click(startBtn);
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => {
+      expect(startSession).toHaveBeenCalledWith('session-normal');
+    });
+
+    // 反模式守卫：不得因为正常路径而误弹 "已加入队列"
+    const infoMessages = messageInfo.mock.calls.map(c => String(c[0]));
+    expect(infoMessages.some(m => m.includes('已加入队列'))).toBe(false);
   });
 });

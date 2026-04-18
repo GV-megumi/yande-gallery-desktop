@@ -546,8 +546,19 @@ function withScheduler<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 /**
- * 取第一个 queued 会话 id（FIFO，按 startedAt 升序；缺失 startedAt 时回退到 createdAt / id）。
- * bulk_download_sessions 没有 createdAt 字段，改用 startedAt；为安全起见 COALESCE 到 id。
+ * 取第一个 queued 会话 id（FIFO）。
+ *
+ * FIFO 顺序来源：
+ * - session.id 是 uuid v4（见 createBulkDownloadSession），完全随机，
+ *   按 id 排序不能保证插入顺序。bulk_download_sessions 也没有 createdAt
+ *   列，加列涉及 schema 迁移，代价过大。
+ * - SQLite 每张普通表都带一个隐式的 rowid，它按 INSERT 先后单调递增，
+ *   天然就是"入表顺序"。对 queued 的 FIFO 语义来说正是需要的。
+ * - startedAt 在从 pending 迁 queued 的路径上可能为 null（例如 init.ts
+ *   启动恢复时直接打 queued），所以用 COALESCE(startedAt, rowid) 兜底，
+ *   既尊重已有 startedAt 的历史行，又能在缺失时回退到 rowid FIFO。
+ *
+ * 这是一个 0 schema 迁移的最小侵入修法。
  */
 async function getNextQueuedSessionId(): Promise<string | null> {
   const db = await getDatabase();
@@ -555,7 +566,7 @@ async function getNextQueuedSessionId(): Promise<string | null> {
     db,
     `SELECT id FROM bulk_download_sessions
      WHERE deletedAt IS NULL AND status = 'queued'
-     ORDER BY COALESCE(startedAt, id) ASC
+     ORDER BY COALESCE(startedAt, rowid) ASC
      LIMIT 1`,
   );
   return row?.id ?? null;
@@ -951,10 +962,19 @@ export async function getBulkDownloadSessionStats(
 
 /**
  * 启动批量下载会话（Dry Run + 下载）
+ *
+ * 返回值约定：
+ * - `queued: true`：该会话被闸门拦下打成 queued，或命中 queued 幂等分支
+ *   （noop：已在队列中再次被外部 start 调用）。调用方据此可以直接弹
+ *   "已加入队列" 的提示，而不需要再查一次 active sessions 去推断
+ *   —— 后者存在 "查之前 promoteNextQueued 已把它推出队列" 的 race 漏弹。
+ * - `queued: false` / 字段缺失：走正常 dryRun / running / 复用活跃
+ *   会话的成功路径，不弹队列提示。
+ * - `success: false`：启动失败（目录不存在 / 会话不存在 / Dry Run 失败）。
  */
 export async function startBulkDownloadSession(
   sessionId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; queued?: boolean; error?: string }> {
   console.log('[bulkDownloadService] 启动批量下载会话:', sessionId);
 
   const existingStartPromise = activeSessionStartPromises.get(sessionId);
@@ -963,7 +983,7 @@ export async function startBulkDownloadSession(
     return existingStartPromise;
   }
 
-  const startPromise = (async (): Promise<{ success: boolean; error?: string }> => {
+  const startPromise = (async (): Promise<{ success: boolean; queued?: boolean; error?: string }> => {
     try {
       const db = await getDatabase();
       const sessionRow = await get<any>(db, `
@@ -1035,9 +1055,12 @@ export async function startBulkDownloadSession(
 
       if (currentStatus === 'queued') {
         // queued 会话由 promoteNextQueued 调度器负责推进，此处仅在调度器调用时
-        // （status 已被 promoteNextQueued 改回 pending）才会往下走；外部重复调用直接忽略。
+        // （status 已被 promoteNextQueued 改回 pending）才会往下走；外部重复调用
+        // 命中这里属于 noop，仍返回 queued: true 以便 UI 复述 "已加入队列" 状态，
+        // 避免调用方靠 "创建后再查 status" 产生 race（短暂被 promoteNextQueued
+        // 提升到 pending 就会漏弹）。
         console.log('[bulkDownloadService] 会话当前仍在队列中，忽略外部 start 调用');
-        return { success: true };
+        return { success: true, queued: true };
       }
 
       // ── 并发闸门：超上限时打成 queued 立刻返回 ──
@@ -1050,7 +1073,10 @@ export async function startBulkDownloadSession(
         return true;
       });
       if (shouldQueue) {
-        return { success: true };
+        // 闸门超限：把新创建的会话直接打成 queued 返回，由 promoteNextQueued
+        // 在有空槽时重新唤起。queued: true 让调用方能明确区分 "进了队列"
+        // 与 "跑起来了"。
+        return { success: true, queued: true };
       }
 
       // 更新状态为 dryRun（扫描阶段）

@@ -57,20 +57,17 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     }
   };
 
-  // 检查会话是否进入排队状态，若是则弹提示
-  // 注意：startSession 对 queued 会话返回 {success:true}，UI 需要自行查状态
-  const notifyIfQueued = async (sessionId: string) => {
-    try {
-      if (!window.electronAPI) return;
-      const result = await window.electronAPI.bulkDownload.getActiveSessions();
-      if (result.success && result.data) {
-        const target = result.data.find(s => s.id === sessionId);
-        if (target && target.status === 'queued') {
-          message.info('已加入队列，等待其他下载完成');
-        }
-      }
-    } catch (error) {
-      console.error('[BooruBulkDownloadPage] 检查队列状态失败:', error);
+  // 根据 startSession 的返回值决定是否弹 "已加入队列" 提示。
+  //
+  // 历史实现是在 startSession 成功后再调用 getActiveSessions 查 status：
+  //   - race：查询时 promoteNextQueued 可能已经把该 session 从 queued 推到
+  //     pending/dryRun，UI 漏弹提示；
+  //   - queued 幂等 noop 分支静默返回 {success:true}，UI 无法区分是否 noop。
+  //
+  // 现在直接读 startSession 返回的 queued 标记，去掉了中间这次查询。
+  const notifyIfQueued = (startResult: { success: boolean; queued?: boolean; error?: string }) => {
+    if (startResult.queued === true) {
+      message.info('已加入队列，等待其他下载完成');
     }
   };
 
@@ -226,8 +223,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
             console.log('[BooruBulkDownloadPage] 下载已启动');
             // 刷新会话列表
             loadSessions();
-            // 若新会话因并发闸门被打成 queued，提示用户
-            notifyIfQueued(sessionId);
+            // 若新会话因并发闸门被打成 queued，提示用户（直接读 startSession 返回值，无 race）
+            notifyIfQueued(startResult);
           } catch (error) {
             console.error('[BooruBulkDownloadPage] 后台启动下载出错:', error);
             message.error('启动下载失败: ' + (error instanceof Error ? error.message : '未知错误'));
@@ -268,8 +265,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
           }
           // ③ 成功后再刷一次，反映 running 状态
           loadSessions();
-          // 若新会话因并发闸门被打成 queued，提示用户
-          notifyIfQueued(sessionId);
+          // 若新会话因并发闸门被打成 queued，提示用户（直接读 startSession 返回值，无 race）
+          notifyIfQueued(startResult);
         } catch (err) {
           console.error('启动下载失败:', err);
           message.error('启动下载失败');
