@@ -313,7 +313,7 @@ declare global {
         getTask: (taskId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         updateTask: (taskId: string, updates: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         deleteTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
-        createSession: (taskId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        createSession: (taskId: string) => Promise<{ success: boolean; data?: any; deduplicated?: boolean; error?: string }>;
         getActiveSessions: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         startSession: (sessionId: string) => Promise<{ success: boolean; queued?: boolean; error?: string }>;
         pauseSession: (sessionId: string) => Promise<{ success: boolean; error?: string }>;

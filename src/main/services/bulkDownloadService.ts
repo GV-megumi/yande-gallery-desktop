@@ -351,10 +351,15 @@ export async function deleteBulkDownloadTask(
 
 /**
  * 创建批量下载会话
+ *
+ * 去重：若 taskId 已存在活跃会话（pending / queued / dryRun / running / paused），
+ * 不再 INSERT 新行，而是直接返回已存在的会话并带 deduplicated:true。
+ * 上游（UI 的"开始"按钮、booruService.startFavoriteTagBulkDownload）可根据
+ * 此标记决定是否跳过后续 startBulkDownloadSession。
  */
 export async function createBulkDownloadSession(
   taskId: string
-): Promise<{ success: boolean; data?: BulkDownloadSession; error?: string }> {
+): Promise<{ success: boolean; data?: BulkDownloadSession; deduplicated?: boolean; error?: string }> {
   console.log('[bulkDownloadService] 创建批量下载会话:', taskId);
   try {
     const task = await getBulkDownloadTaskById(taskId);
@@ -363,6 +368,36 @@ export async function createBulkDownloadSession(
     }
 
     const db = await getDatabase();
+
+    // 活跃会话去重：连续点击"开始"或并发触发时避免重复创建
+    const existing = await get<any>(
+      db,
+      `SELECT id, taskId, siteId, status, startedAt, completedAt, currentPage, totalPages, error
+         FROM bulk_download_sessions
+        WHERE taskId = ?
+          AND deletedAt IS NULL
+          AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')
+        ORDER BY COALESCE(startedAt, rowid) ASC
+        LIMIT 1`,
+      [taskId],
+    );
+    if (existing) {
+      console.log('[bulkDownloadService] 已存在活跃会话，跳过创建:', existing.id);
+      const existingSession: BulkDownloadSession = {
+        id: existing.id,
+        taskId: existing.taskId,
+        siteId: existing.siteId,
+        status: existing.status as BulkDownloadSessionStatus,
+        startedAt: existing.startedAt,
+        completedAt: existing.completedAt,
+        currentPage: existing.currentPage,
+        totalPages: existing.totalPages,
+        error: existing.error,
+        task,
+      };
+      return { success: true, data: existingSession, deduplicated: true };
+    }
+
     const now = new Date().toISOString();
     const sessionId = uuidv4();
 

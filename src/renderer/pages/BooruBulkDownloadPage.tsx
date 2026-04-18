@@ -248,6 +248,14 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
         return;
       }
 
+      // 服务层去重：任务已有活跃会话（pending/queued/dryRun/running/paused），
+      // 直接提示，不再调用 startSession，避免连续点击产生多条 queued 记录。
+      if (sessionResult.deduplicated) {
+        message.info('该任务已有进行中的下载会话');
+        loadSessions();
+        return;
+      }
+
       const sessionId = sessionResult.data.id;
       message.success('会话创建成功，开始下载...');
 
