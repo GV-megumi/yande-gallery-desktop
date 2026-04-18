@@ -286,13 +286,30 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
     // LIKE 前缀使用 path.sep，与 scanDirectory/path.join 入库的 filepath 分隔符保持一致
     const likePrefix = normalized + path.sep;
 
-    // 2. 查该图集范围内的全部图片（含子目录）
-    const images = await all<{ id: number; filepath: string }>(
-      db,
-      `SELECT id, filepath FROM images
-         WHERE filepath LIKE ? OR filepath = ?`,
-      [likePrefix + '%', normalized]
-    );
+    // 2. 查该图集范围内的图片
+    // bug12 I2：必须按 recursive 字段区分匹配范围，否则非递归图集会误删
+    // 子目录下的文件（包括可能属于其他图集的文件）。
+    // - recursive=1：整棵子树（前缀 + '%'）
+    // - recursive=0：仅直接子文件；SQLite LIKE 没有负字符类，用 AND NOT LIKE
+    //   排除 "prefix + 任意 + sep + 任意" 的更深层路径。
+    //
+    // 注：path.sep 在 Windows 下是反斜杠，在 SQLite LIKE 里没有 escape 语义，
+    // 按字面字符参与匹配即可；此处无需额外 escape。
+    const isRecursive = existing.recursive === 1 || (existing.recursive as unknown as boolean) === true;
+    const images = isRecursive
+      ? await all<{ id: number; filepath: string }>(
+          db,
+          `SELECT id, filepath FROM images
+             WHERE filepath LIKE ? OR filepath = ?`,
+          [likePrefix + '%', normalized]
+        )
+      : await all<{ id: number; filepath: string }>(
+          db,
+          `SELECT id, filepath FROM images
+             WHERE filepath LIKE ?
+               AND filepath NOT LIKE ?`,
+          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        );
 
     // 3. best-effort 清缩略图（事务外；依赖 bug13 已修好的 deleteThumbnail 按 filepath 行为）
     if (images.length > 0) {
@@ -326,13 +343,28 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
 
       // 4c. booru_posts 中落地到本图集目录下的帖子：重置 downloaded/localPath
       //     localImageId 已由外键 SET NULL 处理；localPath 的字符串匹配是这里的兜底。
-      await run(
-        db,
-        `UPDATE booru_posts
-            SET downloaded = 0, localPath = NULL
-            WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
-        [likePrefix + '%', normalized]
-      );
+      //
+      // bug12 I2：范围必须与 images 查询一致 —— 非递归图集只匹配直接子路径，
+      //           避免把子目录图集下的 booru_post 也一起打成未下载。
+      if (isRecursive) {
+        await run(
+          db,
+          `UPDATE booru_posts
+              SET downloaded = 0, localPath = NULL
+              WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
+          [likePrefix + '%', normalized]
+        );
+      } else {
+        await run(
+          db,
+          `UPDATE booru_posts
+              SET downloaded = 0, localPath = NULL
+              WHERE localPath IS NOT NULL
+                AND localPath LIKE ?
+                AND localPath NOT LIKE ?`,
+          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        );
+      }
 
       // 4d. 删图集行
       await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);

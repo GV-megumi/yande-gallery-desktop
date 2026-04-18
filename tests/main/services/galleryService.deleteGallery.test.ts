@@ -126,6 +126,91 @@ describe('galleryService.deleteGallery — 级联清理', () => {
   });
 
   /**
+   * bug12 I2 反模式守卫：recursive=0 图集不应删除子目录下图片
+   *
+   * 场景：图集 folderPath=/pics，recursive=0；images 表里同时存在
+   * /pics/a.jpg（直接子文件，应删）和 /pics/sub/b.jpg（子目录，不应删，
+   * 可能属于另一个 /pics/sub 图集）。
+   *
+   * 旧实现无视 recursive，images 查询始终用整棵子树 LIKE prefix + '%'，
+   * 会把 /pics/sub/b.jpg 一起删掉，破坏其他图集的数据。
+   *
+   * 修复：recursive=0 分支在 LIKE 基础上追加 AND NOT LIKE '<prefix>%<sep>%'
+   * 排除更深层路径，仅保留直接子文件。UPDATE booru_posts 的范围同步。
+   *
+   * 反模式证据：把 galleryService.ts 的 recursive=0 分支回退成整棵子树查询，
+   * 本条 FAIL（DELETE images WHERE id IN (...) 参数会包含 /pics/sub/b.jpg 的 id）。
+   */
+  it('recursive=0 图集不应删除子目录下图片（bug12 I2 反模式守卫）', async () => {
+    // 图集 /pics 是非递归；images 表里同时存在直接子文件和更深层文件
+    getMock.mockResolvedValueOnce({ id: 7, folderPath: '/pics', recursive: 0 });
+    // 预期 SQL 已经过滤过 sub/ 下的 b.jpg，这里只返回直接子文件 a.jpg
+    // （mock 层不真正执行 SQL，但通过断言 SQL 文本 + 参数来验证行为）
+    allMock.mockResolvedValueOnce([{ id: 10, filepath: '/pics/a.jpg' }]);
+
+    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await deleteGallery(7);
+
+    expect(result.success).toBe(true);
+
+    // 关键断言 1：SELECT images 的 SQL 必须包含 "NOT LIKE" 排除子树
+    const selectImagesCalls = allMock.mock.calls.filter(c => /SELECT\s+id,\s+filepath\s+FROM\s+images/i.test(String(c[1])));
+    expect(selectImagesCalls.length).toBeGreaterThanOrEqual(1);
+    const selectSql = String(selectImagesCalls[0][1]);
+    expect(selectSql).toMatch(/NOT LIKE/i);
+
+    // 关键断言 2：DELETE images WHERE id IN (...) 的 id 列表只包含直接子文件
+    const deleteImagesCalls = runMock.mock.calls.filter(c => /DELETE FROM images WHERE id IN/i.test(String(c[1])));
+    expect(deleteImagesCalls.length).toBe(1);
+    const deleteParams = deleteImagesCalls[0][2] as any[];
+    expect(deleteParams).toEqual([10]);
+
+    // 关键断言 3：UPDATE booru_posts 的 SQL 也应包含 NOT LIKE（与 images 同步）
+    const updateBooruCalls = runMock.mock.calls.filter(c =>
+      /UPDATE booru_posts[\s\S]*downloaded = 0[\s\S]*localPath = NULL/i.test(String(c[1]))
+    );
+    expect(updateBooruCalls.length).toBe(1);
+    const updateSql = String(updateBooruCalls[0][1]);
+    expect(updateSql).toMatch(/NOT LIKE/i);
+  });
+
+  /**
+   * bug12 I2：recursive=1 图集保持整棵子树清理（不能回归成只删直接子文件）
+   */
+  it('recursive=1 图集应删除整棵子树（含子目录）', async () => {
+    getMock.mockResolvedValueOnce({ id: 8, folderPath: '/pics-r', recursive: 1 });
+    allMock.mockResolvedValueOnce([
+      { id: 20, filepath: '/pics-r/a.jpg' },
+      { id: 21, filepath: '/pics-r/sub/b.jpg' },
+    ]);
+
+    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await deleteGallery(8);
+
+    expect(result.success).toBe(true);
+
+    // 关键断言：递归分支 SELECT 不应包含 NOT LIKE
+    const selectImagesCalls = allMock.mock.calls.filter(c => /SELECT\s+id,\s+filepath\s+FROM\s+images/i.test(String(c[1])));
+    expect(selectImagesCalls.length).toBeGreaterThanOrEqual(1);
+    const selectSql = String(selectImagesCalls[0][1]);
+    expect(selectSql).not.toMatch(/NOT LIKE/i);
+
+    // DELETE images 应覆盖两张图（子目录也应被删）
+    const deleteImagesCalls = runMock.mock.calls.filter(c => /DELETE FROM images WHERE id IN/i.test(String(c[1])));
+    expect(deleteImagesCalls.length).toBe(1);
+    const deleteParams = deleteImagesCalls[0][2] as any[];
+    expect(new Set(deleteParams)).toEqual(new Set([20, 21]));
+
+    // UPDATE booru_posts 的 SQL 也不应有 NOT LIKE
+    const updateBooruCalls = runMock.mock.calls.filter(c =>
+      /UPDATE booru_posts[\s\S]*downloaded = 0[\s\S]*localPath = NULL/i.test(String(c[1]))
+    );
+    expect(updateBooruCalls.length).toBe(1);
+    const updateSql = String(updateBooruCalls[0][1]);
+    expect(updateSql).not.toMatch(/NOT LIKE/i);
+  });
+
+  /**
    * bug12 I1：事务内任一 DB 写抛错 → 整体通过 runInTransaction 传出 →
    * 外层 catch 捕获 → 返回 success:false 并带 error。
    *
