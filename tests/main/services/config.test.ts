@@ -693,6 +693,18 @@ describe('config 模块纯函数测试', () => {
           drive: current.google!.drive,
           photos: current.google!.photos,
         },
+        // bug9：normalizeConfigSaveInput 会为未传入的 notifications / desktop 填充默认值
+        notifications: {
+          enabled: true,
+          byStatus: { completed: true, failed: true, allSkipped: true },
+          singleDownload: { enabled: false },
+          clickAction: 'openDownloadHub',
+        },
+        desktop: {
+          closeAction: 'hide-to-tray',
+          autoLaunch: false,
+          startMinimized: false,
+        },
       });
       expect(result).not.toHaveProperty('extraTopLevel');
     });

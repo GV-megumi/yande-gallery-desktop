@@ -93,9 +93,19 @@ describe('bulkDownloadService desktop notifications', () => {
       all,
     }));
 
+    // bug9：notificationService 依赖 getNotificationsConfig()。为保持既有断言语义：
+    // - enabled 默认 true（上层仍靠任务级 notifications 开关决定是否弹）
+    // - byStatus 全开（测试用例覆盖 completed / failed / allSkipped 三种状态）
+    // - clickAction 设 'focus'，避免 click 时走 sendNavigate 影响 focus/show/restore 断言
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: () => undefined,
       getMaxConcurrentBulkDownloadSessions: () => 3,
+      getNotificationsConfig: () => ({
+        enabled: true,
+        byStatus: { completed: true, failed: true, allSkipped: true },
+        singleDownload: { enabled: false },
+        clickAction: 'focus',
+      }),
     }));
 
     vi.doMock('../../../src/main/services/booruClientFactory.js', () => ({

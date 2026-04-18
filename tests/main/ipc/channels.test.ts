@@ -160,6 +160,15 @@ describe('IPC_CHANNELS', () => {
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(180);
+    // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
+    expect(keys.length).toBe(185);
+  });
+
+  it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {
+    expect(IPC_CHANNELS.SYSTEM_NAVIGATE).toBe('system:navigate');
+    expect(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS).toBe('config:get-notifications');
+    expect(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS).toBe('config:set-notifications');
+    expect(IPC_CHANNELS.CONFIG_GET_DESKTOP).toBe('config:get-desktop');
+    expect(IPC_CHANNELS.CONFIG_SET_DESKTOP).toBe('config:set-desktop');
   });
 });

@@ -11,7 +11,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
-import { BrowserWindow, Notification } from 'electron';
+import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { getDatabase, run, runWithChanges, get, all } from './database.js';
 import { getProxyConfig, getMaxConcurrentBulkDownloadSessions } from './config.js';
@@ -34,7 +34,7 @@ import {
   replaceFileWithTemp,
   validateDownloadedFileSize,
 } from './downloadFileProtocol.js';
-import { restoreOrCreateMainWindow } from '../window.js';
+import { notifyBulkSession } from './notificationService.js';
 
 function parseContentLengthHeader(contentLength: unknown): number | null {
   if (typeof contentLength !== 'string' || contentLength.trim() === '') {
@@ -83,46 +83,9 @@ async function getBulkDownloadSessionNotificationContext(sessionId: string): Pro
   };
 }
 
-function focusExistingMainWindowFromNotification(): void {
-  restoreOrCreateMainWindow();
-}
-
-function showDesktopNotificationForSession(context: {
-  status: 'completed' | 'failed' | 'allSkipped';
-  tags: string;
-  originType?: BulkDownloadSession['originType'] | null;
-  error?: string | null;
-}): void {
-  if (typeof Notification !== 'function') {
-    return;
-  }
-  if (typeof Notification.isSupported === 'function' && !Notification.isSupported()) {
-    return;
-  }
-
-  const scopeLabel = context.originType === 'favoriteTag' ? '收藏标签下载' : '批量下载';
-  const bodyBase = context.tags ? `标签：${context.tags}` : '请打开应用查看详情';
-  const content = context.status === 'completed'
-    ? {
-        title: `${scopeLabel}已完成`,
-        body: bodyBase,
-      }
-    : context.status === 'failed'
-      ? {
-          title: `${scopeLabel}失败`,
-          body: context.error ? `错误：${context.error}` : '请打开应用查看详情',
-        }
-      : {
-          title: `${scopeLabel}需人工处理`,
-          body: '本次任务全部跳过，请检查下载目录、去重规则或标签条件。',
-        };
-
-  const notification = new Notification(content);
-  notification.on('click', () => {
-    focusExistingMainWindowFromNotification();
-  });
-  notification.show();
-}
+// bug9：showDesktopNotificationForSession / focusExistingMainWindowFromNotification
+// 已抽到 src/main/services/notificationService.ts（notifyBulkSession + 三级开关判断）。
+// 任务级 notifications 开关从旧实现里的调用方上移成 notifyBulkSession 的 taskLevelEnabled 参数。
 
 /**
  * 标签集合标准化：去空格、去重、排序后以空格拼接
@@ -652,14 +615,17 @@ export async function updateBulkDownloadSession(
     if (
       notificationContext
       && isDesktopNotificationStatus(nextStatus)
-      && notificationContext.notificationsEnabled
       && notificationContext.previousStatus !== nextStatus
     ) {
-      showDesktopNotificationForSession({
+      // bug9：三级 AND 判断（全局 enabled / byStatus[status] / 任务级）由 notifyBulkSession 内部完成。
+      // 任务级开关（notificationContext.notificationsEnabled）作为参数下沉，保留"任务上关通知 => 不弹"语义。
+      notifyBulkSession({
         status: nextStatus,
         tags: notificationContext.tags,
         originType: notificationContext.originType,
         error: updates.error ?? notificationContext.error,
+        sessionId,
+        taskLevelEnabled: notificationContext.notificationsEnabled,
       });
     }
   } catch (error) {

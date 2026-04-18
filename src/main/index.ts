@@ -8,6 +8,7 @@ import { initializeApp, shutdownAppResources } from './services/init.js';
 import {
   getCachePath,
   getDataDir,
+  getDesktopConfig,
   getDownloadsPath,
   getGalleryFolders,
   getThumbnailsPath,
@@ -246,6 +247,23 @@ app.whenReady().then(async () => {
       // 继续启动应用，让用户看到错误信息
     } else {
       console.log('✅ 应用初始化成功');
+    }
+
+    // bug9：把 desktop.autoLaunch / startMinimized 应用到系统登录项。
+    // 必须在 initializeApp 之后（此时 config 已加载），且只调用系统 API——
+    // Linux 没 setLoginItemSettings 的 openAsHidden 字段但不会抛错。
+    try {
+      const desktop = getDesktopConfig();
+      app.setLoginItemSettings({
+        openAtLogin: desktop.autoLaunch,
+        openAsHidden: desktop.startMinimized,
+      });
+      console.log('[App] setLoginItemSettings:', {
+        openAtLogin: desktop.autoLaunch,
+        openAsHidden: desktop.startMinimized,
+      });
+    } catch (err) {
+      console.warn('[App] setLoginItemSettings 失败（可能该平台不支持）:', err);
     }
 
     console.log('🎉 应用启动完成');

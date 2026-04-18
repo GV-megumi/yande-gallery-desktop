@@ -60,6 +60,14 @@ export const IPC_CHANNELS = {
   SYSTEM_EXPORT_BACKUP: 'system:export-backup',
   SYSTEM_IMPORT_BACKUP: 'system:import-backup',
   SYSTEM_CHECK_FOR_UPDATE: 'system:check-for-update',
+  // 主进程 → 渲染进程导航：通知 click 或其他主进程事件需要切换页面时发送
+  // payload: { section: 'gallery'|'booru'|'google', subKey: string, sessionId?: string }
+  SYSTEM_NAVIGATE: 'system:navigate',
+  // 配置分域 getter/setter（notifications / desktop）
+  CONFIG_GET_NOTIFICATIONS: 'config:get-notifications',
+  CONFIG_SET_NOTIFICATIONS: 'config:set-notifications',
+  CONFIG_GET_DESKTOP: 'config:get-desktop',
+  CONFIG_SET_DESKTOP: 'config:set-desktop',
 
   // 窗口操作
   WINDOW_OPEN_TAG_SEARCH: 'window:open-tag-search',

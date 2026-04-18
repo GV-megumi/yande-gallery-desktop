@@ -1,5 +1,6 @@
-import { BrowserWindow, screen, ipcMain, app } from 'electron';
+import { BrowserWindow, screen, ipcMain, app, dialog } from 'electron';
 import { IPC_CHANNELS } from './ipc/channels.js';
+import { getDesktopConfig } from './services/config.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
@@ -261,9 +262,48 @@ export function createWindow(): BrowserWindow {
 
   mainWindow.on('close', (event) => {
     if (isAppQuitting || !isCloseToTrayEnabled) {
+      // 已在退出流程 或 tray 不可用时，不拦截 close，走系统默认行为
       return;
     }
 
+    // bug9：尊重 config.desktop.closeAction
+    //   - 'quit'          ：不 preventDefault，正常走 before-quit / will-quit 清理链
+    //   - 'hide-to-tray'  ：preventDefault + hide（原行为）
+    //   - 'ask'           ：弹模态 dialog，由用户选择
+    //
+    // 读取失败（config 未加载等）时退化为 'hide-to-tray'，保持兼容。
+    let action: 'quit' | 'hide-to-tray' | 'ask' = 'hide-to-tray';
+    try {
+      action = getDesktopConfig().closeAction;
+    } catch (err) {
+      console.warn('[Window] 读取 desktop.closeAction 失败，回退 hide-to-tray:', err);
+    }
+
+    if (action === 'quit') {
+      return;
+    }
+
+    if (action === 'ask') {
+      event.preventDefault();
+      const choice = dialog.showMessageBoxSync(mainWindow, {
+        type: 'question',
+        buttons: ['最小化到托盘', '退出应用', '取消'],
+        defaultId: 0,
+        cancelId: 2,
+        title: '关闭选项',
+        message: '是否退出应用？',
+      });
+      if (choice === 0) {
+        mainWindow.hide();
+      } else if (choice === 1) {
+        // 触发真实退出流程：由 index.ts 的 before-quit 处理器清理资源
+        app.quit();
+      }
+      // choice 2 / cancel：什么都不做
+      return;
+    }
+
+    // action === 'hide-to-tray'（默认）
     event.preventDefault();
     mainWindow.hide();
     // 保存窗口状态

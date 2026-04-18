@@ -70,6 +70,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     save: (newConfig: ConfigSaveInput) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SAVE, newConfig),
     updateGalleryFolders: (folders: any[]) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_UPDATE_GALLERY_FOLDERS, folders),
     reload: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_RELOAD),
+    // bug9：通知 / 桌面行为分域 getter / setter
+    getNotifications: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS),
+    setNotifications: (patch: any) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS, patch),
+    getDesktop: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET_DESKTOP),
+    setDesktop: (patch: any) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SET_DESKTOP, patch),
     // 监听配置变更摘要事件（事件驱动，替代轮询）
     // 主进程只广播摘要 { version, sections }，避免事件中携带完整去敏配置。
     // 订阅端在收到摘要后应调用 ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET) 主动拉取最新 safe config。
@@ -342,6 +347,9 @@ declare global {
         checkForUpdate: () => Promise<{ success: boolean; data?: import('../shared/types').UpdateCheckResult; error?: string }>;
         onBulkDownloadRecordProgress: (callback: (data: any) => void) => () => void;
         onBulkDownloadRecordStatus: (callback: (data: any) => void) => () => void;
+        onSystemNavigate: (
+          callback: (payload: { section: string; subKey: string; sessionId?: string }) => void,
+        ) => () => void;
       };
       gallery: {
         getRecentImages: (count?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -376,6 +384,37 @@ declare global {
         updateGalleryFolders: (folders: any[]) => Promise<{ success: boolean; error?: string }>;
         reload: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
         onConfigChanged: (callback: (config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void) => () => void;
+        // bug9：通知 / 桌面行为分域
+        getNotifications: () => Promise<{
+          success: boolean;
+          data?: {
+            enabled: boolean;
+            byStatus: { completed: boolean; failed: boolean; allSkipped: boolean };
+            singleDownload: { enabled: boolean };
+            clickAction: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+          };
+          error?: string;
+        }>;
+        setNotifications: (patch: {
+          enabled?: boolean;
+          byStatus?: { completed?: boolean; failed?: boolean; allSkipped?: boolean };
+          singleDownload?: { enabled?: boolean };
+          clickAction?: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+        }) => Promise<{ success: boolean; error?: string }>;
+        getDesktop: () => Promise<{
+          success: boolean;
+          data?: {
+            closeAction: 'hide-to-tray' | 'quit' | 'ask';
+            autoLaunch: boolean;
+            startMinimized: boolean;
+          };
+          error?: string;
+        }>;
+        setDesktop: (patch: {
+          closeAction?: 'hide-to-tray' | 'quit' | 'ask';
+          autoLaunch?: boolean;
+          startMinimized?: boolean;
+        }) => Promise<{ success: boolean; error?: string }>;
       };
       booruPreferences: {
         appearance: {

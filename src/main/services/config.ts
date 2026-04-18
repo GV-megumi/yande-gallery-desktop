@@ -213,6 +213,38 @@ export interface AppConfig {
       tokenDefaults: TokenDefaultOptions; // Token默认选项
     };
   };
+  /**
+   * 桌面通知配置。
+   * - enabled：全局通知开关
+   * - byStatus：按会话终态分类别开关（completed/failed/allSkipped）
+   * - singleDownload.enabled：单次下载（Booru 逐张下载）是否弹通知
+   * - clickAction：点击通知后的默认行为
+   *
+   * 三级判断语义（notificationService）：enabled AND byStatus[status] AND 任务级 notifications
+   */
+  notifications?: {
+    enabled?: boolean;
+    byStatus?: {
+      completed?: boolean;
+      failed?: boolean;
+      allSkipped?: boolean;
+    };
+    singleDownload?: {
+      enabled?: boolean;
+    };
+    clickAction?: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+  };
+  /**
+   * 桌面行为配置。
+   * - closeAction：主窗口点 X 时的行为（hide-to-tray / quit / ask）
+   * - autoLaunch：开机自启（主进程调 app.setLoginItemSettings）
+   * - startMinimized：自启时隐藏到托盘
+   */
+  desktop?: {
+    closeAction?: 'hide-to-tray' | 'quit' | 'ask';
+    autoLaunch?: boolean;
+    startMinimized?: boolean;
+  };
 }
 
 export interface GalleryFolder {
@@ -308,6 +340,17 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   bulkDownload: {
     maxConcurrentSessions: 3,
+  },
+  notifications: {
+    enabled: true,
+    byStatus: { completed: true, failed: true, allSkipped: true },
+    singleDownload: { enabled: false },
+    clickAction: 'openDownloadHub',
+  },
+  desktop: {
+    closeAction: 'hide-to-tray',
+    autoLaunch: false,
+    startMinimized: false,
   },
   booru: {
     appearance: {
@@ -1104,6 +1147,23 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
           },
         }
       : currentConfig.booru,
+    notifications: {
+      enabled: input.notifications?.enabled ?? currentConfig.notifications?.enabled ?? true,
+      byStatus: {
+        completed: input.notifications?.byStatus?.completed ?? currentConfig.notifications?.byStatus?.completed ?? true,
+        failed: input.notifications?.byStatus?.failed ?? currentConfig.notifications?.byStatus?.failed ?? true,
+        allSkipped: input.notifications?.byStatus?.allSkipped ?? currentConfig.notifications?.byStatus?.allSkipped ?? true,
+      },
+      singleDownload: {
+        enabled: input.notifications?.singleDownload?.enabled ?? currentConfig.notifications?.singleDownload?.enabled ?? false,
+      },
+      clickAction: input.notifications?.clickAction ?? currentConfig.notifications?.clickAction ?? 'openDownloadHub',
+    },
+    desktop: {
+      closeAction: input.desktop?.closeAction ?? currentConfig.desktop?.closeAction ?? 'hide-to-tray',
+      autoLaunch: input.desktop?.autoLaunch ?? currentConfig.desktop?.autoLaunch ?? false,
+      startMinimized: input.desktop?.startMinimized ?? currentConfig.desktop?.startMinimized ?? false,
+    },
   };
 }
 
@@ -1317,6 +1377,57 @@ export function getMaxConcurrentBulkDownloadSessions(): number {
     // 配置尚未加载（如某些测试环境），回退默认值
   }
   return 3;
+}
+
+/**
+ * 获取通知配置（安全兜底默认值）
+ *
+ * 读路径保守：所有字段都用 ?? 兜底为默认值，避免未迁移到新字段的旧 config.yaml
+ * 触发 "一条通知也不弹" 或 "undefined.xxx" 异常。
+ */
+export function getNotificationsConfig(): {
+  enabled: boolean;
+  byStatus: { completed: boolean; failed: boolean; allSkipped: boolean };
+  singleDownload: { enabled: boolean };
+  clickAction: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+} {
+  let cfg: AppConfig['notifications'] | undefined;
+  try {
+    cfg = getConfig()?.notifications;
+  } catch {
+    cfg = undefined;
+  }
+  return {
+    enabled: cfg?.enabled ?? true,
+    byStatus: {
+      completed: cfg?.byStatus?.completed ?? true,
+      failed: cfg?.byStatus?.failed ?? true,
+      allSkipped: cfg?.byStatus?.allSkipped ?? true,
+    },
+    singleDownload: { enabled: cfg?.singleDownload?.enabled ?? false },
+    clickAction: cfg?.clickAction ?? 'openDownloadHub',
+  };
+}
+
+/**
+ * 获取桌面行为配置（安全兜底默认值）
+ */
+export function getDesktopConfig(): {
+  closeAction: 'hide-to-tray' | 'quit' | 'ask';
+  autoLaunch: boolean;
+  startMinimized: boolean;
+} {
+  let cfg: AppConfig['desktop'] | undefined;
+  try {
+    cfg = getConfig()?.desktop;
+  } catch {
+    cfg = undefined;
+  }
+  return {
+    closeAction: cfg?.closeAction ?? 'hide-to-tray',
+    autoLaunch: cfg?.autoLaunch ?? false,
+    startMinimized: cfg?.startMinimized ?? false,
+  };
 }
 
 /**

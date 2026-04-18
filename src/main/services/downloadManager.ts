@@ -557,6 +557,16 @@ class DownloadManager {
       // 通知前端
       this.broadcastStatus(queueId, 'completed');
 
+      // bug9：单次下载完成通知（三级开关 enabled + singleDownload.enabled + byStatus.completed 在 notificationService 内判断）
+      // 用动态 import 避免启动期循环依赖；异常不影响主流程。
+      try {
+        const filename = item.targetPath ? path.basename(item.targetPath) : String(queueId);
+        const { notifySingleDownload } = await import('./notificationService.js');
+        notifySingleDownload({ status: 'completed', filename });
+      } catch (err) {
+        console.warn('[DownloadManager] 发送完成通知失败:', err);
+      }
+
       // 继续处理队列
       this.processQueue();
 
@@ -603,6 +613,16 @@ class DownloadManager {
     // 真正意义上的失败
     await booruService.updateDownloadStatus(queueId, 'failed', errorMessage);
     this.broadcastStatus(queueId, 'failed', errorMessage);
+
+    // bug9：单次下载失败通知（用户暂停 / 取消已在上方早返，这里只管真失败）。
+    // 此处没有缓存的 filename；走 queueId 占位，避免对 activeDownloads 做延迟读。
+    try {
+      const { notifySingleDownload } = await import('./notificationService.js');
+      notifySingleDownload({ status: 'failed', filename: `#${queueId}`, error: errorMessage });
+    } catch (err) {
+      console.warn('[DownloadManager] 发送失败通知失败:', err);
+    }
+
     this.processQueue();
   }
 

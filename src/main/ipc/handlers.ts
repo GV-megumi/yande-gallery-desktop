@@ -1,4 +1,4 @@
-import { ipcMain, dialog, IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { app, ipcMain, dialog, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from './channels.js';
 import path from 'path';
 import fs from 'fs/promises';
@@ -41,7 +41,7 @@ import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
 import type { BooruForumPostData, BooruForumTopicData, BooruUserProfileData, BooruWikiData } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
 import { BooruForumPost, BooruForumTopic, BooruPost, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, ListQueryParams, FavoriteTagImportRecord, FavoriteTagLabelImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
-import { getConfig, getBooruAppearancePreference, saveConfig, updateGalleryFolders, reloadConfig, toRendererSafeConfig, type AppShellPagePreference, type BlacklistedTagsPagePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab } from '../services/config.js';
+import { getConfig, getBooruAppearancePreference, saveConfig, updateGalleryFolders, reloadConfig, toRendererSafeConfig, getNotificationsConfig, getDesktopConfig, type AppShellPagePreference, type BlacklistedTagsPagePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
@@ -834,6 +834,70 @@ export function setupIPC() {
       const result = await saveConfig(newConfig);
       if (result.success) {
         broadcastConfigChanged(collectConfigSaveSections(newConfig));
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // bug9：通知配置分域 getter/setter
+  //
+  // 之所以不复用通用 CONFIG_GET/CONFIG_SAVE：
+  //   - 让前端读写时有"只关心这段"的清晰入口，避免误传其他字段
+  //   - 与后续可能的增量广播（仅 notifications section）保持一致
+  //
+  // setter 内部走 saveConfig + broadcast，保证其他订阅方也能感知变更。
+  ipcMain.handle(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS, async () => {
+    try {
+      return { success: true, data: getNotificationsConfig() };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS, async (_event: IpcMainInvokeEvent, patch: Partial<NonNullable<ReturnType<typeof getNotificationsConfig>>>) => {
+    try {
+      const current = getConfig().notifications ?? {};
+      const merged = { ...current, ...patch } as any;
+      const result = await saveConfig({ notifications: merged });
+      if (result.success) {
+        broadcastConfigChanged(['notifications']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_GET_DESKTOP, async () => {
+    try {
+      return { success: true, data: getDesktopConfig() };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SET_DESKTOP, async (_event: IpcMainInvokeEvent, patch: Partial<ReturnType<typeof getDesktopConfig>>) => {
+    try {
+      const current = getConfig().desktop ?? {};
+      const merged = { ...current, ...patch } as any;
+      const result = await saveConfig({ desktop: merged });
+      if (result.success) {
+        broadcastConfigChanged(['desktop']);
+        // bug9：autoLaunch / startMinimized 变化时要同步调一次 setLoginItemSettings，
+        // 让系统登录项立即跟随新配置，无需重启应用。
+        if ('autoLaunch' in patch || 'startMinimized' in patch) {
+          try {
+            const desktop = getDesktopConfig();
+            app.setLoginItemSettings({
+              openAtLogin: desktop.autoLaunch,
+              openAsHidden: desktop.startMinimized,
+            });
+          } catch (err) {
+            console.warn('[IPC] setLoginItemSettings 失败（可能该平台不支持）:', err);
+          }
+        }
       }
       return result;
     } catch (error) {

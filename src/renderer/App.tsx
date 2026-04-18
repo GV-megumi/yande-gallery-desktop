@@ -507,6 +507,39 @@ export const AppContent: React.FC = () => {
     });
   }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
 
+  // bug9：监听主进程 SYSTEM_NAVIGATE（目前来源是通知 click）。收到后切 section + 对应 subKey。
+  // 已是 pin 的页面走 handlePinnedClick 恢复缓存页面上下文（依赖 bug1 的 pin 恢复链）。
+  // 依赖 pinnedItems + handlePinnedClick 以跟踪最新固定项集合；当前不为 sessionId 做硬联动（下载管理页自己决定是否读取高亮）。
+  useEffect(() => {
+    const off = window.electronAPI?.system?.onSystemNavigate?.((payload) => {
+      if (!payload || typeof payload.section !== 'string' || typeof payload.subKey !== 'string') return;
+      const section = payload.section as 'gallery' | 'booru' | 'google';
+      const subKey = payload.subKey;
+      if (section === 'gallery') {
+        setSidebarSection('gallery');
+        setSelectedKey('gallery');
+        setSelectedSubKey(subKey);
+      } else if (section === 'booru') {
+        setSidebarSection('booru');
+        setSelectedKey('booru');
+        setSelectedBooruSubKey(subKey);
+      } else if (section === 'google') {
+        setSidebarSection('google');
+        setSelectedKey('google');
+        setSelectedGoogleSubKey(subKey);
+      } else {
+        return;
+      }
+      // 如果目标页在固定项里，触发 pin 恢复链；否则清除 activePinnedId，让 UI 回到普通二级菜单态
+      if (pinnedItems.some(p => p.section === section && p.key === subKey)) {
+        handlePinnedClick({ section, key: subKey });
+      } else {
+        setActivePinnedId(null);
+      }
+    });
+    return () => { off?.(); };
+  }, [pinnedItems, handlePinnedClick]);
+
   // 导航栈操作：push 压栈（保留下层页面），pop 弹栈（返回上一页）
   const pushNavigation = useCallback((entry: NavigationEntry) => {
     const label = entry.type === 'tag-search'

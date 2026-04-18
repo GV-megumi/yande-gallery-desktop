@@ -32,6 +32,15 @@ export function createSystemApi() {
       const subscription = (_event: any, data: any) => callback(data);
       ipcRenderer.on(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, subscription);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, subscription);
-    }
+    },
+    // bug9：主进程 → 渲染层导航事件（通知点击 / 托盘菜单等）。
+    // payload: { section, subKey, sessionId? }；App.tsx 监听后切侧栏 + 右侧内容
+    onSystemNavigate: (
+      callback: (payload: { section: string; subKey: string; sessionId?: string }) => void,
+    ) => {
+      const subscription = (_event: any, payload: { section: string; subKey: string; sessionId?: string }) => callback(payload);
+      ipcRenderer.on(IPC_CHANNELS.SYSTEM_NAVIGATE, subscription);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_NAVIGATE, subscription);
+    },
   } as const;
 }
