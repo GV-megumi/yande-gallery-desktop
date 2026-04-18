@@ -37,14 +37,35 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editingNote, setEditingNote] = useState('');
 
+  /**
+   * bug12 I2：preload 尚未就绪时不再静默 early-return，而是给用户反馈。
+   * 正常流程下 preload 先于 React 渲染完成，这里命中通常说明 API 漂移
+   * 或用户在应用初始化极早阶段操作过。统一用 console.warn + message.error。
+   */
+  const ensureApiReady = (needSystem: boolean): boolean => {
+    if (!window.electronAPI?.gallery || (needSystem && !window.electronAPI?.system)) {
+      console.warn('[IgnoredFoldersModal] electronAPI 未就绪', {
+        gallery: Boolean(window.electronAPI?.gallery),
+        system: Boolean(window.electronAPI?.system),
+      });
+      message.error(t('settings.ignoredFolderApiNotReady'));
+      return false;
+    }
+    return true;
+  };
+
   const load = async () => {
-    if (!window.electronAPI?.gallery) return;
+    if (!ensureApiReady(false)) return;
     setLoading(true);
     try {
       const r = await window.electronAPI.gallery.listIgnoredFolders();
       if (r?.success && r.data) setRows(r.data);
+      else if (r && !r.success) {
+        message.error(r.error || t('settings.ignoredFolderLoadFailed'));
+      }
     } catch (err) {
       console.error('[IgnoredFoldersModal] 加载忽略名单失败:', err);
+      message.error(t('settings.ignoredFolderLoadFailed'));
     } finally {
       setLoading(false);
     }
@@ -55,7 +76,7 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
   }, [open]);
 
   const handleAdd = async () => {
-    if (!window.electronAPI?.system || !window.electronAPI?.gallery) return;
+    if (!ensureApiReady(true)) return;
     const picked = await window.electronAPI.system.selectFolder();
     if (!picked?.success || !picked.data) return;
     const r = await window.electronAPI.gallery.addIgnoredFolder(picked.data);
@@ -73,7 +94,7 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
   };
 
   const handleSaveEdit = async (id: number) => {
-    if (!window.electronAPI?.gallery) return;
+    if (!ensureApiReady(false)) return;
     const r = await window.electronAPI.gallery.updateIgnoredFolder(id, { note: editingNote });
     if (r?.success) {
       setEditingId(null);
@@ -84,7 +105,7 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
   };
 
   const handleRemove = async (id: number) => {
-    if (!window.electronAPI?.gallery) return;
+    if (!ensureApiReady(false)) return;
     const r = await window.electronAPI.gallery.removeIgnoredFolder(id);
     if (r?.success) {
       load();

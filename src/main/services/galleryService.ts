@@ -1,6 +1,6 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
-import { getDatabase, run, get, all } from './database.js';
+import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 
@@ -251,15 +251,19 @@ export async function updateGallery(
  * 删除图库（bug12：级联清理 + 自动加入忽略名单）
  *
  * 清理顺序：
- * 1. 校验 galleries 行存在，读出 folderPath + recursive；
- * 2. 按归一化 folderPath 前缀 LIKE 查出所有 images；
- * 3. 对每张图尽力清理磁盘缩略图（失败只告警，不中断）；
- * 4. 批量 DELETE image_tags / images；
- * 5. DELETE invalid_images WHERE galleryId（显式，虽然 FK 设 SET NULL 也可容忍）；
- * 6. UPDATE booru_posts 把对应 localPath 的 downloaded/localPath 重置，
- *    避免"已下载"状态错乱；
- * 7. DELETE galleries 本行；
- * 8. INSERT OR REPLACE 写入 gallery_ignored_folders，下次扫描不再重建。
+ * 1. 校验 galleries 行存在，读出 folderPath + recursive（事务外，只读）；
+ * 2. 按归一化 folderPath 前缀 LIKE 查出所有 images（事务外，只读）；
+ * 3. 对每张图尽力清理磁盘缩略图（事务外 best-effort，失败只告警）；
+ *    —— 磁盘 IO 不进事务：即便事务后续回滚，磁盘缩略图先删也可接受；
+ *       放进事务里反而会拖长事务持锁时间。
+ * 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）：
+ *    a. DELETE image_tags / images；
+ *    b. DELETE invalid_images WHERE galleryId（显式，虽然 FK 设 SET NULL 也可容忍）；
+ *    c. UPDATE booru_posts 把对应 localPath 的 downloaded/localPath 重置，
+ *       避免"已下载"状态错乱；
+ *    d. DELETE galleries 本行；
+ *    e. INSERT OR REPLACE 写入 gallery_ignored_folders，下次扫描不再重建。
+ *    任一条失败 → ROLLBACK。
  *
  * 注意：原图文件不删，仅清数据库记录与缩略图缓存。
  */
@@ -290,7 +294,7 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       [likePrefix + '%', normalized]
     );
 
-    // 3. best-effort 清缩略图（依赖 bug13 已修好的 deleteThumbnail 按 filepath 行为）
+    // 3. best-effort 清缩略图（事务外；依赖 bug13 已修好的 deleteThumbnail 按 filepath 行为）
     if (images.length > 0) {
       const { deleteThumbnail } = await import('./thumbnailService.js');
       for (const img of images) {
@@ -303,47 +307,53 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
           );
         }
       }
-
-      // 4. 批量 DELETE image_tags → images
-      const idList = images.map(i => i.id);
-      const placeholders = idList.map(() => '?').join(',');
-      await run(db, `DELETE FROM image_tags WHERE imageId IN (${placeholders})`, idList);
-      await run(db, `DELETE FROM images WHERE id IN (${placeholders})`, idList);
     }
 
-    // 5. invalid_images 按 galleryId 显式清（表定义是 ON DELETE SET NULL，
-    //    这里直接删记录更干净，避免累积孤儿行）
-    await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
+    // 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）
+    //    任一 DB 写失败整体 ROLLBACK，外层 catch 返回 success:false
+    await runInTransaction(db, async () => {
+      // 4a. 批量 DELETE image_tags → images
+      if (images.length > 0) {
+        const idList = images.map(i => i.id);
+        const placeholders = idList.map(() => '?').join(',');
+        await run(db, `DELETE FROM image_tags WHERE imageId IN (${placeholders})`, idList);
+        await run(db, `DELETE FROM images WHERE id IN (${placeholders})`, idList);
+      }
 
-    // 6. booru_posts 中落地到本图集目录下的帖子：重置 downloaded/localPath
-    //    localImageId 已由外键 SET NULL 处理；localPath 的字符串匹配是这里的兜底。
-    await run(
-      db,
-      `UPDATE booru_posts
-          SET downloaded = 0, localPath = NULL
-          WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
-      [likePrefix + '%', normalized]
-    );
+      // 4b. invalid_images 按 galleryId 显式清（表定义是 ON DELETE SET NULL，
+      //     这里直接删记录更干净，避免累积孤儿行）
+      await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
 
-    // 7. 删图集行
-    await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
+      // 4c. booru_posts 中落地到本图集目录下的帖子：重置 downloaded/localPath
+      //     localImageId 已由外键 SET NULL 处理；localPath 的字符串匹配是这里的兜底。
+      await run(
+        db,
+        `UPDATE booru_posts
+            SET downloaded = 0, localPath = NULL
+            WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
+        [likePrefix + '%', normalized]
+      );
 
-    // 8. 写入忽略名单（INSERT OR REPLACE 保留 createdAt）
-    const now = new Date().toISOString();
-    await run(
-      db,
-      `INSERT OR REPLACE INTO gallery_ignored_folders
-         (folderPath, note, createdAt, updatedAt)
-       VALUES (
-         ?, ?,
-         COALESCE(
-           (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+      // 4d. 删图集行
+      await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
+
+      // 4e. 写入忽略名单（INSERT OR REPLACE 保留 createdAt）
+      const now = new Date().toISOString();
+      await run(
+        db,
+        `INSERT OR REPLACE INTO gallery_ignored_folders
+           (folderPath, note, createdAt, updatedAt)
+         VALUES (
+           ?, ?,
+           COALESCE(
+             (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+             ?
+           ),
            ?
-         ),
-         ?
-       )`,
-      [normalized, '删除图集自动忽略', normalized, now, now]
-    );
+         )`,
+        [normalized, '删除图集自动忽略', normalized, now, now]
+      );
+    });
 
     return { success: true };
   } catch (error) {

@@ -439,6 +439,8 @@ const zhCN = {
     ignoredFolderAddFailed: '添加失败',
     ignoredFolderSaveFailed: '保存失败',
     ignoredFolderRemoveFailed: '删除失败',
+    ignoredFolderLoadFailed: '加载忽略名单失败',
+    ignoredFolderApiNotReady: '应用尚未完全加载，请稍后再试',
     scanFolder: '扫描',
     deleteFolder: '删除',
     deleteFolderConfirm: '确定删除此文件夹？',

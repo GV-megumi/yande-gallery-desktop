@@ -441,6 +441,8 @@ const enUS: LocaleMessages = {
     ignoredFolderAddFailed: 'Add failed',
     ignoredFolderSaveFailed: 'Save failed',
     ignoredFolderRemoveFailed: 'Remove failed',
+    ignoredFolderLoadFailed: 'Failed to load ignored list',
+    ignoredFolderApiNotReady: 'App is still loading, please try again later',
     scanFolder: 'Scan',
     deleteFolder: 'Delete',
     deleteFolderConfirm: 'Delete this folder?',

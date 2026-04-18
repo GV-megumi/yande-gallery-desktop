@@ -17,11 +17,15 @@ const runMock = vi.fn();
 const allMock = vi.fn();
 const deleteThumbnailMock = vi.fn(async () => ({ success: true }));
 
+// bug12 I1：deleteGallery 现在把 DB 级联包进 runInTransaction。
+// 单测不开真实事务，只需让 fn 直接执行并把抛错向外透传，
+// galleryService 的外层 catch 会把它转成 { success: false, error }。
 vi.mock('../../../src/main/services/database.js', () => ({
   getDatabase: vi.fn(async () => ({})),
   get: (...args: any[]) => getMock(...args),
   run: (...args: any[]) => runMock(...args),
   all: (...args: any[]) => allMock(...args),
+  runInTransaction: async (_db: any, fn: () => Promise<any>) => fn(),
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
@@ -119,5 +123,41 @@ describe('galleryService.deleteGallery — 级联清理', () => {
     expect(result.success).toBe(true);
     const sqls = runMock.mock.calls.map(c => String(c[1]));
     expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(true);
+  });
+
+  /**
+   * bug12 I1：事务内任一 DB 写抛错 → 整体通过 runInTransaction 传出 →
+   * 外层 catch 捕获 → 返回 success:false 并带 error。
+   *
+   * 单测里 mock 的 runInTransaction 不会真 BEGIN/COMMIT/ROLLBACK，
+   * 所以这里仅断言"错误会被透传并转成 success:false"。真正的 ROLLBACK
+   * 由 database.runInTransaction 的集成测试守卫（已在其他用例中覆盖）。
+   */
+  it('事务内 UPDATE booru_posts 抛错应被外层捕获，返回 success:false', async () => {
+    getMock.mockResolvedValueOnce({ id: 5, folderPath: '/y', recursive: 0 });
+    allMock.mockResolvedValueOnce([{ id: 20, filepath: '/y/a.jpg' }]);
+
+    // 让 UPDATE booru_posts 那一步抛错
+    runMock.mockImplementation(async (_db: any, sql: string) => {
+      if (/UPDATE booru_posts/i.test(sql)) {
+        throw new Error('simulated booru_posts update failure');
+      }
+    });
+
+    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await deleteGallery(5);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/booru_posts update failure/);
+
+    // 先于 UPDATE 的语句应已调用过（DELETE image_tags / images / invalid_images）
+    const sqls = runMock.mock.calls.map(c => String(c[1]));
+    expect(sqls.some(s => /DELETE FROM image_tags/i.test(s))).toBe(true);
+    expect(sqls.some(s => /DELETE FROM images WHERE id IN/i.test(s))).toBe(true);
+    expect(sqls.some(s => /DELETE FROM invalid_images/i.test(s))).toBe(true);
+
+    // 失败点之后的语句不应再执行：不应出现 DELETE galleries / INSERT OR REPLACE ignored
+    expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(false);
+    expect(sqls.some(s => /INSERT OR REPLACE INTO gallery_ignored_folders/i.test(s))).toBe(false);
   });
 });
