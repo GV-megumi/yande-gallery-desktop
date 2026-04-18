@@ -366,15 +366,14 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
           </span>
         </Space>
         <Space>
-          <Button 
-            icon={<ReloadOutlined />} 
-            onClick={() => loadRecords(false, true)} 
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => loadRecords(false, true)}
             loading={loading}
             title="刷新并自动修复状态不一致的记录"
           >
             刷新
           </Button>
-          <Button onClick={onClose}>关闭</Button>
         </Space>
       </div>
       <Tabs
