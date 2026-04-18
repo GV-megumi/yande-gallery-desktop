@@ -775,26 +775,3 @@ export async function removeIgnoredFolder(
   }
 }
 
-/**
- * 生成唯一的图集名称（处理重名）
- */
-async function generateUniqueGalleryName(baseName: string): Promise<string> {
-  const db = await getDatabase();
-  let name = baseName;
-  let suffix = 1;
-
-  while (true) {
-    const existing = await get<{ id: number }>(
-      db,
-      'SELECT id FROM galleries WHERE name = ?',
-      [name]
-    );
-
-    if (!existing) {
-      return name;
-    }
-
-    name = `${baseName} (${suffix})`;
-    suffix++;
-  }
-}
