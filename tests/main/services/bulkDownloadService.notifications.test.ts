@@ -83,6 +83,9 @@ describe('bulkDownloadService desktop notifications', () => {
 
     vi.doMock('../../../src/main/window.js', () => ({
       restoreOrCreateMainWindow,
+      // bug9 follow-up：notificationService 优先读 getMainWindow()，返回 null 退路到
+      // BrowserWindow.getAllWindows()，这里保持 null 以维持既有 electron mock 行为。
+      getMainWindow: vi.fn(() => null),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({

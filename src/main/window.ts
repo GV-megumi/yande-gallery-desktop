@@ -82,6 +82,22 @@ export function setMainWindowFactory(factory: (() => BrowserWindow) | null): voi
   mainWindowFactory = factory;
 }
 
+/**
+ * 取当前存活的主窗口引用。
+ * 用于需要**精确定位主窗口**的场景（例如把 system:navigate 事件发到主窗口而非子窗口）。
+ * 与 restoreOrCreateMainWindow 的差异：本函数**不会**创建新窗口、也不会 restore/focus，
+ * 单纯返回内部持有的 mainWindowRef；不存活或未创建时返回 null。
+ *
+ * 典型用法：notificationService 里发 SYSTEM_NAVIGATE 时优先用 getMainWindow()?.webContents，
+ * 避免落到 BrowserWindow.getAllWindows()[0] 误把事件发给子窗口（子窗口共享主 preload 会订阅
+ * 同名事件，但没有 section/subKey 切换逻辑，会静默丢弃）。
+ */
+export function getMainWindow(): BrowserWindow | null {
+  if (!mainWindowRef) return null;
+  if (typeof mainWindowRef.isDestroyed === 'function' && mainWindowRef.isDestroyed()) return null;
+  return mainWindowRef;
+}
+
 export function restoreOrCreateMainWindow(): BrowserWindow {
   const mainWindow = mainWindowRef && typeof mainWindowRef.isDestroyed === 'function' && !mainWindowRef.isDestroyed()
     ? mainWindowRef
@@ -284,22 +300,27 @@ export function createWindow(): BrowserWindow {
     }
 
     if (action === 'ask') {
+      // preventDefault 必须同步调用，否则 Electron 不会拦截 close；
+      // 随后 showMessageBox 异步弹窗，避免 showMessageBoxSync 阻塞事件循环。
       event.preventDefault();
-      const choice = dialog.showMessageBoxSync(mainWindow, {
+      dialog.showMessageBox(mainWindow, {
         type: 'question',
         buttons: ['最小化到托盘', '退出应用', '取消'],
         defaultId: 0,
         cancelId: 2,
         title: '关闭选项',
         message: '是否退出应用？',
+      }).then(({ response }) => {
+        if (response === 0) {
+          mainWindow.hide();
+        } else if (response === 1) {
+          // 触发真实退出流程：由 index.ts 的 before-quit 处理器清理资源
+          app.quit();
+        }
+        // response 2 / cancel：什么都不做
+      }).catch((err) => {
+        console.warn('[Window] close ask dialog 异常:', err);
       });
-      if (choice === 0) {
-        mainWindow.hide();
-      } else if (choice === 1) {
-        // 触发真实退出流程：由 index.ts 的 before-quit 处理器清理资源
-        app.quit();
-      }
-      // choice 2 / cancel：什么都不做
       return;
     }
 

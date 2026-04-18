@@ -22,7 +22,7 @@
 import { BrowserWindow, Notification } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { getNotificationsConfig } from './config.js';
-import { restoreOrCreateMainWindow } from '../window.js';
+import { restoreOrCreateMainWindow, getMainWindow } from '../window.js';
 
 type BulkStatus = 'completed' | 'failed' | 'allSkipped';
 
@@ -34,9 +34,19 @@ function shouldNotifyBulk(status: BulkStatus, taskLevelEnabled: boolean): boolea
   return cfg.byStatus[status] === true;
 }
 
-/** 取主窗口。优先 restoreOrCreateMainWindow 保留的引用，其次退路到任一主窗口 */
+/**
+ * 取主窗口 webContents。
+ * 优先用 window.ts 持有的 mainWindowRef（via getMainWindow）——SYSTEM_NAVIGATE 必须发到**主窗口**，
+ * 因为只有主窗口的 App.tsx 有 section/subKey 切换逻辑；子窗口（tag-search / secondary-menu 等）
+ * 虽然共享主 preload 会订阅同名事件，但没有相应处理逻辑，事件会被静默丢弃。
+ *
+ * 仅在主窗口尚未创建（罕见：通知触发时 mainWindowRef 还是 null）时退路到 getAllWindows()[0]，
+ * 保证不至于完全静默；这路径下若命中子窗口仍会丢失，但主窗口尚未创建时通常也没什么子窗口存在。
+ */
 function getMainWebContents() {
   try {
+    const main = getMainWindow();
+    if (main) return main.webContents;
     const windows = BrowserWindow.getAllWindows();
     const candidate = windows.find((w) => !w.isDestroyed());
     return candidate?.webContents ?? null;

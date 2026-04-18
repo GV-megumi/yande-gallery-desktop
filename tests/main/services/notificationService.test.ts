@@ -43,8 +43,12 @@ describe('notificationService 三级开关 + click 守卫', () => {
   }
 
   function mockWindow() {
+    // getMainWindow 默认返回 null，让 notificationService 退路到
+    // BrowserWindow.getAllWindows() 走原有的 electron mock 路径。
+    // 需要覆盖"主窗口已存在"场景时可在具体用例里重新 doMock。
     vi.doMock('../../../src/main/window.js', () => ({
       restoreOrCreateMainWindow: vi.fn(),
+      getMainWindow: vi.fn(() => null),
     }));
   }
 
