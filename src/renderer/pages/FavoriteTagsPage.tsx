@@ -1136,16 +1136,30 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="downloadPath" label={t('favoriteTags.downloadPath')} rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}>
+          <Form.Item
+            label={t('favoriteTags.downloadPath')}
+            required
+            style={{ marginBottom: 0 }}
+          >
             <Space.Compact style={{ width: '100%' }}>
-              <Input readOnly aria-label={t('favoriteTags.downloadPath')} style={{ flex: 1 }} />
-              <Button
-                aria-label={t('favoriteTags.selectFolder')}
-                onClick={handleSelectFavoriteTagDownloadPath}
-                disabled={Boolean(downloadForm.getFieldValue('galleryId'))}
+              <Form.Item
+                name="downloadPath"
+                noStyle
+                rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}
               >
-                {t('favoriteTags.selectFolder')}
-              </Button>
+                <Input readOnly aria-label={t('favoriteTags.downloadPath')} style={{ flex: 1 }} />
+              </Form.Item>
+              <Form.Item shouldUpdate={(prev, curr) => prev.galleryId !== curr.galleryId} noStyle>
+                {({ getFieldValue }) => (
+                  <Button
+                    aria-label={t('favoriteTags.selectFolder')}
+                    onClick={handleSelectFavoriteTagDownloadPath}
+                    disabled={Boolean(getFieldValue('galleryId'))}
+                  >
+                    {t('favoriteTags.selectFolder')}
+                  </Button>
+                )}
+              </Form.Item>
             </Space.Compact>
           </Form.Item>
           <Form.Item name="autoCreateGallery" label={t('favoriteTags.autoCreateGallery')} valuePropName="checked">
