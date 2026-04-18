@@ -226,6 +226,14 @@ describe('FavoriteTagsPage render behavior', () => {
 
     expect(await screen.findByText('favoriteTags.configTitle:tag_a')).toBeTruthy();
     expect(screen.getByRole('button', { name: '选择文件夹' })).toBeTruthy();
+
+    // 反模式回归守卫：直接读 <input> 的 DOM value，确保绑定路径真的渲染到输入框里
+    // 仅依赖 form 内部状态（getFieldsValue）的断言即便 bug 存在也会 PASS
+    const dialog = await screen.findByRole('dialog');
+    const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
+    await waitFor(() => {
+      expect(pathInput.value).toBe('D:/downloads/default');
+    });
   });
 
   it('选择文件夹成功后保存配置应提交用户选择的下载路径', async () => {
@@ -264,6 +272,12 @@ describe('FavoriteTagsPage render behavior', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('favoriteTags.configTitle:tag_a')).toBeTruthy();
 
+    // 反模式回归守卫：弹窗打开时，已绑定路径必须显示在实际 <input> 上
+    const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
+    await waitFor(() => {
+      expect(pathInput.value).toBe('D:/downloads/default');
+    });
+
     fireEvent.click(within(dialog).getByRole('button', { name: '选择文件夹' }));
 
     await waitFor(() => {
@@ -274,6 +288,12 @@ describe('FavoriteTagsPage render behavior', () => {
       resolveSelectFolder({ success: true, data: 'E:/favorite-tags/custom' });
       await selectFolderPromise;
       await Promise.resolve();
+    });
+
+    // 反模式回归守卫：选择文件夹成功后，用户选中的新路径必须写回 <input> value
+    // 若只断言 submit payload，setFieldsValue 走 form 内部 store，即便 Input 没接 value 也会 PASS
+    await waitFor(() => {
+      expect(pathInput.value).toBe('E:/favorite-tags/custom');
     });
 
     fireEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
