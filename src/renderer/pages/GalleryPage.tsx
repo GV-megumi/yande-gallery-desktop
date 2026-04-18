@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
+import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
@@ -42,10 +42,18 @@ if (typeof document !== 'undefined') {
 
 interface GalleryPageProps {
   subTab?: 'recent' | 'all' | 'galleries';
+  /** 子窗口直接进入指定图集详情时使用（Bug11） */
+  initialGalleryId?: number;
+  /** 子窗口模式下禁用 pagePreferences 回写，避免污染主窗口状态（Bug11） */
+  disablePreferencesPersistence?: boolean;
 }
 
 
-export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) => {
+export const GalleryPage: React.FC<GalleryPageProps> = ({
+  subTab = 'recent',
+  initialGalleryId,
+  disablePreferencesPersistence = false,
+}) => {
   // 分离不同模式的状态，避免相互干扰
   const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
   const [allImages, setAllImages] = useState<any[]>([]); // 所有图片分页数据（每次20张）
@@ -677,11 +685,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
             sortKey: galleriesPreferences?.gallerySortKey ?? 'updatedAt',
             sortOrder: galleriesPreferences?.gallerySortOrder ?? 'desc',
           });
-          if (galleriesPreferences?.selectedGalleryId) {
-            const galleryResult = await window.electronAPI.gallery.getGallery(galleriesPreferences.selectedGalleryId);
+          // Bug11：子窗口模式下优先按 initialGalleryId 打开详情；否则沿用持久化的 selectedGalleryId
+          const targetGalleryId = initialGalleryId ?? galleriesPreferences?.selectedGalleryId;
+          if (targetGalleryId) {
+            const galleryResult = await window.electronAPI.gallery.getGallery(targetGalleryId);
             if (galleryResult.success && galleryResult.data && !cancelled && preferencesHydrationRunIdRef.current === runId) {
               setSelectedGallery(galleryResult.data);
-              loadGalleryImages(galleriesPreferences.selectedGalleryId);
+              loadGalleryImages(targetGalleryId);
             }
           }
         }
@@ -761,6 +771,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       return;
     }
 
+    // Bug11：子窗口模式下跳过 pagePreferences 回写，避免污染主窗口状态
+    if (disablePreferencesPersistence) {
+      return;
+    }
+
     let cancelled = false;
     const timer = window.setTimeout(() => {
       if (cancelled) {
@@ -773,7 +788,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort]);
+  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence]);
 
   // 当图集查询或排序参数改变时，重新派生图集列表
   useEffect(() => {
@@ -1076,6 +1091,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                 }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md }}>
                     <Button onClick={async () => {
+                      // Bug11：子窗口模式下"返回"= 关闭子窗口，不写回主窗口持久化
+                      if (disablePreferencesPersistence) {
+                        console.log('[GalleryPage] 子窗口模式：关闭窗口');
+                        window.close();
+                        return;
+                      }
                       console.log('[GalleryPage] 返回图集列表');
                       galleryDetailRequestRunIdRef.current += 1;
                       setSelectedGallery(null);
@@ -1259,10 +1280,22 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({ subTab = 'recent' }) =
                     trigger={['contextMenu']}
                     menu={{
                       items: [
+                        { key: 'open-window', label: '用单独窗口打开', icon: <ExportOutlined /> },
+                        { type: 'divider' as const },
                         { key: 'edit', label: '编辑', icon: <EditOutlined /> },
                         { key: 'delete', label: '删除', icon: <DeleteOutlined />, danger: true },
                       ],
                       onClick: ({ key }) => {
+                        if (key === 'open-window') {
+                          // Bug11：打开子窗口直接进入该图集详情，不污染主窗口持久化
+                          window.electronAPI?.window.openSecondaryMenu(
+                            'gallery',
+                            'galleries',
+                            undefined,
+                            { galleryId: gallery.id },
+                          );
+                          return;
+                        }
                         if (key === 'edit') handleOpenEditGallery(gallery);
                         if (key === 'delete') handleDeleteGallery(gallery);
                       },

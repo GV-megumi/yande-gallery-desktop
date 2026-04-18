@@ -315,7 +315,12 @@ declare global {
         openTagSearch: (tag: string, siteId?: number | null) => Promise<{ success: boolean }>;
         openArtist: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
         openCharacter: (name: string, siteId?: number | null) => Promise<{ success: boolean }>;
-        openSecondaryMenu: (section: string, key: string, tab?: string) => Promise<{ success: boolean }>;
+        openSecondaryMenu: (
+          section: string,
+          key: string,
+          tab?: string,
+          extra?: Record<string, string | number>,
+        ) => Promise<{ success: boolean }>;
       };
       system: {
         selectFolder: () => Promise<{ success: boolean; data?: string; error?: string }>;

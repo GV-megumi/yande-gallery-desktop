@@ -119,13 +119,26 @@ const suspenseFallback = (
   </div>
 );
 
-/** 渲染二级菜单页面 */
-const renderSecondaryMenuPage = (section: string, key: string, tab?: string): React.ReactNode => {
+/** 渲染二级菜单页面
+ *  extra: Bug11 支持 { galleryId } — 子窗口直接进入指定图集详情
+ */
+const renderSecondaryMenuPage = (
+  section: string,
+  key: string,
+  tab?: string,
+  extra?: { galleryId?: number },
+): React.ReactNode => {
   // Gallery 区域
   if (section === 'gallery') {
     if (key === 'settings') return <SettingsPage />;
     if (key === 'invalid-images') return <InvalidImagesPage />;
-    return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} />;
+    return (
+      <GalleryPage
+        subTab={key as 'recent' | 'all' | 'galleries'}
+        initialGalleryId={extra?.galleryId}
+        disablePreferencesPersistence={extra?.galleryId != null}
+      />
+    );
   }
 
   // Booru 区域
@@ -245,6 +258,13 @@ const SubWindowContent: React.FC = () => {
       const section = route.params.get('section') || '';
       const key = route.params.get('key') || '';
       const tab = route.params.get('tab') || undefined;
+      // Bug11：从 URL 读取 galleryId 用于子窗口直接进入指定图集详情
+      const galleryIdRaw = route.params.get('galleryId');
+      const galleryIdParam = (() => {
+        if (!galleryIdRaw) return undefined;
+        const n = Number(galleryIdRaw);
+        return Number.isFinite(n) ? n : undefined;
+      })();
       // 设置窗口标题
       const sectionTitles = SECONDARY_MENU_TITLES[section];
       const pageTitle = sectionTitles?.[key] || key;
@@ -262,7 +282,7 @@ const SubWindowContent: React.FC = () => {
           padding: isEmbedPage ? 0 : spacing.lg,
         }}>
           <Suspense fallback={suspenseFallback}>
-            {renderSecondaryMenuPage(section, key, tab)}
+            {renderSecondaryMenuPage(section, key, tab, { galleryId: galleryIdParam })}
           </Suspense>
         </div>
       );

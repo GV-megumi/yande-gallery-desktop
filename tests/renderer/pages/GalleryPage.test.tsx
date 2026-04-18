@@ -870,6 +870,87 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.queryByText('stale_tag')).toBeNull();
   });
 
+  it('Bug11 反模式守卫：子窗口模式下切换详情排序不应回写 pagePreferences（主窗口 selectedGalleryId 不被污染）', async () => {
+    getGalleryPagePreferences.mockResolvedValueOnce({
+      success: true,
+      data: {
+        galleries: {
+          gallerySearchQuery: '',
+          gallerySortKey: 'updatedAt',
+          gallerySortOrder: 'desc',
+          gallerySort: 'time',
+        },
+      },
+    });
+
+    render(
+      <GalleryPage
+        subTab="galleries"
+        initialGalleryId={1}
+        disablePreferencesPersistence={true}
+      />,
+    );
+
+    // 等待 hydrate 完成并进入详情视图
+    await screen.findByRole('button', { name: /返\s*回/ });
+    await waitFor(() => {
+      expect(getGallery).toHaveBeenCalledWith(1);
+    });
+
+    saveGalleryPagePreferences.mockClear();
+
+    // 在详情视图切换排序（"按文件名"），会触发 gallerySort 变化 →
+    // 保存 effect 的默认路径（250ms 防抖）；子窗口模式必须跳过落盘。
+    const sortByName = screen.getByText('按文件名');
+    await userEvent.click(sortByName);
+
+    // 等待超过 250ms 防抖时间
+    await new Promise((resolve) => setTimeout(resolve, 400));
+
+    expect(saveGalleryPagePreferences).not.toHaveBeenCalled();
+  });
+
+  it('Bug11 反模式守卫：子窗口模式下"返回"= 关窗，不应 persistPreferences 落盘', async () => {
+    getGalleryPagePreferences.mockResolvedValueOnce({
+      success: true,
+      data: {
+        galleries: {
+          gallerySearchQuery: '',
+          gallerySortKey: 'updatedAt',
+          gallerySortOrder: 'desc',
+          gallerySort: 'time',
+        },
+      },
+    });
+
+    const closeSpy = vi.spyOn(window, 'close').mockImplementation(() => {});
+
+    render(
+      <GalleryPage
+        subTab="galleries"
+        initialGalleryId={1}
+        disablePreferencesPersistence={true}
+      />,
+    );
+
+    const backButton = await screen.findByRole('button', { name: /返\s*回/ });
+    await waitFor(() => {
+      expect(getGallery).toHaveBeenCalledWith(1);
+    });
+
+    saveGalleryPagePreferences.mockClear();
+
+    await userEvent.click(backButton);
+
+    // 等待 onClick 内可能的 await 链
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(closeSpy).toHaveBeenCalledTimes(1);
+    expect(saveGalleryPagePreferences).not.toHaveBeenCalled();
+
+    closeSpy.mockRestore();
+  });
+
   it('打开图集详情后直接离开 galleries 时，旧详情请求晚到不应污染其他子页状态', async () => {
     const staleTags = createDeferred<{ success: true; data: any[] }>();
     const staleImages = createDeferred<{ success: true; data: any[] }>();
