@@ -234,13 +234,25 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       const sessionId = sessionResult.data.id;
       message.success('会话创建成功，开始下载...');
 
-      const startResult = await window.electronAPI.bulkDownload.startSession(sessionId);
-      if (!startResult.success) {
-        message.error('启动下载失败: ' + (startResult.error || '未知错误'));
-        return;
-      }
-
+      // ① 立即刷新一次，让 pending 状态的新会话卡片先出现，避免 dryRun 阻塞期间的空窗
       loadSessions();
+
+      // ② startSession 内部要跑 dryRun，可能阻塞数秒；
+      //   放到后台 IIFE，不阻塞 UI 事件处理函数
+      (async () => {
+        try {
+          const startResult = await window.electronAPI!.bulkDownload.startSession(sessionId);
+          if (!startResult.success) {
+            message.error('启动下载失败: ' + (startResult.error || '未知错误'));
+            return;
+          }
+          // ③ 成功后再刷一次，反映 running 状态
+          loadSessions();
+        } catch (err) {
+          console.error('启动下载失败:', err);
+          message.error('启动下载失败');
+        }
+      })();
     } catch (error) {
       console.error('启动任务失败:', error);
       message.error('启动任务失败');
