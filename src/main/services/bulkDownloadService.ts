@@ -1029,27 +1029,35 @@ export async function startBulkDownloadSession(
         return { success: true, queued: true };
       }
 
-      // ── 并发闸门：超上限时打成 queued 立刻返回 ──
-      const shouldQueue = await withScheduler(async () => {
+      // ── 并发闸门：超上限时打成 queued；否则在锁内就把 dryRun 槽位预留好 ──
+      //
+      // 反模式回归守卫（bug7-I1）：
+      // 旧实现只在锁内做 "满了就打 queued"，释放锁后再把当前会话写成 dryRun。
+      // 两次并发 start 会在锁外的 "dryRun 置位" 发生前都看到同一个 active 计数，
+      // 双双通过闸门，超出并发上限。
+      //
+      // 修复思路：countActiveSessions 的 SQL 口径是 status IN ('dryRun','running')，
+      // 所以把 "dryRun 置位" 动作挪进锁内，让自己先占住一个槽位，后续并发
+      // 进入锁时 countActiveSessions 就能看到这次预留，闸门才真的串行。
+      const outcome = await withScheduler(async () => {
         const max = getMaxConcurrentBulkDownloadSessions();
         const active = await countActiveSessions();
-        if (active < max) return false;
-        await updateBulkDownloadSession(sessionId, { status: 'queued' });
-        console.log('[bulkDownloadService] 会话进入等待队列:', sessionId);
-        return true;
+        if (active >= max) {
+          await updateBulkDownloadSession(sessionId, { status: 'queued' });
+          console.log('[bulkDownloadService] 会话进入等待队列:', sessionId);
+          return 'queued' as const;
+        }
+        // 在锁内就把自己占为 dryRun（slot 预留），保证其他并发 start
+        // 看到更新后的 active 计数，避免多个 start 撞同一个空槽。
+        await updateBulkDownloadSession(sessionId, { status: 'dryRun', currentPage: 1 });
+        return 'reserved' as const;
       });
-      if (shouldQueue) {
+      if (outcome === 'queued') {
         // 闸门超限：把新创建的会话直接打成 queued 返回，由 promoteNextQueued
         // 在有空槽时重新唤起。queued: true 让调用方能明确区分 "进了队列"
         // 与 "跑起来了"。
         return { success: true, queued: true };
       }
-
-      // 更新状态为 dryRun（扫描阶段）
-      await updateBulkDownloadSession(sessionId, {
-        status: 'dryRun',
-        currentPage: 1
-      });
 
       // 执行 Dry Run：扫描所有页面并创建记录
       const dryRunResult = await performDryRun(sessionId, task);
