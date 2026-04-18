@@ -501,6 +501,24 @@ export async function getActiveBulkDownloadSessions(): Promise<BulkDownloadSessi
 }
 
 /**
+ * 判断某个批量下载任务当前是否有活跃会话（pending / dryRun / running / paused）。
+ * 用于上游判定 "已存在任务模板 && 仍有进行中的会话" 时跳过重复启动；
+ * 若任务模板存在但所有会话都已完成/失败/取消/软删，则允许复用任务模板启动新会话。
+ */
+export async function hasActiveSessionForTask(taskId: string): Promise<boolean> {
+  const db = await getDatabase();
+  const row = await get<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM bulk_download_sessions
+     WHERE taskId = ?
+       AND deletedAt IS NULL
+       AND status IN ('pending', 'dryRun', 'running', 'paused')`,
+    [taskId],
+  );
+  return (row?.n ?? 0) > 0;
+}
+
+/**
  * 更新会话状态
  */
 export async function updateBulkDownloadSession(
