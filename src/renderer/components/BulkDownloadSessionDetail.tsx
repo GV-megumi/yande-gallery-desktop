@@ -11,22 +11,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Tag, Button, Space, Tabs, message, Empty, Spin, Popconfirm, Modal, Progress } from 'antd';
-import {
-  ReloadOutlined,
-  EyeOutlined
-} from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadRecord, BulkDownloadRecordStatus } from '../../shared/types';
 import { StatusTag } from './StatusTag';
 
 interface BulkDownloadSessionDetailProps {
   session: BulkDownloadSession;
-  onClose: () => void;
   onRefresh?: () => void;
 }
 
 export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps> = ({
   session,
-  onClose,
   onRefresh
 }) => {
   const [records, setRecords] = useState<BulkDownloadRecord[]>([]);
@@ -358,14 +353,10 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <EyeOutlined />
-          <span style={{ fontSize: '16px', fontWeight: 'bold' }}>
-            下载详情 - {session.task?.tags || '无标签'}
-          </span>
-        </Space>
-        <Space>
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        tabBarExtraContent={
           <Button
             icon={<ReloadOutlined />}
             onClick={() => loadRecords(false, true)}
@@ -374,11 +365,7 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
           >
             刷新
           </Button>
-        </Space>
-      </div>
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
+        }
         items={[
           {
             key: 'all',

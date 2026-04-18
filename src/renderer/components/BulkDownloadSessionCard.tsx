@@ -351,7 +351,7 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
       {/* 详情弹窗 */}
       <Modal
-        title={null}
+        title={`下载详情 - ${session.task?.tags || '无标签'}`}
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={null}
@@ -361,7 +361,6 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
       >
         <BulkDownloadSessionDetail
           session={session}
-          onClose={() => setDetailVisible(false)}
           onRefresh={() => {
             loadStats();
             onRefresh();
