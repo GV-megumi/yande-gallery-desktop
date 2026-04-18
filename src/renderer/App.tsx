@@ -744,11 +744,19 @@ export const AppContent: React.FC = () => {
    * 根据 (section, subKey) 渲染对应页面实例。
    * 用于 mountedPageIds 叠加层里每个 id 的内容；不读全局 selectedKey/selectedSubKey，
    * 以便多份页面并存。
+   *
+   * defaultTab：来自 pinnedItems 上对应 pin 的 defaultTab。
+   * 旧 pin key（blacklisted-tags / bulk-download）会在启动时被迁移成
+   * tag-management / download，并保留 defaultTab；这里必须把它继续传给
+   * BooruTagManagementPage / BooruDownloadHubPage，否则老用户从备份恢复
+   * 的 pin 会回退到组件默认 tab（blacklisted-tags → favorite，
+   * bulk-download → downloads），构成可见回归。
    */
   const renderPageForId = useCallback((
     section: 'gallery' | 'booru' | 'google',
     key: string,
     isActive: boolean,
+    defaultTab?: string,
   ): React.ReactNode => {
     // 被叠加且非活跃的页面用 suspended 降级渲染（参考现有 BooruPage 等实现）
     const baseSuspended = !isActive || navigationStack.length > 0;
@@ -768,8 +776,8 @@ export const AppContent: React.FC = () => {
       if (key === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
       if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
       if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
-      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} active={isActive} />;
-      if (key === 'download') return <BooruDownloadHubPage active={isActive} />;
+      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} active={isActive} defaultTab={(defaultTab as 'favorite' | 'blacklist' | undefined) ?? 'favorite'} />;
+      if (key === 'download') return <BooruDownloadHubPage active={isActive} defaultTab={(defaultTab as 'downloads' | 'bulk' | undefined) ?? 'downloads'} />;
       if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
       if (key === 'booru-settings') return <BooruSettingsPage />;
       if (key === 'settings') return <SettingsPage />;
@@ -1139,7 +1147,11 @@ export const AppContent: React.FC = () => {
             const [sec, subKey] = id.split(':', 2) as ['gallery' | 'booru' | 'google', string];
             const isEmbed = sec === 'google' && (subKey === 'gdrive' || subKey === 'gphotos' || subKey === 'gemini');
             const pinId = `${sec}:${subKey}`;
-            const isPin = pinnedItems.some(p => `${p.section}:${p.key}` === pinId);
+            // bug1 Issue3：pin 上的 defaultTab 需透传给页面，否则迁移后的旧 pin
+            // （blacklisted-tags / bulk-download）打开会退回组件默认 tab。
+            const pinMeta = pinnedItems.find(p => `${p.section}:${p.key}` === pinId);
+            const isPin = !!pinMeta;
+            const pinDefaultTab = pinMeta?.defaultTab;
             const isBaseCurrent = !activePinnedId && selectedKey === sec && currentSubKey === subKey;
             // 是否激活：pin 命中 activePinnedId，或基础层当前页（支持 pin 项被
             // closePin 后 activePinnedId=null 但用户仍停在对应 subKey 的情况，
@@ -1163,7 +1175,7 @@ export const AppContent: React.FC = () => {
                   }}
                 >
                   <Suspense fallback={suspenseFallback}>
-                    {renderPageForId(sec, subKey, isActive)}
+                    {renderPageForId(sec, subKey, isActive, pinDefaultTab)}
                   </Suspense>
                 </div>
               );
@@ -1185,7 +1197,7 @@ export const AppContent: React.FC = () => {
                 <Suspense fallback={suspenseFallback}>
                   {shouldOverlayNavStack ? (
                     <>
-                      <div style={{ display: 'none' }}>{renderPageForId(sec, subKey, false)}</div>
+                      <div style={{ display: 'none' }}>{renderPageForId(sec, subKey, false, pinDefaultTab)}</div>
                       {navigationStack.map((entry, index) => {
                         const isTop = index === navigationStack.length - 1;
                         return (
@@ -1195,7 +1207,7 @@ export const AppContent: React.FC = () => {
                         );
                       })}
                     </>
-                  ) : renderPageForId(sec, subKey, isActive)}
+                  ) : renderPageForId(sec, subKey, isActive, pinDefaultTab)}
                 </Suspense>
               </div>
             );

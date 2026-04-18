@@ -166,12 +166,41 @@ vi.mock('../../src/renderer/pages/BooruForumPage', () => ({
   BooruForumPage: makeCountedPage('booru-forum-page'),
 }));
 
+// bug1 Issue3：记录 BooruDownloadHubPage / BooruTagManagementPage 的 defaultTab
+// 以便断言 pin 上的 defaultTab 被 App.tsx 透传下来。
+const downloadHubProps: Array<{ defaultTab?: string; active?: boolean }> = [];
+const tagMgmtProps: Array<{ defaultTab?: string; active?: boolean }> = [];
+const resetDefaultTabLogs = () => {
+  downloadHubProps.length = 0;
+  tagMgmtProps.length = 0;
+};
+
 vi.mock('../../src/renderer/pages/BooruDownloadHubPage', () => ({
-  BooruDownloadHubPage: makeCountedPage('download-hub-page'),
+  BooruDownloadHubPage: (props: { defaultTab?: string; active?: boolean }) => {
+    React.useEffect(() => {
+      mountCounts['download-hub-page'] = (mountCounts['download-hub-page'] ?? 0) + 1;
+    }, []);
+    downloadHubProps.push({ defaultTab: props.defaultTab, active: props.active });
+    return (
+      <div data-testid="download-hub-page" data-default-tab={props.defaultTab ?? ''}>
+        download-hub:{props.defaultTab ?? 'undef'}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../src/renderer/pages/BooruTagManagementPage', () => ({
-  BooruTagManagementPage: makeCountedPage('tag-management-page'),
+  BooruTagManagementPage: (props: { defaultTab?: string; active?: boolean }) => {
+    React.useEffect(() => {
+      mountCounts['tag-management-page'] = (mountCounts['tag-management-page'] ?? 0) + 1;
+    }, []);
+    tagMgmtProps.push({ defaultTab: props.defaultTab, active: props.active });
+    return (
+      <div data-testid="tag-management-page" data-default-tab={props.defaultTab ?? ''}>
+        tag-management:{props.defaultTab ?? 'undef'}
+      </div>
+    );
+  },
 }));
 
 vi.mock('../../src/renderer/pages/GoogleDrivePage', () => ({
@@ -183,6 +212,7 @@ describe('App mountedPageIds cache behavior', () => {
     vi.clearAllMocks();
     resetMountCounts();
     resetSuspendedLog();
+    resetDefaultTabLogs();
     (window as any).electronAPI = {
       db: {
         init: vi.fn().mockResolvedValue({ success: true }),
@@ -469,5 +499,86 @@ describe('App mountedPageIds cache behavior', () => {
     // 切走后的 render 中必然包含 suspended=true 的记录
     const tailRenders = galleryPageSuspendedLog.filter(e => e.subTab === 'recent').slice(-3);
     expect(tailRenders.some(e => e.suspended)).toBe(true);
+  });
+
+  /**
+   * bug1 Issue3 反模式守卫：renderPageForId 必须透传 pin 上的 defaultTab。
+   *
+   * 场景：旧 pin key（blacklisted-tags / bulk-download）会被启动迁移成
+   * tag-management / download 且保留 defaultTab。但如果 renderPageForId
+   * 不接收/不透传 defaultTab，页面会退回组件默认 tab（favorite / downloads），
+   * 构成从旧配置恢复 pin 后的可见回归。
+   *
+   * 反模式证据：把 App.tsx renderPageForId 的 defaultTab 参数和
+   * {[...mountedPageIds].map 里的 pinDefaultTab 去掉，本条将 FAIL
+   * （mock 收到的 defaultTab 会是 undefined 或组件默认值）。
+   */
+  it('bug1 Issue3：pin 的 defaultTab 应透传给 BooruTagManagementPage', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    // 预置：tag-management pin 携带 defaultTab='blacklist'
+    (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        pinnedItems: [{ section: 'booru', key: 'tag-management', defaultTab: 'blacklist' }],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('gallery-page-recent');
+
+    // 切到 booru；默认 posts 不会挂 tag-management，所以再切到 tag-management
+    await user.click(screen.getByTestId('main-menu-booru'));
+    // 二级菜单里 tag-management key
+    await waitFor(() => {
+      expect(screen.queryByTestId('booru-menu-tag-management')).not.toBeNull();
+    });
+    await user.click(screen.getByTestId('booru-menu-tag-management'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('tag-management-page')).toBeTruthy();
+    });
+
+    // 关键断言：mock 收到的 props.defaultTab 必须是 pin 上的 'blacklist'
+    const el = screen.getByTestId('tag-management-page');
+    expect(el.getAttribute('data-default-tab')).toBe('blacklist');
+    // 历史 render 记录里必然有 defaultTab='blacklist' 的一次
+    expect(tagMgmtProps.some(p => p.defaultTab === 'blacklist')).toBe(true);
+  });
+
+  /**
+   * bug1 Issue3：pin 的 defaultTab='bulk' 应透传给 BooruDownloadHubPage
+   * （对应旧 key 'bulk-download' 迁移的场景）。
+   */
+  it('bug1 Issue3：pin 的 defaultTab 应透传给 BooruDownloadHubPage', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        pinnedItems: [{ section: 'booru', key: 'download', defaultTab: 'bulk' }],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('gallery-page-recent');
+
+    await user.click(screen.getByTestId('main-menu-booru'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('booru-menu-download')).not.toBeNull();
+    });
+    await user.click(screen.getByTestId('booru-menu-download'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('download-hub-page')).toBeTruthy();
+    });
+
+    const el = screen.getByTestId('download-hub-page');
+    expect(el.getAttribute('data-default-tab')).toBe('bulk');
+    expect(downloadHubProps.some(p => p.defaultTab === 'bulk')).toBe(true);
   });
 });
