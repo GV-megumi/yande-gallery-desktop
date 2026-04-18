@@ -221,7 +221,16 @@ describe('App navigation synchronization', () => {
       expect(screen.getByTestId('booru-page')).toBeTruthy();
     });
 
-    expect(screen.queryByTestId('gallery-page')).toBeNull();
+    // bug1 追加需求：基础页也常驻缓存，gallery 页保持挂载但容器 display:none 隐藏
+    const galleryNode = screen.getByTestId('gallery-page');
+    const galleryContainer = galleryNode.closest('.ios-page-enter') as HTMLElement | null;
+    expect(galleryContainer).not.toBeNull();
+    expect(galleryContainer!.style.display).toBe('none');
+    // booru 页容器不应被隐藏
+    const booruNode = screen.getByTestId('booru-page');
+    const booruContainer = booruNode.closest('.ios-page-enter') as HTMLElement | null;
+    expect(booruContainer).not.toBeNull();
+    expect(booruContainer!.style.display).not.toBe('none');
     expect(screen.getByTestId('booru-menu-posts').getAttribute('data-selected')).toBe('true');
   });
 
