@@ -215,6 +215,7 @@ declare global {
         getQueueStatus: () => Promise<{ success: boolean; data?: { isPaused: boolean; activeCount: number; maxConcurrent: number }; error?: string }>;
         pauseDownload: (queueId: number) => Promise<{ success: boolean; error?: string }>;
         resumeDownload: (queueId: number) => Promise<{ success: boolean; error?: string }>;
+        cancelDownload: (queueId: number) => Promise<{ success: boolean; error?: string }>;
         getCachedImageUrl: (md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         cacheImage: (url: string, md5: string, extension: string) => Promise<{ success: boolean; data?: string; error?: string }>;
         getCacheStats: () => Promise<{ success: boolean; data?: { sizeMB: number; fileCount: number }; error?: string }>;

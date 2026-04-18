@@ -46,6 +46,7 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.BOORU_ADD_TO_DOWNLOAD).toBe('booru:add-to-download');
     expect(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD).toBe('booru:pause-download');
     expect(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD).toBe('booru:resume-download');
+    expect(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD).toBe('booru:cancel-download');
     expect(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD).toBe('booru:retry-download');
     expect(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE).toBe('booru:get-download-queue');
     expect(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS).toBe('booru:clear-download-records');
@@ -159,6 +160,6 @@ describe('IPC_CHANNELS', () => {
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(175);
+    expect(keys.length).toBe(176);
   });
 });

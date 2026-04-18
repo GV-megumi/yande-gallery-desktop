@@ -61,6 +61,8 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD, queueId),
     resumeDownload: (queueId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD, queueId),
+    cancelDownload: (queueId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD, queueId),
 
     // 图片缓存
     getCachedImageUrl: (md5: string, extension: string) =>

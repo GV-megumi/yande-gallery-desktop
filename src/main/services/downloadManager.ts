@@ -23,6 +23,12 @@ const BROWSING_MODE_CONCURRENCY = 1;
 interface ActiveDownload {
   id: number; // Queue ID
   cancelToken: AbortController;
+  /**
+   * 目标文件最终路径。cancelDownload 需要据此清理 .part 临时文件。
+   * 某些调用入口（例如旧测试里直接塞入 activeDownloads 的 case）可能没有该字段，
+   * 因此设计成可选。
+   */
+  targetPath?: string;
 }
 
 class DownloadManager {
@@ -31,7 +37,7 @@ class DownloadManager {
   private maxConcurrent: number = 3;
   private isPaused: boolean = false;
   private hasResumedOnStartup: boolean = false; // 标记是否已经在启动时恢复过
-  private userInterruptedStatuses = new Map<number, 'paused'>();
+  private userInterruptedStatuses = new Map<number, 'paused' | 'cancelled'>();
 
   /** 缓存窗口引用，避免每次广播都调用 getAllWindows() */
   private cachedWindows: BrowserWindow[] = [];
@@ -179,6 +185,56 @@ class DownloadManager {
       return true;
     } catch (error) {
       console.error(`[DownloadManager] 暂停任务 #${queueId} 失败:`, error);
+      return false;
+    }
+  }
+
+  /**
+   * 取消/删除单个下载任务（从队列中移除）
+   *
+   * - 若正在下载：标记 userInterruptedStatuses 为 'cancelled' → abort → 清 .part 临时文件（best-effort）
+   * - 若暂停 / 等待：直接写 DB cancelled 状态 + 广播
+   * - 最后尝试继续调度队列
+   *
+   * Bug8 新增入口：此前只有"暂停/恢复/重试"，用户无法在"进行中"列表里彻底放弃单条任务。
+   */
+  async cancelDownload(queueId: number): Promise<boolean> {
+    console.log(`[DownloadManager] 取消下载任务 #${queueId}`);
+    try {
+      const activeDownload = this.activeDownloads.get(queueId);
+      if (activeDownload) {
+        // 标记为用户主动取消，防止后续 handleDownloadError 把 DB 覆盖成 failed
+        this.userInterruptedStatuses.set(queueId, 'cancelled');
+        try {
+          activeDownload.cancelToken.abort();
+        } catch (abortError) {
+          console.warn(`[DownloadManager] abort 取消请求失败 #${queueId}:`, abortError);
+        }
+        this.activeDownloads.delete(queueId);
+
+        // 清理残留的 .part 临时文件（best-effort，不影响取消结果）
+        if (activeDownload.targetPath) {
+          try {
+            await fsPromises.unlink(buildDownloadTempPath(activeDownload.targetPath));
+          } catch (unlinkError: any) {
+            if (unlinkError?.code !== 'ENOENT') {
+              console.warn(
+                `[DownloadManager] 清理临时文件失败 #${queueId}:`,
+                unlinkError?.message ?? unlinkError,
+              );
+            }
+          }
+        }
+      }
+
+      // 不论是否活跃都写一次 DB，保证列表状态一致
+      await booruService.updateDownloadStatus(queueId, 'cancelled');
+      this.broadcastStatus(queueId, 'cancelled');
+
+      this.processQueue();
+      return true;
+    } catch (error) {
+      console.error(`[DownloadManager] 取消任务 #${queueId} 失败:`, error);
       return false;
     }
   }
@@ -407,7 +463,11 @@ class DownloadManager {
     }
 
     const controller = new AbortController();
-    this.activeDownloads.set(queueId, { id: queueId, cancelToken: controller });
+    this.activeDownloads.set(queueId, {
+      id: queueId,
+      cancelToken: controller,
+      targetPath: item.targetPath,
+    });
 
     console.log(`[DownloadManager] 开始下载任务 #${queueId}: ${item.targetPath}`);
 
@@ -520,23 +580,27 @@ class DownloadManager {
 
   /**
    * 处理下载错误
-   * 注意：调用方应在调用此方法前清除损坏文件
+   * 注意：调用方应在调用此方法前清除损坏临时文件
+   *
+   * 用户主动暂停 / 取消引发的 abort 会由 pauseDownload / cancelDownload 自己写 DB 状态，
+   * 这里只需要清理内部 activeDownloads 状态并继续队列；不再通过字符串匹配 abort 错误。
+   *
+   * Bug8 修复：旧实现曾通过 isAbortError 匹配 'aborted'/'AbortError' 字符串来识别用户中止，
+   * 但实际 abort 可能抛出 'ECONNRESET' / 'socket hang up' 等错误串，导致用户暂停的任务
+   * 被覆盖成 failed，错误出现在"失败"Tab。现在只看 userInterruptedStatuses 是否有值。
    */
-  private isAbortError(errorMessage: string): boolean {
-    return errorMessage.includes('aborted') || errorMessage.includes('AbortError');
-  }
-
   private async handleDownloadError(queueId: number, errorMessage: string) {
     this.activeDownloads.delete(queueId);
 
     const interruptedStatus = this.userInterruptedStatuses.get(queueId);
-    if (interruptedStatus && this.isAbortError(errorMessage)) {
+    if (interruptedStatus) {
+      // 用户主动中止（暂停或取消），DB 状态由上层入口写好
       this.userInterruptedStatuses.delete(queueId);
       this.processQueue();
       return;
     }
 
-    this.userInterruptedStatuses.delete(queueId);
+    // 真正意义上的失败
     await booruService.updateDownloadStatus(queueId, 'failed', errorMessage);
     this.broadcastStatus(queueId, 'failed', errorMessage);
     this.processQueue();

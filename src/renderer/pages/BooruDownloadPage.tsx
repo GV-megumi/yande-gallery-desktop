@@ -13,7 +13,8 @@ import {
   FolderOpenOutlined,
   SortAscendingOutlined,
   SortDescendingOutlined,
-  CopyOutlined
+  CopyOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
@@ -238,6 +239,24 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     } catch (error) {
       console.error('[BooruDownloadPage] 恢复下载失败:', error);
       message.error('恢复下载失败');
+    }
+  };
+
+  // 取消/删除单个下载（pending / downloading / paused 均可）
+  const handleCancelDownload = async (queueId: number) => {
+    try {
+      if (!window.electronAPI) return;
+
+      const result = await window.electronAPI.booru.cancelDownload(queueId);
+      if (result?.success) {
+        message.success('已取消下载');
+        loadQueue();
+      } else {
+        message.error(result?.error || '取消失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 取消下载失败:', error);
+      message.error('取消下载失败');
     }
   };
 
@@ -487,7 +506,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 160,
       render: (_: any, record: DownloadQueueItem) => (
         <Space>
           {record.status === 'paused' ? (
@@ -511,6 +530,23 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
               />
             </Tooltip>
           )}
+          <Popconfirm
+            title="取消并从队列中移除？"
+            description="将清理已下载的临时文件。"
+            okText="确认取消"
+            cancelText="保留"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleCancelDownload(record.id)}
+          >
+            <Tooltip title="取消/删除">
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                aria-label="取消下载"
+              />
+            </Tooltip>
+          </Popconfirm>
         </Space>
       )
     }

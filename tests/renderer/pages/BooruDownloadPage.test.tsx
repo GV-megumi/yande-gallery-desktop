@@ -73,6 +73,7 @@ const resumePendingDownloads = vi.fn().mockResolvedValue({
 });
 const pauseDownload = vi.fn().mockResolvedValue({ success: true });
 const resumeDownload = vi.fn().mockResolvedValue({ success: true });
+const cancelDownload = vi.fn().mockResolvedValue({ success: true });
 const pauseAllDownloads = vi.fn().mockResolvedValue({ success: true });
 const resumeAllDownloads = vi.fn().mockResolvedValue({ success: true });
 const clearDownloadRecords = vi.fn().mockResolvedValue({ success: true, data: 0 });
@@ -112,6 +113,7 @@ describe('BooruDownloadPage active download actions', () => {
         resumePendingDownloads,
         pauseDownload,
         resumeDownload,
+        cancelDownload,
         pauseAllDownloads,
         resumeAllDownloads,
         clearDownloadRecords,
@@ -126,7 +128,7 @@ describe('BooruDownloadPage active download actions', () => {
     };
   });
 
-  it('进行中下载应保留暂停操作但不再暴露伪取消按钮', async () => {
+  it('进行中下载应同时暴露暂停与取消按钮（Bug8）', async () => {
     renderPage();
 
     expect(await screen.findByText('12345')).toBeDefined();
@@ -140,11 +142,11 @@ describe('BooruDownloadPage active download actions', () => {
 
     const rowScope = within(row!);
     expect(rowScope.getByRole('button', { name: '暂停下载' })).toBeDefined();
-    expect(rowScope.queryByRole('button', { name: '删除' })).toBeNull();
-    expect(rowScope.queryByRole('button', { name: '取消下载' })).toBeNull();
+    // Bug8: 新增取消/删除按钮，确保用户能放弃进行中的任务
+    expect(rowScope.getByRole('button', { name: '取消下载' })).toBeDefined();
   });
 
-  it('已暂停下载项应保留恢复操作且不暴露伪取消按钮', async () => {
+  it('已暂停下载项应同时暴露恢复与取消按钮，取消确认后走 cancelDownload', async () => {
     downloadingQueue.splice(0, downloadingQueue.length);
     pausedQueue.splice(0, pausedQueue.length, {
       id: 202,
@@ -176,12 +178,20 @@ describe('BooruDownloadPage active download actions', () => {
     const rowScope = within(row!);
     const resumeButton = rowScope.getByRole('button', { name: '恢复下载' });
     expect(resumeButton).toBeDefined();
-    expect(rowScope.queryByRole('button', { name: '删除' })).toBeNull();
-    expect(rowScope.queryByRole('button', { name: '取消下载' })).toBeNull();
+    const cancelButton = rowScope.getByRole('button', { name: '取消下载' });
+    expect(cancelButton).toBeDefined();
 
     await user.click(resumeButton);
     await waitFor(() => {
       expect(resumeDownload).toHaveBeenCalledWith(202);
+    });
+
+    // 点击取消按钮弹出 Popconfirm，点 "确认取消" 触发 cancelDownload
+    await user.click(cancelButton);
+    const confirmButton = await screen.findByRole('button', { name: '确认取消' });
+    await user.click(confirmButton);
+    await waitFor(() => {
+      expect(cancelDownload).toHaveBeenCalledWith(202);
     });
   });
 });

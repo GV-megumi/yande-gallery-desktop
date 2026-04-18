@@ -1674,6 +1674,18 @@ export function setupIPC() {
     }
   });
 
+  // 取消/删除单个下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 取消单个下载:', queueId);
+    try {
+      const success = await downloadManager.cancelDownload(queueId);
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 取消下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
 
   // ===== 网络连接测试（从主进程发起，绕过CORS） =====
   ipcMain.handle(IPC_CHANNELS.NETWORK_TEST_BAIDU, async () => {

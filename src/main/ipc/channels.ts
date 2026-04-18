@@ -90,6 +90,7 @@ export const IPC_CHANNELS = {
   BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
   BOORU_PAUSE_DOWNLOAD: 'booru:pause-download',
   BOORU_RESUME_DOWNLOAD: 'booru:resume-download',
+  BOORU_CANCEL_DOWNLOAD: 'booru:cancel-download',
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
   BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
