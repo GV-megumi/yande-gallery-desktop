@@ -291,10 +291,22 @@ export const AppContent: React.FC = () => {
   /** 关闭固定页面缓存（不取消固定，只卸载缓存） */
   const closePin = useCallback((section: PinnedItem['section'], key: string) => {
     const pinId = `${section}:${key}`;
-    setMountedPageIds(prev => { const s = new Set(prev); s.delete(pinId); return s; });
+    setMountedPageIds(prev => {
+      const s = new Set(prev);
+      // 守卫：若该 pin 恰好是某 section 的当前 subKey，直接 delete 会出现
+      // DOM 瞬间 unmount → mount effect 立即把 id 加回来 → 一次 flash 重挂载 +
+      // 状态丢失。命中当前页时不做卸载（语义上也没意义：用户还停在这页）。
+      const currentSub = section === 'gallery' ? selectedSubKey
+        : section === 'booru' ? selectedBooruSubKey
+        : selectedGoogleSubKey;
+      if (!(selectedKey === section && currentSub === key)) {
+        s.delete(pinId);
+      }
+      return s;
+    });
     setActivePinnedId(cur => cur === pinId ? null : cur);
     console.log('[App] 已关闭固定页面缓存:', pinId);
-  }, []);
+  }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
 
   /** 点击固定菜单项：挂载并激活其缓存层 */
   const handlePinnedClick = useCallback((pin: PinnedItem) => {
@@ -710,7 +722,10 @@ export const AppContent: React.FC = () => {
     if (section === 'gallery') {
       if (key === 'settings') return <SettingsPage />;
       if (key === 'invalid-images') return <InvalidImagesPage />;
-      return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} />;
+      // bug1-I2：常驻缓存层下非活跃时挂起 GalleryPage 内部副作用（水合/保存）。
+      // 其它页面（BooruUserPage / SavedSearches / Google embeds）视后续性能观察
+      // 决定是否补；当前先收口 GalleryPage。
+      return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} suspended={!isActive} />;
     }
     if (section === 'booru') {
       if (key === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
@@ -1093,10 +1108,10 @@ export const AppContent: React.FC = () => {
             const pinId = `${sec}:${subKey}`;
             const isPin = pinnedItems.some(p => `${p.section}:${p.key}` === pinId);
             const isBaseCurrent = !activePinnedId && selectedKey === sec && currentSubKey === subKey;
-            // 是否激活：pin 命中 activePinnedId；否则非 pin 时与当前 section + subKey 对比
-            const isActive = isPin
-              ? activePinnedId === pinId
-              : isBaseCurrent;
+            // 是否激活：pin 命中 activePinnedId，或基础层当前页（支持 pin 项被
+            // closePin 后 activePinnedId=null 但用户仍停在对应 subKey 的情况，
+            // 这时 pin 项应作为基础层 active 继续显示）。
+            const isActive = (isPin && activePinnedId === pinId) || isBaseCurrent;
             // embed 页（gdrive/gphotos/gemini）继续走 absolute 独立层（webview 需要占满容器）
             if (isEmbed) {
               return (

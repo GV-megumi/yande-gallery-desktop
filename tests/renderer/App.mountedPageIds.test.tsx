@@ -16,7 +16,7 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 vi.mock('../../src/renderer/hooks/useTheme', () => ({
@@ -131,13 +131,26 @@ function makeCountedPage(testId: string) {
   };
 }
 
+/**
+ * GalleryPage mock：
+ *  - 记录 mount 次数（缓存行为测试）
+ *  - 记录每次 render 时的 suspended prop（bug1-I2 验证 App.tsx 按 !isActive 传）
+ */
+const galleryPageSuspendedLog: Array<{ subTab: string; suspended: boolean }> = [];
+const resetSuspendedLog = () => { galleryPageSuspendedLog.length = 0; };
+
 vi.mock('../../src/renderer/pages/GalleryPage', () => ({
-  GalleryPage: ({ subTab }: { subTab?: string }) => {
+  GalleryPage: ({ subTab, suspended }: { subTab?: string; suspended?: boolean }) => {
     const testId = `gallery-page-${subTab ?? 'none'}`;
     React.useEffect(() => {
       mountCounts[testId] = (mountCounts[testId] ?? 0) + 1;
     }, []);
-    return <div data-testid={testId}>gallery:{subTab ?? 'none'}</div>;
+    galleryPageSuspendedLog.push({ subTab: subTab ?? 'none', suspended: !!suspended });
+    return (
+      <div data-testid={testId} data-suspended={suspended ? 'true' : 'false'}>
+        gallery:{subTab ?? 'none'}
+      </div>
+    );
   },
 }));
 
@@ -169,6 +182,7 @@ describe('App mountedPageIds cache behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetMountCounts();
+    resetSuspendedLog();
     (window as any).electronAPI = {
       db: {
         init: vi.fn().mockResolvedValue({ success: true }),
@@ -340,5 +354,120 @@ describe('App mountedPageIds cache behavior', () => {
     expect(postsContainer.style.display).toBe('none');
     // mount 次数不变
     expect(mountCounts['booru-page']).toBe(postsMountCount);
+  });
+
+  /**
+   * bug1-I1 回归：closePin 守卫当前 subKey
+   *
+   * 场景：pin 了 booru:posts 且当前就停在 booru/posts，右键 → "关闭"。
+   * 旧代码无条件 delete(pinId) → mountedPageIds 暂时丢失 → DOM unmount →
+   * 随后 mount effect（App.tsx ~L484 根据 selectedKey/subKey 确保页面 id 入集）
+   * 再次把它加回来 → 重新挂载，丢失本地 state（mount 次数 ≥ 2）。
+   *
+   * 修复后：closePin 检测到当前 section+subKey 命中 → 跳过 delete，
+   * 仅将 activePinnedId 置 null（基础层接管），DOM 不动，mount 次数维持 1。
+   *
+   * 反模式证据：把 App.tsx closePin 的守卫去掉后重跑本条应 FAIL
+   * （mount 次数 = 2 而非 1）。
+   */
+  it('bug1-I1：closePin 命中当前 subKey 时不应卸载 DOM', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        pinnedItems: [{ section: 'booru', key: 'posts' }],
+      },
+    });
+
+    render(<App />);
+
+    // 初始 gallery
+    await screen.findByTestId('gallery-page-recent');
+
+    // 切到 booru（默认 subKey=posts，命中 pin）
+    await user.click(screen.getByTestId('main-menu-booru'));
+    await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
+
+    // 此时 booru-page 已挂载 1 次
+    expect(mountCounts['booru-page']).toBe(1);
+
+    // 找到侧边栏的 pin 项（含 meta.label="帖子"），右键触发 antd Dropdown
+    // Dropdown trigger=['contextMenu']。这里用固定项那一行的外层 div。
+    // 固定项位于第二·五段（非 SortableMenu），文本 "帖子" 出现两次：
+    // SortableMenu 里的按钮（data-testid=booru-menu-posts） + 固定项一行。
+    // 用 "帖子" 文本查全部，挑出不在 data-testid 按钮内的那一个。
+    const allPostsText = screen.getAllByText('帖子');
+    const pinnedItemText = allPostsText.find(el => !el.closest('[data-testid="booru-menu-posts"]'));
+    expect(pinnedItemText).toBeTruthy();
+    const pinnedRow = pinnedItemText!.closest('div[style]') as HTMLElement;
+    expect(pinnedRow).toBeTruthy();
+
+    // 触发 contextmenu 打开下拉菜单
+    fireEvent.contextMenu(pinnedRow);
+
+    // 等待 antd Dropdown 的菜单项 "关闭" 出现
+    const closeItem = await screen.findByText('关闭');
+    // 点击 "关闭"
+    await user.click(closeItem);
+
+    // 给 state 更新一帧机会
+    await waitFor(() => {
+      // activePinnedId 被清空 → pin 的阴影条会消失，但我们用更稳的信号：
+      // booru-page DOM 容器仍存在（命中守卫，未 unmount）
+      expect(screen.queryByTestId('booru-page')).not.toBeNull();
+    });
+
+    // 关键断言：booru-page 的 mount 次数仍为 1（未被 unmount→remount）
+    expect(mountCounts['booru-page']).toBe(1);
+
+    // 容器仍是激活态（此时走基础层：activePinnedId=null，
+    // selectedKey=booru + selectedBooruSubKey=posts → isBaseCurrent=true）
+    const container = screen.getByTestId('booru-page').closest('.ios-page-enter') as HTMLElement;
+    expect(container.style.display).not.toBe('none');
+  });
+
+  /**
+   * bug1-I2 回归：GalleryPage 非活跃时应收到 suspended=true
+   *
+   * 场景：从 gallery/recent 切到 booru/posts 后，gallery 容器保留 display:none
+   * 常驻在缓存层。GalleryPage 内部的水合 / 保存 useEffect 是重活
+   * （扫描 / 偏好保存 / 图片列表加载），切走后仍跑会持续占 IPC / 主进程 IO。
+   *
+   * 修复：App.tsx renderPageForId 对 gallery 分支传 suspended={!isActive}，
+   * GalleryPage 内的 useEffect 读 suspended 并跳过。
+   *
+   * 反模式证据：去掉 App.tsx 里 `suspended={!isActive}` 后，GalleryPage
+   * 会一直收到 suspended=undefined（falsy），本条会 FAIL。
+   */
+  it('bug1-I2：切走 gallery 后 GalleryPage 应收到 suspended=true', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    render(<App />);
+
+    await screen.findByTestId('gallery-page-recent');
+
+    // 初始 gallery 活跃 → suspended 应为 false
+    const galleryEl = screen.getByTestId('gallery-page-recent');
+    expect(galleryEl.getAttribute('data-suspended')).toBe('false');
+    expect(galleryPageSuspendedLog.some(e => e.subTab === 'recent' && !e.suspended)).toBe(true);
+
+    // 切到 booru
+    await user.click(screen.getByTestId('main-menu-booru'));
+    await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
+
+    // 等一帧让 React 完成父级重渲染把新的 suspended 推下去
+    await waitFor(() => {
+      // 切走后 gallery-page-recent 仍挂载（常驻缓存层），但 data-suspended 应变为 true
+      const el = screen.queryByTestId('gallery-page-recent');
+      expect(el).not.toBeNull();
+      expect(el!.getAttribute('data-suspended')).toBe('true');
+    });
+
+    // 切走后的 render 中必然包含 suspended=true 的记录
+    const tailRenders = galleryPageSuspendedLog.filter(e => e.subTab === 'recent').slice(-3);
+    expect(tailRenders.some(e => e.suspended)).toBe(true);
   });
 });

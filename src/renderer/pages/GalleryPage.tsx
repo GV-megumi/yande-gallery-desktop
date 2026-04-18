@@ -46,6 +46,13 @@ interface GalleryPageProps {
   initialGalleryId?: number;
   /** 子窗口模式下禁用 pagePreferences 回写，避免污染主窗口状态（Bug11） */
   disablePreferencesPersistence?: boolean;
+  /**
+   * bug1-I2：常驻缓存层下非活跃时挂起副作用。
+   * 语义：DOM 继续渲染（最后一次快照），但不跑水合/持久化/扫描等副作用，
+   * 避免切走后仍在后台跑开销。与 disablePreferencesPersistence（子窗口专用：
+   * "UI 常驻但不写配置"）独立共存。
+   */
+  suspended?: boolean;
 }
 
 
@@ -53,6 +60,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   subTab = 'recent',
   initialGalleryId,
   disablePreferencesPersistence = false,
+  suspended = false,
 }) => {
   // 分离不同模式的状态，避免相互干扰
   const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
@@ -608,6 +616,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   };
 
   useEffect(() => {
+    // bug1-I2：常驻缓存层下非活跃页面挂起水合副作用（含 loadRecentImages /
+    // loadImages / loadGalleries 等主动 IPC 拉取）。其它页面切回当前页时
+    // suspended 会回到 false，此时再进入水合流程。
+    if (suspended) {
+      return;
+    }
     let cancelled = false;
     const runId = preferencesHydrationRunIdRef.current + 1;
     preferencesHydrationRunIdRef.current = runId;
@@ -718,9 +732,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         preferencesHydratingRef.current = false;
       }
     };
-  }, [subTab]);
+  }, [subTab, suspended]);
 
   useEffect(() => {
+    // bug1-I2：常驻缓存层下非活跃页面挂起保存副作用，避免切走后仍在后台
+    // debounce 写 pagePreferences（每次切换/搜索都会触发，积累起来对 IO 和
+    // 主进程 config 写入有可观开销）。
+    if (suspended) {
+      return;
+    }
     if (!preferencesHydrated || preferencesHydratingRef.current) {
       return;
     }
@@ -788,7 +808,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence]);
+  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence, suspended]);
 
   // 当图集查询或排序参数改变时，重新派生图集列表
   useEffect(() => {
