@@ -369,62 +369,67 @@ export async function createBulkDownloadSession(
 
     const db = await getDatabase();
 
-    // 活跃会话去重：连续点击"开始"或并发触发时避免重复创建
-    const existing = await get<any>(
-      db,
-      `SELECT id, taskId, siteId, status, startedAt, completedAt, currentPage, totalPages, error
-         FROM bulk_download_sessions
-        WHERE taskId = ?
-          AND deletedAt IS NULL
-          AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')
-        ORDER BY COALESCE(startedAt, rowid) ASC
-        LIMIT 1`,
-      [taskId],
-    );
-    if (existing) {
-      console.log('[bulkDownloadService] 已存在活跃会话，跳过创建:', existing.id);
+    // 活跃会话去重 + 防并发：把 "查活跃 → INSERT" 夹进调度器锁里串行执行，
+    // 避免两次并发的 createSession 都读到空表再双双 INSERT（连点/多进程竞态）。
+    //
+    // 复用 schedulerMutex：createSession 不会被持有该锁的代码反向调用
+    // （promoteNextQueued / startBulkDownloadSession 的锁内只做状态翻转），
+    // 没有再入风险；锁粒度够细，不会阻塞下载主流程。
+    const outcome = await withScheduler(async () => {
+      const existing = await get<any>(
+        db,
+        `SELECT id, taskId, siteId, status, startedAt, completedAt, currentPage, totalPages, error
+           FROM bulk_download_sessions
+          WHERE taskId = ?
+            AND deletedAt IS NULL
+            AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')
+          ORDER BY COALESCE(startedAt, rowid) ASC
+          LIMIT 1`,
+        [taskId],
+      );
+      if (existing) {
+        return { kind: 'existing' as const, row: existing };
+      }
+
+      const now = new Date().toISOString();
+      const sessionId = uuidv4();
+      await run(
+        db,
+        `INSERT INTO bulk_download_sessions (
+           id, taskId, siteId, status, startedAt, currentPage
+         ) VALUES (?, ?, ?, ?, ?, ?)`,
+        [sessionId, task.id, task.siteId, 'pending', now, 1],
+      );
+      return { kind: 'created' as const, sessionId, startedAt: now };
+    });
+
+    if (outcome.kind === 'existing') {
+      console.log('[bulkDownloadService] 已存在活跃会话，跳过创建:', outcome.row.id);
       const existingSession: BulkDownloadSession = {
-        id: existing.id,
-        taskId: existing.taskId,
-        siteId: existing.siteId,
-        status: existing.status as BulkDownloadSessionStatus,
-        startedAt: existing.startedAt,
-        completedAt: existing.completedAt,
-        currentPage: existing.currentPage,
-        totalPages: existing.totalPages,
-        error: existing.error,
+        id: outcome.row.id,
+        taskId: outcome.row.taskId,
+        siteId: outcome.row.siteId,
+        status: outcome.row.status as BulkDownloadSessionStatus,
+        startedAt: outcome.row.startedAt,
+        completedAt: outcome.row.completedAt,
+        currentPage: outcome.row.currentPage,
+        totalPages: outcome.row.totalPages,
+        error: outcome.row.error,
         task,
       };
       return { success: true, data: existingSession, deduplicated: true };
     }
 
-    const now = new Date().toISOString();
-    const sessionId = uuidv4();
-
     const session: BulkDownloadSession = {
-      id: sessionId,
+      id: outcome.sessionId,
       taskId: task.id,
       siteId: task.siteId,
       status: 'pending',
-      startedAt: now,
+      startedAt: outcome.startedAt,
       currentPage: 1,
-      task
+      task,
     };
-
-    await run(db, `
-      INSERT INTO bulk_download_sessions (
-        id, taskId, siteId, status, startedAt, currentPage
-      ) VALUES (?, ?, ?, ?, ?, ?)
-    `, [
-      session.id,
-      session.taskId,
-      session.siteId,
-      session.status,
-      session.startedAt,
-      session.currentPage
-    ]);
-
-    console.log('[bulkDownloadService] 会话创建成功:', sessionId);
+    console.log('[bulkDownloadService] 会话创建成功:', outcome.sessionId);
     return { success: true, data: session };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

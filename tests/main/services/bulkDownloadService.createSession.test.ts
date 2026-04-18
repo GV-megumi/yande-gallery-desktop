@@ -123,4 +123,72 @@ describe('bulkDownloadService.createBulkDownloadSession - 活跃会话去重', (
     );
     expect(insertCalls).toHaveLength(0);
   });
+
+  it('两次并发调用仅产生一次 INSERT（竞争守卫）', async () => {
+    // 模拟 "查活跃 → INSERT" 的真实顺序：
+    // - 活跃会话 SELECT 在第一次 INSERT 之前都看不到行；
+    // - INSERT 之后再 SELECT 会看到这条新行，所以并发第二次必须
+    //   在 INSERT 已生效之后才读，否则两次 SELECT 都撞到空，两次都 INSERT。
+    // 反模式守卫：锁外 "check-then-insert" 下，两次 get() 都会返回 undefined，
+    //   两次 INSERT 都会发生，这条断言会 FAIL。
+    const insertedSessions: Array<{
+      id: string;
+      taskId: string;
+      siteId: number;
+      status: string;
+      startedAt: string;
+      completedAt: null;
+      currentPage: number;
+      totalPages: null;
+      error: null;
+    }> = [];
+
+    getMock.mockImplementation(async (_db: any, sql: string, params?: any[]) => {
+      if (/FROM bulk_download_tasks/.test(sql)) return TASK_ROW;
+      if (/FROM bulk_download_sessions/.test(sql)) {
+        const taskId = params?.[0];
+        return insertedSessions.find((s) => s.taskId === taskId) ?? undefined;
+      }
+      return undefined;
+    });
+    runMock.mockImplementation(async (_db: any, sql: string, params?: any[]) => {
+      if (/INSERT INTO bulk_download_sessions/.test(sql) && params) {
+        insertedSessions.push({
+          id: params[0],
+          taskId: params[1],
+          siteId: params[2],
+          status: params[3],
+          startedAt: params[4],
+          completedAt: null,
+          currentPage: params[5],
+          totalPages: null,
+          error: null,
+        });
+      }
+      return undefined;
+    });
+
+    const { createBulkDownloadSession } = await import(
+      '../../../src/main/services/bulkDownloadService.js'
+    );
+
+    const [r1, r2] = await Promise.all([
+      createBulkDownloadSession('task-1'),
+      createBulkDownloadSession('task-1'),
+    ]);
+
+    expect(r1.success).toBe(true);
+    expect(r2.success).toBe(true);
+
+    const insertCalls = runMock.mock.calls.filter((args) =>
+      /INSERT INTO bulk_download_sessions/.test(String(args[1])),
+    );
+    expect(insertCalls).toHaveLength(1);
+
+    // 恰好一次被去重
+    const dedupCount = [r1, r2].filter((r) => (r as any).deduplicated === true).length;
+    expect(dedupCount).toBe(1);
+    // 两次返回的 session.id 一致
+    expect(r1.data?.id).toBe(r2.data?.id);
+  });
 });

@@ -1,5 +1,7 @@
 # `handlers.ts` 模块化计划概述
 
+> **状态：计划，未落地。** 截至当前（refactor-todo-full 分支）主进程 IPC 仍集中在 [src/main/ipc/handlers.ts](../src/main/ipc/handlers.ts) 单一文件，本文档中的"子模块拆分"方案尚未实施。阅读时请把它当作规划文档，而不是现状说明；如果未来开始执行拆分，请同步更新本节状态与代码路径。
+
 ## 背景
 
 当前主进程的 `src/main/ipc/handlers.ts` 既承担 IPC 通道注册，又直接聚合大量主进程 service、Booru 客户端、下载、图库、配置、备份等依赖。这个结构在功能不断扩展后已经呈现出两个明显问题：

@@ -17,11 +17,15 @@
 - `db`
 - `gallery`
 - `config`
+- `booruPreferences`
+- `pagePreferences`
 - `image`
 - `booru`
 - `bulkDownload`
 - `window`
 - `system`
+
+> 轻量子窗口（`tag-search` / `artist` / `character`）加载的精简 preload 只暴露 `window` / `booru` / `booruPreferences` / `system` 四个域；其余域在这类子窗口中为 `undefined`，调用会在运行时抛 `TypeError`。二级菜单子窗口仍然使用主 preload。参见 [src/preload/subwindow-index.ts](../src/preload/subwindow-index.ts)。
 
 ## `db`
 
@@ -41,7 +45,7 @@
 - `getGallery(id)`：获取单个图库
 - `createGallery(galleryData)`：创建图库
 - `updateGallery(id, updates)`：更新图库
-- `deleteGallery(id)`：删除图库
+- `deleteGallery(id)`：删除图库。按 `galleries.recursive` 字段决定清理范围：`recursive=1` 级联删图集下整棵子树的 `images` / 缩略图 / `booru_posts.localImageId` / `invalid_images` 等关联数据，并把 `folderPath` 写入 `gallery_ignored_folders` 防止下次扫描重建；`recursive=0` 只清理图集目录下直接子文件。原始图片文件不会被物理删除。
 - `setGalleryCover(id, coverImageId)`：设置图库封面
 - `getImagesByFolder(folderPath, page?, pageSize?)`：获取指定目录图片
 - `scanAndImportFolder(folderPath, extensions?, recursive?)`：扫描并导入目录
@@ -53,6 +57,15 @@
 - `deleteInvalidImage(id)`：删除单个无效图片记录
 - `clearInvalidImages()`：清空所有无效图片记录
 
+### 图集忽略名单（v0.0.2 起）
+
+- `listIgnoredFolders()`：列出所有被加入忽略名单的目录
+- `addIgnoredFolder(folderPath, note?)`：把目录加入忽略名单，下次扫描不会再创建图集
+- `updateIgnoredFolder(id, patch)`：更新忽略记录（当前主要是修改 `note`）
+- `removeIgnoredFolder(id)`：从忽略名单中移除（允许下次扫描再次创建）
+
+忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的 `folderPath` 追加进来。
+
 ## `config`
 
 面向配置读取、保存和配置事件。
@@ -61,11 +74,58 @@
 - `save(newConfig)`：保存配置
 - `updateGalleryFolders(folders)`：更新图库目录配置
 - `reload()`：重新加载配置
+- `getNotifications()` / `setNotifications(patch)`：桌面通知分域读写（v0.0.2 起）
+- `getDesktop()` / `setDesktop(patch)`：桌面行为分域读写（v0.0.2 起）
 - `onConfigChanged(callback)`：监听配置变更，返回取消订阅函数
   - 回调签名：`(config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void`
   - 主进程只广播摘要 `{ version, sections }`，preload 层在收到摘要后会自动重新调用 `config.get()` 拉取最新去敏配置并传入回调的第一个参数，**不会**通过事件通道下发敏感字段
   - `summary.sections` 给出受影响的路径集合（例如 `'network'`、`'ui.pagePreferences.favoriteTags'`），可用于按区块选择性更新 UI
   - `summary.version` 是单调递增的时间戳，异步订阅者可用来识别是否收到过期事件
+
+### 通知与桌面行为的配置结构（v0.0.2 起）
+
+`notifications` 和 `desktop` 是 `AppConfig` 顶层字段；分域 getter/setter 只写入这两个命名空间，避免整包覆盖。
+
+```ts
+// notifications
+{
+  enabled: boolean;                                    // 全局开关
+  byStatus: {
+    completed: boolean;
+    failed: boolean;
+    allSkipped: boolean;
+  };
+  singleDownload: { enabled: boolean };                // 单图下载是否弹通知
+  clickAction: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+}
+
+// desktop
+{
+  closeAction: 'hide-to-tray' | 'quit' | 'ask';       // 主窗口点 X 的行为
+  autoLaunch: boolean;                                 // 开机自启
+  startMinimized: boolean;                             // 自启时隐藏到托盘
+}
+```
+
+三级判断语义（批量下载通知）：`notifications.enabled && notifications.byStatus[status] && 任务级 notifications`。单图下载只看 `notifications.enabled && singleDownload.enabled`。
+
+## `booruPreferences`
+
+面向 Booru 外观偏好的读取与订阅。主 / 子窗口 preload 共用同一工厂。
+
+- `appearance.get()`：读取 `BooruAppearancePreference`（网格大小、预览质量、分页位置、页面模式、缓存上限等）
+- `appearance.onChanged(callback)`：订阅外观偏好变更，基于 `config:changed` 摘要事件，preload 自动拉取最新 DTO；返回取消订阅函数
+
+## `pagePreferences`
+
+面向页面维度偏好的读写（主 preload 独占，轻量子窗口不暴露）。
+
+- `favoriteTags.get()` / `favoriteTags.save(preferences)`
+- `blacklistedTags.get()` / `blacklistedTags.save(preferences)`
+- `gallery.get()` / `gallery.save(preferences)`：存储形态为 `GalleryPagePreferencesBySubTab`，按子 Tab（recent / all / galleries / invalid-images）分别记忆
+- `appShell.get()` / `appShell.save(preferences)`：应用外壳偏好（菜单展开、顶部标签栏等）
+
+使用这些偏好时须同时参考 `doc/注意事项/导航缓存与页面偏好持久化.md`，避免"用户返回后被自动还原"这类交互 bug。
 
 ## `image`
 
@@ -278,7 +338,12 @@
 - `openTagSearch(tag, siteId?)`
 - `openArtist(name, siteId?)`
 - `openCharacter(name, siteId?)`
-- `openSecondaryMenu(section, key, tab?)`：在新子窗口中打开指定的二级菜单页面；`section` 为顶层区域（`gallery` / `booru` / `google`），`key` 为页面标识，`tab` 为可选的页内子导航初始 tab
+- `openSecondaryMenu(section, key, tab?, extra?)`：在新子窗口中打开指定的二级菜单页面
+  - `section`：顶层区域（`gallery` / `booru` / `google`）
+  - `key`：页面标识
+  - `tab`：可选的页内子导航初始 tab
+  - `extra`：可选的附加 query（`Record<string, string | number>`），用于把必要上下文显式带进子窗口（例如 `{ galleryId: 5 }` 让子窗口直接进入某个图集详情）
+  - 约束：`extra` 中保留键 `section` / `key` / `tab` 会被主进程屏蔽，不会传入子窗口；附加参数走 URL query 而非共享的 `pagePreferences`，避免子窗口写回污染主窗口记忆
 
 ## `system`
 
@@ -357,6 +422,19 @@ interface PaginatedResult<T> {
 
 - 页面表格走分页：传 `{ siteId, keyword, offset, limit }`，根据 `total` 渲染分页控件
 - 导出 / 批量计算：传 `{ limit: 0 }` 拿全量，再从 `items` 里取数组
+
+## 主 / 子窗口 preload 暴露面差异
+
+主窗口和二级菜单子窗口加载的是 `build/preload/index.js`（源文件：[src/preload/index.ts](../src/preload/index.ts)），暴露上述全部域。
+
+轻量子窗口（`tag-search` / `artist` / `character`）加载的是 `build/preload/subwindow.js`（源文件：[src/preload/subwindow-index.ts](../src/preload/subwindow-index.ts)），只暴露：
+
+- `window`
+- `booru`
+- `booruPreferences`
+- `system`
+
+其他域（`db` / `gallery` / `image` / `config` / `bulkDownload` / `pagePreferences`）在轻量子窗口里为 `undefined`，在 TS 层通过编译但运行时调用会抛 `TypeError`。新增轻量子窗口页面或其依赖的 hooks / 组件时，必须避开这些域；确实需要的新能力要么挪到主 preload 再打开主窗口页面，要么把对应工厂加进 [src/preload/shared/](../src/preload/shared/) 并在两个入口都挂上。
 
 ## 事件订阅使用模式
 
