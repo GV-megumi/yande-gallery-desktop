@@ -2445,7 +2445,7 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
  */
 export async function retryAllFailedRecords(
   sessionId: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; merged?: boolean; message?: string; error?: string }> {
   console.log('[bulkDownloadService] 重试所有失败的记录:', sessionId);
   try {
     const db = await getDatabase();
@@ -2506,8 +2506,40 @@ export async function retryAllFailedRecords(
       WHERE sessionId = ? AND status = ?
     `, ['pending', sessionId, 'failed']);
 
+    // ── 进入 running 前的看门（复用与 startBulkDownloadSession 相同的不变量） ──
+    // 与 startBulkDownloadSession 不同，retryAllFailedRecords 并未在 withScheduler
+    // 锁内执行，故此处显式包一层调度器锁，保证 "活跃探测 + 软删" 的原子性。
+    const selfIsHistory =
+      sessionRow.status === 'completed' ||
+      sessionRow.status === 'failed' ||
+      sessionRow.status === 'cancelled' ||
+      sessionRow.status === 'allSkipped';
+
+    const gate = await withScheduler(() =>
+      ensureCanEnterRunning(db, sessionId, sessionRow.taskId, { selfIsHistory })
+    );
+
+    if (!gate.ok) {
+      if (gate.selfSoftDeleted) {
+        console.log(
+          '[bulkDownloadService] 同 taskId 已有活跃会话，已软删本 history session:',
+          sessionId,
+          '→',
+          gate.activeSessionId
+        );
+        return {
+          success: true,
+          merged: true,
+          message: '该任务已有进行中的下载，历史记录已合并',
+        };
+      }
+      return { success: false, error: '该任务已有进行中的下载会话' };
+    }
+
     // 根据会话状态决定是否需要启动下载
-    if (sessionRow.status === 'completed' || sessionRow.status === 'failed') {
+    // 注：cancelled/allSkipped 同属"已结束可重试"语义，与 completed/failed 归并处理。
+    if (sessionRow.status === 'completed' || sessionRow.status === 'failed' ||
+        sessionRow.status === 'cancelled' || sessionRow.status === 'allSkipped') {
       // 会话已结束，重新启动下载
       await waitForDownloadSessionToStop(sessionId);
       await resetInFlightRecordsToPending(sessionId);
