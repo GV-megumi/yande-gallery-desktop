@@ -1146,7 +1146,11 @@ export async function startBulkDownloadSession(
         return { success: true, queued: true };
       }
 
-      // ── 并发闸门：超上限时打成 queued；否则在锁内就把 dryRun 槽位预留好 ──
+      // ── 并发闸门 + 同 taskId 去重：锁内串行化 ──
+      //
+      // 1) ensureCanEnterRunning：拦住 "同 taskId 已经在跑另一条" 的情况，
+      //    并顺手清掉同 taskId 下的历史记录（不变量：history 最多 1 条）。
+      // 2) 并发闸门：超上限时打成 queued；否则在锁内就把 dryRun 槽位预留好。
       //
       // 反模式回归守卫（bug7-I1）：
       // 旧实现只在锁内做 "满了就打 queued"，释放锁后再把当前会话写成 dryRun。
@@ -1157,19 +1161,38 @@ export async function startBulkDownloadSession(
       // 所以把 "dryRun 置位" 动作挪进锁内，让自己先占住一个槽位，后续并发
       // 进入锁时 countActiveSessions 就能看到这次预留，闸门才真的串行。
       const outcome = await withScheduler(async () => {
+        const gate = await ensureCanEnterRunning(db, sessionId, sessionRow.taskId, {
+          selfIsHistory: false,
+        });
+        if (!gate.ok) {
+          return { kind: 'conflict' as const, activeSessionId: gate.activeSessionId };
+        }
+
         const max = getMaxConcurrentBulkDownloadSessions();
         const active = await countActiveSessions();
         if (active >= max) {
           await updateBulkDownloadSession(sessionId, { status: 'queued' });
           console.log('[bulkDownloadService] 会话进入等待队列:', sessionId);
-          return 'queued' as const;
+          return { kind: 'queued' as const };
         }
         // 在锁内就把自己占为 dryRun（slot 预留），保证其他并发 start
         // 看到更新后的 active 计数，避免多个 start 撞同一个空槽。
         await updateBulkDownloadSession(sessionId, { status: 'dryRun', currentPage: 1 });
-        return 'reserved' as const;
+        return { kind: 'reserved' as const };
       });
-      if (outcome === 'queued') {
+      if (outcome.kind === 'conflict') {
+        console.log(
+          '[bulkDownloadService] 同 taskId 已有活跃会话，拒绝启动:',
+          sessionId,
+          '→',
+          outcome.activeSessionId
+        );
+        return {
+          success: false,
+          error: '该任务已有进行中的下载会话',
+        };
+      }
+      if (outcome.kind === 'queued') {
         // 闸门超限：把新创建的会话直接打成 queued 返回，由 promoteNextQueued
         // 在有空槽时重新唤起。queued: true 让调用方能明确区分 "进了队列"
         // 与 "跑起来了"。
