@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 /**
- * bulkDownloadService.retryAllFailedRecords - 冲突合并测试
+ * bulkDownloadService.retry* - 冲突合并测试
  *
  * 场景：history 会话 S_hist 有失败项，用户点重试；同 taskId 已有另一条活跃 session S_active 在跑。
  * 期望：S_hist 被软删，服务返回 { success: true, merged: true, message: ... }；
@@ -45,7 +45,7 @@ const HIST_SESSION_ROW = {
   updatedAt: '2024-01-01',
 };
 
-describe('bulkDownloadService.retryAllFailedRecords - 冲突合并', () => {
+describe('bulkDownloadService.retry* - 冲突合并', () => {
   beforeEach(() => {
     getMock.mockReset();
     runMock.mockReset();
@@ -88,6 +88,41 @@ describe('bulkDownloadService.retryAllFailedRecords - 冲突合并', () => {
     // 不应发 UPDATE bulk_download_sessions SET status = 'running'
     const transitionToRunning = runMock.mock.calls.find(args =>
       /status\s*=\s*\?/.test(args[1]) && args[2]?.includes('running')
+    );
+    expect(transitionToRunning).toBeUndefined();
+  });
+
+  it('retryFailedRecord：同 taskId 已有活跃 session 时，软删 self 并返回 merged:true', async () => {
+    // 第一次 get：JOIN 查 session → history 状态
+    // 第二次 get：ensureCanEnterRunning 活跃探测 → 返回活跃
+    // 第三次 get：读失败记录行（若改写后被提前 early return，此 get 可能不触发）
+    getMock.mockImplementation(async (_db: any, sql: string) => {
+      if (/FROM bulk_download_sessions s\s+INNER JOIN bulk_download_tasks/.test(sql)) {
+        return HIST_SESSION_ROW;
+      }
+      if (/FROM bulk_download_sessions\s+WHERE taskId = \? AND id != \?/.test(sql)) {
+        return { id: 'session-active' };
+      }
+      if (/FROM bulk_download_records/.test(sql)) {
+        return {
+          url: 'u1', sessionId: 'session-hist', status: 'pending', page: 1, pageIndex: 0,
+          createdAt: '2024-01-01', fileName: 'a.jpg', extension: 'jpg',
+          headers: null, thumbnailUrl: null, sourceUrl: null
+        };
+      }
+      return undefined;
+    });
+
+    const { retryFailedRecord } = await import(
+      '../../../src/main/services/bulkDownloadService.js'
+    );
+    const result = await retryFailedRecord('session-hist', 'u1');
+
+    expect(result.success).toBe(true);
+    expect((result as any).merged).toBe(true);
+    // 不应发出 UPDATE bulk_download_sessions SET status = 'running'
+    const transitionToRunning = runMock.mock.calls.find(args =>
+      /SET status = \?/.test(args[1]) && args[2]?.includes('running')
     );
     expect(transitionToRunning).toBeUndefined();
   });

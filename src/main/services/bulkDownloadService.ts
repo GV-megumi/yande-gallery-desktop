@@ -2587,7 +2587,7 @@ export async function retryAllFailedRecords(
 export async function retryFailedRecord(
   sessionId: string,
   recordUrl: string
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; merged?: boolean; message?: string; error?: string }> {
   console.log('[bulkDownloadService] 重试失败的记录:', sessionId, recordUrl);
   try {
     const db = await getDatabase();
@@ -2666,8 +2666,35 @@ export async function retryFailedRecord(
       // 清除文件失败不影响重试流程
     }
 
-    // 如果会话未运行，启动下载会话
+    // 如果会话未运行，需要翻 running → 先过看门
     if (sessionRow.status !== 'running') {
+      const selfIsHistory =
+        sessionRow.status === 'completed' ||
+        sessionRow.status === 'failed' ||
+        sessionRow.status === 'cancelled' ||
+        sessionRow.status === 'allSkipped';
+
+      const gate = await withScheduler(() =>
+        ensureCanEnterRunning(db, sessionId, sessionRow.taskId, { selfIsHistory })
+      );
+
+      if (!gate.ok) {
+        if (gate.selfSoftDeleted) {
+          console.log(
+            '[bulkDownloadService] retryFailedRecord：同 taskId 已有活跃会话，已软删 history session:',
+            sessionId,
+            '→',
+            gate.activeSessionId
+          );
+          return {
+            success: true,
+            merged: true,
+            message: '该任务已有进行中的下载，历史记录已合并',
+          };
+        }
+        return { success: false, error: '该任务已有进行中的下载会话' };
+      }
+
       await waitForDownloadSessionToStop(sessionId);
       await resetInFlightRecordsToPending(sessionId);
       sessionStopReasons.delete(sessionId);

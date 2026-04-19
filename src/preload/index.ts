@@ -323,7 +323,7 @@ declare global {
         getSessionStats: (sessionId: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         getRecords: (sessionId: string, status?: string, page?: number, autoFix?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         retryAllFailed: (sessionId: string) => Promise<{ success: boolean; merged?: boolean; message?: string; error?: string }>;
-        retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; error?: string }>;
+        retryFailedRecord: (sessionId: string, recordUrl: string) => Promise<{ success: boolean; merged?: boolean; message?: string; error?: string }>;
         resumeRunningSessions: () => Promise<{ success: boolean; data?: { resumed: number }; error?: string }>;
       };
       window: {
