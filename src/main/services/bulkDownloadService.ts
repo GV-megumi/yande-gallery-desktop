@@ -1174,8 +1174,13 @@ export async function startBulkDownloadSession(
       // 所以把 "dryRun 置位" 动作挪进锁内，让自己先占住一个槽位，后续并发
       // 进入锁时 countActiveSessions 就能看到这次预留，闸门才真的串行。
       const outcome = await withScheduler(async () => {
+        // 走 startSession 的 session 要么是 createSession 刚创建（createSession 自己已经
+        // 对 paused 伙伴做过去重），要么是 promoteNextQueued 从 queued 推上来的（可能伴随
+        // 同 task 被 resume 刻意降级的 paused 兄弟）。两种情况下 paused 伙伴都不该挡住
+        // 本次 → running 的推进；真正要挡的是 pending/queued/dryRun/running。
         const gate = await ensureCanEnterRunning(db, sessionId, sessionRow.taskId, {
           selfIsHistory: false,
+          ignorePausedWhenProbing: true,
         });
         if (!gate.ok) {
           return { kind: 'conflict' as const, activeSessionId: gate.activeSessionId };
