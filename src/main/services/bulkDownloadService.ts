@@ -11,6 +11,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
+import type sqlite3 from 'sqlite3';
 import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { getDatabase, run, runWithChanges, get, all } from './database.js';
@@ -597,6 +598,82 @@ export async function promoteNextQueued(): Promise<void> {
   startBulkDownloadSession(nextId).catch(err => {
     console.error('[bulkDownloadService] promoteNextQueued 启动失败:', err);
   });
+}
+
+/**
+ * 看门：session 从非 running 状态翻入 running 前调用。
+ *
+ * 必须在 withScheduler 锁内被调用 —— 本函数不再自己包锁，避免嵌套调度。
+ * 调用方：startBulkDownloadSession（已在锁内）/ retryAllFailedRecords /
+ * retryFailedRecord / resumeRunningSessions。
+ *
+ * 行为：
+ * 1. 查同 taskId 下是否还存在别的活跃 session（pending/queued/dryRun/running/paused）。
+ *    - 命中：
+ *      - selfIsHistory=true（retry 场景，本 session 当前在 history）→ 软删本 session，返回 selfSoftDeleted:true；
+ *      - selfIsHistory=false（正常推进）→ 不动本 session，返回 selfSoftDeleted:false；由调用方决定降级。
+ * 2. 无冲突：软删同 taskId 下所有其他 history session（completed/failed/cancelled/allSkipped）。
+ * 3. 返回 ok:true，调用方继续翻入 running。
+ */
+export async function ensureCanEnterRunning(
+  db: sqlite3.Database,
+  sessionId: string,
+  taskId: string,
+  opts: { selfIsHistory: boolean }
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      reason: 'hasActive';
+      activeSessionId: string;
+      selfSoftDeleted: boolean;
+    }
+> {
+  // 1. 活跃冲突探测
+  const activeRow = await get<{ id: string }>(
+    db,
+    `SELECT id FROM bulk_download_sessions
+      WHERE taskId = ? AND id != ? AND deletedAt IS NULL
+        AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')
+      LIMIT 1`,
+    [taskId, sessionId]
+  );
+
+  if (activeRow) {
+    if (opts.selfIsHistory) {
+      const now = new Date().toISOString();
+      await run(
+        db,
+        `UPDATE bulk_download_sessions SET deletedAt = ? WHERE id = ?`,
+        [now, sessionId]
+      );
+      return {
+        ok: false,
+        reason: 'hasActive',
+        activeSessionId: activeRow.id,
+        selfSoftDeleted: true,
+      };
+    }
+    return {
+      ok: false,
+      reason: 'hasActive',
+      activeSessionId: activeRow.id,
+      selfSoftDeleted: false,
+    };
+  }
+
+  // 2. 无冲突：软删同 taskId 下所有其他 history
+  const now = new Date().toISOString();
+  await run(
+    db,
+    `UPDATE bulk_download_sessions
+        SET deletedAt = ?
+      WHERE taskId = ? AND id != ? AND deletedAt IS NULL
+        AND status IN ('completed', 'failed', 'cancelled', 'allSkipped')`,
+    [now, taskId, sessionId]
+  );
+
+  return { ok: true };
 }
 
 /**
