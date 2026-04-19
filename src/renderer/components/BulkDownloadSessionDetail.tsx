@@ -210,6 +210,12 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
       const result = await window.electronAPI.bulkDownload.retryFailedRecord(session.id, record.url);
       if (result.success) {
+        if (result.merged) {
+          message.info(result.message || '该任务已有进行中的下载，历史记录已合并');
+          // 历史记录被软删，直接交给外层刷新
+          onRefresh?.();
+          return;
+        }
         message.success('已加入重试队列');
         loadRecords(true); // 静默刷新
         onRefresh?.();
@@ -230,6 +236,11 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
       const result = await window.electronAPI.bulkDownload.retryAllFailed(session.id);
       if (result.success) {
+        if (result.merged) {
+          message.info(result.message || '该任务已有进行中的下载，历史记录已合并');
+          onRefresh?.();
+          return;
+        }
         message.success('已将所有失败项加入重试队列');
         loadRecords(true); // 静默刷新
         onRefresh?.();
