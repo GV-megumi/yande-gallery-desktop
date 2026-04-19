@@ -19,6 +19,7 @@
 - `下载与批量会话状态机.md`：任务模板与会话实例的区分、并发上限、用户中断标志的权威性
 - `导航缓存与页面偏好持久化.md`：一级菜单切换的缓存恢复、防抖保存的陷阱、子窗口与主窗口偏好隔离
 - `Electron桌面行为与通知.md`：`notifications` / `desktop` 两段配置的语义、三级判断、托盘与 `closeAction` 生命周期
+- `Electron安全边界.md`：`app://` 受控路径、外链 https 校验、webview 白名单、子窗口最小 preload 与 renderer-safe DTO
 
 如果你先从总览文档进入，推荐按这个顺序继续读：
 

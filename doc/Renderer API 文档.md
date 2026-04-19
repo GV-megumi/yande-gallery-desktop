@@ -2,7 +2,7 @@
 
 ## 文档定位
 
-本文件描述渲染进程通过 `window.electronAPI` 可以直接调用的 API 面。主来源是 `src/preload/index.ts`，因此当文档与实现不一致时，以 preload 实现为准。
+本文件描述渲染进程通过 `window.electronAPI` 可以直接调用的 API 面。主来源是 `src/preload/index.ts` 与 `src/preload/shared/*.ts`，因此当文档与实现不一致时，以 preload 实现为准。
 
 ## 总体说明
 
@@ -57,7 +57,7 @@
 - `deleteInvalidImage(id)`：删除单个无效图片记录
 - `clearInvalidImages()`：清空所有无效图片记录
 
-### 图集忽略名单（v0.0.2 起）
+### 图集忽略名单
 
 - `listIgnoredFolders()`：列出所有被加入忽略名单的目录
 - `addIgnoredFolder(folderPath, note?)`：把目录加入忽略名单，下次扫描不会再创建图集
@@ -74,15 +74,15 @@
 - `save(newConfig)`：保存配置
 - `updateGalleryFolders(folders)`：更新图库目录配置
 - `reload()`：重新加载配置
-- `getNotifications()` / `setNotifications(patch)`：桌面通知分域读写（v0.0.2 起）
-- `getDesktop()` / `setDesktop(patch)`：桌面行为分域读写（v0.0.2 起）
+- `getNotifications()` / `setNotifications(patch)`：桌面通知分域读写
+- `getDesktop()` / `setDesktop(patch)`：桌面行为分域读写
 - `onConfigChanged(callback)`：监听配置变更，返回取消订阅函数
   - 回调签名：`(config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void`
   - 主进程只广播摘要 `{ version, sections }`，preload 层在收到摘要后会自动重新调用 `config.get()` 拉取最新去敏配置并传入回调的第一个参数，**不会**通过事件通道下发敏感字段
   - `summary.sections` 给出受影响的路径集合（例如 `'network'`、`'ui.pagePreferences.favoriteTags'`），可用于按区块选择性更新 UI
   - `summary.version` 是单调递增的时间戳，异步订阅者可用来识别是否收到过期事件
 
-### 通知与桌面行为的配置结构（v0.0.2 起）
+### 通知与桌面行为的配置结构
 
 `notifications` 和 `desktop` 是 `AppConfig` 顶层字段；分域 getter/setter 只写入这两个命名空间，避免整包覆盖。
 
@@ -177,6 +177,7 @@
 - `getQueueStatus()`
 - `pauseDownload(queueId)`
 - `resumeDownload(queueId)`
+- `cancelDownload(queueId)`：取消 / 删除单条下载任务；正在下载时会 abort 并清理 `.part` 临时文件，用户主动取消不会被错误分支覆盖为 `failed`
 
 说明：下载队列相关 Renderer API 使用的 `postId` 均为站点原始帖子 ID；主进程内部入库时会先映射到 `booru_posts.id`，读取队列返回给渲染层时再映射回原始帖子 ID。
 
@@ -279,7 +280,7 @@
 - `importBlacklistedTagsPickFile()`：同上，用于黑名单
 - `importBlacklistedTagsCommit(payload)`：同上，用于黑名单
 
-说明：从 v0.0.2 起一步到位的旧 `importFavoriteTags()` / `importBlacklistedTags()` 已被移除，统一改成两段式以支持预览再确认。
+说明：一步到位的旧 `importFavoriteTags()` / `importBlacklistedTags()` 已被移除，统一改成两段式以支持预览再确认。
 
 ### 收藏夹分组 / 保存的搜索
 
@@ -313,14 +314,14 @@
 - `deleteTask(taskId)`
 - `createSession(taskId)`
 - `getActiveSessions()`
-- `startSession(sessionId)`
+- `startSession(sessionId)`：返回值可能带 `queued: true`，表示会话已进入等待队列而非立即占用运行槽位
 - `pauseSession(sessionId)`
 - `cancelSession(sessionId)`
 - `deleteSession(sessionId)`
 - `getSessionStats(sessionId)`
 - `getRecords(sessionId, status?, page?, autoFix?)`
-- `retryAllFailed(sessionId)`
-- `retryFailedRecord(sessionId, recordUrl)`
+- `retryAllFailed(sessionId)`：同 taskId 已有存活会话时可能返回 `merged: true`
+- `retryFailedRecord(sessionId, recordUrl)`：同 taskId 已有存活会话时可能返回 `merged: true`
 - `resumeRunningSessions()`
 
 说明：批量下载相关的进度 / 状态事件不挂在这个域下，而是挂在 `system` 域下。
@@ -357,11 +358,13 @@
 - `testBaidu()`：测试百度连通性
 - `testGoogle()`：测试 Google 连通性
 - `checkForUpdate()`：通过 GitHub Releases API 查询最新发布版本，返回 `UpdateCheckResult`（含当前版本、最新版本、`hasUpdate`、`releaseUrl` 等）。主进程侧对成功结果做短时缓存（约 60s），错误响应不缓存以便重试。
+- `onSystemNavigate(callback)`：订阅主进程发来的系统导航事件（通知点击 / 托盘入口等），payload 为 `{ section, subKey, sessionId? }`
 
 ### 事件订阅
 
 - `onBulkDownloadRecordProgress(callback)`
 - `onBulkDownloadRecordStatus(callback)`
+- `onSystemNavigate(callback)`
 
 ## 返回值约定
 
@@ -396,7 +399,7 @@
   - `booru.removeFavorite(..., syncToServer = false)`
   - `system.importBackup(mode = 'merge')`
 
-### 列表查询与分页约定（v0.0.2 起）
+### 列表查询与分页约定
 
 `getFavoriteTags` / `getFavoriteTagsWithDownloadState` / `getBlacklistedTags` 三个 list 接口统一接收 `ListQueryParams`，返回 `PaginatedResult<T>`：
 
@@ -459,6 +462,7 @@ unsubscribe();
 - `booru.onQueueStatus`
 - `system.onBulkDownloadRecordProgress`
 - `system.onBulkDownloadRecordStatus`
+- `system.onSystemNavigate`
 
 ## 说明与边界
 
@@ -469,8 +473,8 @@ unsubscribe();
 ## 使用建议
 
 - 想找“页面能不能调这个能力”，先看这里。
-- 想找“这个能力在主进程哪处理”，再顺着 `src/preload/index.ts` 的通道名去看对应 handler。
-- 想核对某个通道是不是常量化了，不要只看 `src/main/ipc/channels.ts`，也要看 preload 里的字符串字面量调用。
+- 想找“这个能力在主进程哪处理”，再顺着 `src/preload/index.ts` / `src/preload/shared/*.ts` 的通道常量去看对应 handler。
+- 想核对某个通道是否完整接上，不要只看 `src/main/ipc/channels.ts`，也要看 preload 暴露和 handler 实现。
 
 ## 相关文档
 

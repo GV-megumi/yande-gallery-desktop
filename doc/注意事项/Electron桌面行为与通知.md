@@ -71,7 +71,7 @@ desktop: {
 
 ### 6. 新增通知入口和桌面行为时必须做能力闭环
 
-参考 `doc/注意事项/下载与批量会话状态机.md` 第 6 节：source of truth、service、IPC + preload、UI 入口、验收用例，五件事缺一不可。通知特别容易出现"底层能力有、UI 入口没兜起来"或"UI 勾上、但 `notificationService` 根本不消费该字段"这类断链。
+参考 `doc/注意事项/下载与批量会话状态机.md` 中"新增状态 / 新增开关必须做能力闭环"的规则：source of truth、service、IPC + preload、UI 入口、验收用例，五件事缺一不可。通知特别容易出现"底层能力有、UI 入口没兜起来"或"UI 勾上、但 `notificationService` 根本不消费该字段"这类断链。
 
 ## 实施自查清单
 

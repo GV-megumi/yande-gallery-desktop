@@ -28,7 +28,7 @@
 - `imageCacheService.ts`：图片缓存与统计
 - `backupService.ts`：导出/导入应用数据
 - `imageMetadataService.ts`：帖子查看器元数据支持
-- `updateService.ts`：GitHub Releases API 版本检查（v0.0.2 新增；带短时缓存，错误不缓存）
+- `updateService.ts`：GitHub Releases API 版本检查（带短时缓存，错误不缓存）
 
 ### IPC / Preload
 
@@ -92,14 +92,15 @@ Hub 页面同时挂载两个子页面，用 `display:none` 隐藏非活跃页，
 - 黑名单标签
 - 保存的搜索
 
-说明（v0.0.2 起）：`getFavoriteTags` / `getFavoriteTagsWithDownloadState` / `getBlacklistedTags` 三个 list 接口统一迁移到 `ListQueryParams` → `PaginatedResult<T>` 契约，支持服务端分页和关键词搜索；导入流程拆成 `pickFile` + `commit` 两段式。具体签名见 `doc/Renderer API 文档.md` 的"列表查询与分页约定"章节和 `src/preload/index.ts`。
+说明：`getFavoriteTags` / `getFavoriteTagsWithDownloadState` / `getBlacklistedTags` 三个 list 接口统一迁移到 `ListQueryParams` → `PaginatedResult<T>` 契约，支持服务端分页和关键词搜索；导入流程拆成 `pickFile` + `commit` 两段式。具体签名见 `doc/Renderer API 文档.md` 的"列表查询与分页约定"章节和 preload 实现。
 
 ### 下载与缓存
 
 - 单帖下载队列
-- 单图下载 md5 校验（v0.0.2 起）：若 Booru post 返回了 `md5`，`downloadManager` 会在临时文件替换目标文件前校验一次，校验失败抛错让队列走失败分支。
+- 单图下载 md5 校验：若 Booru post 返回了 `md5`，`downloadManager` 会在临时文件替换目标文件前校验一次，校验失败抛错让队列走失败分支。
 - 批量下载任务 / 会话
-- 批量下载并发闸门 + 等待队列（v0.0.2 起）：`bulkDownload.maxConcurrentSessions` 决定同一时刻允许的活跃会话数；超限的 `startSession` 会在锁内预留 `dryRun` 槽位再下沉为 `queued`，任何会话离开活跃态后 `promoteNextQueued` 推进队首，进程重启恢复逻辑走同一闸门。配套的状态机约束见 `doc/注意事项/下载与批量会话状态机.md`。
+- 批量下载并发闸门 + 等待队列：`bulkDownload.maxConcurrentSessions` 决定同一时刻允许的运行槽位数（只计 `dryRun` / `running`）；超限的 `startSession` 写入 `queued`，任何会话离开运行槽位后 `promoteNextQueued` 推进队首，进程重启恢复逻辑走同一闸门。配套的状态机约束见 `doc/注意事项/下载与批量会话状态机.md`。
+- 批量下载会话去重与重试合并：同 taskId 同时只允许一个存活会话，历史会话重试遇到存活会话时返回 `merged` 语义，避免重复运行同一任务。
 - 收藏标签下载绑定：为收藏标签配置下载路径和参数，一键创建批量下载任务
 - 批量下载任务去重：按下载路径 + 标签集合去重，避免创建重复任务；复用任务模板时仍会创建新会话，不会被"模板已存在"阻止
 - 图片缓存统计与清理
