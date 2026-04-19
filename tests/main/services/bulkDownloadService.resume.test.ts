@@ -138,9 +138,10 @@ describe('bulkDownloadService.resumeRunningSessions', () => {
   });
 
   /**
-   * 启动自愈：DB 里同 taskId 两条 running 坏数据，经过看门后：
-   * - 第一条（A）看门放行 → 置 queued
-   * - 第二条（B）看门检测到同 taskId 仍有活跃（A 刚被标 queued）→ 置回 paused
+   * 启动自愈：DB 里同 taskId 两条 running 坏数据，经过预分组 + 看门后：
+   * - 第一条（A）作为 keeper，看门放行 → 置 queued
+   * - 第二条（B）在预分组阶段被立刻置 paused（保留 DB 顺序下的第一条规则）
+   * resumedCount 必须为 1，不能退化成 0。
    */
   async function loadModuleWithDoubleRunning() {
     const sessionIdA = 'session-A';
@@ -171,15 +172,28 @@ describe('bulkDownloadService.resumeRunningSessions', () => {
     });
 
     const get = vi.fn().mockImplementation(async (_db: unknown, sql: string, params?: unknown[]) => {
-      // ensureCanEnterRunning 的活跃探测
+      // ensureCanEnterRunning 的活跃探测（ignorePausedWhenProbing=true：排除 paused）
+      if (
+        typeof sql === 'string' &&
+        sql.includes('SELECT id FROM bulk_download_sessions') &&
+        sql.includes("status IN ('pending', 'queued', 'dryRun', 'running')")
+      ) {
+        const excludeId = Array.isArray(params) ? params[1] : undefined;
+        for (const [id, status] of sessionStatus.entries()) {
+          if (id === excludeId) continue;
+          if (['pending', 'queued', 'dryRun', 'running'].includes(status)) {
+            return { id };
+          }
+        }
+        return undefined;
+      }
+      // ensureCanEnterRunning 的活跃探测（默认：把 paused 也视作活跃）
       if (
         typeof sql === 'string' &&
         sql.includes('SELECT id FROM bulk_download_sessions') &&
         sql.includes("status IN ('pending', 'queued', 'dryRun', 'running', 'paused')")
       ) {
-        // params: [taskId, sessionId]
         const excludeId = Array.isArray(params) ? params[1] : undefined;
-        // 找 taskId 下除去 excludeId 之外的活跃 session
         for (const [id, status] of sessionStatus.entries()) {
           if (id === excludeId) continue;
           if (['pending', 'queued', 'dryRun', 'running', 'paused'].includes(status)) {
@@ -278,47 +292,34 @@ describe('bulkDownloadService.resumeRunningSessions', () => {
     };
   }
 
-  it('启动时 DB 里同 taskId 两条 running 坏数据，看门应把至少一条置回 paused', async () => {
-    // 核心不变量：resumeRunningSessions 必须调用 ensureCanEnterRunning（看门），
-    // 且至少有一条同 taskId 的 session 被置回 paused（自愈双活跃坏数据）。
-    //
-    // 注：实际落到"一活跃+一 paused"还是"双 paused"取决于 gate 的 selfIsHistory=false
-    // 下对 running 状态的处理。两种结果都满足"不再双活跃"的核心 invariant，
-    // 这里断言更宽松的 "至少一条被 paused + 看门确实被调用"。
-    const { resumeRunningSessions, run, get, sessionIdA, sessionIdB } =
+  it('启动时 DB 里同 taskId 两条 running 坏数据，A 被恢复为 queued、B 被置 paused，resumed=1', async () => {
+    // 核心不变量（收紧版）：
+    // 1) resumed 恰好 = 1（不能被互相"paused"挡路而退化成 0）
+    // 2) A（预分组第一条）必须被置成 queued 进入恢复队列
+    // 3) B（预分组第二条）必须被预分组阶段直接置成 paused
+    const { resumeRunningSessions, run, sessionIdA, sessionIdB } =
       await loadModuleWithDoubleRunning();
 
     const result = await resumeRunningSessions();
 
-    expect(result.success).toBe(true);
+    expect(result).toEqual({ success: true, data: { resumed: 1 } });
 
-    // 1) 看门探测 SQL 确实被调用了（说明 resumeRunningSessions 走了 gate）
-    const gateCalls = get.mock.calls.filter(([, sql]) =>
-      typeof sql === 'string' &&
-      sql.includes('SELECT id FROM bulk_download_sessions') &&
-      sql.includes("status IN ('pending', 'queued', 'dryRun', 'running', 'paused')")
+    // A（先遍历到的）必须被置成 queued（进入恢复队列）
+    const aSetQueued = run.mock.calls.some(args =>
+      /SET status = \?/.test(args[1]) &&
+      Array.isArray(args[2]) &&
+      args[2].includes('queued') &&
+      args[2].includes(sessionIdA)
     );
-    expect(gateCalls.length).toBeGreaterThanOrEqual(1);
+    expect(aSetQueued).toBe(true);
 
-    // 2) B 被 updateBulkDownloadSession 置成 paused（核心断言）
-    const setBPaused = run.mock.calls.some(([, sql, params]) =>
-      typeof sql === 'string' &&
-      sql.includes('UPDATE bulk_download_sessions') &&
-      Array.isArray(params) &&
-      params.includes('paused') &&
-      params.includes(sessionIdB)
+    // B（后遍历到的）必须被置成 paused
+    const bSetPaused = run.mock.calls.some(args =>
+      /SET status = \?/.test(args[1]) &&
+      Array.isArray(args[2]) &&
+      args[2].includes('paused') &&
+      args[2].includes(sessionIdB)
     );
-    expect(setBPaused).toBe(true);
-
-    // 3) 没有任何一条会话仍停留在"双活"（至少有一条被 paused/queued/其他终态之一）
-    //    这里再复验下 A 也被 touch 到（不是 queued 就是 paused，不能原封不动）
-    const setATouched = run.mock.calls.some(([, sql, params]) =>
-      typeof sql === 'string' &&
-      sql.includes('UPDATE bulk_download_sessions') &&
-      Array.isArray(params) &&
-      params.includes(sessionIdA) &&
-      (params.includes('queued') || params.includes('paused'))
-    );
-    expect(setATouched).toBe(true);
+    expect(bSetPaused).toBe(true);
   });
 });

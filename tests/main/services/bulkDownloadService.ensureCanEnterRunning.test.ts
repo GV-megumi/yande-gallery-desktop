@@ -167,4 +167,26 @@ describe('bulkDownloadService.ensureCanEnterRunning', () => {
     expect(sql).toMatch(/deletedAt IS NULL/);
     expect(sql).toMatch(/status IN \('pending', 'queued', 'dryRun', 'running', 'paused'\)/);
   });
+
+  it('ignorePausedWhenProbing=true 时，活跃探测 SQL 排除 paused', async () => {
+    getMock.mockResolvedValue(undefined);
+
+    const { ensureCanEnterRunning } = await import(
+      '../../../src/main/services/bulkDownloadService.js'
+    );
+    await ensureCanEnterRunning(
+      {} as any,
+      'session-self',
+      'task-1',
+      { selfIsHistory: false, ignorePausedWhenProbing: true }
+    );
+
+    const activeProbe = getMock.mock.calls.find(args =>
+      /FROM bulk_download_sessions/.test(args[1])
+    );
+    expect(activeProbe).toBeDefined();
+    const sql: string = activeProbe![1];
+    expect(sql).toMatch(/status IN \('pending', 'queued', 'dryRun', 'running'\)/);
+    expect(sql).not.toMatch(/paused/);
+  });
 });

@@ -614,12 +614,20 @@ export async function promoteNextQueued(): Promise<void> {
  *      - selfIsHistory=false（正常推进）→ 不动本 session，返回 selfSoftDeleted:false；由调用方决定降级。
  * 2. 无冲突：软删同 taskId 下所有其他 history session（completed/failed/cancelled/allSkipped）。
  * 3. 返回 ok:true，调用方继续翻入 running。
+ *
+ * Options:
+ * - selfIsHistory：本会话当前是否处于 history 终态（retry 场景）。
+ * - ignorePausedWhenProbing：活跃探测时是否把 'paused' 从活跃集中剔除。
+ *   仅用于 resumeRunningSessions 的"同 taskId 双 running 自愈"——
+ *   预分组把重复项先置成 paused 后，再过看门时必须忽略 paused，
+ *   否则两条坏数据会被互相当成"活跃冲突"最终都 paused，恢复率为 0。
+ *   正常路径（start / retry）务必保持默认值 false，以保留 paused 的互斥语义。
  */
 export async function ensureCanEnterRunning(
   db: sqlite3.Database,
   sessionId: string,
   taskId: string,
-  opts: { selfIsHistory: boolean }
+  opts: { selfIsHistory: boolean; ignorePausedWhenProbing?: boolean }
 ): Promise<
   | { ok: true }
   | {
@@ -630,11 +638,16 @@ export async function ensureCanEnterRunning(
     }
 > {
   // 1. 活跃冲突探测
+  //    默认把 paused 视为活跃（保持"同 taskId 同时只能有一个存活会话"的主承诺）；
+  //    当 opts.ignorePausedWhenProbing=true 时排除 paused，用于 resume 预分组自愈场景。
+  const activeStatuses = opts.ignorePausedWhenProbing
+    ? "'pending', 'queued', 'dryRun', 'running'"
+    : "'pending', 'queued', 'dryRun', 'running', 'paused'";
   const activeRow = await get<{ id: string }>(
     db,
     `SELECT id FROM bulk_download_sessions
       WHERE taskId = ? AND id != ? AND deletedAt IS NULL
-        AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')
+        AND status IN (${activeStatuses})
       LIMIT 1`,
     [taskId, sessionId]
   );
@@ -2388,10 +2401,28 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
 
     console.log(`[bulkDownloadService] 发现 ${runningSessions.length} 个需要恢复的批量下载会话`);
 
-    let resumedCount = 0;
-    // 先把所有待恢复的会话打为 queued（或直接 completed），统一交给调度器按闸门拉起。
-    // 这样重启后大量 running 会话不会瞬间全部启动撞上站点限流。
+    // 预分组：按 taskId 仅保留第一条 running，其余重复项立刻置 paused。
+    // 确定性仲裁（"保留 DB 查询顺序下的第一条"）避免两条坏数据在后续看门中
+    // 互相把对方识别为"paused 活跃"而集体降级为 paused，从而把 resumedCount 打成 0。
+    const seenTaskIds = new Map<string, string>(); // taskId → 保留下来的首个 sessionId
+    const keepers: typeof runningSessions = [];
     for (const row of runningSessions) {
+      const firstId = seenTaskIds.get(row.taskId);
+      if (firstId) {
+        console.warn(
+          `[bulkDownloadService] 恢复时检测到同 taskId 双 running 坏数据，保留 ${firstId}，${row.id} 置回 paused`
+        );
+        await updateBulkDownloadSession(row.id, { status: 'paused' });
+        continue;
+      }
+      seenTaskIds.set(row.taskId, row.id);
+      keepers.push(row);
+    }
+
+    let resumedCount = 0;
+    // 把所有待恢复的 keeper 打为 queued（或直接 completed），统一交给调度器按闸门拉起。
+    // 这样重启后大量 running 会话不会瞬间全部启动撞上站点限流。
+    for (const row of keepers) {
       const sessionId = row.id;
 
       try {
@@ -2410,16 +2441,18 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
           continue;
         }
 
-        // 启动恢复前过看门：若同 taskId 已有另一条活跃（包括前一轮刚入队的），
-        // 这条就置回 paused 等用户手动处理，避免历史坏数据里同 taskId 双活跃继续并存。
-        // 注：两条坏数据同时 running 时，循环第二次看门会因前一条已被标 paused 仍然冲突，
-        //     本条也会被降级为 paused；这是保守但安全的自愈行为，用户手动 resume 即可。
+        // 看门：keeper 理论上已经是同 taskId 下唯一的 running，但仍要覆盖同 taskId 下
+        // pending/queued/dryRun/running 之类的其它异常；排除 paused，避免被前面预分组
+        // 刚置回 paused 的重复项反过来挡路。
         const gate = await withScheduler(() =>
-          ensureCanEnterRunning(db, sessionId, row.taskId, { selfIsHistory: false })
+          ensureCanEnterRunning(db, sessionId, row.taskId, {
+            selfIsHistory: false,
+            ignorePausedWhenProbing: true,
+          })
         );
         if (!gate.ok) {
           console.warn(
-            `[bulkDownloadService] 恢复时检测到同 taskId 双活跃，已把 ${sessionId} 置回 paused（活跃:${gate.activeSessionId}）`
+            `[bulkDownloadService] 恢复时 keeper ${sessionId} 仍与其它活跃会话冲突，置回 paused（活跃:${gate.activeSessionId}）`
           );
           await updateBulkDownloadSession(sessionId, { status: 'paused' });
           continue;
