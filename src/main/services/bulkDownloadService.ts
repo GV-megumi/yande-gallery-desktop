@@ -618,10 +618,10 @@ export async function promoteNextQueued(): Promise<void> {
  * Options:
  * - selfIsHistory：本会话当前是否处于 history 终态（retry 场景）。
  * - ignorePausedWhenProbing：活跃探测时是否把 'paused' 从活跃集中剔除。
- *   仅用于 resumeRunningSessions 的"同 taskId 双 running 自愈"——
- *   预分组把重复项先置成 paused 后，再过看门时必须忽略 paused，
- *   否则两条坏数据会被互相当成"活跃冲突"最终都 paused，恢复率为 0。
- *   正常路径（start / retry）务必保持默认值 false，以保留 paused 的互斥语义。
+ *   用于 resumeRunningSessions 的"同 taskId 双 running 自愈"，以及
+ *   startBulkDownloadSession 推进已创建/已入队会话的场景：paused 伙伴不应挡住
+ *   当前会话进入 running，真正需要互斥的是 pending/queued/dryRun/running。
+ *   retry 路径仍保持默认 false，以保留 paused 会话对历史重试的互斥语义。
  */
 export async function ensureCanEnterRunning(
   db: sqlite3.Database,
@@ -639,7 +639,7 @@ export async function ensureCanEnterRunning(
 > {
   // 1. 活跃冲突探测
   //    默认把 paused 视为活跃（保持"同 taskId 同时只能有一个存活会话"的主承诺）；
-  //    当 opts.ignorePausedWhenProbing=true 时排除 paused，用于 resume 预分组自愈场景。
+  //    当 opts.ignorePausedWhenProbing=true 时排除 paused，用于 resume 自愈和 start 推进场景。
   const activeStatuses = opts.ignorePausedWhenProbing
     ? "'pending', 'queued', 'dryRun', 'running'"
     : "'pending', 'queued', 'dryRun', 'running', 'paused'";
