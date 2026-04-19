@@ -210,6 +210,12 @@ describe('BooruBulkDownloadPage handleStartFromTask (bug2 regression)', () => {
       expect(getActiveSessionsLocal).toHaveBeenCalledTimes(1);
     });
 
+    // 切到"已保存任务" Tab（默认是"活跃任务"，saved tab 里的按钮在 items lazy render 前还不在 DOM）
+    const savedTab = await screen.findByRole('tab', { name: /已保存任务/ });
+    await act(async () => {
+      fireEvent.click(savedTab);
+    });
+
     // 等任务列表渲染出"开始"按钮
     const startBtn = await screen.findByRole('button', { name: /开始/ });
 
@@ -314,6 +320,12 @@ describe('BooruBulkDownloadPage notifyIfQueued (bug7 follow-up I1/I2)', () => {
       expect(getTasksLocal).toHaveBeenCalled();
     });
 
+    // 切到"已保存任务" Tab（默认是"活跃任务"，saved tab 里的按钮在 items lazy render 前还不在 DOM）
+    const savedTab = await screen.findByRole('tab', { name: /已保存任务/ });
+    await act(async () => {
+      fireEvent.click(savedTab);
+    });
+
     const startBtn = await screen.findByRole('button', { name: /开始/ });
 
     await act(async () => {
@@ -388,6 +400,12 @@ describe('BooruBulkDownloadPage notifyIfQueued (bug7 follow-up I1/I2)', () => {
 
     await waitFor(() => {
       expect(getTasksLocal).toHaveBeenCalled();
+    });
+
+    // 切到"已保存任务" Tab（默认是"活跃任务"，saved tab 里的按钮在 items lazy render 前还不在 DOM）
+    const savedTab = await screen.findByRole('tab', { name: /已保存任务/ });
+    await act(async () => {
+      fireEvent.click(savedTab);
     });
 
     const startBtn = await screen.findByRole('button', { name: /开始/ });
