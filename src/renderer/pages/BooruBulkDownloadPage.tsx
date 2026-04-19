@@ -8,16 +8,17 @@
  */
 
 import React, { useEffect, useState, useMemo } from 'react';
-import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Divider, Tabs } from 'antd';
-import { 
-  DownloadOutlined, 
+import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Tabs } from 'antd';
+import {
+  DownloadOutlined,
   PlusOutlined,
   ReloadOutlined,
   EditOutlined,
   DeleteOutlined,
   PlayCircleOutlined,
   HistoryOutlined,
-  ThunderboltOutlined
+  ThunderboltOutlined,
+  SaveOutlined
 } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask } from '../../shared/types';
 import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
@@ -347,153 +348,130 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
           <div style={{ textAlign: 'center', padding: '40px' }}>
             <Spin size="large" />
           </div>
-        ) : sessions.length === 0 && tasks.length === 0 ? (
-          <Empty 
-            description="暂无活跃的批量下载会话和已保存的任务"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />}
-              onClick={() => {
-                setEditingTask(undefined);
-                setFormVisible(true);
-              }}
-            >
-              创建新的下载任务
-            </Button>
-          </Empty>
         ) : (
-          <>
-            {/* 会话列表（使用标签页区分活跃会话和历史会话） */}
-            {(activeSessions.length > 0 || historySessions.length > 0) && (
-              <>
-                <Tabs
-                  activeKey={activeSessionTab}
-                  onChange={setActiveSessionTab}
-                  items={[
-                    {
-                      key: 'active',
-                      label: (
-                        <span>
-                          <ThunderboltOutlined />
-                          活跃会话 ({activeSessions.length})
-                        </span>
-                      ),
-                      children: activeSessions.length > 0 ? (
-                        <Space direction="vertical" style={{ width: '100%' }} size="large">
-                          {activeSessions.map(session => (
-                            <BulkDownloadSessionCard
-                              key={session.id}
-                              session={session}
-                              onRefresh={loadSessions}
-                            />
-                          ))}
-                        </Space>
-                      ) : (
-                        <Empty description="暂无活跃会话" />
-                      )
-                    },
-                    {
-                      key: 'history',
-                      label: (
-                        <span>
-                          <HistoryOutlined />
-                          历史会话 ({historySessions.length})
-                        </span>
-                      ),
-                      children: historySessions.length > 0 ? (
-                        <Space direction="vertical" style={{ width: '100%' }} size="large">
-                          {historySessions.map(session => (
-                            <BulkDownloadSessionCard
-                              key={session.id}
-                              session={session}
-                              onRefresh={loadSessions}
-                            />
-                          ))}
-                        </Space>
-                      ) : (
-                        <Empty description="暂无历史会话" />
-                      )
-                    }
-                  ]}
-                />
-                <Divider />
-              </>
-            )}
-
-            {/* 已保存的任务列表 */}
-            {tasks.length > 0 && (
-              <>
-                <div style={{ marginBottom: 16 }}>
-                  <h3 style={{ margin: 0 }}>已保存的任务</h3>
-                  <p style={{ color: 'rgba(60, 60, 67, 0.60)', marginTop: 8, marginBottom: 16 }}>
-                    点击"开始"按钮可以从已保存的任务创建新的下载会话
-                  </p>
-                </div>
-                <List
-                  dataSource={tasks}
-                  renderItem={(task) => {
-                    const site = sites.find(s => s.id === task.siteId);
-                    return (
-                      <List.Item
-                        actions={[
-                          <Space key="actions" size={8}>
-                            <Button
-                              type="primary"
-                              size="small"
-                              icon={<PlayCircleOutlined />}
-                              onClick={() => handleStartFromTask(task)}
-                            >
-                              开始
-                            </Button>
-                            <Button
-                              size="small"
-                              icon={<EditOutlined />}
-                              onClick={() => handleEditTask(task)}
-                            >
-                              编辑
-                            </Button>
-                            <Popconfirm
-                              title="确定要删除这个任务吗？"
-                              onConfirm={() => handleDeleteTask(task.id)}
-                              okText="确定"
-                              cancelText="取消"
-                            >
+          <Tabs
+            activeKey={activeSessionTab}
+            onChange={setActiveSessionTab}
+            items={[
+              {
+                key: 'active',
+                label: (
+                  <span>
+                    <ThunderboltOutlined />
+                    活跃任务 ({activeSessions.length})
+                  </span>
+                ),
+                children: activeSessions.length > 0 ? (
+                  <Space direction="vertical" style={{ width: '100%' }} size="large">
+                    {activeSessions.map(session => (
+                      <BulkDownloadSessionCard
+                        key={session.id}
+                        session={session}
+                        onRefresh={loadSessions}
+                      />
+                    ))}
+                  </Space>
+                ) : (
+                  <Empty description="暂无活跃任务" />
+                )
+              },
+              {
+                key: 'history',
+                label: (
+                  <span>
+                    <HistoryOutlined />
+                    历史任务 ({historySessions.length})
+                  </span>
+                ),
+                children: historySessions.length > 0 ? (
+                  <Space direction="vertical" style={{ width: '100%' }} size="large">
+                    {historySessions.map(session => (
+                      <BulkDownloadSessionCard
+                        key={session.id}
+                        session={session}
+                        onRefresh={loadSessions}
+                      />
+                    ))}
+                  </Space>
+                ) : (
+                  <Empty description="暂无历史任务" />
+                )
+              },
+              {
+                key: 'saved',
+                label: (
+                  <span>
+                    <SaveOutlined />
+                    已保存任务 ({tasks.length})
+                  </span>
+                ),
+                children: tasks.length > 0 ? (
+                  <List
+                    dataSource={tasks}
+                    renderItem={(task) => {
+                      const site = sites.find(s => s.id === task.siteId);
+                      return (
+                        <List.Item
+                          actions={[
+                            <Space key="actions" size={8}>
                               <Button
-                                danger
+                                type="primary"
                                 size="small"
-                                icon={<DeleteOutlined />}
-                              />
-                            </Popconfirm>
-                          </Space>
-                        ]}
-                      >
-                        <List.Item.Meta
-                          title={
-                            <Space>
-                              <span>{site?.name || '未知站点'}</span>
-                              <Tag>{task.tags}</Tag>
+                                icon={<PlayCircleOutlined />}
+                                onClick={() => handleStartFromTask(task)}
+                              >
+                                开始
+                              </Button>
+                              <Button
+                                size="small"
+                                icon={<EditOutlined />}
+                                onClick={() => handleEditTask(task)}
+                              >
+                                编辑
+                              </Button>
+                              <Popconfirm
+                                title="确定要删除这个任务吗？"
+                                onConfirm={() => handleDeleteTask(task.id)}
+                                okText="确定"
+                                cancelText="取消"
+                              >
+                                <Button
+                                  danger
+                                  size="small"
+                                  icon={<DeleteOutlined />}
+                                />
+                              </Popconfirm>
                             </Space>
-                          }
-                          description={
-                            <Space direction="vertical" size={4}>
-                              <span>路径: {task.path}</span>
+                          ]}
+                        >
+                          <List.Item.Meta
+                            title={
                               <Space>
-                                <span>每页: {task.perPage}</span>
-                                <span>并发: {task.concurrency}</span>
-                                {task.quality && <span>质量: {task.quality}</span>}
+                                <span>{site?.name || '未知站点'}</span>
+                                <Tag>{task.tags}</Tag>
                               </Space>
-                            </Space>
-                          }
-                        />
-                      </List.Item>
-                    );
-                  }}
-                />
-              </>
-            )}
-          </>
+                            }
+                            description={
+                              <Space direction="vertical" size={4}>
+                                <span>路径: {task.path}</span>
+                                <Space>
+                                  <span>每页: {task.perPage}</span>
+                                  <span>并发: {task.concurrency}</span>
+                                  {task.quality && <span>质量: {task.quality}</span>}
+                                </Space>
+                              </Space>
+                            }
+                          />
+                        </List.Item>
+                      );
+                    }}
+                  />
+                ) : (
+                  <Empty description="暂无已保存任务" />
+                )
+              }
+            ]}
+          />
         )}
       </Card>
 
