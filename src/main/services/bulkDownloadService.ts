@@ -2394,30 +2394,50 @@ export async function resumeRunningSessions(): Promise<{ success: boolean; data?
     for (const row of runningSessions) {
       const sessionId = row.id;
 
-      // 将 downloading 状态的记录重置为 pending（因为程序重启后内存中的下载已丢失）
-      await resetInFlightRecordsToPending(sessionId);
+      try {
+        // 将 downloading 状态的记录重置为 pending（因为程序重启后内存中的下载已丢失）
+        await resetInFlightRecordsToPending(sessionId);
 
-      // 检查是否还有待下载的记录
-      const stats = await getBulkDownloadSessionStats(sessionId);
-      if (stats.pending === 0 && stats.completed + stats.failed === stats.total) {
-        // 没有待下载的记录，标记为已完成
-        console.log(`[bulkDownloadService] 会话 ${sessionId} 没有待下载记录，标记为已完成`);
-        await updateBulkDownloadSession(sessionId, {
-          status: 'completed',
-          completedAt: new Date().toISOString()
-        });
-        continue;
+        // 检查是否还有待下载的记录
+        const stats = await getBulkDownloadSessionStats(sessionId);
+        if (stats.pending === 0 && stats.completed + stats.failed === stats.total) {
+          // 没有待下载的记录，标记为已完成
+          console.log(`[bulkDownloadService] 会话 ${sessionId} 没有待下载记录，标记为已完成`);
+          await updateBulkDownloadSession(sessionId, {
+            status: 'completed',
+            completedAt: new Date().toISOString()
+          });
+          continue;
+        }
+
+        // 启动恢复前过看门：若同 taskId 已有另一条活跃（包括前一轮刚入队的），
+        // 这条就置回 paused 等用户手动处理，避免历史坏数据里同 taskId 双活跃继续并存。
+        // 注：两条坏数据同时 running 时，循环第二次看门会因前一条已被标 paused 仍然冲突，
+        //     本条也会被降级为 paused；这是保守但安全的自愈行为，用户手动 resume 即可。
+        const gate = await withScheduler(() =>
+          ensureCanEnterRunning(db, sessionId, row.taskId, { selfIsHistory: false })
+        );
+        if (!gate.ok) {
+          console.warn(
+            `[bulkDownloadService] 恢复时检测到同 taskId 双活跃，已把 ${sessionId} 置回 paused（活跃:${gate.activeSessionId}）`
+          );
+          await updateBulkDownloadSession(sessionId, { status: 'paused' });
+          continue;
+        }
+
+        await waitForDownloadSessionToStop(sessionId);
+        await resetInFlightRecordsToPending(sessionId);
+
+        // 先置 queued，交由调度器按并发闸门拉起
+        sessionStopReasons.delete(sessionId);
+        await updateBulkDownloadSession(sessionId, { status: 'queued' });
+        console.log(`[bulkDownloadService] 会话入队等待恢复: ${sessionId}, 待下载: ${stats.pending}`);
+
+        resumedCount++;
+      } catch (err) {
+        // 一条 session 恢复失败不阻塞其他 session 的恢复
+        console.error(`[bulkDownloadService] 恢复会话 ${sessionId} 失败，跳过:`, err);
       }
-
-      await waitForDownloadSessionToStop(sessionId);
-      await resetInFlightRecordsToPending(sessionId);
-
-      // 先置 queued，交由调度器按并发闸门拉起
-      sessionStopReasons.delete(sessionId);
-      await updateBulkDownloadSession(sessionId, { status: 'queued' });
-      console.log(`[bulkDownloadService] 会话入队等待恢复: ${sessionId}, 待下载: ${stats.pending}`);
-
-      resumedCount++;
     }
 
     // 触发 maxConcurrent 次调度：调度器会并发地拉起前 N 个 queued 会话，
