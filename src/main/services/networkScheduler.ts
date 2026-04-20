@@ -7,11 +7,13 @@
 
 type BrowsingChangeCallback = (isBrowsingActive: boolean) => void;
 
+type BrowsingChangeUnsubscribe = () => void;
+
 class NetworkScheduler {
   /** 当前活跃的浏览请求数（图片缓存下载） */
   private activeBrowsingRequests = 0;
   /** 浏览状态变化的监听器 */
-  private onChangeCallbacks: BrowsingChangeCallback[] = [];
+  private onChangeCallbacks = new Set<BrowsingChangeCallback>();
   /** 用于延迟恢复下载的定时器（避免频繁切换） */
   private restoreTimer: ReturnType<typeof setTimeout> | null = null;
   /** 恢复延迟（ms），浏览请求结束后延迟一段时间再恢复下载并发 */
@@ -65,8 +67,11 @@ class NetworkScheduler {
   /**
    * 注册浏览状态变化回调
    */
-  onChange(callback: BrowsingChangeCallback): void {
-    this.onChangeCallbacks.push(callback);
+  onChange(callback: BrowsingChangeCallback): BrowsingChangeUnsubscribe {
+    this.onChangeCallbacks.add(callback);
+    return () => {
+      this.onChangeCallbacks.delete(callback);
+    };
   }
 
   private notify(isBrowsing: boolean): void {

@@ -70,10 +70,10 @@ function getModalOkText(editingSearch: SavedSearch | null): string {
 
 /**
  * 判断是否显示站点选择器
- * 编辑模式下不显示站点选择器（不可更改站点）
+ * 新建和编辑模式都应显示站点选择器，保证站点一致性可见且可编辑
  */
-function shouldShowSiteSelector(editingSearch: SavedSearch | null): boolean {
-  return !editingSearch;
+function shouldShowSiteSelector(_editingSearch: SavedSearch | null): boolean {
+  return true;
 }
 
 // ========= 等价实现：新建弹窗初始化 =========
@@ -245,8 +245,8 @@ describe('BooruSavedSearchesPage - 编辑模式 vs 新建模式', () => {
       expect(shouldShowSiteSelector(null)).toBe(true);
     });
 
-    it('编辑模式不应显示站点选择器（不可更改站点）', () => {
-      expect(shouldShowSiteSelector(mockSearch)).toBe(false);
+    it('编辑模式也应显示站点选择器以保持站点一致性', () => {
+      expect(shouldShowSiteSelector(mockSearch)).toBe(true);
     });
   });
 });

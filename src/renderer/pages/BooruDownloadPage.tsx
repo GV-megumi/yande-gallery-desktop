@@ -6,7 +6,6 @@ import {
   DownloadOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
-  DeleteOutlined,
   SyncOutlined,
   ClearOutlined,
   ReloadOutlined,
@@ -14,7 +13,8 @@ import {
   FolderOpenOutlined,
   SortAscendingOutlined,
   SortDescendingOutlined,
-  CopyOutlined
+  CopyOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
@@ -38,7 +38,11 @@ interface QueueStatus {
   maxConcurrent: number;
 }
 
-export const BooruDownloadPage: React.FC = () => {
+interface BooruDownloadPageProps {
+  active?: boolean;
+}
+
+export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = true }) => {
   const { message } = App.useApp();
   const [activeDownloads, setActiveDownloads] = useState<DownloadQueueItem[]>([]);
   const [completedDownloads, setCompletedDownloads] = useState<DownloadQueueItem[]>([]);
@@ -96,6 +100,8 @@ export const BooruDownloadPage: React.FC = () => {
       if (!window.electronAPI) return;
 
       // 获取不同状态的队列
+      // 注意：取消 (cancelled) 状态视为软删，不在 UI 展示；
+      // 通过 cancelDownload 写入，由数据库层保留历史记录。
       const pendingRes = await window.electronAPI.booru.getDownloadQueue('pending');
       const downloadingRes = await window.electronAPI.booru.getDownloadQueue('downloading');
       const pausedRes = await window.electronAPI.booru.getDownloadQueue('paused');
@@ -238,6 +244,58 @@ export const BooruDownloadPage: React.FC = () => {
     }
   };
 
+  // 取消/删除单个下载（pending / downloading / paused 均可）
+  const handleCancelDownload = async (queueId: number) => {
+    try {
+      if (!window.electronAPI) return;
+
+      const result = await window.electronAPI.booru.cancelDownload(queueId);
+      if (result?.success) {
+        message.success('已取消下载');
+        loadQueue();
+      } else {
+        message.error(result?.error || '取消失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 取消下载失败:', error);
+      message.error('取消下载失败');
+    }
+  };
+
+  // 重试单条失败下载
+  const handleRetryFailed = async (record: DownloadQueueItem) => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
+      if (result.success) {
+        message.success('已重新加入下载队列');
+        loadQueue();
+      } else {
+        message.error(result.error || '重试失败');
+      }
+    } catch (error) {
+      console.error('重试下载失败:', error);
+      message.error('重试下载失败');
+    }
+  };
+
+  // 删除单条失败记录
+  const handleDeleteFailed = async (queueId: number) => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.booru.deleteDownloadRecord(queueId);
+      if (result?.success) {
+        message.success('已删除记录');
+        loadQueue();
+      } else {
+        message.error(result?.error || '删除失败');
+      }
+    } catch (error) {
+      console.error('[BooruDownloadPage] 删除下载记录失败:', error);
+      message.error('删除下载记录失败');
+    }
+  };
+
   // 重试所有失败的下载
   const handleRetryAllFailed = async () => {
     try {
@@ -275,6 +333,10 @@ export const BooruDownloadPage: React.FC = () => {
 
   // 监听下载进度
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     // 加载队列
     loadQueue();
 
@@ -313,7 +375,7 @@ export const BooruDownloadPage: React.FC = () => {
       if (removeStatusListener) removeStatusListener();
       if (removeQueueStatusListener) removeQueueStatusListener();
     };
-  }, [loadQueue]);
+  }, [active, loadQueue]);
 
   // 格式化字节数
   const formatBytes = (bytes: number) => {
@@ -480,32 +542,46 @@ export const BooruDownloadPage: React.FC = () => {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 160,
       render: (_: any, record: DownloadQueueItem) => (
         <Space>
-          {/* 暂停/恢复按钮 */}
           {record.status === 'paused' ? (
             <Tooltip title="恢复下载">
-              <Button 
-                type="text" 
-                icon={<PlayCircleOutlined />} 
+              <Button
+                type="text"
+                icon={<PlayCircleOutlined />}
+                aria-label="恢复下载"
                 onClick={() => handleResumeDownload(record.id)}
                 style={{ color: '#52c41a' }}
               />
             </Tooltip>
           ) : (
             <Tooltip title="暂停下载">
-              <Button 
-                type="text" 
-                icon={<PauseCircleOutlined />} 
+              <Button
+                type="text"
+                icon={<PauseCircleOutlined />}
+                aria-label="暂停下载"
                 onClick={() => handlePauseDownload(record.id)}
                 disabled={record.status === 'pending'}
               />
             </Tooltip>
           )}
-          {/* 删除按钮 */}
-          <Popconfirm title="确定取消下载吗？" onConfirm={() => { /* TODO: 实现取消 */ }}>
-            <Button type="text" danger icon={<DeleteOutlined />} />
+          <Popconfirm
+            title="取消并从队列中移除？"
+            description="将从队列中移除，并清理可能残留的临时文件。"
+            okText="确认取消"
+            cancelText="保留"
+            okButtonProps={{ danger: true }}
+            onConfirm={() => handleCancelDownload(record.id)}
+          >
+            <Tooltip title="取消/删除">
+              <Button
+                type="text"
+                danger
+                icon={<DeleteOutlined />}
+                aria-label="取消下载"
+              />
+            </Tooltip>
           </Popconfirm>
         </Space>
       )
@@ -758,29 +834,36 @@ export const BooruDownloadPage: React.FC = () => {
                     {
                       title: '操作',
                       key: 'action',
-                      width: 100,
+                      width: 120,
                       render: (_: any, record: DownloadQueueItem) => (
-                        <Button
-                          size="small"
-                          type="primary"
-                          icon={<ReloadOutlined />}
-                          onClick={async () => {
-                            try {
-                              const result = await window.electronAPI.booru.retryDownload(record.postId, record.siteId);
-                              if (result.success) {
-                                message.success('已重新加入下载队列');
-                                loadQueue();
-                              } else {
-                                message.error(result.error || '重试失败');
-                              }
-                            } catch (error) {
-                              console.error('重试下载失败:', error);
-                              message.error('重试下载失败');
-                            }
-                          }}
-                        >
-                          重试
-                        </Button>
+                        <Space>
+                          <Tooltip title="重试下载">
+                            <Button
+                              type="text"
+                              icon={<ReloadOutlined />}
+                              aria-label="重试下载"
+                              onClick={() => handleRetryFailed(record)}
+                              style={{ color: '#1677ff' }}
+                            />
+                          </Tooltip>
+                          <Popconfirm
+                            title="删除这条失败记录？"
+                            description="仅删除失败记录，不会影响已下载文件。"
+                            okText="确认删除"
+                            cancelText="保留"
+                            okButtonProps={{ danger: true }}
+                            onConfirm={() => handleDeleteFailed(record.id)}
+                          >
+                            <Tooltip title="删除记录">
+                              <Button
+                                type="text"
+                                danger
+                                icon={<DeleteOutlined />}
+                                aria-label="删除记录"
+                              />
+                            </Tooltip>
+                          </Popconfirm>
+                        </Space>
                       )
                     }
                   ]}

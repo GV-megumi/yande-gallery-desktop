@@ -22,11 +22,14 @@ interface BooruTagManagementPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
   /** 初始激活的 tab，默认 'favorite' */
   defaultTab?: TabKey;
+  /** 页面整体是否处于可见激活状态；隐藏时下层副作用应停下 */
+  active?: boolean;
 }
 
 export const BooruTagManagementPage: React.FC<BooruTagManagementPageProps> = ({
   onTagClick,
   defaultTab = 'favorite',
+  active = true,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const { t } = useLocale();
@@ -54,12 +57,12 @@ export const BooruTagManagementPage: React.FC<BooruTagManagementPageProps> = ({
       {/* tab 内容 — 保持两个页面都挂载以维持各自状态，非活跃的用 display:none 隐藏 */}
       <div style={activeTab !== 'favorite' ? { display: 'none' } : undefined}>
         <Suspense fallback={suspenseFallback}>
-          <FavoriteTagsPage onTagClick={onTagClick} />
+          <FavoriteTagsPage onTagClick={onTagClick} active={active && activeTab === 'favorite'} />
         </Suspense>
       </div>
       <div style={activeTab !== 'blacklist' ? { display: 'none' } : undefined}>
         <Suspense fallback={suspenseFallback}>
-          <BlacklistedTagsPage />
+          <BlacklistedTagsPage active={active && activeTab === 'blacklist'} />
         </Suspense>
       </div>
     </div>

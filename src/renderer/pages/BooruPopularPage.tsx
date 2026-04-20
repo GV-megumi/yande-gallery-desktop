@@ -5,6 +5,8 @@ import type { BooruPost, BooruSite } from '../../shared/types';
 import { BooruImageCard } from '../components/BooruImageCard';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { colors, spacing, fontSize } from '../styles/tokens';
+import { useFavorite } from '../hooks/useFavorite';
+import { useBooruPostActions } from '../hooks/useBooruPostActions';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -30,8 +32,21 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
   const [period, setPeriod] = useState<PeriodType>('recent');
   const [recentPeriod, setRecentPeriod] = useState<'1day' | '1week' | '1month'>('1day');
   const [selectedDate, setSelectedDate] = useState<dayjs.Dayjs>(dayjs());
-  const [detailPost, setDetailPost] = useState<BooruPost | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+
+  const { toggleFavorite: toggleLocalFavorite } = useFavorite({
+    siteId: activeSite?.id ?? null,
+    logPrefix: '[BooruPopularPage]'
+  });
+
+  const postActions = useBooruPostActions({
+    siteId: activeSite?.id ?? null,
+    updatePosts: (updater) => setPosts(prev => updater(prev)),
+    toggleLocalFavorite,
+    addToDownload: (postId, siteId) => window.electronAPI.booru.addToDownload(postId, siteId),
+    serverFavorite: (siteId, postId) => window.electronAPI.booru.serverFavorite(siteId, postId),
+    serverUnfavorite: (siteId, postId) => window.electronAPI.booru.serverUnfavorite(siteId, postId),
+    message,
+  });
 
   // 加载活跃站点
   useEffect(() => {
@@ -95,65 +110,20 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
     loadPopular();
   }, [loadPopular]);
 
-  // 打开详情
   const handlePostClick = (post: BooruPost) => {
-    setDetailPost(post);
-    setDetailOpen(true);
+    postActions.openDetails(post);
   };
 
-  // 收藏切换
   const handleToggleFavorite = async (post: BooruPost) => {
-    if (!activeSite) return;
-    try {
-      if (post.isFavorited) {
-        await window.electronAPI.booru.removeFavorite(post.postId);
-      } else {
-        await window.electronAPI.booru.addFavorite(post.postId, activeSite.id);
-      }
-      // 更新列表中的收藏状态
-      setPosts(prev => prev.map(p =>
-        p.postId === post.postId ? { ...p, isFavorited: !p.isFavorited } : p
-      ));
-    } catch (error) {
-      console.error('[BooruPopularPage] 切换收藏失败:', error);
-    }
+    await postActions.toggleFavorite(post);
   };
-
-  // 服务端喜欢状态管理
-  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
 
   const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
-    if (!activeSite) return;
-    const isCurrentlyFavorited = serverFavorites.has(post.postId);
-    try {
-      if (isCurrentlyFavorited) {
-        await window.electronAPI.booru.serverUnfavorite(activeSite.id, post.postId);
-        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
-        message.success('已取消喜欢');
-      } else {
-        await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
-        setServerFavorites(prev => new Set(prev).add(post.postId));
-        message.success('已喜欢');
-      }
-    } catch (error) {
-      console.error('[BooruPopularPage] 切换喜欢失败:', error);
-      message.error('操作失败');
-    }
-  }, [activeSite, serverFavorites]);
+    await postActions.toggleServerFavorite(post);
+  }, [postActions]);
 
-  // 下载
   const handleDownload = async (post: BooruPost) => {
-    if (!activeSite) return;
-    try {
-      const result = await window.electronAPI.booru.addToDownload(post.postId, activeSite.id);
-      if (result.success) {
-        message.success('已添加到下载队列');
-      } else {
-        message.error('添加下载失败: ' + result.error);
-      }
-    } catch (error) {
-      console.error('[BooruPopularPage] 添加下载失败:', error);
-    }
+    await postActions.download(post);
   };
 
   return (
@@ -238,7 +208,7 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
               onDownload={() => handleDownload(post)}
               onTagClick={onTagClick ? (tag) => onTagClick(tag, activeSite?.id) : undefined}
               onToggleServerFavorite={activeSite?.username ? () => handleToggleServerFavorite(post) : undefined}
-              isServerFavorited={serverFavorites.has(post.postId)}
+              isServerFavorited={postActions.isServerFavorited(post)}
             />
           ))}
         </div>
@@ -246,18 +216,18 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
 
       {/* 详情弹窗 */}
       <BooruPostDetailsPage
-        open={detailOpen && !suspended}
-        post={detailPost}
+        open={postActions.detailOpen && !suspended}
+        post={postActions.selectedPost}
         site={activeSite}
         posts={posts}
-        onClose={() => setDetailOpen(false)}
+        onClose={postActions.closeDetails}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}
         onTagClick={(tag: string) => {
           console.log('[BooruPopularPage] 详情页标签点击，打开子窗口:', tag);
           window.electronAPI?.window.openTagSearch(tag, activeSite?.id);
         }}
-        isServerFavorited={(p) => serverFavorites.has(p.postId)}
+        isServerFavorited={postActions.isServerFavorited}
         onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
         onArtistClick={(name: string) => {
           console.log('[BooruPopularPage] 详情页艺术家点击，打开子窗口:', name);

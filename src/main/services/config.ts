@@ -49,6 +49,77 @@ export interface TokenDefaultOptions {
 
 // ============= 配置类型定义 =============
 
+export interface PinnedItemConfig {
+  key: string;
+  section: 'gallery' | 'booru' | 'google';
+  defaultTab?: string;
+}
+
+export interface FavoriteTagsPagePreference {
+  filterSiteId?: number;
+  sortKey?: 'tagName' | 'galleryName' | 'lastDownloadedAt';
+  sortOrder?: 'asc' | 'desc';
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface BlacklistedTagsPagePreference {
+  filterSiteId?: number;
+  keyword?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface GalleryAllPagePreference {
+  searchQuery?: string;
+  isSearchMode?: boolean;
+  allPage?: number;
+  searchPage?: number;
+}
+
+export interface GalleryGalleriesPagePreference {
+  gallerySearchQuery?: string;
+  gallerySortKey?: 'name' | 'createdAt' | 'updatedAt';
+  gallerySortOrder?: 'asc' | 'desc';
+  /** null 表示"显式清空"（合并时从结果中移除），undefined 表示"不修改"（合并时保留旧值） */
+  selectedGalleryId?: number | null;
+  gallerySort?: 'time' | 'name';
+}
+
+export interface GalleryPagePreferencesBySubTab {
+  all?: GalleryAllPagePreference;
+  galleries?: GalleryGalleriesPagePreference;
+}
+
+export interface AppShellPagePreference {
+  menuOrder?: {
+    main?: string[];
+    gallery?: string[];
+    booru?: string[];
+    google?: string[];
+  };
+  pinnedItems?: PinnedItemConfig[];
+}
+
+export interface PagePreferencesConfig {
+  favoriteTags?: FavoriteTagsPagePreference;
+  blacklistedTags?: BlacklistedTagsPagePreference;
+  galleryBySubTab?: GalleryPagePreferencesBySubTab;
+  appShell?: AppShellPagePreference;
+}
+
+export interface UIConfig {
+  menuOrder?: {
+    main?: string[];
+    gallery?: string[];
+    booru?: string[];
+    google?: string[];
+  };
+  pinnedItems?: PinnedItemConfig[];
+  pagePreferences?: PagePreferencesConfig;
+}
+
 export interface AppConfig {
   // 数据存储根目录（数据库、缩略图、缓存、日志等）
   // 支持绝对路径和相对路径（相对于 configDir）
@@ -120,13 +191,10 @@ export interface AppConfig {
       thumbnailSize: number;
     };
   };
-  ui?: {
-    menuOrder?: {
-      main?: string[];
-      gallery?: string[];
-      booru?: string[];
-      google?: string[];
-    };
+  ui?: UIConfig;
+  bulkDownload?: {
+    /** 同一时刻允许的批量下载活跃会话数（dryRun + running），超限会话进入 queued */
+    maxConcurrentSessions?: number;
   };
   booru?: {
     appearance: {
@@ -145,6 +213,38 @@ export interface AppConfig {
       tokenDefaults: TokenDefaultOptions; // Token默认选项
     };
   };
+  /**
+   * 桌面通知配置。
+   * - enabled：全局通知开关
+   * - byStatus：按会话终态分类别开关（completed/failed/allSkipped）
+   * - singleDownload.enabled：单次下载（Booru 逐张下载）是否弹通知
+   * - clickAction：点击通知后的默认行为
+   *
+   * 三级判断语义（notificationService）：enabled AND byStatus[status] AND 任务级 notifications
+   */
+  notifications?: {
+    enabled?: boolean;
+    byStatus?: {
+      completed?: boolean;
+      failed?: boolean;
+      allSkipped?: boolean;
+    };
+    singleDownload?: {
+      enabled?: boolean;
+    };
+    clickAction?: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+  };
+  /**
+   * 桌面行为配置。
+   * - closeAction：主窗口点 X 时的行为（hide-to-tray / quit / ask）
+   * - autoLaunch：开机自启（主进程调 app.setLoginItemSettings）
+   * - startMinimized：自启时隐藏到托盘
+   */
+  desktop?: {
+    closeAction?: 'hide-to-tray' | 'quit' | 'ask';
+    autoLaunch?: boolean;
+    startMinimized?: boolean;
+  };
 }
 
 export interface GalleryFolder {
@@ -154,6 +254,27 @@ export interface GalleryFolder {
   recursive: boolean;
   extensions: string[];
 }
+
+export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
+
+export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
+export type RendererSafeGoogleConfig = Omit<NonNullable<AppConfig['google']>, 'clientSecret'>;
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'google'> & {
+  network: {
+    proxy: RendererSafeProxyConfig;
+  };
+  google?: RendererSafeGoogleConfig;
+};
+
+export type DeepPartial<T> = {
+  [K in keyof T]?: T[K] extends Array<any>
+    ? T[K]
+    : T[K] extends object
+      ? DeepPartial<T[K]>
+      : T[K];
+};
+
+export type ConfigSaveInput = DeepPartial<RendererSafeAppConfig>;
 
 // ============= 默认配置 =============
 
@@ -169,15 +290,8 @@ const DEFAULT_CONFIG: AppConfig = {
     subfolderFormat: ['tags', 'date']
   },
   galleries: {
-    folders: [
-      {
-        path: 'images',
-        name: '默认图库',
-        autoScan: true,
-        recursive: true,
-        extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
-      }
-    ]
+    // 默认无图库，由用户通过设置页添加
+    folders: []
   },
   thumbnails: {
     cachePath: 'thumbnails',
@@ -217,12 +331,26 @@ const DEFAULT_CONFIG: AppConfig = {
       password: ''
     }
   },
+  bulkDownload: {
+    maxConcurrentSessions: 3,
+  },
+  notifications: {
+    enabled: true,
+    byStatus: { completed: true, failed: true, allSkipped: true },
+    singleDownload: { enabled: false },
+    clickAction: 'openDownloadHub',
+  },
+  desktop: {
+    closeAction: 'hide-to-tray',
+    autoLaunch: false,
+    startMinimized: false,
+  },
   booru: {
     appearance: {
       gridSize: 330,
       previewQuality: 'auto',
-      itemsPerPage: 20,
-      paginationPosition: 'bottom',
+      itemsPerPage: 60,
+      paginationPosition: 'both',
       pageMode: 'pagination',
       spacing: 16,
       borderRadius: 8,
@@ -293,6 +421,15 @@ let configDir: string = '';
 
 // 数据存储根目录（由 config.yaml dataPath 决定）
 let dataDir: string = '';
+
+// 记录最近一次待保存的配置快照与版本，避免并发保存基于旧快照互相覆盖
+let configSaveVersion = 0;
+let latestDurableSaveVersion = 0;
+let latestTerminalOutcomeVersion = 0;
+let latestTerminalOutcome: { success: boolean; error?: string } | null = null;
+let latestQueuedConfig: AppConfig | null = null;
+let configSaveCommitLock: Promise<void> = Promise.resolve();
+const configSaveOutcomes = new Map<number, Promise<{ success: boolean; error?: string }>>();
 
 // 默认配置目录名
 const DEFAULT_CONFIG_DIR_NAME = '.yandegallery';
@@ -425,6 +562,50 @@ export async function ensureDataDirectories(): Promise<void> {
 let config: AppConfig | null = null;
 
 /**
+ * 深合并用户配置与 DEFAULT_CONFIG
+ * - 用户显式写入的标量/数组值始终优先（即便是 0、false、空字符串、空数组）
+ * - 用户未提供的字段用默认值填充，并通过 wasFilled 报告是否发生过填充
+ * - 数组不做元素级合并；用户数组存在即整体保留
+ * - 保留用户自定义的 default 外字段（例如可选的 google 块）
+ */
+function isPlainObject(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function deepMergeWithDefaults(defaults: unknown, user: unknown): { merged: unknown; wasFilled: boolean } {
+  // 标量或数组默认：只要用户未定义就视为缺失
+  if (!isPlainObject(defaults)) {
+    if (user === undefined) {
+      return { merged: defaults, wasFilled: true };
+    }
+    return { merged: user, wasFilled: false };
+  }
+
+  // 用户此层不是对象（undefined / null / 标量 / 数组），整体套用默认值
+  if (!isPlainObject(user)) {
+    return { merged: defaults, wasFilled: true };
+  }
+
+  const result: Record<string, unknown> = {};
+  let wasFilled = false;
+
+  for (const key of Object.keys(defaults)) {
+    const { merged, wasFilled: inner } = deepMergeWithDefaults(defaults[key], user[key]);
+    result[key] = merged;
+    if (inner) wasFilled = true;
+  }
+
+  // 保留用户自定义的、在 defaults 中不存在的键（例如可选的 google 配置）
+  for (const key of Object.keys(user)) {
+    if (!(key in result)) {
+      result[key] = user[key];
+    }
+  }
+
+  return { merged: result, wasFilled };
+}
+
+/**
  * 自动迁移旧格式路径
  * 旧版本的 database.path 等包含 data/ 前缀，需要去掉
  */
@@ -463,20 +644,30 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     const configData = await fs.readFile(configFilePath, 'utf-8');
 
     const yaml = await import('js-yaml');
-    const rawConfig = yaml.load(configData) as any;
+    // 空文件或内容为 null/标量时，退化为空对象以便后续与默认值合并
+    const loaded = yaml.load(configData);
+    const rawConfig = isPlainObject(loaded) ? loaded as Record<string, unknown> : {};
 
     // 自动迁移旧格式路径
     migrateOldPaths(rawConfig);
 
-    config = rawConfig as AppConfig;
+    // 与 DEFAULT_CONFIG 深合并，填充缺失字段
+    const { merged, wasFilled } = deepMergeWithDefaults(DEFAULT_CONFIG, rawConfig);
+    config = merged as AppConfig;
 
     console.log('[config] 配置文件加载成功:', configFilePath);
 
-    // 验证配置
+    // 验证配置（此时所有必有字段已由默认值兜底）
     validateConfig(config);
 
     // 初始化数据目录
     initDataDir(config);
+
+    // 若本次加载填补了默认值，回写到磁盘，使 yaml 始终自描述
+    if (wasFilled) {
+      console.log('[config] 检测到缺失字段，回写默认值到配置文件');
+      await writeConfigYaml(config, configFilePath);
+    }
 
     return config;
   } catch (error) {
@@ -582,46 +773,44 @@ async function copyDirectory(src: string, dest: string): Promise<void> {
 }
 
 /**
- * 保存默认配置文件
+ * 将配置对象写入 yaml 文件（共享给首次创建与补齐缺失字段两种路径）
+ * 失败时只记录日志，不抛出，避免阻塞主流程
  */
-async function saveDefaultConfig(configPath: string): Promise<void> {
+async function writeConfigYaml(cfg: AppConfig, configPath: string): Promise<void> {
   try {
     const configDirPath = path.dirname(configPath);
     await fs.mkdir(configDirPath, { recursive: true });
 
     const yaml = await import('js-yaml');
-    const configYaml = yaml.dump(DEFAULT_CONFIG, {
+    const configYaml = yaml.dump(cfg, {
       indent: 2,
       lineWidth: -1,
       noRefs: true
     });
 
     await fs.writeFile(configPath, configYaml, 'utf-8');
-    console.log('[config] 默认配置文件已创建:', configPath);
   } catch (error) {
-    console.error('[config] 创建默认配置文件失败:', error);
+    console.error('[config] 写入配置文件失败:', error);
   }
 }
 
 /**
+ * 保存默认配置文件
+ */
+async function saveDefaultConfig(configPath: string): Promise<void> {
+  await writeConfigYaml(DEFAULT_CONFIG, configPath);
+  console.log('[config] 默认配置文件已创建:', configPath);
+}
+
+/**
  * 验证配置
+ * 顶层字段（database.path / downloads.path / galleries.folders）不再强制要求用户提供，
+ * loadConfig 已保证与 DEFAULT_CONFIG 合并并回写。这里只负责检查用户自定义的图库条目是否完整。
  */
 function validateConfig(config: AppConfig): void {
   const errors: string[] = [];
 
-  if (!config.database?.path) {
-    errors.push('database.path 不能为空');
-  }
-
-  if (!config.downloads?.path) {
-    errors.push('downloads.path 不能为空');
-  }
-
-  if (!config.galleries?.folders || config.galleries.folders.length === 0) {
-    errors.push('galleries.folders 不能为空');
-  }
-
-  // 验证每个图库目录
+  // 仅当用户提供了图库条目时，才要求条目内字段齐全（空数组属于合法的"未配置"）
   config.galleries?.folders?.forEach((folder, index) => {
     if (!folder.path) {
       errors.push(`galleries.folders[${index}].path 不能为空`);
@@ -651,6 +840,378 @@ export function getConfig(): AppConfig {
   return config;
 }
 
+function sanitizeRendererSafeProxyConfig(
+  incomingProxy?: Partial<AppConfig['network']['proxy']>
+): Partial<AppConfig['network']['proxy']> | undefined {
+  if (!incomingProxy) {
+    return undefined;
+  }
+
+  return {
+    enabled: incomingProxy.enabled,
+    protocol: incomingProxy.protocol,
+    host: incomingProxy.host,
+    port: incomingProxy.port,
+  };
+}
+
+function sanitizeRendererSafeGoogleConfig(
+  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
+): Partial<NonNullable<AppConfig['google']>> | undefined {
+  if (!incomingGoogle) {
+    return undefined;
+  }
+
+  return {
+    clientId: incomingGoogle.clientId,
+    drive: incomingGoogle.drive
+      ? {
+          enabled: incomingGoogle.drive.enabled,
+          defaultViewMode: incomingGoogle.drive.defaultViewMode,
+          imageOnly: incomingGoogle.drive.imageOnly,
+          downloadPath: incomingGoogle.drive.downloadPath,
+        }
+      : undefined,
+    photos: incomingGoogle.photos
+      ? {
+          enabled: incomingGoogle.photos.enabled,
+          downloadPath: incomingGoogle.photos.downloadPath,
+          uploadAlbumName: incomingGoogle.photos.uploadAlbumName,
+          thumbnailSize: incomingGoogle.photos.thumbnailSize,
+        }
+      : undefined,
+  };
+}
+
+function rebuildProxyConfig(
+  currentProxy: AppConfig['network']['proxy'],
+  incomingProxy?: Partial<AppConfig['network']['proxy']>
+): AppConfig['network']['proxy'] {
+  return {
+    enabled: incomingProxy?.enabled ?? currentProxy.enabled,
+    protocol: incomingProxy?.protocol ?? currentProxy.protocol,
+    host: incomingProxy?.host ?? currentProxy.host,
+    port: incomingProxy?.port ?? currentProxy.port,
+    username: currentProxy.username,
+    password: currentProxy.password,
+  };
+}
+
+function rebuildGoogleConfig(
+  currentGoogle: AppConfig['google'],
+  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
+): AppConfig['google'] {
+  if (!currentGoogle && !incomingGoogle) {
+    return undefined;
+  }
+
+  if (!incomingGoogle) {
+    return currentGoogle;
+  }
+
+  return {
+    clientId: incomingGoogle.clientId ?? currentGoogle?.clientId ?? '',
+    clientSecret: currentGoogle?.clientSecret ?? '',
+    drive: {
+      enabled: incomingGoogle.drive?.enabled ?? currentGoogle?.drive.enabled ?? false,
+      defaultViewMode: incomingGoogle.drive?.defaultViewMode ?? currentGoogle?.drive.defaultViewMode ?? 'grid',
+      imageOnly: incomingGoogle.drive?.imageOnly ?? currentGoogle?.drive.imageOnly ?? true,
+      downloadPath: incomingGoogle.drive?.downloadPath ?? currentGoogle?.drive.downloadPath ?? '',
+    },
+    photos: {
+      enabled: incomingGoogle.photos?.enabled ?? currentGoogle?.photos.enabled ?? false,
+      downloadPath: incomingGoogle.photos?.downloadPath ?? currentGoogle?.photos.downloadPath ?? '',
+      uploadAlbumName: incomingGoogle.photos?.uploadAlbumName ?? currentGoogle?.photos.uploadAlbumName ?? '',
+      thumbnailSize: incomingGoogle.photos?.thumbnailSize ?? currentGoogle?.photos.thumbnailSize ?? 256,
+    },
+  };
+}
+
+function clampPinnedItems(
+  pinnedItems?: PinnedItemConfig[]
+): PinnedItemConfig[] | undefined {
+  if (!pinnedItems) {
+    return undefined;
+  }
+
+  return pinnedItems.slice(0, 5);
+}
+
+function rebuildPagePreferences(
+  currentPagePreferences?: PagePreferencesConfig,
+  incomingPagePreferences?: PagePreferencesConfig,
+  currentUi?: UIConfig
+): PagePreferencesConfig | undefined {
+  if (!currentPagePreferences && !incomingPagePreferences && !currentUi) {
+    return undefined;
+  }
+
+  return {
+    favoriteTags: incomingPagePreferences?.favoriteTags
+      ? {
+          filterSiteId: incomingPagePreferences.favoriteTags.filterSiteId ?? currentPagePreferences?.favoriteTags?.filterSiteId,
+          sortKey: incomingPagePreferences.favoriteTags.sortKey ?? currentPagePreferences?.favoriteTags?.sortKey,
+          sortOrder: incomingPagePreferences.favoriteTags.sortOrder ?? currentPagePreferences?.favoriteTags?.sortOrder,
+          keyword: incomingPagePreferences.favoriteTags.keyword ?? currentPagePreferences?.favoriteTags?.keyword,
+          page: incomingPagePreferences.favoriteTags.page ?? currentPagePreferences?.favoriteTags?.page,
+          pageSize: incomingPagePreferences.favoriteTags.pageSize ?? currentPagePreferences?.favoriteTags?.pageSize,
+        }
+      : currentPagePreferences?.favoriteTags,
+    blacklistedTags: incomingPagePreferences?.blacklistedTags
+      ? {
+          filterSiteId: incomingPagePreferences.blacklistedTags.filterSiteId ?? currentPagePreferences?.blacklistedTags?.filterSiteId,
+          keyword: incomingPagePreferences.blacklistedTags.keyword ?? currentPagePreferences?.blacklistedTags?.keyword,
+          page: incomingPagePreferences.blacklistedTags.page ?? currentPagePreferences?.blacklistedTags?.page,
+          pageSize: incomingPagePreferences.blacklistedTags.pageSize ?? currentPagePreferences?.blacklistedTags?.pageSize,
+        }
+      : currentPagePreferences?.blacklistedTags,
+    galleryBySubTab: incomingPagePreferences?.galleryBySubTab
+      ? {
+          all: incomingPagePreferences.galleryBySubTab.all
+            ? {
+                searchQuery: incomingPagePreferences.galleryBySubTab.all.searchQuery ?? currentPagePreferences?.galleryBySubTab?.all?.searchQuery,
+                isSearchMode: incomingPagePreferences.galleryBySubTab.all.isSearchMode ?? currentPagePreferences?.galleryBySubTab?.all?.isSearchMode,
+                allPage: incomingPagePreferences.galleryBySubTab.all.allPage ?? currentPagePreferences?.galleryBySubTab?.all?.allPage,
+                searchPage: incomingPagePreferences.galleryBySubTab.all.searchPage ?? currentPagePreferences?.galleryBySubTab?.all?.searchPage,
+              }
+            : currentPagePreferences?.galleryBySubTab?.all,
+          galleries: incomingPagePreferences.galleryBySubTab.galleries
+            ? (() => {
+                const inGalleries = incomingPagePreferences.galleryBySubTab.galleries!;
+                const curGalleries = currentPagePreferences?.galleryBySubTab?.galleries;
+                // selectedGalleryId 三值合并语义：
+                //   null      -> 显式删除（结果为 undefined，对应磁盘清空）
+                //   undefined -> 不修改，保留旧值
+                //   number    -> 覆盖为新值
+                // 使用 `=== null` 精确判定 null，避免和 0/undefined 混淆（当前业务不会出现 id=0，但保留严格语义）
+                const resolvedSelectedGalleryId = inGalleries.selectedGalleryId === null
+                  ? undefined
+                  : (inGalleries.selectedGalleryId ?? curGalleries?.selectedGalleryId);
+                return {
+                  gallerySearchQuery: inGalleries.gallerySearchQuery ?? curGalleries?.gallerySearchQuery,
+                  gallerySortKey: inGalleries.gallerySortKey ?? curGalleries?.gallerySortKey,
+                  gallerySortOrder: inGalleries.gallerySortOrder ?? curGalleries?.gallerySortOrder,
+                  selectedGalleryId: resolvedSelectedGalleryId,
+                  gallerySort: inGalleries.gallerySort ?? curGalleries?.gallerySort,
+                };
+              })()
+            : currentPagePreferences?.galleryBySubTab?.galleries,
+        }
+      : currentPagePreferences?.galleryBySubTab,
+    appShell: incomingPagePreferences?.appShell
+      ? {
+          menuOrder: {
+            main: incomingPagePreferences.appShell.menuOrder?.main ?? currentPagePreferences?.appShell?.menuOrder?.main ?? currentUi?.menuOrder?.main,
+            gallery: incomingPagePreferences.appShell.menuOrder?.gallery ?? currentPagePreferences?.appShell?.menuOrder?.gallery ?? currentUi?.menuOrder?.gallery,
+            booru: incomingPagePreferences.appShell.menuOrder?.booru ?? currentPagePreferences?.appShell?.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
+            google: incomingPagePreferences.appShell.menuOrder?.google ?? currentPagePreferences?.appShell?.menuOrder?.google ?? currentUi?.menuOrder?.google,
+          },
+          pinnedItems: clampPinnedItems(incomingPagePreferences.appShell.pinnedItems ?? currentPagePreferences?.appShell?.pinnedItems ?? currentUi?.pinnedItems),
+        }
+      : currentPagePreferences?.appShell
+        ? {
+            menuOrder: {
+              main: currentPagePreferences.appShell.menuOrder?.main ?? currentUi?.menuOrder?.main,
+              gallery: currentPagePreferences.appShell.menuOrder?.gallery ?? currentUi?.menuOrder?.gallery,
+              booru: currentPagePreferences.appShell.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
+              google: currentPagePreferences.appShell.menuOrder?.google ?? currentUi?.menuOrder?.google,
+            },
+            pinnedItems: clampPinnedItems(currentPagePreferences.appShell.pinnedItems ?? currentUi?.pinnedItems),
+          }
+        : currentUi?.menuOrder || currentUi?.pinnedItems
+          ? {
+              menuOrder: currentUi.menuOrder
+                ? {
+                    main: currentUi.menuOrder.main,
+                    gallery: currentUi.menuOrder.gallery,
+                    booru: currentUi.menuOrder.booru,
+                    google: currentUi.menuOrder.google,
+                  }
+                : undefined,
+              pinnedItems: clampPinnedItems(currentUi.pinnedItems),
+            }
+          : undefined,
+  };
+}
+
+export function toRendererSafeUiConfig(source?: UIConfig): UIConfig | undefined {
+  if (!source) {
+    return undefined;
+  }
+
+  const pagePreferences = source.pagePreferences
+    ? {
+        ...(source.pagePreferences.favoriteTags ? { favoriteTags: source.pagePreferences.favoriteTags } : {}),
+        ...(source.pagePreferences.blacklistedTags ? { blacklistedTags: source.pagePreferences.blacklistedTags } : {}),
+        ...(source.pagePreferences.galleryBySubTab ? { galleryBySubTab: source.pagePreferences.galleryBySubTab } : {}),
+      }
+    : undefined;
+
+  if (!pagePreferences || Object.keys(pagePreferences).length === 0) {
+    return undefined;
+  }
+
+  return {
+    pagePreferences,
+  };
+}
+
+export function toRendererSafeConfig(source: AppConfig): RendererSafeAppConfig {
+  const safeUi = toRendererSafeUiConfig(source.ui);
+
+  return {
+    ...source,
+    ui: safeUi,
+    network: {
+      ...source.network,
+      proxy: {
+        enabled: source.network.proxy.enabled,
+        protocol: source.network.proxy.protocol,
+        host: source.network.proxy.host,
+        port: source.network.proxy.port,
+      },
+    },
+    google: source.google
+      ? {
+          clientId: source.google.clientId,
+          drive: source.google.drive,
+          photos: source.google.photos,
+        }
+      : undefined,
+  };
+}
+
+export function mergeSensitiveConfig(currentConfig: AppConfig, incomingConfig: AppConfig): AppConfig {
+  return {
+    ...incomingConfig,
+    network: {
+      ...incomingConfig.network,
+      proxy: rebuildProxyConfig(currentConfig.network.proxy, incomingConfig.network?.proxy),
+    },
+    google: rebuildGoogleConfig(currentConfig.google, incomingConfig.google),
+  };
+}
+
+export function getBooruAppearancePreference(source: Pick<AppConfig, 'booru'> | undefined): BooruAppearancePreference {
+  const currentAppearance = source?.booru?.appearance;
+  const defaultAppearance = DEFAULT_CONFIG.booru!.appearance;
+
+  return {
+    gridSize: currentAppearance?.gridSize ?? defaultAppearance.gridSize,
+    previewQuality: currentAppearance?.previewQuality ?? defaultAppearance.previewQuality,
+    itemsPerPage: currentAppearance?.itemsPerPage ?? defaultAppearance.itemsPerPage,
+    paginationPosition: currentAppearance?.paginationPosition ?? defaultAppearance.paginationPosition,
+    pageMode: currentAppearance?.pageMode ?? defaultAppearance.pageMode,
+    spacing: currentAppearance?.spacing ?? defaultAppearance.spacing,
+    borderRadius: currentAppearance?.borderRadius ?? defaultAppearance.borderRadius,
+    margin: currentAppearance?.margin ?? defaultAppearance.margin,
+    maxCacheSizeMB: currentAppearance?.maxCacheSizeMB ?? defaultAppearance.maxCacheSizeMB,
+  };
+}
+
+export function normalizeConfigSaveInput(currentConfig: AppConfig, input: ConfigSaveInput): AppConfig {
+  return {
+    dataPath: input.dataPath ?? currentConfig.dataPath,
+    database: {
+      path: input.database?.path ?? currentConfig.database.path,
+      logging: input.database?.logging ?? currentConfig.database.logging,
+    },
+    downloads: {
+      path: input.downloads?.path ?? currentConfig.downloads.path,
+      createSubfolders: input.downloads?.createSubfolders ?? currentConfig.downloads.createSubfolders,
+      subfolderFormat: input.downloads?.subfolderFormat ?? currentConfig.downloads.subfolderFormat,
+    },
+    galleries: {
+      folders: input.galleries?.folders ?? currentConfig.galleries.folders,
+    },
+    thumbnails: {
+      cachePath: input.thumbnails?.cachePath ?? currentConfig.thumbnails.cachePath,
+      maxWidth: input.thumbnails?.maxWidth ?? currentConfig.thumbnails.maxWidth,
+      maxHeight: input.thumbnails?.maxHeight ?? currentConfig.thumbnails.maxHeight,
+      quality: input.thumbnails?.quality ?? currentConfig.thumbnails.quality,
+      format: input.thumbnails?.format ?? currentConfig.thumbnails.format,
+    },
+    app: {
+      recentImagesCount: input.app?.recentImagesCount ?? currentConfig.app.recentImagesCount,
+      pageSize: input.app?.pageSize ?? currentConfig.app.pageSize,
+      defaultViewMode: input.app?.defaultViewMode ?? currentConfig.app.defaultViewMode,
+      showImageInfo: input.app?.showImageInfo ?? currentConfig.app.showImageInfo,
+      autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
+      autoScanInterval: input.app?.autoScanInterval ?? currentConfig.app.autoScanInterval,
+    },
+    yande: {
+      apiUrl: input.yande?.apiUrl ?? currentConfig.yande.apiUrl,
+      pageSize: input.yande?.pageSize ?? currentConfig.yande.pageSize,
+      downloadTimeout: input.yande?.downloadTimeout ?? currentConfig.yande.downloadTimeout,
+      maxConcurrentDownloads: input.yande?.maxConcurrentDownloads ?? currentConfig.yande.maxConcurrentDownloads,
+    },
+    logging: {
+      level: input.logging?.level ?? currentConfig.logging.level,
+      filePath: input.logging?.filePath ?? currentConfig.logging.filePath,
+      consoleOutput: input.logging?.consoleOutput ?? currentConfig.logging.consoleOutput,
+      maxFileSize: input.logging?.maxFileSize ?? currentConfig.logging.maxFileSize,
+      maxFiles: input.logging?.maxFiles ?? currentConfig.logging.maxFiles,
+    },
+    network: {
+      proxy: rebuildProxyConfig(currentConfig.network.proxy, sanitizeRendererSafeProxyConfig(input.network?.proxy)),
+    },
+    google: rebuildGoogleConfig(currentConfig.google, sanitizeRendererSafeGoogleConfig(input.google)),
+    ui: input.ui
+      ? {
+          menuOrder: {
+            main: input.ui.menuOrder?.main ?? currentConfig.ui?.menuOrder?.main,
+            gallery: input.ui.menuOrder?.gallery ?? currentConfig.ui?.menuOrder?.gallery,
+            booru: input.ui.menuOrder?.booru ?? currentConfig.ui?.menuOrder?.booru,
+            google: input.ui.menuOrder?.google ?? currentConfig.ui?.menuOrder?.google,
+          },
+          pinnedItems: clampPinnedItems(input.ui.pinnedItems ?? currentConfig.ui?.pinnedItems),
+          pagePreferences: rebuildPagePreferences(currentConfig.ui?.pagePreferences, input.ui.pagePreferences, currentConfig.ui),
+        }
+      : currentConfig.ui,
+    bulkDownload: (input.bulkDownload !== undefined || currentConfig.bulkDownload !== undefined)
+      ? {
+          maxConcurrentSessions: input.bulkDownload?.maxConcurrentSessions
+            ?? currentConfig.bulkDownload?.maxConcurrentSessions
+            ?? 3,
+        }
+      : currentConfig.bulkDownload,
+    booru: input.booru
+      ? {
+          appearance: getBooruAppearancePreference({
+            booru: {
+              appearance: {
+                ...currentConfig.booru?.appearance,
+                ...input.booru.appearance,
+              } as BooruAppearancePreference,
+              download: currentConfig.booru?.download ?? DEFAULT_CONFIG.booru!.download,
+            },
+          }),
+          download: {
+            filenameTemplate: input.booru.download?.filenameTemplate ?? currentConfig.booru?.download.filenameTemplate ?? DEFAULT_CONFIG.booru!.download.filenameTemplate,
+            tokenDefaults: input.booru.download?.tokenDefaults ?? currentConfig.booru?.download.tokenDefaults ?? DEFAULT_CONFIG.booru!.download.tokenDefaults,
+          },
+        }
+      : currentConfig.booru,
+    notifications: {
+      enabled: input.notifications?.enabled ?? currentConfig.notifications?.enabled ?? true,
+      byStatus: {
+        completed: input.notifications?.byStatus?.completed ?? currentConfig.notifications?.byStatus?.completed ?? true,
+        failed: input.notifications?.byStatus?.failed ?? currentConfig.notifications?.byStatus?.failed ?? true,
+        allSkipped: input.notifications?.byStatus?.allSkipped ?? currentConfig.notifications?.byStatus?.allSkipped ?? true,
+      },
+      singleDownload: {
+        enabled: input.notifications?.singleDownload?.enabled ?? currentConfig.notifications?.singleDownload?.enabled ?? false,
+      },
+      clickAction: input.notifications?.clickAction ?? currentConfig.notifications?.clickAction ?? 'openDownloadHub',
+    },
+    desktop: {
+      closeAction: input.desktop?.closeAction ?? currentConfig.desktop?.closeAction ?? 'hide-to-tray',
+      autoLaunch: input.desktop?.autoLaunch ?? currentConfig.desktop?.autoLaunch ?? false,
+      startMinimized: input.desktop?.startMinimized ?? currentConfig.desktop?.startMinimized ?? false,
+    },
+  };
+}
+
 /**
  * 重新加载配置
  */
@@ -662,30 +1223,101 @@ export async function reloadConfig(configPath?: string): Promise<AppConfig> {
 /**
  * 保存配置到文件
  */
-export async function saveConfig(newConfig: AppConfig, configPath?: string): Promise<{ success: boolean; error?: string }> {
-  try {
+export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string): Promise<{ success: boolean; error?: string }> {
+  const saveVersion = configSaveVersion + 1;
+  let resolveOutcome!: (result: { success: boolean; error?: string }) => void;
+  const outcomePromise = new Promise<{ success: boolean; error?: string }>((resolve) => {
+    resolveOutcome = resolve;
+  });
+  configSaveOutcomes.set(saveVersion, outcomePromise);
+
+  const savePromise = (async (): Promise<{ success: boolean; error?: string }> => {
+    const finalize = (result: { success: boolean; error?: string }) => {
+      latestTerminalOutcomeVersion = saveVersion;
+      latestTerminalOutcome = result;
+      resolveOutcome(result);
+      if (configSaveOutcomes.get(saveVersion) === outcomePromise) {
+        configSaveOutcomes.delete(saveVersion);
+      }
+      return result;
+    };
+    const cleanupStagingFile = async () => {
+      try {
+        await fs.unlink(stagingPath);
+      } catch {
+        // best-effort cleanup，忽略 staging 文件不存在或删除失败
+      }
+    };
+
     const configFilePath = configPath || path.join(configDir, 'config.yaml');
+    const currentConfig = latestQueuedConfig ?? config ?? DEFAULT_CONFIG;
+    const mergedConfig = mergeSensitiveConfig(currentConfig, normalizeConfigSaveInput(currentConfig, newConfig));
+    configSaveVersion = saveVersion;
+    const stagingPath = `${configFilePath}.tmp.${saveVersion}`;
 
-    // 更新内存中的配置
-    config = newConfig;
+    latestQueuedConfig = mergedConfig;
 
-    // 保存到文件
-    const yaml = await import('js-yaml');
-    const configYaml = yaml.dump(newConfig, {
-      indent: 2,
-      lineWidth: -1,
-      noRefs: true
-    });
+    try {
+      // 先写入 staging 文件，只有确认自己仍是最新版本时才提交到真实配置文件
+      const yaml = await import('js-yaml');
+      const configYaml = yaml.dump(mergedConfig, {
+        indent: 2,
+        lineWidth: -1,
+        noRefs: true
+      });
 
-    await fs.writeFile(configFilePath, configYaml, 'utf-8');
-    console.log('[config] 配置已保存:', configFilePath);
+      await fs.writeFile(stagingPath, configYaml, 'utf-8');
 
-    return { success: true };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[config] 保存配置失败:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
+      let shouldCommit = false;
+      const commitTask = configSaveCommitLock.then(async () => {
+        if (saveVersion !== configSaveVersion) {
+          return;
+        }
+
+        shouldCommit = true;
+        await fs.rename(stagingPath, configFilePath);
+      });
+
+      configSaveCommitLock = commitTask.then(() => undefined, () => undefined);
+      await commitTask;
+
+      if (!shouldCommit) {
+        await cleanupStagingFile();
+
+        if (saveVersion <= latestDurableSaveVersion) {
+          return finalize({ success: true });
+        }
+
+        if (latestTerminalOutcomeVersion === configSaveVersion && latestTerminalOutcome) {
+          return finalize(latestTerminalOutcome);
+        }
+
+        const latestOutcome = configSaveOutcomes.get(configSaveVersion);
+        if (!latestOutcome) {
+          return finalize({ success: false, error: 'latest save outcome unavailable' });
+        }
+        return finalize(await latestOutcome);
+      }
+
+      latestDurableSaveVersion = saveVersion;
+      config = latestQueuedConfig ?? mergedConfig;
+      latestQueuedConfig = config;
+      initDataDir(config);
+      console.log('[config] 配置已保存:', configFilePath);
+      return finalize({ success: true });
+    } catch (error) {
+      await cleanupStagingFile();
+
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (saveVersion === configSaveVersion) {
+        latestQueuedConfig = config ?? DEFAULT_CONFIG;
+      }
+      console.error('[config] 保存配置失败:', errorMessage);
+      return finalize({ success: false, error: errorMessage });
+    }
+  })();
+
+  return savePromise;
 }
 
 /**
@@ -776,6 +1408,71 @@ export function getAppConfig() {
 export function getNetworkConfig() {
   const cfg = getConfig();
   return cfg.network;
+}
+
+/**
+ * 获取批量下载并发上限（dryRun + running 同时活跃的最大数量）
+ * 默认 3；配置项非正数或非数字时也回退为 3
+ */
+export function getMaxConcurrentBulkDownloadSessions(): number {
+  try {
+    const n = getConfig()?.bulkDownload?.maxConcurrentSessions;
+    if (typeof n === 'number' && n > 0) return n;
+  } catch {
+    // 配置尚未加载（如某些测试环境），回退默认值
+  }
+  return 3;
+}
+
+/**
+ * 获取通知配置（安全兜底默认值）
+ *
+ * 读路径保守：所有字段都用 ?? 兜底为默认值，避免未迁移到新字段的旧 config.yaml
+ * 触发 "一条通知也不弹" 或 "undefined.xxx" 异常。
+ */
+export function getNotificationsConfig(): {
+  enabled: boolean;
+  byStatus: { completed: boolean; failed: boolean; allSkipped: boolean };
+  singleDownload: { enabled: boolean };
+  clickAction: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+} {
+  let cfg: AppConfig['notifications'] | undefined;
+  try {
+    cfg = getConfig()?.notifications;
+  } catch {
+    cfg = undefined;
+  }
+  return {
+    enabled: cfg?.enabled ?? true,
+    byStatus: {
+      completed: cfg?.byStatus?.completed ?? true,
+      failed: cfg?.byStatus?.failed ?? true,
+      allSkipped: cfg?.byStatus?.allSkipped ?? true,
+    },
+    singleDownload: { enabled: cfg?.singleDownload?.enabled ?? false },
+    clickAction: cfg?.clickAction ?? 'openDownloadHub',
+  };
+}
+
+/**
+ * 获取桌面行为配置（安全兜底默认值）
+ */
+export function getDesktopConfig(): {
+  closeAction: 'hide-to-tray' | 'quit' | 'ask';
+  autoLaunch: boolean;
+  startMinimized: boolean;
+} {
+  let cfg: AppConfig['desktop'] | undefined;
+  try {
+    cfg = getConfig()?.desktop;
+  } catch {
+    cfg = undefined;
+  }
+  return {
+    closeAction: cfg?.closeAction ?? 'hide-to-tray',
+    autoLaunch: cfg?.autoLaunch ?? false,
+    startMinimized: cfg?.startMinimized ?? false,
+  };
 }
 
 /**

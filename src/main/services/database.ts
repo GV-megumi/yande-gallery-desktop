@@ -124,6 +124,18 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
+    // 创建图库忽略名单表（bug12：删除图集后写入，扫描时跳过）
+    // 存归一化后的 folderPath；note 记录忽略原因；createdAt/updatedAt 便于排序与审计。
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS gallery_ignored_folders (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        folderPath TEXT NOT NULL UNIQUE,
+        note TEXT,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+
     // 批量创建基础索引（减少数据库往返次数）
     await new Promise<void>((resolve, reject) => {
       database.exec(`
@@ -135,6 +147,7 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
         CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded);
         CREATE INDEX IF NOT EXISTS idx_galleries_folderPath ON galleries (folderPath);
         CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_gallery_ignored_folders_folderPath ON gallery_ignored_folders (folderPath);
       `, (err) => err ? reject(err) : resolve());
     });
 

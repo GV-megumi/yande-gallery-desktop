@@ -105,7 +105,7 @@ booru:
   appearance:
     gridSize: 300            # 图片网格大小（像素）
     previewQuality: original # auto | low | medium | high | original
-    itemsPerPage: 20
+    itemsPerPage: 60
     paginationPosition: both # top | bottom | both
     pageMode: pagination     # pagination | infinite
     spacing: 16              # 间距（像素）
@@ -118,13 +118,78 @@ booru:
     #   {width} {height} {rating} {score} {site}
     #   {tags:maxlength=50} {source}
     filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
+    # Token 默认选项：命名模板中未显式指定时的后备策略
+    # 可选键：limit / maxlength / case / delimiter / unsafe / format /
+    #         single_letter / pad_left / sort:{attribute,order}
+    tokenDefaults:
+      tags:
+        limit: 10
+        maxlength: 50
+        case: lower           # lower | upper | none
+        delimiter: _
+        unsafe: false
+      artist:
+        limit: 5
+        maxlength: 30
+        case: lower
+        delimiter: _
+        unsafe: false
+      character:
+        limit: 5
+        maxlength: 30
+        case: lower
+        delimiter: _
+        unsafe: false
+      copyright:
+        limit: 3
+        maxlength: 30
+        case: lower
+        delimiter: _
+        unsafe: false
+      date:
+        format: yyyy-MM-dd
+      rating:
+        case: lower
+        single_letter: false
+      site:
+        case: lower
+      id:
+        pad_left: 0
+      md5:
+        maxlength: 32
+      width:
+        unsafe: true
+      height:
+        unsafe: true
+
+# -------- 批量下载 --------
+bulkDownload:
+  # 同一时刻允许的活跃会话数（dryRun + running），超限会话进入 queued
+  maxConcurrentSessions: 3
+
+# -------- 桌面通知 --------
+# 三级判断：enabled AND byStatus[status] AND 任务级 notifications
+notifications:
+  enabled: true              # 全局通知总开关
+  byStatus:
+    completed: true          # 会话成功完成时弹通知
+    failed: true             # 会话失败时弹通知
+    allSkipped: true         # 全部跳过时弹通知
+  singleDownload:
+    enabled: false           # 单次下载（Booru 逐张）是否弹通知
+  clickAction: openDownloadHub  # focus | openDownloadHub | openSessionDetail
+
+# -------- 桌面行为 --------
+desktop:
+  closeAction: hide-to-tray  # 点 X 时行为：hide-to-tray | quit | ask
+  autoLaunch: false          # 开机自启
+  startMinimized: false      # 自启时隐藏到托盘
 
 # -------- UI 偏好 --------
 ui:
   menuOrder:
     # 各菜单区域的排列顺序，留空则使用默认顺序
     # 可在界面中长按菜单项拖拽调整，自动写入此处
-    main:    []              # gallery | booru | google
+    main:    []              # gallery | booru
     gallery: []              # recent | all | galleries
     booru:   []              # posts | popular | pools | favorites | server-favorites | ...
-    google:  []              # gdrive | gphotos | gaccount | gemini

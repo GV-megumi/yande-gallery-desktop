@@ -11,6 +11,7 @@
 - `doc/Renderer API 文档.md`：渲染进程可调用的 `window.electronAPI` 总览
 - `doc/Booru功能实现文档.md`：Booru 子系统说明
 - `doc/图库功能文档.md`：图库子系统说明
+- `doc/版本发布打包规范.md`：版本号、安装包、发布产物和 GitHub Release 流程
 
 ## 专题说明
 

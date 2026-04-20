@@ -59,7 +59,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   const [favoriteUsersExpanded, setFavoriteUsersExpanded] = useState(false);
 
   // 是否已登录
-  const isLoggedIn = !!(site?.username && site?.passwordHash);
+  const isLoggedIn = !!site?.authenticated;
 
   // 加载收藏用户列表
   useEffect(() => {

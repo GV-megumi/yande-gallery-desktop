@@ -19,21 +19,31 @@ vi.mock('../../../src/renderer/locales', () => ({
   }),
 }));
 
+const booruDownloadPageSpy = vi.fn(({ active }: { active?: boolean }) => (
+  <div data-testid="download-page" data-active={String(Boolean(active))}>BooruDownloadPage</div>
+));
+const booruBulkDownloadPageSpy = vi.fn(({ active }: { active?: boolean }) => (
+  <div data-testid="bulk-download-page" data-active={String(Boolean(active))}>BooruBulkDownloadPage</div>
+));
+
 // mock child pages as simple placeholders
 vi.mock('../../../src/renderer/pages/BooruDownloadPage', () => ({
-  default: () => <div data-testid="download-page">BooruDownloadPage</div>,
-  BooruDownloadPage: () => <div data-testid="download-page">BooruDownloadPage</div>,
+  default: (props: { active?: boolean }) => booruDownloadPageSpy(props),
+  BooruDownloadPage: (props: { active?: boolean }) => booruDownloadPageSpy(props),
 }));
 
 vi.mock('../../../src/renderer/pages/BooruBulkDownloadPage', () => ({
-  default: () => <div data-testid="bulk-download-page">BooruBulkDownloadPage</div>,
-  BooruBulkDownloadPage: () => <div data-testid="bulk-download-page">BooruBulkDownloadPage</div>,
+  default: (props: { active?: boolean }) => booruBulkDownloadPageSpy(props),
+  BooruBulkDownloadPage: (props: { active?: boolean }) => booruBulkDownloadPageSpy(props),
 }));
 
 import { BooruDownloadHubPage } from '../../../src/renderer/pages/BooruDownloadHubPage';
 
 describe('BooruDownloadHubPage', () => {
-  afterEach(() => cleanup());
+  afterEach(() => {
+    cleanup();
+    vi.clearAllMocks();
+  });
 
   it('should show downloads tab by default', async () => {
     render(<BooruDownloadHubPage />);
@@ -69,5 +79,21 @@ describe('BooruDownloadHubPage', () => {
     });
     const bulkContainer = screen.getByTestId('bulk-download-page').parentElement!;
     expect(bulkContainer.style.display).toBe('');
+  });
+
+  it('should pass active flag so hidden pages can stop side effects', async () => {
+    const user = userEvent.setup();
+    render(<BooruDownloadHubPage />);
+
+    expect(await screen.findByTestId('download-page')).toBeTruthy();
+    expect(screen.getByTestId('download-page').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('bulk-download-page').getAttribute('data-active')).toBe('false');
+
+    await user.click(screen.getByText('\u6279\u91cf\u4e0b\u8f7d'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('download-page').getAttribute('data-active')).toBe('false');
+      expect(screen.getByTestId('bulk-download-page').getAttribute('data-active')).toBe('true');
+    });
   });
 });

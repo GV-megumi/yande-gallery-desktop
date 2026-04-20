@@ -205,6 +205,22 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
               开始
             </Button>
           )}
+          {session.status === 'queued' && (
+            <Popconfirm
+              title="确定要取消排队吗？"
+              onConfirm={handleCancel}
+              disabled={cancelling}
+            >
+              <Button
+                danger
+                icon={<StopOutlined />}
+                loading={cancelling}
+                disabled={cancelling}
+              >
+                {cancelling ? '取消中...' : '取消（出队）'}
+              </Button>
+            </Popconfirm>
+          )}
           {session.status === 'running' && (
             <Button
               icon={<PauseOutlined />}
@@ -335,7 +351,7 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
 
       {/* 详情弹窗 */}
       <Modal
-        title={null}
+        title={`下载详情 - ${session.task?.tags || '无标签'}`}
         open={detailVisible}
         onCancel={() => setDetailVisible(false)}
         footer={null}
@@ -345,7 +361,6 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
       >
         <BulkDownloadSessionDetail
           session={session}
-          onClose={() => setDetailVisible(false)}
           onRefresh={() => {
             loadStats();
             onRefresh();

@@ -3,11 +3,13 @@
 import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup } from '@testing-library/react';
-import type { RenderResult } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { App } from 'antd';
 import { SettingsPage } from '../../../src/renderer/pages/SettingsPage';
+import { BooruSettingsPage } from '../../../src/renderer/pages/BooruSettingsPage';
 
 const getConfig = vi.fn();
+const getAppearancePreference = vi.fn();
 const saveConfig = vi.fn();
 const updateGalleryFolders = vi.fn();
 const getCacheStats = vi.fn();
@@ -20,10 +22,17 @@ const openExternal = vi.fn();
 const testBaidu = vi.fn();
 const testGoogle = vi.fn();
 const scanSubfolders = vi.fn();
+const getSites = vi.fn();
+const addSite = vi.fn();
+const updateSite = vi.fn();
+const deleteSite = vi.fn();
+const getPosts = vi.fn();
+const login = vi.fn();
+const logout = vi.fn();
 const setThemeMode = vi.fn();
 const setLocale = vi.fn();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
-let renderResult: RenderResult;
+let consoleLogSpy: ReturnType<typeof vi.spyOn>;
 
 vi.mock('../../../src/renderer/hooks/useTheme', () => ({
   useTheme: () => ({
@@ -111,6 +120,7 @@ vi.mock('../../../src/renderer/locales', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
@@ -189,9 +199,29 @@ beforeEach(() => {
     },
   });
 
+  getAppearancePreference.mockResolvedValue({
+    success: true,
+    data: {
+      gridSize: 280,
+      previewQuality: 'high',
+      itemsPerPage: 35,
+      paginationPosition: 'both',
+      spacing: 20,
+      borderRadius: 12,
+      margin: 32,
+      maxCacheSizeMB: 900,
+    },
+  });
   saveConfig.mockResolvedValue({ success: true });
   getCacheStats.mockResolvedValue({ success: true, data: { sizeMB: 0, fileCount: 0 } });
   checkForUpdate.mockResolvedValue({ success: false, error: 'skip' });
+  getSites.mockResolvedValue({ success: true, data: [] });
+  addSite.mockResolvedValue({ success: true });
+  updateSite.mockResolvedValue({ success: true });
+  deleteSite.mockResolvedValue({ success: true });
+  getPosts.mockResolvedValue({ success: true, data: [] });
+  login.mockResolvedValue({ success: true });
+  logout.mockResolvedValue({ success: true });
 
   (window as any).electronAPI = {
     config: {
@@ -202,6 +232,19 @@ beforeEach(() => {
     booru: {
       getCacheStats,
       clearCache,
+      getSites,
+      addSite,
+      updateSite,
+      deleteSite,
+      getPosts,
+      login,
+      logout,
+    },
+    booruPreferences: {
+      appearance: {
+        get: getAppearancePreference,
+        onChanged: vi.fn(),
+      },
     },
     system: {
       selectFolder,
@@ -220,16 +263,113 @@ beforeEach(() => {
 
 afterEach(() => {
   consoleErrorSpy.mockRestore();
+  consoleLogSpy.mockRestore();
   cleanup();
 });
 
-describe('SettingsPage save behavior', () => {
-  it('在通用设置页点击保存所有设置时应保留已有代理配置', async () => {
-    renderResult = render(<SettingsPage />);
+describe('SettingsPage general tab behavior', () => {
+  it('不展示没有真实配置链路的自动生成缩略图伪设置', async () => {
+    render(<SettingsPage />);
 
-    const actionButtons = await screen.findAllByRole('button');
-    const saveButton = actionButtons[actionButtons.length - 1];
-    await userEvent.click(saveButton);
+    await screen.findByText('缩略图');
+
+    expect(screen.queryByText('自动生成缩略图')).toBeNull();
+    expect(screen.queryByText('自动生成')).toBeNull();
+  });
+
+  it('不展示误导性的页面模式伪设置', async () => {
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    const appearanceTab = await screen.findByRole('tab', { name: /外观配置/ });
+    await userEvent.click(appearanceTab);
+
+    await screen.findByText('保存外观配置');
+
+    expect(screen.queryByText('页面模式')).toBeNull();
+    expect(screen.queryByText('翻页')).toBeNull();
+    expect(screen.queryByText('无限滚动')).toBeNull();
+  });
+
+  it('外观配置页应通过 booruPreferences.appearance.get 加载受控 appearance DTO 且不再依赖 config.get', async () => {
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    const appearanceTab = await screen.findByRole('tab', { name: /外观配置/ });
+    await userEvent.click(appearanceTab);
+
+    await screen.findByText('保存外观配置');
+
+    await waitFor(() => {
+      expect(getAppearancePreference).toHaveBeenCalledTimes(1);
+    });
+
+    expect(getConfig).toHaveBeenCalledTimes(1);
+
+    const numberInputs = screen.getAllByRole('spinbutton');
+    expect(numberInputs.some((input) => (input as HTMLInputElement).value === '35')).toBe(true);
+    expect(numberInputs.some((input) => (input as HTMLInputElement).value === '900')).toBe(true);
+    expect(screen.queryByDisplayValue('20')).toBeNull();
+  });
+
+  it('保存外观配置时不会回写遗留的 pageMode 字段', async () => {
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    const appearanceTab = await screen.findByRole('tab', { name: /外观配置/ });
+    await userEvent.click(appearanceTab);
+
+    const saveButtonLabel = await screen.findByText('保存外观配置');
+    const saveButton = saveButtonLabel.closest('button');
+    expect(saveButton).not.toBeNull();
+    await userEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(saveConfig).toHaveBeenCalled();
+    });
+
+    const savedAppearance = (saveConfig.mock.calls.at(-1)?.[0] as any)?.booru?.appearance;
+    expect(savedAppearance).toEqual({
+      gridSize: 280,
+      previewQuality: 'high',
+      itemsPerPage: 35,
+      paginationPosition: 'both',
+      spacing: 20,
+      borderRadius: 12,
+      margin: 32,
+      maxCacheSizeMB: 900,
+    });
+    expect(savedAppearance).not.toHaveProperty('pageMode');
+  });
+
+  it('不展示仅提示开发中的高级伪操作', async () => {
+    render(<SettingsPage />);
+
+    await screen.findByText('缓存管理');
+
+    expect(screen.queryByText('高级')).toBeNull();
+    expect(screen.queryByText('重建索引')).toBeNull();
+    expect(screen.queryByText('重置全部')).toBeNull();
+  });
+});
+
+describe('SettingsPage save behavior', () => {
+  it('在通用设置页点击保存所有设置时不应把代理凭据回传到渲染层保存负载', async () => {
+    render(<SettingsPage />);
+
+    const saveButtonLabel = await screen.findByText('保存所有设置');
+    const saveButton = saveButtonLabel.closest('button');
+    expect(saveButton).not.toBeNull();
+    await userEvent.click(saveButton!);
 
     await waitFor(() => {
       expect(saveConfig).toHaveBeenCalledTimes(1);
@@ -243,12 +383,169 @@ describe('SettingsPage save behavior', () => {
             protocol: 'http',
             host: '127.0.0.1',
             port: 7890,
-            username: 'user',
-            password: 'secret',
           },
         },
       })
     );
+    expect((saveConfig.mock.calls[0]?.[0] as any)?.network?.proxy).not.toHaveProperty('username');
+    expect((saveConfig.mock.calls[0]?.[0] as any)?.network?.proxy).not.toHaveProperty('password');
     expect(consoleErrorSpy.mock.calls).toEqual([]);
+  });
+
+  it('编辑站点时不应预填敏感凭据，且保存普通字段时不回传 salt 与 apiKey', async () => {
+    getSites.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 1,
+          name: 'Yande',
+          url: 'https://yande.re',
+          type: 'moebooru',
+          username: 'alice',
+          authenticated: true,
+          favoriteSupport: true,
+          active: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    const editButtonLabel = await screen.findByText('编辑');
+    const editButton = editButtonLabel.closest('button');
+    expect(editButton).not.toBeNull();
+    await userEvent.click(editButton!);
+
+    const [saltInput, apiKeyInput] = await screen.findAllByPlaceholderText('留空保留当前值；仅在需要覆盖时填写') as HTMLInputElement[];
+    const usernameInput = screen.getByDisplayValue('alice') as HTMLInputElement;
+    const nameInput = screen.getByDisplayValue('Yande') as HTMLInputElement;
+
+    expect(saltInput.value).toBe('');
+    expect(apiKeyInput.value).toBe('');
+    expect(usernameInput.value).toBe('alice');
+    expect(nameInput.value).toBe('Yande');
+
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'Yande Mirror');
+
+    const modalContent = saltInput.closest('.ant-modal-content') as HTMLElement | null;
+    expect(modalContent).not.toBeNull();
+    const saveButton = modalContent!.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    expect(saveButton).not.toBeNull();
+    await userEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(updateSite).toHaveBeenCalledTimes(1);
+    });
+
+    expect(updateSite).toHaveBeenCalledWith(
+      1,
+      expect.objectContaining({
+        name: 'Yande Mirror',
+        username: 'alice',
+      })
+    );
+
+    const payload = updateSite.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('salt');
+    expect(payload).not.toHaveProperty('apiKey');
+  });
+
+  it('编辑站点并填写敏感字段时不应把 salt 与 apiKey 写入控制台日志', async () => {
+    getSites.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 1,
+          name: 'Yande',
+          url: 'https://yande.re',
+          type: 'moebooru',
+          username: 'alice',
+          authenticated: true,
+          favoriteSupport: true,
+          active: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    const editButtonLabel = await screen.findByText('编辑');
+    const editButton = editButtonLabel.closest('button');
+    expect(editButton).not.toBeNull();
+    await userEvent.click(editButton!);
+
+    const [saltInput, apiKeyInput] = await screen.findAllByPlaceholderText('留空保留当前值；仅在需要覆盖时填写') as HTMLInputElement[];
+    const nameInput = screen.getByDisplayValue('Yande') as HTMLInputElement;
+
+    await userEvent.clear(nameInput);
+    await userEvent.type(nameInput, 'Yande Mirror');
+    await userEvent.type(saltInput, 'secret-salt');
+    await userEvent.type(apiKeyInput, 'secret-api-key');
+
+    const modalContent = saltInput.closest('.ant-modal-content') as HTMLElement | null;
+    expect(modalContent).not.toBeNull();
+    const saveButton = modalContent!.querySelector('button[type="submit"]') as HTMLButtonElement | null;
+    expect(saveButton).not.toBeNull();
+    await userEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(updateSite).toHaveBeenCalledTimes(1);
+    });
+
+    const leakedPayload = consoleLogSpy.mock.calls.find(([, value]) => {
+      if (!value || typeof value !== 'object') {
+        return false;
+      }
+
+      const loggedObject = value as Record<string, unknown>;
+      return loggedObject.salt === 'secret-salt' || loggedObject.apiKey === 'secret-api-key';
+    });
+
+    expect(leakedPayload).toBeUndefined();
+  });
+
+  it('站点认证展示应基于 authenticated 而不是 passwordHash', async () => {
+    getSites.mockResolvedValue({
+      success: true,
+      data: [
+        {
+          id: 1,
+          name: 'Yande',
+          url: 'https://yande.re',
+          type: 'moebooru',
+          username: 'alice',
+          authenticated: false,
+          favoriteSupport: true,
+          active: true,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-02T00:00:00.000Z',
+        },
+      ],
+    });
+
+    render(
+      <App>
+        <BooruSettingsPage />
+      </App>
+    );
+
+    await screen.findByText('Yande');
+    expect(screen.getByText('未登录')).not.toBeNull();
+    const loginButtons = screen.getAllByRole('button').filter((button) => button.textContent?.includes('登录'));
+    expect(loginButtons.length).toBeGreaterThan(0);
+    expect(screen.queryByText('登出')).toBeNull();
   });
 });

@@ -61,7 +61,9 @@ export const ShortcutsModal: React.FC<ShortcutsModalProps> = ({ open, onClose })
     <Modal
       title={t('shortcuts.title')}
       open={open}
-      closable={false}
+      closable
+      maskClosable
+      keyboard
       onCancel={onClose}
       footer={<Button onClick={onClose}>{t('common.close')}</Button>}
       width={480}

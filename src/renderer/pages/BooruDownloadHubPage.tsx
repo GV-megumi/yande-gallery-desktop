@@ -18,10 +18,13 @@ type TabKey = 'downloads' | 'bulk';
 interface BooruDownloadHubPageProps {
   /** 初始激活的 tab，默认 'downloads' */
   defaultTab?: TabKey;
+  /** 页面整体是否处于可见激活状态；隐藏时下层副作用应停下 */
+  active?: boolean;
 }
 
 export const BooruDownloadHubPage: React.FC<BooruDownloadHubPageProps> = ({
   defaultTab = 'downloads',
+  active = true,
 }) => {
   const [activeTab, setActiveTab] = useState<TabKey>(defaultTab);
   const { t } = useLocale();
@@ -49,12 +52,12 @@ export const BooruDownloadHubPage: React.FC<BooruDownloadHubPageProps> = ({
       {/* tab 内容 — 保持两个页面都挂载以维持各自状态，非活跃的用 display:none 隐藏 */}
       <div style={activeTab !== 'downloads' ? { display: 'none' } : undefined}>
         <Suspense fallback={suspenseFallback}>
-          <BooruDownloadPage />
+          <BooruDownloadPage active={active && activeTab === 'downloads'} />
         </Suspense>
       </div>
       <div style={activeTab !== 'bulk' ? { display: 'none' } : undefined}>
         <Suspense fallback={suspenseFallback}>
-          <BooruBulkDownloadPage />
+          <BooruBulkDownloadPage active={active && activeTab === 'bulk'} />
         </Suspense>
       </div>
     </div>

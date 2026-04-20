@@ -33,8 +33,10 @@ vi.mock('../../../src/main/services/config.js', () => ({
 }));
 
 const mockInitDatabase = vi.fn().mockResolvedValue({ success: true });
+const mockCloseDatabase = vi.fn().mockResolvedValue(undefined);
 vi.mock('../../../src/main/services/database.js', () => ({
   initDatabase: mockInitDatabase,
+  closeDatabase: mockCloseDatabase,
 }));
 
 const mockCreateGallery = vi.fn().mockResolvedValue({ success: true });
@@ -49,15 +51,21 @@ vi.mock('../../../src/main/utils/path.js', () => ({
 }));
 
 const mockResumePendingDownloads = vi.fn().mockResolvedValue({ resumed: 0 });
+const mockPauseAll = vi.fn().mockResolvedValue(true);
 vi.mock('../../../src/main/services/downloadManager.js', () => ({
   downloadManager: {
     resumePendingDownloads: mockResumePendingDownloads,
+    pauseAll: mockPauseAll,
   },
 }));
 
 const mockResumeRunningSessions = vi.fn().mockResolvedValue({ success: true, data: { resumed: 0 } });
+const mockGetActiveBulkDownloadSessions = vi.fn().mockResolvedValue([]);
+const mockPauseBulkDownloadSession = vi.fn().mockResolvedValue({ success: true });
 vi.mock('../../../src/main/services/bulkDownloadService.js', () => ({
   resumeRunningSessions: mockResumeRunningSessions,
+  getActiveBulkDownloadSessions: mockGetActiveBulkDownloadSessions,
+  pauseBulkDownloadSession: mockPauseBulkDownloadSession,
 }));
 
 const mockCleanExpiredTags = vi.fn().mockResolvedValue(0);
@@ -67,8 +75,17 @@ vi.mock('../../../src/main/services/booruService.js', () => ({
 
 describe('initializeApp', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
+    mockPauseAll.mockResolvedValue(true);
+    mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
+    mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
     vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it('应按顺序调用初始化步骤', async () => {
@@ -103,6 +120,7 @@ describe('initializeApp', () => {
 
 describe('getAppInfo', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
   });
 
@@ -139,7 +157,17 @@ describe('getAppInfo', () => {
 describe('initGalleriesFromConfig 逻辑', () => {
   // 由于 initGalleriesFromConfig 是私有函数，通过 initializeApp 间接测试
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
+    mockPauseAll.mockResolvedValue(true);
+    mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
+    mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
   });
 
   it('已有图库时应跳过创建', async () => {
@@ -186,7 +214,11 @@ describe('initGalleriesFromConfig 逻辑', () => {
 
 describe('resumeDownloadsInBackground 逻辑', () => {
   beforeEach(() => {
+    vi.resetModules();
     vi.clearAllMocks();
+    mockPauseAll.mockResolvedValue(true);
+    mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
+    mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
     vi.useFakeTimers();
   });
 
@@ -215,6 +247,86 @@ describe('resumeDownloadsInBackground 逻辑', () => {
     // 即使普通下载恢复失败，批量下载恢复仍应被调用
     expect(mockResumeRunningSessions).toHaveBeenCalledOnce();
     expect(mockCleanExpiredTags).toHaveBeenCalledOnce();
+  });
+
+  it('重复初始化时应只保留最后一次后台恢复定时器', async () => {
+    const { initializeApp } = await import('../../../src/main/services/init.js');
+
+    await initializeApp();
+    await initializeApp();
+
+    await vi.advanceTimersByTimeAsync(1999);
+    expect(mockResumePendingDownloads).not.toHaveBeenCalled();
+    expect(mockResumeRunningSessions).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockResumePendingDownloads).toHaveBeenCalledTimes(1);
+    expect(mockResumeRunningSessions).toHaveBeenCalledTimes(1);
+    expect(mockCleanExpiredTags).toHaveBeenCalledTimes(1);
+  });
+
+  it('关闭初始化资源时应先冻结普通下载与批量会话，再清理后台恢复定时器并关闭数据库', async () => {
+    mockGetActiveBulkDownloadSessions.mockResolvedValueOnce([
+      {
+        id: 'session-running',
+        status: 'running',
+      },
+      {
+        id: 'session-dry-run',
+        status: 'dryRun',
+      },
+      {
+        id: 'session-paused',
+        status: 'paused',
+      },
+      {
+        id: 'session-completed',
+        status: 'completed',
+      },
+    ]);
+
+    const { initializeApp, shutdownAppResources } = await import('../../../src/main/services/init.js');
+
+    await initializeApp();
+    await shutdownAppResources();
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(mockPauseAll).toHaveBeenCalledTimes(1);
+    expect(mockGetActiveBulkDownloadSessions).toHaveBeenCalledTimes(1);
+    expect(mockPauseBulkDownloadSession).toHaveBeenCalledTimes(2);
+    expect(mockPauseBulkDownloadSession).toHaveBeenNthCalledWith(1, 'session-running');
+    expect(mockPauseBulkDownloadSession).toHaveBeenNthCalledWith(2, 'session-dry-run');
+    expect(mockResumePendingDownloads).not.toHaveBeenCalled();
+    expect(mockResumeRunningSessions).not.toHaveBeenCalled();
+    expect(mockCleanExpiredTags).not.toHaveBeenCalled();
+    expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
+    expect(mockPauseAll.mock.invocationCallOrder[0]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
+    expect(mockPauseBulkDownloadSession.mock.invocationCallOrder[1]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
+  });
+
+  it('任务冻结失败时不应继续关闭数据库，且后续允许再次重试', async () => {
+    mockPauseAll
+      .mockRejectedValueOnce(new Error('pause all failed'))
+      .mockResolvedValueOnce(true);
+
+    const { shutdownAppResources } = await import('../../../src/main/services/init.js');
+
+    await expect(shutdownAppResources()).rejects.toThrow('pause all failed');
+    expect(mockCloseDatabase).not.toHaveBeenCalled();
+
+    await expect(shutdownAppResources()).resolves.toBeUndefined();
+
+    expect(mockPauseAll).toHaveBeenCalledTimes(2);
+    expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
+  });
+
+  it('重复关闭初始化资源成功时应只关闭一次数据库', async () => {
+    const { shutdownAppResources } = await import('../../../src/main/services/init.js');
+
+    await shutdownAppResources();
+    await shutdownAppResources();
+
+    expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
   });
 
   afterEach(() => {

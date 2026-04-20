@@ -78,6 +78,23 @@ describe('ImportTagsDialog', () => {
     });
   });
 
+  it('空闲时应保留系统关闭按钮', () => {
+    render(
+      <ImportTagsDialog
+        open
+        title="导入收藏标签"
+        sites={sites}
+        onCancel={() => {}}
+        onPickFile={vi.fn()}
+        onCommit={vi.fn()}
+        onImported={vi.fn()}
+      />
+    );
+    const dialog = screen.getByRole('dialog', { name: '导入收藏标签' });
+    const modal = dialog.closest('.ant-modal');
+    expect(modal?.querySelector('.ant-modal-close')).toBeTruthy();
+  });
+
   it('pickFile 成功进入阶段 B 显示文件名和统计', async () => {
     const onPickFile = vi.fn().mockResolvedValue({
       success: true,

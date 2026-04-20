@@ -38,11 +38,11 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
   const [appearanceConfig, setAppearanceConfig] = useState({
     gridSize: 330,
     previewQuality: 'auto' as 'auto' | 'low' | 'medium' | 'high' | 'original',
-    itemsPerPage: 20,
-    paginationPosition: 'bottom' as 'top' | 'bottom' | 'both',
+    itemsPerPage: 60,
+    paginationPosition: 'both' as 'top' | 'bottom' | 'both',
     spacing: 16,
-    borderRadius: 14,
-    margin: 20
+    borderRadius: 8,
+    margin: 24
   });
 
   // 服务端喜欢状态管理（喜欢页面中所有帖子默认为已喜欢）
@@ -81,19 +81,10 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
   useEffect(() => {
     const loadConfig = async () => {
       try {
-        if (!window.electronAPI) return;
-        const result = await window.electronAPI.config.get();
-        if (result.success && result.data?.booru?.appearance) {
-          const a = result.data.booru.appearance;
-          setAppearanceConfig({
-            gridSize: a.gridSize || 330,
-            previewQuality: a.previewQuality || 'auto',
-            itemsPerPage: a.itemsPerPage || 20,
-            paginationPosition: a.paginationPosition || 'bottom',
-            spacing: a.spacing || 16,
-            borderRadius: a.borderRadius || 8,
-            margin: a.margin || 24
-          });
+        if (!window.electronAPI?.booruPreferences?.appearance) return;
+        const result = await window.electronAPI.booruPreferences.appearance.get();
+        if (result.success && result.data) {
+          setAppearanceConfig(result.data);
         }
       } catch (error) {
         console.error('[BooruServerFavoritesPage] 加载外观配置失败:', error);
@@ -112,7 +103,7 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
           const site = result.data;
           console.log('[BooruServerFavoritesPage] 活跃站点:', site.name, '用户:', site.username || '未登录');
           setActiveSite(site);
-          setIsLoggedIn(!!(site.username && site.passwordHash));
+          setIsLoggedIn(!!site.authenticated);
         }
       } catch (error) {
         console.error('[BooruServerFavoritesPage] 加载活跃站点失败:', error);

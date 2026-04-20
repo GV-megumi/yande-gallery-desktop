@@ -1,8 +1,9 @@
-import { ipcMain, dialog, IpcMainInvokeEvent, BrowserWindow } from 'electron';
+import { app, ipcMain, dialog, IpcMainInvokeEvent, BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from './channels.js';
 import path from 'path';
 import fs from 'fs/promises';
 import axios from 'axios';
+import { lookup } from 'node:dns/promises';
 import { getProxyConfig } from '../services/config.js';
 import {
   initDatabase,
@@ -28,14 +29,19 @@ import {
   setGalleryCover,
   updateGalleryStats,
   syncGalleryFolder,
-  scanSubfoldersAndCreateGalleries
+  scanSubfoldersAndCreateGalleries,
+  listIgnoredFolders,
+  addIgnoredFolder,
+  updateIgnoredFolder,
+  removeIgnoredFolder
 } from '../services/galleryService.js';
 import { hashPasswordSHA1 } from '../services/moebooruClient.js';
 import { createBooruClient } from '../services/booruClientFactory.js';
 import { TAG_TYPE_MAP, RATING_MAP } from '../services/booruClientInterface.js';
+import type { BooruForumPostData, BooruForumTopicData, BooruUserProfileData, BooruWikiData } from '../services/booruClientInterface.js';
 import * as booruService from '../services/booruService.js';
-import { BooruPost, ListQueryParams, FavoriteTagImportRecord, FavoriteTagLabelImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
-import { getConfig, saveConfig, updateGalleryFolders, reloadConfig } from '../services/config.js';
+import { BooruForumPost, BooruForumTopic, BooruPost, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, ListQueryParams, FavoriteTagImportRecord, FavoriteTagLabelImportRecord, BlacklistedTagImportRecord } from '../../shared/types.js';
+import { getConfig, getBooruAppearancePreference, saveConfig, updateGalleryFolders, reloadConfig, toRendererSafeConfig, getNotificationsConfig, getDesktopConfig, type AppShellPagePreference, type BlacklistedTagsPagePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab } from '../services/config.js';
 import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../services/thumbnailService.js';
 import { downloadManager } from '../services/downloadManager.js';
 import * as bulkDownloadService from '../services/bulkDownloadService.js';
@@ -53,6 +59,212 @@ import {
 import * as updateService from '../services/updateService.js';
 
 let ipcHandlersRegistered = false;
+
+function toRendererSafeBooruSite(site: BooruSiteRecord | null): BooruSite | null {
+  if (!site) {
+    return null;
+  }
+
+  const { salt: _salt, apiKey: _apiKey, passwordHash: _passwordHash, ...safeSite } = site;
+  return {
+    ...safeSite,
+    authenticated: Boolean(site.username && site.passwordHash),
+  };
+}
+
+function toRendererSafeBooruSites(sites: BooruSiteRecord[]): BooruSite[] {
+  return sites.map((site) => toRendererSafeBooruSite(site)!).filter(Boolean);
+}
+
+function toRendererSafeBooruWiki(wiki: BooruWikiData | null): BooruWiki | null {
+  if (!wiki) {
+    return null;
+  }
+
+  return {
+    id: wiki.id,
+    title: wiki.title,
+    body: typeof wiki.body === 'string' ? wiki.body : '',
+    otherNames: Array.isArray(wiki.other_names) ? wiki.other_names : [],
+    createdAt: wiki.created_at,
+    updatedAt: wiki.updated_at,
+    isLocked: wiki.is_locked,
+    isDeleted: wiki.is_deleted,
+  };
+}
+
+function toRendererSafeBooruForumTopic(topic: BooruForumTopicData): BooruForumTopic {
+  return {
+    id: topic.id,
+    title: topic.title,
+    responseCount: topic.response_count,
+    isSticky: topic.is_sticky,
+    isLocked: topic.is_locked,
+    isHidden: topic.is_hidden,
+    categoryId: topic.category_id,
+    creatorId: topic.creator_id,
+    updaterId: topic.updater_id,
+    createdAt: topic.created_at,
+    updatedAt: topic.updated_at,
+  };
+}
+
+function toRendererSafeBooruForumPost(post: BooruForumPostData): BooruForumPost {
+  return {
+    id: post.id,
+    topicId: post.topic_id,
+    body: post.body,
+    creatorId: post.creator_id,
+    updaterId: post.updater_id,
+    createdAt: post.created_at,
+    updatedAt: post.updated_at,
+    isDeleted: post.is_deleted,
+    isHidden: post.is_hidden,
+  };
+}
+
+function toRendererSafeBooruUserProfile(profile: BooruUserProfileData | null): BooruUserProfile | null {
+  if (!profile) {
+    return null;
+  }
+
+  return {
+    id: profile.id,
+    name: profile.name,
+    levelString: profile.level_string,
+    createdAt: profile.created_at,
+    avatarUrl: profile.avatar_url,
+    postUploadCount: profile.post_upload_count,
+    postUpdateCount: profile.post_update_count,
+    noteUpdateCount: profile.note_update_count,
+    commentCount: profile.comment_count,
+    forumPostCount: profile.forum_post_count,
+    favoriteCount: profile.favorite_count,
+    feedbackCount: profile.feedback_count,
+  };
+}
+
+function isIPv4Literal(hostname: string): boolean {
+  const parts = hostname.split('.');
+  if (parts.length !== 4) {
+    return false;
+  }
+
+  return parts.every((part) => /^\d+$/.test(part) && Number(part) >= 0 && Number(part) <= 255);
+}
+
+function isDisallowedIPv4Target(hostname: string): boolean {
+  if (!isIPv4Literal(hostname)) {
+    return false;
+  }
+
+  const [first, second] = hostname.split('.').map(Number);
+
+  return (
+    first === 0 ||
+    first === 10 ||
+    first === 127 ||
+    (first === 169 && second === 254) ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  );
+}
+
+function extractMappedIPv4FromIPv6(hostname: string): string | null {
+  const normalized = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+  const dottedMatch = normalized.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/);
+  if (dottedMatch) {
+    return dottedMatch[1];
+  }
+
+  const hexMatch = normalized.match(/^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+  if (!hexMatch) {
+    return null;
+  }
+
+  const first = parseInt(hexMatch[1], 16);
+  const second = parseInt(hexMatch[2], 16);
+  return [first >> 8, first & 0xff, second >> 8, second & 0xff].join('.');
+}
+
+function isDisallowedIPv6Target(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[/, '').replace(/\]$/, '').toLowerCase();
+  const mappedIPv4 = extractMappedIPv4FromIPv6(normalized);
+
+  if (mappedIPv4 && isDisallowedIPv4Target(mappedIPv4)) {
+    return true;
+  }
+
+  return (
+    normalized === '::1' ||
+    normalized === '::' ||
+    normalized.startsWith('fc') ||
+    normalized.startsWith('fd') ||
+    normalized.startsWith('fe8') ||
+    normalized.startsWith('fe9') ||
+    normalized.startsWith('fea') ||
+    normalized.startsWith('feb')
+  );
+}
+
+function isDisallowedExternalHostname(hostname: string): boolean {
+  const normalized = hostname.trim().toLowerCase();
+  if (!normalized) {
+    return true;
+  }
+
+  if (normalized === 'localhost' || normalized.endsWith('.localhost')) {
+    return true;
+  }
+
+  return isDisallowedIPv4Target(normalized) || isDisallowedIPv6Target(normalized);
+}
+
+async function validateExternalUrl(input: unknown): Promise<{ ok: true; url: string } | { ok: false; error: string }> {
+  if (typeof input !== 'string') {
+    return { ok: false, error: '链接必须是字符串' };
+  }
+
+  const trimmed = input.trim();
+  if (!trimmed) {
+    return { ok: false, error: '链接不能为空' };
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    return { ok: false, error: '链接格式无效' };
+  }
+
+  if (parsed.protocol !== 'https:') {
+    return { ok: false, error: '仅允许打开 https 链接' };
+  }
+
+  if (!parsed.hostname) {
+    return { ok: false, error: '链接缺少有效主机名' };
+  }
+
+  if (parsed.username || parsed.password) {
+    return { ok: false, error: '不允许打开包含账号信息的外部链接' };
+  }
+
+  if (isDisallowedExternalHostname(parsed.hostname)) {
+    return { ok: false, error: '不允许打开指向本地或内网的外部链接' };
+  }
+
+  try {
+    const resolved = await lookup(parsed.hostname, { all: true, verbatim: true });
+    const records = Array.isArray(resolved) ? resolved : [resolved];
+    if (records.some((record) => isDisallowedExternalHostname(record.address))) {
+      return { ok: false, error: '不允许打开指向本地或内网的外部链接' };
+    }
+  } catch {
+    return { ok: false, error: '链接主机名解析失败' };
+  }
+
+  return { ok: true, url: parsed.toString() };
+}
 
 /**
  * 安全解析 created_at 字段
@@ -275,7 +487,7 @@ export function setupIPC() {
   });
 
   // 获取缩略图路径（如果不存在则自动生成）
-  ipcMain.handle('image:get-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
+  ipcMain.handle(IPC_CHANNELS.IMAGE_GET_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {
       console.log(`[IPC] 获取缩略图: ${imagePath}`);
       // 先检查缩略图是否存在
@@ -307,7 +519,7 @@ export function setupIPC() {
   });
 
   // 删除图片（包括数据库记录、磁盘文件和缩略图）
-  ipcMain.handle('image:delete', async (_event: IpcMainInvokeEvent, imageId: number) => {
+  ipcMain.handle(IPC_CHANNELS.IMAGE_DELETE, async (_event: IpcMainInvokeEvent, imageId: number) => {
     try {
       return await deleteImage(imageId);
     } catch (error) {
@@ -316,7 +528,7 @@ export function setupIPC() {
   });
 
   // 删除缩略图
-  ipcMain.handle('image:delete-thumbnail', async (_event: IpcMainInvokeEvent, imagePath: string) => {
+  ipcMain.handle(IPC_CHANNELS.IMAGE_DELETE_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {
       return await deleteThumbnail(imagePath);
     } catch (error) {
@@ -340,8 +552,14 @@ export function setupIPC() {
 
   // 打开外部链接
   ipcMain.handle(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, async (_, url: string) => {
+    const validated = await validateExternalUrl(url);
+    if (!validated.ok) {
+      return { success: false, error: validated.error };
+    }
+
     const { shell } = await import('electron');
-    await shell.openExternal(url);
+    await shell.openExternal(validated.url);
+    return { success: true };
   });
 
   // 在文件管理器中显示项目
@@ -368,7 +586,7 @@ export function setupIPC() {
   });
 
   // ===== 最近图片 =====
-  ipcMain.handle('gallery:get-recent-images', async (_event: IpcMainInvokeEvent, count: number = 100) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES, async (_event: IpcMainInvokeEvent, count: number = 100) => {
     try {
       return await getRecentImages(count);
     } catch (error) {
@@ -377,7 +595,7 @@ export function setupIPC() {
   });
 
   // ===== 文件夹相关 =====
-  ipcMain.handle('gallery:get-images-by-folder', async (_event: IpcMainInvokeEvent, folderPath: string, page: number = 1, pageSize: number = 50) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, page: number = 1, pageSize: number = 50) => {
     try {
       return await getImagesByFolder(folderPath, page, pageSize);
     } catch (error) {
@@ -385,7 +603,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:get-all-folders', async (_event: IpcMainInvokeEvent) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_ALL_FOLDERS, async (_event: IpcMainInvokeEvent) => {
     try {
       return await getAllFolders();
     } catch (error) {
@@ -393,7 +611,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:scan-and-import-folder', async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
     try {
       return await scanAndImportFolder(folderPath, extensions, recursive);
     } catch (error) {
@@ -402,7 +620,7 @@ export function setupIPC() {
   });
 
   // ===== 图库（Gallery）管理 =====
-  ipcMain.handle('gallery:get-galleries', async (_event: IpcMainInvokeEvent) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_GALLERIES, async (_event: IpcMainInvokeEvent) => {
     try {
       return await getGalleries();
     } catch (error) {
@@ -410,7 +628,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:get-gallery', async (_event: IpcMainInvokeEvent, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_GALLERY, async (_event: IpcMainInvokeEvent, id: number) => {
     try {
       return await getGallery(id);
     } catch (error) {
@@ -418,7 +636,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:create-gallery', async (_event: IpcMainInvokeEvent, galleryData: any) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_CREATE_GALLERY, async (_event: IpcMainInvokeEvent, galleryData: any) => {
     try {
       return await createGallery(galleryData);
     } catch (error) {
@@ -426,7 +644,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:update-gallery', async (_event: IpcMainInvokeEvent, id: number, updates: any) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_UPDATE_GALLERY, async (_event: IpcMainInvokeEvent, id: number, updates: any) => {
     try {
       return await updateGallery(id, updates);
     } catch (error) {
@@ -434,7 +652,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:delete-gallery', async (_event: IpcMainInvokeEvent, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_DELETE_GALLERY, async (_event: IpcMainInvokeEvent, id: number) => {
     try {
       return await deleteGallery(id);
     } catch (error) {
@@ -442,7 +660,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:set-gallery-cover', async (_event: IpcMainInvokeEvent, id: number, coverImageId: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_SET_GALLERY_COVER, async (_event: IpcMainInvokeEvent, id: number, coverImageId: number) => {
     try {
       return await setGalleryCover(id, coverImageId);
     } catch (error) {
@@ -450,7 +668,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:update-gallery-stats', async (_event: IpcMainInvokeEvent, id: number, imageCount: number, lastScannedAt: string) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_UPDATE_GALLERY_STATS, async (_event: IpcMainInvokeEvent, id: number, imageCount: number, lastScannedAt: string) => {
     try {
       return await updateGalleryStats(id, imageCount, lastScannedAt);
     } catch (error) {
@@ -458,7 +676,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:sync-gallery-folder', async (_event: IpcMainInvokeEvent, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_SYNC_GALLERY_FOLDER, async (_event: IpcMainInvokeEvent, id: number) => {
     try {
       return await syncGalleryFolder(id);
     } catch (error) {
@@ -467,7 +685,7 @@ export function setupIPC() {
   });
 
   // ===== 无效图片管理 =====
-  ipcMain.handle('gallery:report-invalid-image', async (_event: IpcMainInvokeEvent, imageId: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_REPORT_INVALID_IMAGE, async (_event: IpcMainInvokeEvent, imageId: number) => {
     try {
       return await reportInvalidImage(imageId);
     } catch (error) {
@@ -475,7 +693,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:get-invalid-images', async (_event: IpcMainInvokeEvent, page: number = 1, pageSize: number = 200) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_INVALID_IMAGES, async (_event: IpcMainInvokeEvent, page: number = 1, pageSize: number = 200) => {
     try {
       return await getInvalidImages(page, pageSize);
     } catch (error) {
@@ -483,7 +701,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:get-invalid-image-count', async (_event: IpcMainInvokeEvent) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_INVALID_IMAGE_COUNT, async (_event: IpcMainInvokeEvent) => {
     try {
       return await getInvalidImageCount();
     } catch (error) {
@@ -491,7 +709,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:delete-invalid-image', async (_event: IpcMainInvokeEvent, id: number) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_DELETE_INVALID_IMAGE, async (_event: IpcMainInvokeEvent, id: number) => {
     try {
       return await deleteInvalidImage(id);
     } catch (error) {
@@ -499,7 +717,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('gallery:clear-invalid-images', async (_event: IpcMainInvokeEvent) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_CLEAR_INVALID_IMAGES, async (_event: IpcMainInvokeEvent) => {
     try {
       return await clearInvalidImages();
     } catch (error) {
@@ -507,26 +725,115 @@ export function setupIPC() {
     }
   });
 
-  // ===== 配置管理 =====
-  ipcMain.handle('config:get', async (_event: IpcMainInvokeEvent) => {
+  // ===== 图库忽略名单 CRUD（bug12） =====
+  ipcMain.handle(IPC_CHANNELS.GALLERY_LIST_IGNORED_FOLDERS, async (_event: IpcMainInvokeEvent) => {
     try {
-      const config = getConfig();
-      return { success: true, data: config };
+      return await listIgnoredFolders();
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle('config:save', async (_event: IpcMainInvokeEvent, newConfig: any) => {
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_ADD_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, folderPath: string, note?: string) => {
+      try {
+        return await addIgnoredFolder(folderPath, note);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_UPDATE_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, id: number, patch: { note?: string }) => {
+      try {
+        return await updateIgnoredFolder(id, patch);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_REMOVE_IGNORED_FOLDER,
+    async (_event: IpcMainInvokeEvent, id: number) => {
+      try {
+        return await removeIgnoredFolder(id);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // ===== 配置管理 =====
+  ipcMain.handle(IPC_CHANNELS.CONFIG_GET, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      return { success: true, data: toRendererSafeConfig(config) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE, async (_event: IpcMainInvokeEvent) => {
+    try {
+      return { success: true, data: getBooruAppearancePreference(getConfig()) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 仅广播“哪些配置区块发生了变化”的摘要，避免事件负载携带完整的（包含敏感字段的）
+  // 配置对象。渲染端收到摘要后应通过 CONFIG_GET / BOORU_PREFERENCES_GET_APPEARANCE 等
+  // 只读通道自行拉取去敏后的最新数据。
+  const broadcastConfigChanged = (sections: string[]): void => {
+    const windows = BrowserWindow.getAllWindows();
+    const summary: ConfigChangedSummary = {
+      version: Date.now(),
+      sections: Array.from(new Set(sections.filter(section => section.length > 0))),
+    };
+    for (const win of windows) {
+      win.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, summary);
+    }
+    console.log('[IPC] 配置变更摘要已广播到', windows.length, '个窗口:', summary.sections);
+  };
+
+  // 根据 ConfigSaveInput 负载推导受影响的“配置区块路径”集合。
+  // - 普通顶层字段(如 `network`/`google`)统一记录为顶层段。
+  // - `ui.pagePreferences.<key>` 需要额外下钻到具体偏好名，便于订阅端按页判断。
+  // - 数组被视作终值、不再下钻，避免按索引生成无意义的段路径。
+  // - 循环引用在当前路径不会出现：payload 来自 ipcRenderer.invoke 的结构化克隆副本，
+  //   renderer 端 ConfigSaveInput 类型本身不允许循环；如未来来源扩大，需要补 visited guard。
+  const collectConfigSaveSections = (
+    payload: unknown,
+    prefix = '',
+  ): string[] => {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return prefix ? [prefix] : [];
+    }
+    const entries = Object.entries(payload as Record<string, unknown>);
+    if (entries.length === 0) {
+      return prefix ? [prefix] : [];
+    }
+    const sections: string[] = [];
+    for (const [key, value] of entries) {
+      const nextPrefix = prefix ? `${prefix}.${key}` : key;
+      if (nextPrefix === 'ui' || nextPrefix === 'ui.pagePreferences') {
+        sections.push(...collectConfigSaveSections(value, nextPrefix));
+      } else {
+        sections.push(nextPrefix);
+      }
+    }
+    return sections;
+  };
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SAVE, async (_event: IpcMainInvokeEvent, newConfig: ConfigSaveInput) => {
     try {
       const result = await saveConfig(newConfig);
-      // 配置保存成功后，广播配置变更事件到所有窗口
       if (result.success) {
-        const windows = BrowserWindow.getAllWindows();
-        for (const win of windows) {
-          win.webContents.send('config:changed', newConfig);
-        }
-        console.log('[IPC] 配置变更事件已广播到', windows.length, '个窗口');
+        broadcastConfigChanged(collectConfigSaveSections(newConfig));
       }
       return result;
     } catch (error) {
@@ -534,7 +841,200 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('config:update-gallery-folders', async (_event: IpcMainInvokeEvent, folders: any[]) => {
+  // bug9：通知配置分域 getter/setter
+  //
+  // 之所以不复用通用 CONFIG_GET/CONFIG_SAVE：
+  //   - 让前端读写时有"只关心这段"的清晰入口，避免误传其他字段
+  //   - 与后续可能的增量广播（仅 notifications section）保持一致
+  //
+  // setter 内部走 saveConfig + broadcast，保证其他订阅方也能感知变更。
+  ipcMain.handle(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS, async () => {
+    try {
+      return { success: true, data: getNotificationsConfig() };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS, async (_event: IpcMainInvokeEvent, patch: Partial<NonNullable<ReturnType<typeof getNotificationsConfig>>>) => {
+    try {
+      const current = getConfig().notifications ?? {};
+      const merged = { ...current, ...patch } as any;
+      const result = await saveConfig({ notifications: merged });
+      if (result.success) {
+        broadcastConfigChanged(['notifications']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_GET_DESKTOP, async () => {
+    try {
+      return { success: true, data: getDesktopConfig() };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_SET_DESKTOP, async (_event: IpcMainInvokeEvent, patch: Partial<ReturnType<typeof getDesktopConfig>>) => {
+    try {
+      const current = getConfig().desktop ?? {};
+      const merged = { ...current, ...patch } as any;
+      const result = await saveConfig({ desktop: merged });
+      if (result.success) {
+        broadcastConfigChanged(['desktop']);
+        // bug9：autoLaunch / startMinimized 变化时要同步调一次 setLoginItemSettings，
+        // 让系统登录项立即跟随新配置，无需重启应用。
+        if ('autoLaunch' in patch || 'startMinimized' in patch) {
+          try {
+            const desktop = getDesktopConfig();
+            app.setLoginItemSettings({
+              openAtLogin: desktop.autoLaunch,
+              openAsHidden: desktop.startMinimized,
+            });
+          } catch (err) {
+            console.warn('[IPC] setLoginItemSettings 失败（可能该平台不支持）:', err);
+          }
+        }
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_GET_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      return {
+        success: true,
+        data: config.ui?.pagePreferences?.favoriteTags,
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, preferences: FavoriteTagsPagePreference) => {
+    try {
+      const result = await saveConfig({
+        ui: {
+          pagePreferences: {
+            favoriteTags: preferences,
+          },
+        },
+      });
+      if (result.success) {
+        broadcastConfigChanged(['ui.pagePreferences.favoriteTags']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_GET_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      return {
+        success: true,
+        data: config.ui?.pagePreferences?.blacklistedTags,
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_BLACKLISTED_TAGS, async (_event: IpcMainInvokeEvent, preferences: BlacklistedTagsPagePreference) => {
+    try {
+      const result = await saveConfig({
+        ui: {
+          pagePreferences: {
+            blacklistedTags: preferences,
+          },
+        },
+      });
+      if (result.success) {
+        broadcastConfigChanged(['ui.pagePreferences.blacklistedTags']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_GET_GALLERY, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      return {
+        success: true,
+        data: config.ui?.pagePreferences?.galleryBySubTab,
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_GALLERY, async (_event: IpcMainInvokeEvent, preferences: GalleryPagePreferencesBySubTab) => {
+    try {
+      const result = await saveConfig({
+        ui: {
+          pagePreferences: {
+            galleryBySubTab: preferences,
+          },
+        },
+      });
+      if (result.success) {
+        broadcastConfigChanged(['ui.pagePreferences.galleryBySubTab']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_GET_APP_SHELL, async (_event: IpcMainInvokeEvent) => {
+    try {
+      const config = getConfig();
+      const pagePreference = config.ui?.pagePreferences?.appShell;
+      return {
+        success: true,
+        data: {
+          menuOrder: {
+            main: pagePreference?.menuOrder?.main ?? config.ui?.menuOrder?.main,
+            gallery: pagePreference?.menuOrder?.gallery ?? config.ui?.menuOrder?.gallery,
+            booru: pagePreference?.menuOrder?.booru ?? config.ui?.menuOrder?.booru,
+            google: pagePreference?.menuOrder?.google ?? config.ui?.menuOrder?.google,
+          },
+          pinnedItems: pagePreference?.pinnedItems ?? config.ui?.pinnedItems,
+        },
+      };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_APP_SHELL, async (_event: IpcMainInvokeEvent, preferences: AppShellPagePreference) => {
+    try {
+      const result = await saveConfig({
+        ui: {
+          pagePreferences: {
+            appShell: preferences,
+          },
+        },
+      });
+      if (result.success) {
+        broadcastConfigChanged(['ui.pagePreferences.appShell']);
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.CONFIG_UPDATE_GALLERY_FOLDERS, async (_event: IpcMainInvokeEvent, folders: any[]) => {
     try {
       return await updateGalleryFolders(folders);
     } catch (error) {
@@ -542,16 +1042,16 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('config:reload', async (_event: IpcMainInvokeEvent) => {
+  ipcMain.handle(IPC_CHANNELS.CONFIG_RELOAD, async (_event: IpcMainInvokeEvent) => {
     try {
       const config = await reloadConfig();
-      return { success: true, data: config };
+      return { success: true, data: toRendererSafeConfig(config) };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
 
-  ipcMain.handle('system:export-backup', async () => {
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_EXPORT_BACKUP, async () => {
     try {
       console.log('[IPC] 导出应用备份');
       const backupData = await createAppBackupData();
@@ -574,7 +1074,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('system:import-backup', async (_event: IpcMainInvokeEvent, mode: 'merge' | 'replace' = 'merge') => {
+  ipcMain.handle(IPC_CHANNELS.SYSTEM_IMPORT_BACKUP, async (_event: IpcMainInvokeEvent, mode: 'merge' | 'replace' = 'merge') => {
     try {
       console.log('[IPC] 导入应用备份, mode:', mode);
       const result = await dialog.showOpenDialog({
@@ -604,7 +1104,7 @@ export function setupIPC() {
   });
 
   // ===== 扫描子文件夹并创建图集 =====
-  ipcMain.handle('gallery:scan-subfolders', async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
+  ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS, async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
     try {
       return await scanSubfoldersAndCreateGalleries(rootPath, extensions);
     } catch (error) {
@@ -617,7 +1117,7 @@ export function setupIPC() {
     console.log('[IPC] 获取Booru站点列表');
     try {
       const sites = await booruService.getBooruSites();
-      return { success: true, data: sites };
+      return { success: true, data: toRendererSafeBooruSites(sites) };
     } catch (error) {
       console.error('[IPC] 获取Booru站点列表失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -628,7 +1128,7 @@ export function setupIPC() {
     console.log('[IPC] 获取激活的Booru站点');
     try {
       const site = await booruService.getActiveBooruSite();
-      return { success: true, data: site };
+      return { success: true, data: toRendererSafeBooruSite(site) };
     } catch (error) {
       console.error('[IPC] 获取激活Booru站点失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
@@ -1120,7 +1620,7 @@ export function setupIPC() {
             // 通知前端补全结果
             const windows = BrowserWindow.getAllWindows();
             for (const win of windows) {
-              win.webContents.send('booru:favorites-repair-done', {
+              win.webContents.send(IPC_CHANNELS.BOORU_FAVORITES_REPAIR_DONE, {
                 siteId,
                 repairedCount,
                 deletedCount: deletedIds.length,
@@ -1213,6 +1713,18 @@ export function setupIPC() {
     }
   });
 
+  // 删除单条下载记录（失败列表用于"单独删除指定失败项"）
+  ipcMain.handle(IPC_CHANNELS.BOORU_DELETE_DOWNLOAD_RECORD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 删除下载记录:', queueId);
+    try {
+      const ok = await booruService.deleteDownloadRecord(queueId);
+      return { success: ok };
+    } catch (error) {
+      console.error('[IPC] 删除下载记录失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // 暂停所有下载
   ipcMain.handle(IPC_CHANNELS.BOORU_PAUSE_ALL_DOWNLOADS, async () => {
     console.log('[IPC] 暂停所有下载');
@@ -1284,9 +1796,21 @@ export function setupIPC() {
     }
   });
 
+  // 取消/删除单个下载
+  ipcMain.handle(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD, async (_event: IpcMainInvokeEvent, queueId: number) => {
+    console.log('[IPC] 取消单个下载:', queueId);
+    try {
+      const success = await downloadManager.cancelDownload(queueId);
+      return { success };
+    } catch (error) {
+      console.error('[IPC] 取消下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
 
   // ===== 网络连接测试（从主进程发起，绕过CORS） =====
-  ipcMain.handle('network:test-baidu', async () => {
+  ipcMain.handle(IPC_CHANNELS.NETWORK_TEST_BAIDU, async () => {
     console.log('[IPC] 测试百度连接（主进程）');
     const proxyConfig = getProxyConfig();
     console.log('[IPC] 当前代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
@@ -1313,7 +1837,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('network:test-google', async () => {
+  ipcMain.handle(IPC_CHANNELS.NETWORK_TEST_GOOGLE, async () => {
     console.log('[IPC] 测试Google连接（主进程）');
     const proxyConfig = getProxyConfig();
     console.log('[IPC] 当前代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
@@ -1900,7 +2424,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('booru:get-tag-relationships', async (_event: IpcMainInvokeEvent, siteId: number, name: string) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_TAG_RELATIONSHIPS, async (_event: IpcMainInvokeEvent, siteId: number, name: string) => {
     try {
       console.log('[IPC] 获取标签别名与关联:', { siteId, name });
       const site = await booruService.getBooruSiteById(siteId);
@@ -1917,7 +2441,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('booru:report-post', async (_event: IpcMainInvokeEvent, siteId: number, postId: number, reason: string) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_REPORT_POST, async (_event: IpcMainInvokeEvent, siteId: number, postId: number, reason: string) => {
     try {
       console.log('[IPC] 举报帖子:', { siteId, postId });
       const site = await booruService.getBooruSiteById(siteId);
@@ -1934,7 +2458,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle('booru:get-image-metadata', async (_event: IpcMainInvokeEvent, request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_IMAGE_METADATA, async (_event: IpcMainInvokeEvent, request: { localPath?: string; fileUrl?: string; md5?: string; fileExt?: string }) => {
     try {
       console.log('[IPC] 获取图片元数据');
       const metadata = await getImageMetadata(request);
@@ -1957,7 +2481,7 @@ export function setupIPC() {
       const client = createBooruClient(site);
       const wiki = await client.getWiki(title);
       console.log('[IPC] Wiki 获取结果:', wiki ? wiki.title : 'null');
-      return { success: true, data: wiki };
+      return { success: true, data: toRendererSafeBooruWiki(wiki) };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取 Wiki 失败:', errorMessage);
@@ -1975,7 +2499,7 @@ export function setupIPC() {
       }
       const client = createBooruClient(site);
       const topics = await client.getForumTopics({ page, limit });
-      return { success: true, data: topics };
+      return { success: true, data: topics.map(toRendererSafeBooruForumTopic) };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取论坛主题失败:', errorMessage);
@@ -1993,7 +2517,7 @@ export function setupIPC() {
       }
       const client = createBooruClient(site);
       const posts = await client.getForumPosts(topicId, { page, limit });
-      return { success: true, data: posts };
+      return { success: true, data: posts.map(toRendererSafeBooruForumPost) };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取论坛帖子失败:', errorMessage);
@@ -2011,7 +2535,7 @@ export function setupIPC() {
       }
       const client = createBooruClient(site);
       const profile = await client.getProfile();
-      return { success: true, data: profile };
+      return { success: true, data: toRendererSafeBooruUserProfile(profile) };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取当前用户主页失败:', errorMessage);
@@ -2029,7 +2553,7 @@ export function setupIPC() {
       }
       const client = createBooruClient(site);
       const profile = await client.getUserProfile(params || {});
-      return { success: true, data: profile };
+      return { success: true, data: toRendererSafeBooruUserProfile(profile) };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('[IPC] 获取指定用户主页失败:', errorMessage);
@@ -2248,16 +2772,6 @@ export function setupIPC() {
       return { success: true, data: { authenticated: authResult.valid, username: site.username, error: authResult.error } };
     } catch (error) {
       console.error('[IPC] 测试认证失败:', error);
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // 计算密码哈希（供前端预览）
-  ipcMain.handle(IPC_CHANNELS.BOORU_HASH_PASSWORD, async (_event: IpcMainInvokeEvent, salt: string, password: string) => {
-    try {
-      const hash = hashPasswordSHA1(salt || 'choujin-steiner--{0}--', password);
-      return { success: true, data: hash };
-    } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
@@ -3113,7 +3627,7 @@ export function setupIPC() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_SAVED_SEARCH, async (_event: IpcMainInvokeEvent, id: number, updates: { name?: string; query?: string }) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_UPDATE_SAVED_SEARCH, async (_event: IpcMainInvokeEvent, id: number, updates: { name?: string; query?: string; siteId?: number | null }) => {
     try {
       await booruService.updateSavedSearch(id, updates);
       return { success: true };

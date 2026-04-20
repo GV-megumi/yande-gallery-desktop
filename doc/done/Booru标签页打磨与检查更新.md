@@ -6,7 +6,7 @@ v0.0.2 版本的主实现计划。目标是解决 Booru 收藏标签页 / 黑名
 
 相关文档：
 
-- 设计文档：`docs/superpowers/specs/2026-04-11-booru-tag-pages-polish-design.md`
+- 设计文档原位于 `docs/superpowers/specs/2026-04-11-booru-tag-pages-polish-design.md`，现已归入 `doc/done/重构审查与收尾归档.md`
 - 发布说明：`dist-v0.0.2/release-notes.md`
 
 ## 架构方针（已落地）

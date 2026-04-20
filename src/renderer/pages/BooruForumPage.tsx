@@ -73,19 +73,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
     try {
       const result = await window.electronAPI.booru.getForumTopics(targetSite.id, targetPage, PAGE_SIZE);
       if (result.success && result.data) {
-        setTopics(result.data.map(topic => ({
-          id: topic.id,
-          title: topic.title,
-          responseCount: topic.response_count,
-          isSticky: topic.is_sticky,
-          isLocked: topic.is_locked,
-          isHidden: topic.is_hidden,
-          categoryId: topic.category_id,
-          creatorId: topic.creator_id,
-          updaterId: topic.updater_id,
-          createdAt: topic.created_at,
-          updatedAt: topic.updated_at,
-        })));
+        setTopics(result.data);
       } else {
         setTopics([]);
         if (result.error) {
@@ -114,17 +102,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
     try {
       const result = await window.electronAPI.booru.getForumPosts(targetSite.id, selectedTopic.id, targetPage, PAGE_SIZE);
       if (result.success && result.data) {
-        setPosts(result.data.map(post => ({
-          id: post.id,
-          topicId: post.topic_id,
-          body: post.body,
-          creatorId: post.creator_id,
-          updaterId: post.updater_id,
-          createdAt: post.created_at,
-          updatedAt: post.updated_at,
-          isDeleted: post.is_deleted,
-          isHidden: post.is_hidden,
-        })));
+        setPosts(result.data);
       } else {
         setPosts([]);
         if (result.error) {

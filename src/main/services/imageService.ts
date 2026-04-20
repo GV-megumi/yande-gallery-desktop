@@ -2,7 +2,7 @@ import { Image, Tag } from '../../shared/types.js';
 import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
-import { generateThumbnail } from './thumbnailService.js';
+import { generateThumbnail, deleteThumbnail } from './thumbnailService.js';
 import { getConfig } from './config.js';
 
 /**
@@ -258,40 +258,36 @@ export async function getImageById(id: number): Promise<{ success: boolean; data
 
 /**
  * 删除图片
+ * 注意：普通 images 的缩略图路径不在 DB 里，由 thumbnailService 按图片路径反推，
+ *      因此只查 filepath，并通过 deleteThumbnail(filepath) 清理缩略图文件。
  */
 export async function deleteImage(id: number): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
 
     // 先查出文件路径，用于删除磁盘文件和缩略图
-    const row = await get<{ filepath: string; thumbnailPath?: string }>(
-      db, 'SELECT filepath, thumbnailPath FROM images WHERE id = ?', [id]
+    const row = await get<{ filepath: string }>(
+      db, 'SELECT filepath FROM images WHERE id = ?', [id]
     );
 
     // 删除数据库记录
     await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
     await run(db, 'DELETE FROM images WHERE id = ?', [id]);
 
-    // 删除磁盘文件
+    // 删除磁盘原图 + 缩略图（best-effort）
     if (row?.filepath) {
       try {
         await fs.unlink(row.filepath);
         console.log(`[imageService] 已删除磁盘文件: ${row.filepath}`);
       } catch (err: any) {
-        // 文件可能已不存在，不阻断流程
         if (err.code !== 'ENOENT') {
           console.warn(`[imageService] 删除磁盘文件失败: ${row.filepath}`, err.message);
         }
       }
-    }
-
-    // 删除缩略图
-    if (row?.thumbnailPath) {
-      try {
-        await fs.unlink(row.thumbnailPath);
-      } catch {
-        // 缩略图可能不存在，忽略
-      }
+      // deleteThumbnail 内部已对 ENOENT 容错
+      await deleteThumbnail(row.filepath).catch((err: any) => {
+        console.warn(`[imageService] 删除缩略图失败: ${row.filepath}`, err?.message ?? err);
+      });
     }
 
     return { success: true };

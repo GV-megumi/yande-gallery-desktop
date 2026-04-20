@@ -369,12 +369,9 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
           return;
         }
 
-        const result = await window.electronAPI.config.get();
+        const result = await window.electronAPI.booruPreferences.appearance.get();
         if (result.success && result.data) {
-          const config = result.data;
-          const booruConfig = config.booru || {};
-          const appearanceConfig = booruConfig.appearance || {};
-          const quality = appearanceConfig.previewQuality || 'auto';
+          const quality = result.data.previewQuality || 'auto';
           console.log('[BooruPostDetailsPage] 加载预览质量配置:', quality);
           setPreviewQuality(quality);
         }
