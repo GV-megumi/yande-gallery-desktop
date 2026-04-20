@@ -322,7 +322,12 @@ app.on('window-all-closed', () => {
 });
 
 // 开发工具
-if (process.env.NODE_ENV === 'development') {
+// Electron 39 + Windows debug sessions can crash in electron-devtools-installer.
+// Keep React DevTools installation opt-in so normal development startup remains stable.
+if (
+  process.env.NODE_ENV === 'development' &&
+  /^(1|true|yes)$/i.test(process.env.YANDE_INSTALL_REACT_DEVTOOLS || '')
+) {
   app.whenReady().then(async () => {
     try {
       const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer');

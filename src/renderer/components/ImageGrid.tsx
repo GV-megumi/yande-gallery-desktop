@@ -26,6 +26,7 @@ const infoBtnStyle: React.CSSProperties = {
 };
 const containerStyle: React.CSSProperties = { position: 'relative' };
 const previewImgStyle: React.CSSProperties = { display: 'none' };
+const batchGroupSeparator = '__';
 
 export interface ImageGridProps {
   images: any[];
@@ -65,6 +66,16 @@ const getDateGroupKey = (image: any, mode: 'day' | 'month' | 'year'): string => 
 };
 
 // ==================== ImageCard 子组件 ====================
+
+const getBatchGroupKey = (batchIndex: number, timeKey: string): string =>
+  `batch-${batchIndex + 1}${batchGroupSeparator}${timeKey}`;
+
+const getGroupDisplayTitle = (key: string): string => {
+  const separatorIndex = key.indexOf(batchGroupSeparator);
+  return key.startsWith('batch-') && separatorIndex >= 0
+    ? key.slice(separatorIndex + batchGroupSeparator.length)
+    : key;
+};
 
 /** ImageCard 的 props 接口 */
 interface ImageCardProps {
@@ -302,24 +313,61 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   const [selectedImage, setSelectedImage] = useState<any>(null);
   // 存储每个图片的缩略图路径，key 是 image.id
   const [thumbnailPaths, setThumbnailPaths] = useState<Record<number, string | null>>({});
+  const thumbnailPathsRef = useRef<Record<number, string | null>>({});
   // 单图预览状态（替代 Image.PreviewGroup，避免 2000+ 图片创建隐藏预览节点）
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
+  const thumbnailLoadKey = useMemo(
+    () => images.map((image) => `${image.id}:${image.filepath || ''}`).join('|'),
+    [images]
+  );
 
   // 加载所有图片的缩略图（异步批量加载）
   useEffect(() => {
     if (!window.electronAPI || images.length === 0) {
       // 图片列表为空时清空缩略图缓存，释放内存
+      thumbnailPathsRef.current = {};
       setThumbnailPaths({});
       return;
     }
 
-    console.log(`[ImageGrid] 开始加载 ${images.length} 张图片的缩略图`);
-
-    // 重置缩略图状态，避免旧数据无界累积
-    setThumbnailPaths({});
-
     // 用于取消已过时的加载任务
+    const visibleImageIds = new Set(
+      images
+        .map((image) => image.id)
+        .filter((id): id is number => typeof id === 'number')
+    );
+
+    let currentPaths = thumbnailPathsRef.current;
+    let prunedPathsChanged = false;
+    const prunedPaths: Record<number, string | null> = {};
+    for (const [idKey, thumbnailPath] of Object.entries(currentPaths)) {
+      const id = Number(idKey);
+      if (visibleImageIds.has(id)) {
+        prunedPaths[id] = thumbnailPath;
+      } else {
+        prunedPathsChanged = true;
+      }
+    }
+
+    if (prunedPathsChanged) {
+      thumbnailPathsRef.current = prunedPaths;
+      currentPaths = prunedPaths;
+      setThumbnailPaths(prunedPaths);
+    }
+
+    const imagesToLoad = images.filter((image) => (
+      typeof image.id === 'number' &&
+      !!image.filepath &&
+      !(image.id in currentPaths)
+    ));
+
+    if (imagesToLoad.length === 0) {
+      return;
+    }
+
+    console.log(`[ImageGrid] load thumbnails for ${imagesToLoad.length} newly visible images`);
+
     let cancelled = false;
 
     const loadThumbnails = async () => {
@@ -329,10 +377,10 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
       // 批量加载缩略图，限制并发数量以避免过载
       const concurrency = 10; // 每次并发10张
       const flushInterval = 100; // 每100张刷新一次UI
-      for (let i = 0; i < images.length; i += concurrency) {
+      for (let i = 0; i < imagesToLoad.length; i += concurrency) {
         if (cancelled) return;
 
-        const batch = images.slice(i, i + concurrency);
+        const batch = imagesToLoad.slice(i, i + concurrency);
 
         await Promise.all(
           batch.map(async (image) => {
@@ -359,14 +407,16 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
         pendingSinceLastFlush += batch.length;
 
         // 每 flushInterval 张或最后一批时刷新UI（减少 setState 次数）
-        if (!cancelled && (pendingSinceLastFlush >= flushInterval || i + concurrency >= images.length)) {
-          setThumbnailPaths({ ...thumbnails });
+        if (!cancelled && (pendingSinceLastFlush >= flushInterval || i + concurrency >= imagesToLoad.length)) {
+          const nextPaths = { ...thumbnailPathsRef.current, ...thumbnails };
+          thumbnailPathsRef.current = nextPaths;
+          setThumbnailPaths(nextPaths);
           pendingSinceLastFlush = 0;
         }
       }
 
       if (!cancelled) {
-        console.log(`[ImageGrid] 缩略图加载完成，成功: ${Object.values(thumbnails).filter(t => t !== null).length}/${images.length}`);
+        console.log(`[ImageGrid] thumbnails loaded for new images: ${Object.values(thumbnails).filter(t => t !== null).length}/${imagesToLoad.length}`);
       }
     };
 
@@ -376,7 +426,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     return () => {
       cancelled = true;
     };
-  }, [images]);
+  }, [thumbnailLoadKey]);
 
   // 使用 useCallback 包裹回调，确保 ImageCard 的 React.memo 能正确跳过重渲染
   const handleImageInfo = useCallback((image: any) => {
@@ -441,8 +491,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
       // 将批次内的分组添加到最终分组，使用批次前缀区分
       for (const [timeKey, imgs] of Object.entries(batchGroups)) {
-        // 如果只有一个批次，直接使用时间键；否则添加批次前缀
-        const finalKey = batches.length === 1 ? timeKey : `批次${batchIndex + 1}_${timeKey}`;
+        const finalKey = getBatchGroupKey(batchIndex, timeKey);
         finalGroups[finalKey] = imgs;
       }
     });
@@ -472,8 +521,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
         {/* 主内容：按时间分段 + 瀑布流排版 */}
           <div>
             {Object.entries(groupedImages).map(([key, group]) => {
-              // 解析分组键：如果是批次格式 "批次1_2024年11月17日"，提取时间部分
-              const displayTitle = key.includes('_') ? key.split('_').slice(1).join('_') : key;
+              const displayTitle = getGroupDisplayTitle(key);
 
               return (
                 <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={key}>
@@ -549,7 +597,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                   }
                 }}
               >
-                {key}
+                {getGroupDisplayTitle(key)}
               </div>
             ))}
           </div>
