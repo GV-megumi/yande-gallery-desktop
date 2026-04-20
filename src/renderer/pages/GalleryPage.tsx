@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
@@ -97,6 +97,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const lastSavedPreferencesRef = useRef<GalleryPagePreferencesBySubTab | undefined>(undefined);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
+  const visibleRecentImages = useMemo(
+    () => recentImages.slice(0, recentVisibleCount),
+    [recentImages, recentVisibleCount]
+  );
+  const visibleGalleryImages = useMemo(
+    () => galleryImages.slice(0, galleryVisibleCount),
+    [galleryImages, galleryVisibleCount]
+  );
 
   // 同步文件夹状态
   const [syncing, setSyncing] = useState(false);
@@ -946,7 +954,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           />
 
           <ImageListWrapper
-            images={recentImages.slice(0, recentVisibleCount)}
+            images={visibleRecentImages}
             loading={loading}
             emptyDescription="暂无最近图片"
             onReload={loadRecentImages}
@@ -1255,7 +1263,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   </Space>
                 </div>
               <ImageListWrapper
-                images={galleryImages.slice(0, galleryVisibleCount)}
+                images={visibleGalleryImages}
                 loading={loading}
                 emptyDescription="该图集暂无图片"
                 onReload={() => loadGalleryImages(selectedGallery.id)}
