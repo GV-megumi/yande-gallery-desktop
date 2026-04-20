@@ -328,7 +328,7 @@ if (process.env.NODE_ENV === 'development') {
       const { default: installExtension, REACT_DEVELOPER_TOOLS } = await import('electron-devtools-installer');
       if (installExtension && typeof installExtension === 'function') {
         await installExtension(REACT_DEVELOPER_TOOLS)
-          .then((ext) => console.log(`Added Extension: ${ext.name}`))
+          .then((extensionName) => console.log(`Added Extension: ${extensionName}`))
           .catch((err: Error) => console.log('An error occurred: ', err));
       }
     } catch (err) {
