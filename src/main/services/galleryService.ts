@@ -1,6 +1,6 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
-import { getDatabase, run, get, all } from './database.js';
+import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 
@@ -248,16 +248,33 @@ export async function updateGallery(
 }
 
 /**
- * 删除图库
+ * 删除图库（bug12：级联清理 + 自动加入忽略名单）
+ *
+ * 清理顺序：
+ * 1. 校验 galleries 行存在，读出 folderPath + recursive（事务外，只读）；
+ * 2. 按归一化 folderPath 前缀 LIKE 查出所有 images（事务外，只读）；
+ * 3. 对每张图尽力清理磁盘缩略图（事务外 best-effort，失败只告警）；
+ *    —— 磁盘 IO 不进事务：即便事务后续回滚，磁盘缩略图先删也可接受；
+ *       放进事务里反而会拖长事务持锁时间。
+ * 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）：
+ *    a. DELETE image_tags / images；
+ *    b. DELETE invalid_images WHERE galleryId（显式，虽然 FK 设 SET NULL 也可容忍）；
+ *    c. UPDATE booru_posts 把对应 localPath 的 downloaded/localPath 重置，
+ *       避免"已下载"状态错乱；
+ *    d. DELETE galleries 本行；
+ *    e. INSERT OR REPLACE 写入 gallery_ignored_folders，下次扫描不再重建。
+ *    任一条失败 → ROLLBACK。
+ *
+ * 注意：原图文件不删，仅清数据库记录与缩略图缓存。
  */
 export async function deleteGallery(id: number): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
 
-    // 检查是否存在
-    const existing = await get<{ id: number }>(
+    // 1. 校验并取 folderPath
+    const existing = await get<{ id: number; folderPath: string; recursive: number }>(
       db,
-      'SELECT id FROM galleries WHERE id = ?',
+      'SELECT id, folderPath, recursive FROM galleries WHERE id = ?',
       [id]
     );
 
@@ -265,7 +282,110 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       return { success: false, error: 'Gallery not found' };
     }
 
-    await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
+    const normalized = normalizePath(existing.folderPath);
+    // LIKE 前缀使用 path.sep，与 scanDirectory/path.join 入库的 filepath 分隔符保持一致
+    const likePrefix = normalized + path.sep;
+
+    // 2. 查该图集范围内的图片
+    // bug12 I2：必须按 recursive 字段区分匹配范围，否则非递归图集会误删
+    // 子目录下的文件（包括可能属于其他图集的文件）。
+    // - recursive=1：整棵子树（前缀 + '%'）
+    // - recursive=0：仅直接子文件；SQLite LIKE 没有负字符类，用 AND NOT LIKE
+    //   排除 "prefix + 任意 + sep + 任意" 的更深层路径。
+    //
+    // 注：path.sep 在 Windows 下是反斜杠，在 SQLite LIKE 里没有 escape 语义，
+    // 按字面字符参与匹配即可；此处无需额外 escape。
+    const isRecursive = existing.recursive === 1 || (existing.recursive as unknown as boolean) === true;
+    const images = isRecursive
+      ? await all<{ id: number; filepath: string }>(
+          db,
+          `SELECT id, filepath FROM images
+             WHERE filepath LIKE ? OR filepath = ?`,
+          [likePrefix + '%', normalized]
+        )
+      : await all<{ id: number; filepath: string }>(
+          db,
+          `SELECT id, filepath FROM images
+             WHERE filepath LIKE ?
+               AND filepath NOT LIKE ?`,
+          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        );
+
+    // 3. best-effort 清缩略图（事务外；依赖 bug13 已修好的 deleteThumbnail 按 filepath 行为）
+    if (images.length > 0) {
+      const { deleteThumbnail } = await import('./thumbnailService.js');
+      for (const img of images) {
+        try {
+          await deleteThumbnail(img.filepath);
+        } catch (err: any) {
+          console.warn(
+            `[galleryService] 清理缩略图失败: ${img.filepath}`,
+            err?.message ?? err
+          );
+        }
+      }
+    }
+
+    // 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）
+    //    任一 DB 写失败整体 ROLLBACK，外层 catch 返回 success:false
+    await runInTransaction(db, async () => {
+      // 4a. 批量 DELETE image_tags → images
+      if (images.length > 0) {
+        const idList = images.map(i => i.id);
+        const placeholders = idList.map(() => '?').join(',');
+        await run(db, `DELETE FROM image_tags WHERE imageId IN (${placeholders})`, idList);
+        await run(db, `DELETE FROM images WHERE id IN (${placeholders})`, idList);
+      }
+
+      // 4b. invalid_images 按 galleryId 显式清（表定义是 ON DELETE SET NULL，
+      //     这里直接删记录更干净，避免累积孤儿行）
+      await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
+
+      // 4c. booru_posts 中落地到本图集目录下的帖子：重置 downloaded/localPath
+      //     localImageId 已由外键 SET NULL 处理；localPath 的字符串匹配是这里的兜底。
+      //
+      // bug12 I2：范围必须与 images 查询一致 —— 非递归图集只匹配直接子路径，
+      //           避免把子目录图集下的 booru_post 也一起打成未下载。
+      if (isRecursive) {
+        await run(
+          db,
+          `UPDATE booru_posts
+              SET downloaded = 0, localPath = NULL
+              WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
+          [likePrefix + '%', normalized]
+        );
+      } else {
+        await run(
+          db,
+          `UPDATE booru_posts
+              SET downloaded = 0, localPath = NULL
+              WHERE localPath IS NOT NULL
+                AND localPath LIKE ?
+                AND localPath NOT LIKE ?`,
+          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        );
+      }
+
+      // 4d. 删图集行
+      await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
+
+      // 4e. 写入忽略名单（INSERT OR REPLACE 保留 createdAt）
+      const now = new Date().toISOString();
+      await run(
+        db,
+        `INSERT OR REPLACE INTO gallery_ignored_folders
+           (folderPath, note, createdAt, updatedAt)
+         VALUES (
+           ?, ?,
+           COALESCE(
+             (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+             ?
+           ),
+           ?
+         )`,
+        [normalized, '删除图集自动忽略', normalized, now, now]
+      );
+    });
 
     return { success: true };
   } catch (error) {
@@ -375,6 +495,12 @@ export async function scanSubfoldersAndCreateGalleries(
     // 预先获取所有已存在的图集名称，用于快速检查重名
     const existingNames = await all<{ name: string }>(db, 'SELECT name FROM galleries');
     const usedNames = new Set(existingNames.map(g => g.name));
+    // bug12：加载忽略名单，命中即整棵子树跳过（避免删除后被同一次扫描重建）
+    const ignoredRows = await all<{ folderPath: string }>(
+      db,
+      'SELECT folderPath FROM gallery_ignored_folders'
+    );
+    const ignoredPaths = new Set(ignoredRows.map(r => r.folderPath));
 
     // 递归扫描所有子文件夹
     async function scanSubfolders(dirPath: string): Promise<void> {
@@ -383,14 +509,20 @@ export async function scanSubfoldersAndCreateGalleries(
 
         for (const item of items) {
           const fullPath = path.join(dirPath, item.name);
+          const normalizedFullPath = normalizePath(fullPath);
 
           if (item.isDirectory()) {
+            // bug12：命中忽略名单 → 整棵子树跳过（不 recursive、不建图集）
+            if (ignoredPaths.has(normalizedFullPath)) {
+              skipped++;
+              console.log(`[galleryService] 忽略目录（在忽略名单）: ${fullPath}`);
+              continue;
+            }
+
             // 检查该文件夹是否包含图片
             const hasImages = await checkFolderHasImages(fullPath, extensions);
 
             if (hasImages) {
-              const normalizedFullPath = normalizePath(fullPath);
-
               // 使用预加载的 Set 检查是否已存在（O(1) 而非 DB 查询）
               if (!existingPaths.has(normalizedFullPath)) {
                 // 生成唯一名称（使用内存中的 Set 而非查 DB）
@@ -560,26 +692,118 @@ export async function syncGalleryFolder(id: number): Promise<{
   };
 }
 
+// ---------------------------------------------------------------------------
+// gallery_ignored_folders CRUD（bug12）
+// 记录被用户标记为"不再扫描"的文件夹路径。删除图集时会自动写入，
+// 扫描器加载该集合后命中即跳过整棵子树，避免重新创建图集。
+// ---------------------------------------------------------------------------
+
+export interface IgnoredFolderRow {
+  id: number;
+  folderPath: string;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 /**
- * 生成唯一的图集名称（处理重名）
+ * 列出全部忽略文件夹（按创建时间倒序）
  */
-async function generateUniqueGalleryName(baseName: string): Promise<string> {
-  const db = await getDatabase();
-  let name = baseName;
-  let suffix = 1;
-
-  while (true) {
-    const existing = await get<{ id: number }>(
+export async function listIgnoredFolders(): Promise<{
+  success: boolean;
+  data?: IgnoredFolderRow[];
+  error?: string;
+}> {
+  try {
+    const db = await getDatabase();
+    const rows = await all<IgnoredFolderRow>(
       db,
-      'SELECT id FROM galleries WHERE name = ?',
-      [name]
+      `SELECT id, folderPath, note, createdAt, updatedAt
+         FROM gallery_ignored_folders
+         ORDER BY createdAt DESC`
     );
-
-    if (!existing) {
-      return name;
-    }
-
-    name = `${baseName} (${suffix})`;
-    suffix++;
+    return { success: true, data: rows };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 列出忽略文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
   }
 }
+
+/**
+ * 添加/更新一条忽略文件夹记录
+ * - 路径先经 normalizePath 归一化（大小写保持原样，但分隔符和末尾斜杠统一）
+ * - INSERT OR REPLACE：重复添加会刷新 note 与 updatedAt，但保留原 createdAt
+ */
+export async function addIgnoredFolder(
+  folderPath: string,
+  note?: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const normalized = normalizePath(folderPath);
+    const now = new Date().toISOString();
+    await run(
+      db,
+      `INSERT OR REPLACE INTO gallery_ignored_folders
+         (folderPath, note, createdAt, updatedAt)
+       VALUES (
+         ?, ?,
+         COALESCE(
+           (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+           ?
+         ),
+         ?
+       )`,
+      [normalized, note ?? null, normalized, now, now]
+    );
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 添加忽略文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 更新忽略文件夹的备注（note 可选）
+ */
+export async function updateIgnoredFolder(
+  id: number,
+  patch: { note?: string }
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    await run(
+      db,
+      `UPDATE gallery_ignored_folders
+          SET note = ?, updatedAt = ?
+          WHERE id = ?`,
+      [patch.note ?? null, now, id]
+    );
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 更新忽略文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 删除忽略文件夹（恢复后续可被扫描）
+ */
+export async function removeIgnoredFolder(
+  id: number
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = await getDatabase();
+    await run(db, `DELETE FROM gallery_ignored_folders WHERE id = ?`, [id]);
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 删除忽略文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+

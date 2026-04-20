@@ -1,4 +1,12 @@
-import { getConfig, saveConfig, type AppConfig } from './config.js';
+import type sqlite3 from 'sqlite3';
+import {
+  getConfig,
+  saveConfig,
+  toRendererSafeUiConfig,
+  type AppConfig,
+  type ConfigSaveInput,
+  type RendererSafeAppConfig,
+} from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
 
 export const BACKUP_TABLES = [
@@ -22,7 +30,7 @@ export type BackupTableName = (typeof BACKUP_TABLES)[number];
 export interface AppBackupData {
   version: 1;
   exportedAt: string;
-  config: AppConfig;
+  config: RendererSafeAppConfig;
   tables: Record<BackupTableName, Record<string, unknown>[]>;
 }
 
@@ -45,6 +53,101 @@ export function summarizeBackupTables(data: AppBackupData): BackupSummaryItem[] 
     table,
     count: Array.isArray(data.tables[table]) ? data.tables[table].length : 0,
   }));
+}
+
+// 敏感列剔除表：按表名声明哪些字段不允许进入备份文件。
+// 站点凭证(salt/apiKey/passwordHash)即便已被 renderer 端去敏
+// 也绝不允许随备份导出，避免导出文件被明文分发或同步到云端。
+const SENSITIVE_COLUMNS_BY_TABLE: Partial<Record<BackupTableName, readonly string[]>> = {
+  booru_sites: ['salt', 'apiKey', 'passwordHash'] as const,
+};
+
+function sanitizeBackupRow(table: BackupTableName, row: Record<string, unknown>): Record<string, unknown> {
+  const sensitive = SENSITIVE_COLUMNS_BY_TABLE[table];
+  if (!sensitive || sensitive.length === 0) {
+    return row;
+  }
+  const sanitized: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (sensitive.includes(key)) {
+      continue;
+    }
+    sanitized[key] = value;
+  }
+  return sanitized;
+}
+
+function sanitizeBackupTableRows(
+  table: BackupTableName,
+  rows: Record<string, unknown>[],
+): Record<string, unknown>[] {
+  const sensitive = SENSITIVE_COLUMNS_BY_TABLE[table];
+  if (!sensitive || sensitive.length === 0) {
+    return rows;
+  }
+  return rows.map((row) => sanitizeBackupRow(table, row));
+}
+
+function projectBackupSafeConfig(config: {
+  dataPath?: AppConfig['dataPath'];
+  database: AppConfig['database'];
+  downloads: AppConfig['downloads'];
+  galleries: AppConfig['galleries'];
+  thumbnails: AppConfig['thumbnails'];
+  app: AppConfig['app'];
+  yande: AppConfig['yande'];
+  logging: AppConfig['logging'];
+  network: {
+    proxy: {
+      enabled: boolean;
+      protocol: AppConfig['network']['proxy']['protocol'];
+      host: string;
+      port: number;
+    };
+  };
+  google?: {
+    clientId: string;
+    drive: NonNullable<AppConfig['google']>['drive'];
+    photos: NonNullable<AppConfig['google']>['photos'];
+  };
+  ui?: AppConfig['ui'];
+  booru?: AppConfig['booru'];
+}): RendererSafeAppConfig {
+  return {
+    dataPath: config.dataPath,
+    database: config.database,
+    downloads: config.downloads,
+    galleries: config.galleries,
+    thumbnails: config.thumbnails,
+    app: config.app,
+    yande: config.yande,
+    logging: config.logging,
+    network: {
+      proxy: {
+        enabled: config.network.proxy.enabled,
+        protocol: config.network.proxy.protocol,
+        host: config.network.proxy.host,
+        port: config.network.proxy.port,
+      },
+    },
+    google: config.google
+      ? {
+          clientId: config.google.clientId,
+          drive: config.google.drive,
+          photos: config.google.photos,
+        }
+      : undefined,
+    ui: toRendererSafeUiConfig(config.ui),
+    booru: config.booru,
+  };
+}
+
+export function createBackupSafeConfig(config: AppConfig): RendererSafeAppConfig {
+  return projectBackupSafeConfig(config);
+}
+
+export function sanitizeImportedBackupConfig(config: RendererSafeAppConfig): ConfigSaveInput {
+  return projectBackupSafeConfig(config);
 }
 
 export function isValidBackupData(value: unknown): value is AppBackupData {
@@ -78,15 +181,46 @@ export async function createAppBackupData(): Promise<AppBackupData> {
   const tables = {} as Record<BackupTableName, Record<string, unknown>[]>;
 
   for (const table of BACKUP_TABLES) {
-    tables[table] = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    const rawRows = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    // 按表剔除敏感列，确保备份文件不会携带站点凭证等不应外流的字段。
+    tables[table] = sanitizeBackupTableRows(table, rawRows);
   }
 
   return {
     version: 1,
     exportedAt: new Date().toISOString(),
-    config: getConfig(),
+    config: createBackupSafeConfig(getConfig()),
     tables,
   };
+}
+
+async function snapshotCurrentBackupTables(db: sqlite3.Database): Promise<Record<BackupTableName, Record<string, unknown>[]>> {
+  const tables = {} as Record<BackupTableName, Record<string, unknown>[]>;
+
+  for (const table of BACKUP_TABLES) {
+    tables[table] = await all<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+  }
+
+  return tables;
+}
+
+async function restoreBackupTablesSnapshot(
+  db: sqlite3.Database,
+  tables: Record<BackupTableName, Record<string, unknown>[]>
+): Promise<void> {
+  await runInTransaction(db, async () => {
+    for (const table of [...BACKUP_RESTORE_ORDER].reverse()) {
+      await run(db, `DELETE FROM ${table}`);
+    }
+
+    for (const table of BACKUP_RESTORE_ORDER) {
+      const rows = tables[table] ?? [];
+      for (const row of rows) {
+        const { sql, values } = buildInsertStatement(table, row);
+        await run(db, sql, values as any[]);
+      }
+    }
+  });
 }
 
 export async function restoreAppBackupData(
@@ -99,8 +233,10 @@ export async function restoreAppBackupData(
 
   const mode = options.mode ?? 'merge';
   const db = await getDatabase();
+  const previousConfig = getConfig();
+  const previousTables = await snapshotCurrentBackupTables(db);
+  let importedConfigApplied = false;
 
-  await saveConfig(backupData.config);
   await run(db, 'PRAGMA foreign_keys = OFF');
 
   try {
@@ -114,11 +250,25 @@ export async function restoreAppBackupData(
       for (const table of BACKUP_RESTORE_ORDER) {
         const rows = backupData.tables[table] ?? [];
         for (const row of rows) {
-          const { sql, values } = buildInsertStatement(table, row);
+          // 即便备份文件中残留了 salt / apiKey / passwordHash 这类敏感列，
+          // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
+          const { sql, values } = buildInsertStatement(table, sanitizeBackupRow(table, row));
           await run(db, sql, values as any[]);
         }
       }
     });
+
+    const importedConfigSaveResult = await saveConfig(sanitizeImportedBackupConfig(backupData.config));
+    if (!importedConfigSaveResult.success) {
+      await restoreBackupTablesSnapshot(db, previousTables);
+      throw new Error(importedConfigSaveResult.error || 'save imported config failed');
+    }
+    importedConfigApplied = true;
+  } catch (error) {
+    if (importedConfigApplied) {
+      await saveConfig(previousConfig);
+    }
+    throw error;
   } finally {
     await run(db, 'PRAGMA foreign_keys = ON');
   }

@@ -10,6 +10,7 @@ import { Tag } from 'antd';
 const STATUS_PRESETS: Record<string, { color: string; text: string }> = {
   // 通用状态
   pending: { color: 'default', text: '等待中' },
+  queued: { color: 'default', text: '等待中（排队）' },
   downloading: { color: 'processing', text: '下载中' },
   running: { color: 'processing', text: '下载中' },
   dryRun: { color: 'processing', text: '扫描中' },

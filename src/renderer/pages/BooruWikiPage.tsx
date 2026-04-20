@@ -224,22 +224,18 @@ export const BooruWikiPage: React.FC<BooruWikiPageProps> = ({
       return;
     }
 
+    if (selectedSite && selectedSite.type !== 'danbooru') {
+      setWiki(null);
+      return;
+    }
+
     setLoading(true);
     try {
       console.log('[BooruWikiPage] 加载 Wiki:', wikiTitle, 'siteId:', selectedSiteId);
       const result = await window.electronAPI.booru.getWiki(selectedSiteId, wikiTitle);
       if (result.success) {
         if (result.data) {
-          setWiki({
-            id: result.data.id,
-            title: result.data.title,
-            body: result.data.body,
-            otherNames: result.data.other_names || [],
-            createdAt: result.data.created_at,
-            updatedAt: result.data.updated_at,
-            isLocked: result.data.is_locked,
-            isDeleted: result.data.is_deleted,
-          });
+          setWiki(result.data);
         } else {
           setWiki(null);
         }
@@ -254,7 +250,7 @@ export const BooruWikiPage: React.FC<BooruWikiPageProps> = ({
     } finally {
       setLoading(false);
     }
-  }, [selectedSiteId, wikiTitle, message]);
+  }, [selectedSite, selectedSiteId, wikiTitle, message]);
 
   useEffect(() => {
     loadSites();

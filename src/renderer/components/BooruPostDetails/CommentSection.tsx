@@ -25,7 +25,7 @@ export const CommentSection: React.FC<CommentSectionProps> = ({ post, site }) =>
   const [submitting, setSubmitting] = useState(false);
   const [expanded, setExpanded] = useState(false);
 
-  const isLoggedIn = !!(site?.username && site?.passwordHash);
+  const isLoggedIn = !!site?.authenticated;
 
   // 加载评论
   const loadComments = useCallback(async () => {

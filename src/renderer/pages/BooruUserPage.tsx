@@ -99,20 +99,7 @@ export const BooruUserPage: React.FC<BooruUserPageProps> = ({
       }
 
       if (result.success && result.data) {
-        setProfile({
-          id: result.data.id,
-          name: result.data.name,
-          levelString: result.data.level_string,
-          createdAt: result.data.created_at,
-          avatarUrl: result.data.avatar_url,
-          postUploadCount: result.data.post_upload_count,
-          postUpdateCount: result.data.post_update_count,
-          noteUpdateCount: result.data.note_update_count,
-          commentCount: result.data.comment_count,
-          forumPostCount: result.data.forum_post_count,
-          favoriteCount: result.data.favorite_count,
-          feedbackCount: result.data.feedback_count,
-        });
+        setProfile(result.data);
       } else {
         setProfile(null);
         if (result.error) {

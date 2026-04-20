@@ -28,10 +28,12 @@ export const InvalidImagesPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
   const loadImages = useCallback(async (pageNum: number, append: boolean = false) => {
     if (!window.electronAPI) return;
     setLoading(true);
+    setLoadError(null);
     try {
       const result = await window.electronAPI.gallery.getInvalidImages(pageNum, PAGE_SIZE);
       if (result.success) {
@@ -41,9 +43,11 @@ export const InvalidImagesPage: React.FC = () => {
         setHasMore(data.length >= PAGE_SIZE);
         setPage(pageNum);
       } else {
+        setLoadError('加载无效图片失败');
         message.error('加载无效图片失败: ' + result.error);
       }
     } catch (error) {
+      setLoadError('加载无效图片失败');
       message.error('加载无效图片失败');
     } finally {
       setLoading(false);
@@ -107,6 +111,21 @@ export const InvalidImagesPage: React.FC = () => {
     if (filePath.startsWith('app://')) return filePath;
     return localPathToAppUrl(filePath);
   };
+
+  if (!loading && loadError && images.length === 0) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+        <Empty
+          description={loadError}
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+        >
+          <Button type="primary" onClick={() => loadImages(1)}>
+            重试
+          </Button>
+        </Empty>
+      </div>
+    );
+  }
 
   if (!loading && images.length === 0) {
     return (

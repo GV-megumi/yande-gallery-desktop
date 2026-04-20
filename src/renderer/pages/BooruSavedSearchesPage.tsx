@@ -10,7 +10,7 @@ import { BooruSite } from '../../shared/types';
 import { colors, spacing, fontSize, radius, shadows } from '../styles/tokens';
 
 const { Text } = Typography;
-const { Option } = Select;
+const ALL_SITES_VALUE = '__all_sites__';
 
 interface SavedSearch {
   id: number;
@@ -99,7 +99,11 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
     setSaving(true);
     try {
       if (editingSearch) {
-        const result = await window.electronAPI.booru.updateSavedSearch(editingSearch.id, formName.trim(), formQuery.trim());
+        const result = await window.electronAPI.booru.updateSavedSearch(editingSearch.id, {
+          name: formName.trim(),
+          query: formQuery.trim(),
+          siteId: formSiteId,
+        });
         if (result.success) {
           message.success('已更新');
           setModalVisible(false);
@@ -159,13 +163,13 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
       {/* 工具栏 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg }}>
         <Select
-          value={selectedSiteId}
-          onChange={setSelectedSiteId}
+          value={selectedSiteId ?? ALL_SITES_VALUE}
+          onChange={value => setSelectedSiteId(value === ALL_SITES_VALUE ? null : value)}
           style={{ width: 180 }}
           placeholder="全部站点"
         >
-          <Option value={null}>全部站点</Option>
-          {sites.map(s => <Option key={s.id} value={s.id}>{s.name}</Option>)}
+          <Select.Option value={ALL_SITES_VALUE}>全部站点</Select.Option>
+          {sites.map(s => <Select.Option key={s.id} value={s.id}>{s.name}</Select.Option>)}
         </Select>
 
         <div style={{ flex: 1 }} />
@@ -247,6 +251,7 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
                   <Button
                     size="small"
                     icon={<EditOutlined />}
+                    aria-label={`编辑保存搜索 ${s.name}`}
                     onClick={() => handleEdit(s)}
                   />
                 </Tooltip>
@@ -269,12 +274,15 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
       <Modal
         title={editingSearch ? '编辑搜索' : '新建搜索'}
         open={modalVisible}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => setModalVisible(false)}
         onOk={handleSave}
         okText={editingSearch ? '保存' : '创建'}
         cancelText="取消"
         confirmLoading={saving}
-        destroyOnClose
+        destroyOnHidden
       >
         <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md, padding: `${spacing.md}px 0` }}>
           <div>
@@ -294,20 +302,19 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
               placeholder="如：blue_eyes rating:s score:>50"
             />
           </div>
-          {!editingSearch && (
-            <div>
-              <Text type="secondary" style={{ fontSize: fontSize.sm, marginBottom: 4, display: 'block' }}>站点</Text>
-              <Select
-                value={formSiteId}
-                onChange={setFormSiteId}
-                style={{ width: '100%' }}
-                placeholder="全部站点"
-              >
-                <Option value={null}>全部站点</Option>
-                {sites.map(s => <Option key={s.id} value={s.id}>{s.name}</Option>)}
-              </Select>
-            </div>
-          )}
+          <div>
+            <Text type="secondary" style={{ fontSize: fontSize.sm, marginBottom: 4, display: 'block' }}>站点</Text>
+            <Select
+              value={formSiteId ?? ALL_SITES_VALUE}
+              onChange={value => setFormSiteId(value === ALL_SITES_VALUE ? null : value)}
+              style={{ width: '100%' }}
+              placeholder="全部站点"
+              options={[
+                { value: ALL_SITES_VALUE, label: '全部站点' },
+                ...sites.map(s => ({ value: s.id, label: s.name })),
+              ]}
+            />
+          </div>
         </div>
       </Modal>
     </div>

@@ -13,10 +13,14 @@ describe('FavoriteTagsPage component contract', () => {
     expect(source).toContain("title: t('favoriteTags.lastDownloadTime')");
   });
 
-  it('应在真实页面中暴露配置下载、历史查看和解除绑定操作', () => {
+  it('应在真实页面中暴露配置下载、历史查看、解除绑定和手动选路径操作', () => {
     expect(source).toContain("t('favoriteTags.configureDownload')");
     expect(source).toContain("t('favoriteTags.viewDownloadHistory')");
     expect(source).toContain("t('favoriteTags.clearDownloadBinding')");
+    expect(source).toContain('handleSelectFavoriteTagDownloadPath');
+    expect(source).toContain('window.electronAPI.system.selectFolder()');
+    expect(source).toContain("t('favoriteTags.selectFolder')");
+    expect(source).toContain("downloadForm.setFieldsValue({ downloadPath: result.data })");
   });
 
   it('应在真实页面中调用 favorite-tag 相关 booru APIs', () => {
@@ -35,5 +39,10 @@ describe('FavoriteTagsPage component contract', () => {
   it('应在真实页面中支持图集绑定不一致提示', () => {
     expect(source).toContain('galleryBindingConsistent === false');
     expect(source).toContain("t('favoriteTags.galleryBindingMismatchAlert')");
+  });
+
+  it('图集绑定选择器应支持搜索，避免大图集列表无法检索', () => {
+    expect(source).toContain('showSearch');
+    expect(source).toContain('optionFilterProp="children"');
   });
 });

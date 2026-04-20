@@ -11,22 +11,17 @@
 
 import React, { useEffect, useState } from 'react';
 import { Card, Table, Tag, Button, Space, Tabs, message, Empty, Spin, Popconfirm, Modal, Progress } from 'antd';
-import {
-  ReloadOutlined,
-  EyeOutlined
-} from '@ant-design/icons';
+import { ReloadOutlined } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadRecord, BulkDownloadRecordStatus } from '../../shared/types';
 import { StatusTag } from './StatusTag';
 
 interface BulkDownloadSessionDetailProps {
   session: BulkDownloadSession;
-  onClose: () => void;
   onRefresh?: () => void;
 }
 
 export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps> = ({
   session,
-  onClose,
   onRefresh
 }) => {
   const [records, setRecords] = useState<BulkDownloadRecord[]>([]);
@@ -215,6 +210,12 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
       const result = await window.electronAPI.bulkDownload.retryFailedRecord(session.id, record.url);
       if (result.success) {
+        if (result.merged) {
+          message.info(result.message || '该任务已有进行中的下载，历史记录已合并');
+          // 历史记录被软删，直接交给外层刷新
+          onRefresh?.();
+          return;
+        }
         message.success('已加入重试队列');
         loadRecords(true); // 静默刷新
         onRefresh?.();
@@ -235,6 +236,11 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
       const result = await window.electronAPI.bulkDownload.retryAllFailed(session.id);
       if (result.success) {
+        if (result.merged) {
+          message.info(result.message || '该任务已有进行中的下载，历史记录已合并');
+          onRefresh?.();
+          return;
+        }
         message.success('已将所有失败项加入重试队列');
         loadRecords(true); // 静默刷新
         onRefresh?.();
@@ -358,28 +364,19 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
 
   return (
     <div>
-      <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Space>
-          <EyeOutlined />
-          <span style={{ fontSize: '16px', fontWeight: 'bold' }}>
-            下载详情 - {session.task?.tags || '无标签'}
-          </span>
-        </Space>
-        <Space>
-          <Button 
-            icon={<ReloadOutlined />} 
-            onClick={() => loadRecords(false, true)} 
+      <Tabs
+        activeKey={activeTab}
+        onChange={setActiveTab}
+        tabBarExtraContent={
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={() => loadRecords(false, true)}
             loading={loading}
             title="刷新并自动修复状态不一致的记录"
           >
             刷新
           </Button>
-          <Button onClick={onClose}>关闭</Button>
-        </Space>
-      </div>
-      <Tabs
-        activeKey={activeTab}
-        onChange={setActiveTab}
+        }
         items={[
           {
             key: 'all',

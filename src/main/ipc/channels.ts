@@ -8,12 +8,76 @@ export const IPC_CHANNELS = {
   // 图片操作
   IMAGE_SCAN_FOLDER: 'image:scan-folder',
   IMAGE_GENERATE_THUMBNAIL: 'image:generate-thumbnail',
+  IMAGE_GET_THUMBNAIL: 'image:get-thumbnail',
+  IMAGE_DELETE: 'image:delete',
+  IMAGE_DELETE_THUMBNAIL: 'image:delete-thumbnail',
+
+  // 图库操作
+  GALLERY_GET_RECENT_IMAGES: 'gallery:get-recent-images',
+  GALLERY_GET_IMAGES_BY_FOLDER: 'gallery:get-images-by-folder',
+  GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders',
+  GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
+  GALLERY_GET_GALLERIES: 'gallery:get-galleries',
+  GALLERY_GET_GALLERY: 'gallery:get-gallery',
+  GALLERY_CREATE_GALLERY: 'gallery:create-gallery',
+  GALLERY_UPDATE_GALLERY: 'gallery:update-gallery',
+  GALLERY_DELETE_GALLERY: 'gallery:delete-gallery',
+  GALLERY_SET_GALLERY_COVER: 'gallery:set-gallery-cover',
+  GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats',
+  GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder',
+  GALLERY_SCAN_SUBFOLDERS: 'gallery:scan-subfolders',
+  GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image',
+  GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images',
+  GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count',
+  GALLERY_DELETE_INVALID_IMAGE: 'gallery:delete-invalid-image',
+  GALLERY_CLEAR_INVALID_IMAGES: 'gallery:clear-invalid-images',
+  // bug12：图库忽略名单 CRUD
+  GALLERY_LIST_IGNORED_FOLDERS: 'gallery:list-ignored-folders',
+  GALLERY_ADD_IGNORED_FOLDER: 'gallery:add-ignored-folder',
+  GALLERY_UPDATE_IGNORED_FOLDER: 'gallery:update-ignored-folder',
+  GALLERY_REMOVE_IGNORED_FOLDER: 'gallery:remove-ignored-folder',
+
+  // 配置操作
+  CONFIG_GET: 'config:get',
+  CONFIG_SAVE: 'config:save',
+  CONFIG_UPDATE_GALLERY_FOLDERS: 'config:update-gallery-folders',
+  CONFIG_RELOAD: 'config:reload',
+  CONFIG_CHANGED: 'config:changed',
+  BOORU_PREFERENCES_GET_APPEARANCE: 'booru-preferences:get-appearance',
+  PAGE_PREFERENCES_GET_FAVORITE_TAGS: 'page-preferences:get-favorite-tags',
+  PAGE_PREFERENCES_SAVE_FAVORITE_TAGS: 'page-preferences:save-favorite-tags',
+  PAGE_PREFERENCES_GET_BLACKLISTED_TAGS: 'page-preferences:get-blacklisted-tags',
+  PAGE_PREFERENCES_SAVE_BLACKLISTED_TAGS: 'page-preferences:save-blacklisted-tags',
+  PAGE_PREFERENCES_GET_GALLERY: 'page-preferences:get-gallery',
+  PAGE_PREFERENCES_SAVE_GALLERY: 'page-preferences:save-gallery',
+  PAGE_PREFERENCES_GET_APP_SHELL: 'page-preferences:get-app-shell',
+  PAGE_PREFERENCES_SAVE_APP_SHELL: 'page-preferences:save-app-shell',
 
   // 系统操作
   SYSTEM_SELECT_FOLDER: 'system:select-folder',
   SYSTEM_OPEN_EXTERNAL: 'system:open-external',
   SYSTEM_SHOW_ITEM: 'system:show-item',
+  SYSTEM_EXPORT_BACKUP: 'system:export-backup',
+  SYSTEM_IMPORT_BACKUP: 'system:import-backup',
   SYSTEM_CHECK_FOR_UPDATE: 'system:check-for-update',
+  // 主进程 → 渲染进程导航：通知 click 或其他主进程事件需要切换页面时发送
+  // payload: { section: 'gallery'|'booru'|'google', subKey: string, sessionId?: string }
+  SYSTEM_NAVIGATE: 'system:navigate',
+  // 配置分域 getter/setter（notifications / desktop）
+  CONFIG_GET_NOTIFICATIONS: 'config:get-notifications',
+  CONFIG_SET_NOTIFICATIONS: 'config:set-notifications',
+  CONFIG_GET_DESKTOP: 'config:get-desktop',
+  CONFIG_SET_DESKTOP: 'config:set-desktop',
+
+  // 窗口操作
+  WINDOW_OPEN_TAG_SEARCH: 'window:open-tag-search',
+  WINDOW_OPEN_ARTIST: 'window:open-artist',
+  WINDOW_OPEN_CHARACTER: 'window:open-character',
+  WINDOW_OPEN_SECONDARY_MENU: 'window:open-secondary-menu',
+
+  // 网络测试
+  NETWORK_TEST_BAIDU: 'network:test-baidu',
+  NETWORK_TEST_GOOGLE: 'network:test-google',
 
   // === Booru 相关通道 ===
 
@@ -33,18 +97,24 @@ export const IPC_CHANNELS = {
   BOORU_ADD_FAVORITE: 'booru:add-favorite',
   BOORU_REMOVE_FAVORITE: 'booru:remove-favorite',
   BOORU_GET_FAVORITES: 'booru:get-favorites',
+  BOORU_FAVORITES_REPAIR_DONE: 'booru:favorites-repair-done',
 
   // Booru 下载
   BOORU_ADD_TO_DOWNLOAD: 'booru:add-to-download',
   BOORU_PAUSE_DOWNLOAD: 'booru:pause-download',
   BOORU_RESUME_DOWNLOAD: 'booru:resume-download',
+  BOORU_CANCEL_DOWNLOAD: 'booru:cancel-download',
   BOORU_RETRY_DOWNLOAD: 'booru:retry-download',
   BOORU_GET_DOWNLOAD_QUEUE: 'booru:get-download-queue',
   BOORU_CLEAR_DOWNLOAD_RECORDS: 'booru:clear-download-records',
+  BOORU_DELETE_DOWNLOAD_RECORD: 'booru:delete-download-record',
   BOORU_PAUSE_ALL_DOWNLOADS: 'booru:pause-all-downloads',
   BOORU_RESUME_ALL_DOWNLOADS: 'booru:resume-all-downloads',
   BOORU_RESUME_PENDING_DOWNLOADS: 'booru:resume-pending-downloads',
   BOORU_GET_QUEUE_STATUS: 'booru:get-queue-status',
+  BOORU_DOWNLOAD_PROGRESS: 'booru:download-progress',
+  BOORU_DOWNLOAD_STATUS: 'booru:download-status',
+  BOORU_DOWNLOAD_QUEUE_STATUS: 'booru:download-queue-status',
 
   // Booru 搜索历史
   BOORU_ADD_SEARCH_HISTORY: 'booru:add-search-history',
@@ -69,6 +139,9 @@ export const IPC_CHANNELS = {
 
   // Booru 艺术家
   BOORU_GET_ARTIST: 'booru:get-artist',
+  BOORU_GET_TAG_RELATIONSHIPS: 'booru:get-tag-relationships',
+  BOORU_REPORT_POST: 'booru:report-post',
+  BOORU_GET_IMAGE_METADATA: 'booru:get-image-metadata',
 
   // Booru Wiki
   BOORU_GET_WIKI: 'booru:get-wiki',
@@ -98,6 +171,8 @@ export const IPC_CHANNELS = {
   BULK_DOWNLOAD_RETRY_ALL_FAILED: 'bulk-download:retry-all-failed',
   BULK_DOWNLOAD_RETRY_FAILED_RECORD: 'bulk-download:retry-failed-record',
   BULK_DOWNLOAD_RESUME_RUNNING_SESSIONS: 'bulk-download:resume-running-sessions',
+  BULK_DOWNLOAD_RECORD_PROGRESS: 'bulk-download:record-progress',
+  BULK_DOWNLOAD_RECORD_STATUS: 'bulk-download:record-status',
 
   // === 收藏标签管理 ===
   BOORU_ADD_FAVORITE_TAG: 'booru:add-favorite-tag',

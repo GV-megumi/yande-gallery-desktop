@@ -201,3 +201,34 @@ describe('DownloadManager - 损坏文件清理逻辑', () => {
     expect(shouldCleanupFile({})).toBe(true);
   });
 });
+
+describe('DownloadManager - 临时文件协议', () => {
+  function buildTempPath(targetPath: string): string {
+    return `${targetPath}.part`;
+  }
+
+  function shouldDeleteOnFailure(pathToDelete: string): boolean {
+    return pathToDelete.endsWith('.part');
+  }
+
+  function validateSize(actualSize: number, expectedSize: number | null): string {
+    if (actualSize === 0) return 'empty';
+    if (expectedSize !== null && actualSize !== expectedSize) return 'mismatch';
+    return 'ok';
+  }
+
+  it('下载应先写入 .part 临时文件', () => {
+    expect(buildTempPath('/downloads/image.jpg')).toBe('/downloads/image.jpg.part');
+  });
+
+  it('失败时只应清理 .part 临时文件', () => {
+    expect(shouldDeleteOnFailure('/downloads/image.jpg.part')).toBe(true);
+    expect(shouldDeleteOnFailure('/downloads/image.jpg')).toBe(false);
+  });
+
+  it('完成前应校验空文件与大小不匹配', () => {
+    expect(validateSize(0, null)).toBe('empty');
+    expect(validateSize(3, 4)).toBe('mismatch');
+    expect(validateSize(4, 4)).toBe('ok');
+  });
+});

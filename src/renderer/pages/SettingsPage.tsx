@@ -3,12 +3,13 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Switch, Select, message, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined } from '@ant-design/icons';
+import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { UpdateCheckResult } from '../../shared/types';
 import pkgJson from '../../../package.json';
+import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
 
 const { Option } = Select;
 
@@ -200,7 +201,6 @@ export const SettingsPage: React.FC = () => {
   const [downloadPath, setDownloadPath] = useState('');
   const [thumbnailSize, setThumbnailSize] = useState(800);
   const [thumbnailQuality, setThumbnailQuality] = useState(92);
-  const [autoGenThumbnail, setAutoGenThumbnail] = useState(true);
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyProtocol, setProxyProtocol] = useState('http');
   const [proxyHost, setProxyHost] = useState('127.0.0.1');
@@ -209,6 +209,30 @@ export const SettingsPage: React.FC = () => {
   const [importingBackup, setImportingBackup] = useState(false);
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
+  const [ignoredModalOpen, setIgnoredModalOpen] = useState(false);
+
+  // bug9：通知 / 桌面行为状态。mount 时通过新 preload API 拉取，setter 立即写回主进程。
+  // 使用 optimistic update：先 setState 给 UI 即时反馈，setter 失败再 load 回滚。
+  const [notif, setNotifState] = useState<{
+    enabled: boolean;
+    byStatus: { completed: boolean; failed: boolean; allSkipped: boolean };
+    singleDownload: { enabled: boolean };
+    clickAction: 'focus' | 'openDownloadHub' | 'openSessionDetail';
+  }>({
+    enabled: true,
+    byStatus: { completed: true, failed: true, allSkipped: true },
+    singleDownload: { enabled: false },
+    clickAction: 'openDownloadHub',
+  });
+  const [desktop, setDesktopState] = useState<{
+    closeAction: 'hide-to-tray' | 'quit' | 'ask';
+    autoLaunch: boolean;
+    startMinimized: boolean;
+  }>({
+    closeAction: 'hide-to-tray',
+    autoLaunch: false,
+    startMinimized: false,
+  });
 
   const handleCheckForUpdate = async () => {
     if (!window.electronAPI) return;
@@ -237,7 +261,70 @@ export const SettingsPage: React.FC = () => {
   useEffect(() => {
     console.log('[SettingsPage] 组件挂载，加载配置');
     loadConfig();
+    // bug9：额外拉一次通知 / 桌面行为配置
+    void loadNotificationsAndDesktop();
   }, []);
+
+  const loadNotificationsAndDesktop = async () => {
+    if (!window.electronAPI?.config) return;
+    try {
+      const [notifRes, desktopRes] = await Promise.all([
+        window.electronAPI.config.getNotifications?.(),
+        window.electronAPI.config.getDesktop?.(),
+      ]);
+      if (notifRes?.success && notifRes.data) setNotifState(notifRes.data);
+      if (desktopRes?.success && desktopRes.data) setDesktopState(desktopRes.data);
+    } catch (err) {
+      console.warn('[SettingsPage] 加载通知/桌面配置失败:', err);
+    }
+  };
+
+  // 通知开关的 optimistic update：先改本地 state，再调 setNotifications
+  // key 支持扁平点路径（如 'byStatus.completed' / 'singleDownload.enabled'）与顶层字段
+  const setNotif = async (key: string, value: any) => {
+    setNotifState(prev => {
+      const next = { ...prev, byStatus: { ...prev.byStatus }, singleDownload: { ...prev.singleDownload } };
+      if (key === 'enabled') next.enabled = value;
+      else if (key === 'clickAction') next.clickAction = value;
+      else if (key === 'singleDownload.enabled') next.singleDownload.enabled = value;
+      else if (key === 'byStatus.completed') next.byStatus.completed = value;
+      else if (key === 'byStatus.failed') next.byStatus.failed = value;
+      else if (key === 'byStatus.allSkipped') next.byStatus.allSkipped = value;
+      return next;
+    });
+    try {
+      const patch: any = {};
+      if (key === 'enabled') patch.enabled = value;
+      else if (key === 'clickAction') patch.clickAction = value;
+      else if (key === 'singleDownload.enabled') patch.singleDownload = { enabled: value };
+      else if (key.startsWith('byStatus.')) {
+        patch.byStatus = { [key.split('.')[1]]: value };
+      }
+      const res = await window.electronAPI?.config?.setNotifications?.(patch);
+      if (!res?.success) {
+        message.error(res?.error || '保存通知配置失败');
+        await loadNotificationsAndDesktop();
+      }
+    } catch (err) {
+      console.error('[SettingsPage] setNotifications 异常:', err);
+      await loadNotificationsAndDesktop();
+    }
+  };
+
+  const setDesktop = async (key: 'closeAction' | 'autoLaunch' | 'startMinimized', value: any) => {
+    setDesktopState(prev => ({ ...prev, [key]: value }));
+    try {
+      const patch: any = { [key]: value };
+      const res = await window.electronAPI?.config?.setDesktop?.(patch);
+      if (!res?.success) {
+        message.error(res?.error || '保存桌面配置失败');
+        await loadNotificationsAndDesktop();
+      }
+    } catch (err) {
+      console.error('[SettingsPage] setDesktop 异常:', err);
+      await loadNotificationsAndDesktop();
+    }
+  };
 
   useEffect(() => {
     if (activeTab !== 'proxy') return;
@@ -375,21 +462,22 @@ export const SettingsPage: React.FC = () => {
         protocol: 'http',
         host: '127.0.0.1',
         port: 7890,
-        username: '',
-        password: ''
       };
 
-      let nextProxy = currentProxy;
+      let nextProxy = {
+        enabled: currentProxy.enabled,
+        protocol: currentProxy.protocol,
+        host: currentProxy.host,
+        port: currentProxy.port,
+      };
       if (activeTab === 'proxy') {
         await proxyForm.validateFields();
         const proxyValues = proxyForm.getFieldsValue(true);
-        nextProxy = { ...currentProxy };
+        nextProxy = { ...nextProxy };
         if (proxyValues.proxyEnabled !== undefined) nextProxy.enabled = proxyValues.proxyEnabled;
         if (proxyValues.proxyProtocol !== undefined) nextProxy.protocol = proxyValues.proxyProtocol;
         if (proxyValues.proxyHost !== undefined) nextProxy.host = proxyValues.proxyHost;
         if (proxyValues.proxyPort !== undefined) nextProxy.port = Number(proxyValues.proxyPort);
-        if (proxyValues.proxyUsername !== undefined) nextProxy.username = proxyValues.proxyUsername || '';
-        if (proxyValues.proxyPassword !== undefined) nextProxy.password = proxyValues.proxyPassword || '';
       }
 
       const updatedConfig = {
@@ -542,6 +630,9 @@ export const SettingsPage: React.FC = () => {
               )}
             </Spin>
             <div style={{
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'space-between',
               padding: `${spacing.sm}px ${spacing.lg}px`,
               borderTop: `0.5px solid ${colors.separator}`,
             }}>
@@ -553,8 +644,18 @@ export const SettingsPage: React.FC = () => {
               >
                 {t('settings.addFolder')}
               </Button>
+              <Button
+                type="link"
+                icon={<StopOutlined />}
+                onClick={() => setIgnoredModalOpen(true)}
+                style={{ padding: 0, color: colors.textSecondary, fontWeight: 500 }}
+              >
+                {t('settings.ignoredFolders')}
+              </Button>
             </div>
           </SettingsGroup>
+
+          <IgnoredFoldersModal open={ignoredModalOpen} onClose={() => setIgnoredModalOpen(false)} />
 
           {/* 下载设置 */}
           <SettingsGroup title={t('settings.download')}>
@@ -590,6 +691,7 @@ export const SettingsPage: React.FC = () => {
             />
             <SettingsRow
               label={t('settings.thumbnailQuality')}
+              isLast
               extra={
                 <Select
                   value={thumbnailQuality}
@@ -603,17 +705,6 @@ export const SettingsPage: React.FC = () => {
                   <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
                   <Option value={95}>{t('settings.qualityMax')}</Option>
                 </Select>
-              }
-            />
-            <SettingsRow
-              label={t('settings.autoGenThumbnail')}
-              description={t('settings.autoGenThumbnailDesc')}
-              isLast
-              extra={
-                <Switch
-                  checked={autoGenThumbnail}
-                  onChange={setAutoGenThumbnail}
-                />
               }
             />
           </SettingsGroup>
@@ -649,6 +740,75 @@ export const SettingsPage: React.FC = () => {
                   size="small"
                 />
               }
+            />
+          </SettingsGroup>
+
+          {/* 通知（bug9） */}
+          <SettingsGroup title={t('settings.notifications')} footer={t('settings.notificationsFooter')}>
+            <SettingsRow
+              label={t('settings.notifEnabled')}
+              extra={<Switch checked={notif.enabled} onChange={v => setNotif('enabled', v)} />}
+            />
+            <SettingsRow
+              label={t('settings.notifCompleted')}
+              extra={<Switch checked={notif.byStatus.completed} onChange={v => setNotif('byStatus.completed', v)} disabled={!notif.enabled} />}
+            />
+            <SettingsRow
+              label={t('settings.notifFailed')}
+              extra={<Switch checked={notif.byStatus.failed} onChange={v => setNotif('byStatus.failed', v)} disabled={!notif.enabled} />}
+            />
+            <SettingsRow
+              label={t('settings.notifAllSkipped')}
+              extra={<Switch checked={notif.byStatus.allSkipped} onChange={v => setNotif('byStatus.allSkipped', v)} disabled={!notif.enabled} />}
+            />
+            <SettingsRow
+              label={t('settings.notifSingleDownload')}
+              extra={<Switch checked={notif.singleDownload.enabled} onChange={v => setNotif('singleDownload.enabled', v)} disabled={!notif.enabled} />}
+            />
+            <SettingsRow
+              isLast
+              label={t('settings.notifClickAction')}
+              extra={
+                <Select
+                  value={notif.clickAction}
+                  onChange={v => setNotif('clickAction', v)}
+                  style={{ width: 200 }}
+                  disabled={!notif.enabled}
+                  options={[
+                    { value: 'focus', label: t('settings.notifClickFocus') },
+                    { value: 'openDownloadHub', label: t('settings.notifClickHub') },
+                    { value: 'openSessionDetail', label: t('settings.notifClickSession') },
+                  ]}
+                />
+              }
+            />
+          </SettingsGroup>
+
+          {/* 桌面行为（bug9） */}
+          <SettingsGroup title={t('settings.desktop')} footer={t('settings.desktopFooter')}>
+            <SettingsRow
+              label={t('settings.desktopCloseAction')}
+              extra={
+                <Segmented
+                  value={desktop.closeAction}
+                  onChange={(v) => setDesktop('closeAction', v as 'hide-to-tray' | 'quit' | 'ask')}
+                  options={[
+                    { value: 'hide-to-tray', label: t('settings.closeHideToTray') },
+                    { value: 'quit', label: t('settings.closeQuit') },
+                    { value: 'ask', label: t('settings.closeAsk') },
+                  ]}
+                  size="small"
+                />
+              }
+            />
+            <SettingsRow
+              label={t('settings.autoLaunch')}
+              extra={<Switch checked={desktop.autoLaunch} onChange={v => setDesktop('autoLaunch', v)} />}
+            />
+            <SettingsRow
+              isLast
+              label={t('settings.startMinimized')}
+              extra={<Switch checked={desktop.startMinimized} onChange={v => setDesktop('startMinimized', v)} disabled={!desktop.autoLaunch} />}
             />
           </SettingsGroup>
 
@@ -695,16 +855,6 @@ export const SettingsPage: React.FC = () => {
                 </Space>
               }
               isLast
-            />
-          </SettingsGroup>
-
-          {/* 高级 */}
-          <SettingsGroup title={t('settings.advanced')}>
-            <SettingsRow label={t('settings.reindexDb')} onClick={() => message.info(t('settings.featureDev'))} />
-            <SettingsRow
-              label={<span style={{ color: colors.danger }}>{t('settings.resetAll')}</span>}
-              isLast
-              onClick={() => message.info(t('settings.featureDev'))}
             />
           </SettingsGroup>
 

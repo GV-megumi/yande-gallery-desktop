@@ -46,6 +46,7 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.BOORU_ADD_TO_DOWNLOAD).toBe('booru:add-to-download');
     expect(IPC_CHANNELS.BOORU_PAUSE_DOWNLOAD).toBe('booru:pause-download');
     expect(IPC_CHANNELS.BOORU_RESUME_DOWNLOAD).toBe('booru:resume-download');
+    expect(IPC_CHANNELS.BOORU_CANCEL_DOWNLOAD).toBe('booru:cancel-download');
     expect(IPC_CHANNELS.BOORU_RETRY_DOWNLOAD).toBe('booru:retry-download');
     expect(IPC_CHANNELS.BOORU_GET_DOWNLOAD_QUEUE).toBe('booru:get-download-queue');
     expect(IPC_CHANNELS.BOORU_CLEAR_DOWNLOAD_RECORDS).toBe('booru:clear-download-records');
@@ -141,9 +142,34 @@ describe('IPC_CHANNELS', () => {
     }
   });
 
+  it('应包含页面偏好通道', () => {
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_FAVORITE_TAGS).toBe('page-preferences:get-favorite-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_FAVORITE_TAGS).toBe('page-preferences:save-favorite-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_BLACKLISTED_TAGS).toBe('page-preferences:get-blacklisted-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_BLACKLISTED_TAGS).toBe('page-preferences:save-blacklisted-tags');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_GALLERY).toBe('page-preferences:get-gallery');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_GALLERY).toBe('page-preferences:save-gallery');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_GET_APP_SHELL).toBe('page-preferences:get-app-shell');
+    expect(IPC_CHANNELS.PAGE_PREFERENCES_SAVE_APP_SHELL).toBe('page-preferences:save-app-shell');
+  });
+
+  it('应包含 Booru 外观偏好通道', () => {
+    expect(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE).toBe('booru-preferences:get-appearance');
+  });
+
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
-    expect(keys.length).toBe(123);
+    // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
+    // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
+    expect(keys.length).toBe(186);
+  });
+
+  it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {
+    expect(IPC_CHANNELS.SYSTEM_NAVIGATE).toBe('system:navigate');
+    expect(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS).toBe('config:get-notifications');
+    expect(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS).toBe('config:set-notifications');
+    expect(IPC_CHANNELS.CONFIG_GET_DESKTOP).toBe('config:get-desktop');
+    expect(IPC_CHANNELS.CONFIG_SET_DESKTOP).toBe('config:set-desktop');
   });
 });

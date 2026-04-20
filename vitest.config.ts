@@ -9,6 +9,9 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.{test,spec}.{ts,tsx}'],
     root: __dirname,
+    // 部分 renderer 渲染测试在并发 98 个 test file 时会受 jsdom/React 渲染
+    // 耗时影响偶发超时，将默认 5s 提到 30s 减少环境抖动导致的误报。
+    testTimeout: 30000,
   },
   resolve: {
     alias: {

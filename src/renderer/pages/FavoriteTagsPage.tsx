@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
@@ -61,6 +61,30 @@ interface FavoriteTagDownloadHistoryItem {
   error?: string | null;
 }
 
+const DEFAULT_DOWNLOAD_BINDING_FORM_VALUES: Omit<DownloadBindingFormValues, 'galleryId' | 'downloadPath' | 'blacklistedTags'> = {
+  autoCreateGallery: false,
+  autoSyncGalleryAfterDownload: true,
+  quality: 'original',
+  perPage: 200,
+  concurrency: 6,
+  skipIfExists: true,
+  notifications: true,
+};
+
+const buildDownloadBindingFormValues = (record: FavoriteTagWithDownloadState): DownloadBindingFormValues => ({
+  ...DEFAULT_DOWNLOAD_BINDING_FORM_VALUES,
+  galleryId: record.downloadBinding?.galleryId ?? undefined,
+  downloadPath: record.resolvedDownloadPath || record.downloadBinding?.downloadPath || '',
+  autoCreateGallery: record.downloadBinding?.autoCreateGallery ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.autoCreateGallery,
+  autoSyncGalleryAfterDownload: record.downloadBinding?.autoSyncGalleryAfterDownload ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.autoSyncGalleryAfterDownload,
+  quality: record.downloadBinding?.quality ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.quality,
+  perPage: record.downloadBinding?.perPage ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.perPage,
+  concurrency: record.downloadBinding?.concurrency ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.concurrency,
+  skipIfExists: record.downloadBinding?.skipIfExists ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.skipIfExists,
+  notifications: record.downloadBinding?.notifications ?? DEFAULT_DOWNLOAD_BINDING_FORM_VALUES.notifications,
+  blacklistedTags: record.downloadBinding?.blacklistedTags?.join(' ') || '',
+});
+
 const SortableRow: React.FC<any> = (props) => {
   const { setNodeRef, transform, transition, isDragging } = useSortable({
     id: props['data-row-key'],
@@ -90,7 +114,11 @@ const DragHandle: React.FC<{ id: number }> = ({ id }) => {
   );
 };
 
-export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }) => {
+interface FavoriteTagsPageInnerProps extends FavoriteTagsPageProps {
+  active?: boolean;
+}
+
+export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagClick, active = true }) => {
   const { t } = useLocale();
   const [favoriteTags, setFavoriteTags] = useState<FavoriteTagWithDownloadState[]>([]);
   const [loading, setLoading] = useState(false);
@@ -123,6 +151,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [total, setTotal] = useState(0);
+  const [preferencesHydrated, setPreferencesHydrated] = useState(false);
+  const [preferencesHydrationVersion, setPreferencesHydrationVersion] = useState(0);
+  const skipNextKeywordResetRef = useRef(false);
+  const preferencesHydrationRunIdRef = useRef(0);
+  const preferencesHydratingRef = useRef(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -139,6 +172,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
   }, [keyword]);
 
   useEffect(() => {
+    if (skipNextKeywordResetRef.current) {
+      skipNextKeywordResetRef.current = false;
+      return;
+    }
     setPage(1);
   }, [debouncedKeyword]);
 
@@ -195,11 +232,78 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   }, []);
 
-  useEffect(() => { loadSites(); }, [loadSites]);
-  useEffect(() => { loadGalleries(); }, [loadGalleries]);
-  useEffect(() => { loadFavoriteTags(); }, [loadFavoriteTags]);
+  useEffect(() => {
+    if (!active) {
+      setPreferencesHydrated(false);
+      preferencesHydratingRef.current = false;
+      return;
+    }
+
+    let cancelled = false;
+    const runId = preferencesHydrationRunIdRef.current + 1;
+    preferencesHydrationRunIdRef.current = runId;
+    preferencesHydratingRef.current = true;
+    setPreferencesHydrated(false);
+
+    const loadPreferences = async () => {
+      try {
+        const result = await window.electronAPI.pagePreferences.favoriteTags.get();
+        if (!result.success || cancelled || preferencesHydrationRunIdRef.current !== runId) {
+          return;
+        }
+
+        const preferences = result.data;
+        if (preferences) {
+          skipNextKeywordResetRef.current = Boolean(preferences.keyword !== undefined);
+          setFilterSiteId(preferences.filterSiteId);
+          setSortKey(preferences.sortKey ?? 'tagName');
+          setSortOrder(preferences.sortOrder ?? 'asc');
+          setKeyword(preferences.keyword ?? '');
+          setDebouncedKeyword(preferences.keyword ?? '');
+          setPage(preferences.page ?? 1);
+          setPageSize(preferences.pageSize ?? 20);
+        }
+      } catch (error) {
+        console.error('[FavoriteTagsPage] 加载页面偏好失败:', error);
+      } finally {
+        if (!cancelled && preferencesHydrationRunIdRef.current === runId) {
+          preferencesHydratingRef.current = false;
+          setPreferencesHydrated(true);
+          setPreferencesHydrationVersion(runId);
+        }
+      }
+    };
+
+    loadPreferences();
+    loadSites();
+
+    return () => {
+      cancelled = true;
+      if (preferencesHydrationRunIdRef.current === runId) {
+        preferencesHydratingRef.current = false;
+      }
+    };
+  }, [active, loadSites]);
 
   useEffect(() => {
+    if (!active) {
+      return;
+    }
+    loadGalleries();
+  }, [active, loadGalleries]);
+
+  useEffect(() => {
+    if (!active || !preferencesHydrated || preferencesHydratingRef.current) {
+      return;
+    }
+    loadFavoriteTags();
+  }, [active, preferencesHydrated, preferencesHydrationVersion, loadFavoriteTags]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
     const scheduleRefresh = () => {
       if (refreshTimer) {
@@ -259,7 +363,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       removeProgressListener?.();
       removeStatusListener?.();
     };
-  }, [loadFavoriteTags]);
+  }, [active, loadFavoriteTags]);
 
   const handleDragEnd = useCallback(async (event: DragEndEvent) => {
     // DnD reordering is only meaningful when no keyword filter is active.
@@ -422,18 +526,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
 
   const openDownloadConfig = (record: FavoriteTagWithDownloadState) => {
     setConfiguringTag(record);
-    downloadForm.setFieldsValue({
-      galleryId: record.downloadBinding?.galleryId ?? undefined,
-      downloadPath: record.resolvedDownloadPath || record.downloadBinding?.downloadPath || '',
-      autoCreateGallery: record.downloadBinding?.autoCreateGallery ?? false,
-      autoSyncGalleryAfterDownload: record.downloadBinding?.autoSyncGalleryAfterDownload ?? false,
-      quality: record.downloadBinding?.quality || 'original',
-      perPage: record.downloadBinding?.perPage ?? 200,
-      concurrency: record.downloadBinding?.concurrency ?? 3,
-      skipIfExists: record.downloadBinding?.skipIfExists ?? true,
-      notifications: record.downloadBinding?.notifications ?? true,
-      blacklistedTags: record.downloadBinding?.blacklistedTags?.join(' ') || '',
-    });
+    downloadForm.setFieldsValue(buildDownloadBindingFormValues(record));
   };
 
   const handleGalleryChange = (galleryId?: number) => {
@@ -444,14 +537,31 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
+  const handleSelectFavoriteTagDownloadPath = async () => {
+    if (!window.electronAPI) return;
+
+    try {
+      const result = await window.electronAPI.system.selectFolder();
+      if (result.success && result.data) {
+        downloadForm.setFieldsValue({ downloadPath: result.data });
+        return;
+      }
+
+      message.error(result.error ? `${t('common.failed')}: ${result.error}` : t('common.failed'));
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 选择下载目录失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
   const triggerDownload = async (favoriteTagId: number) => {
     try {
       const result = await window.electronAPI.booru.startFavoriteTagBulkDownload(favoriteTagId);
       if (result.success && result.data) {
         if (result.data.deduplicated) {
-          message.info('任务已存在');
+          message.info(t('favoriteTags.downloadTaskExists'));
         } else {
-          message.success('任务创建成功');
+          message.success(t('favoriteTags.downloadTaskCreated'));
         }
         await loadFavoriteTags();
       } else {
@@ -604,6 +714,39 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
     }
   };
 
+  useEffect(() => {
+    if (!active || !preferencesHydrated || preferencesHydratingRef.current) {
+      return;
+    }
+
+    let cancelled = false;
+    const hydrationVersionAtEffect = preferencesHydrationVersion;
+
+    const savePreferences = async () => {
+      try {
+        await window.electronAPI.pagePreferences.favoriteTags.save({
+          filterSiteId,
+          sortKey,
+          sortOrder,
+          keyword,
+          page,
+          pageSize,
+        });
+        if (cancelled || preferencesHydratingRef.current || hydrationVersionAtEffect !== preferencesHydrationRunIdRef.current) {
+          return;
+        }
+      } catch (error) {
+        console.error('[FavoriteTagsPage] 保存页面偏好失败:', error);
+      }
+    };
+
+    savePreferences();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, sortKey, sortOrder, keyword, page, pageSize]);
+
   const columns: TableColumnsType<FavoriteTagWithDownloadState> = [
     // 排序模式下隐藏拖拽手柄，避免与数据排序冲突
     ...(!isCustomSortActive ? [{
@@ -724,7 +867,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             </span>
           </Tooltip>
           <Tooltip title={t('favoriteTags.configureDownload')}>
-            <Button type="link" size="small" icon={<SettingOutlined />} danger={record.galleryBindingConsistent === false} onClick={() => openDownloadConfig(record)} />
+            <Button
+              type="link"
+              size="small"
+              icon={<SettingOutlined />}
+              aria-label={t('favoriteTags.configureDownload')}
+              danger={record.galleryBindingConsistent === false}
+              onClick={() => openDownloadConfig(record)}
+            />
           </Tooltip>
           <Popconfirm title={t('favoriteTags.clearBindingConfirm')} onConfirm={() => handleClearDownloadBinding(record.id)}>
             <Tooltip title={t('favoriteTags.clearDownloadBinding')}>
@@ -797,20 +947,20 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 value={sortKey}
                 onChange={(val) => { setSortKey(val); setPage(1); }}
                 options={[
-                  { label: '按标签名', value: 'tagName' },
-                  { label: '按图集名', value: 'galleryName' },
-                  { label: '按下载时间', value: 'lastDownloadedAt' },
+                  { label: t('favoriteTags.sortByTagName'), value: 'tagName' },
+                  { label: t('favoriteTags.sortByGalleryName'), value: 'galleryName' },
+                  { label: t('favoriteTags.sortByLastDownloadTime'), value: 'lastDownloadedAt' },
                 ]}
                 style={{ width: 130, flex: '0 0 auto' }}
               />
-              <Tooltip title={sortOrder === 'asc' ? '升序' : '降序'}>
+              <Tooltip title={sortOrder === 'asc' ? t('favoriteTags.sortAscending') : t('favoriteTags.sortDescending')}>
                 <Button
                   icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
                   onClick={() => { setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPage(1); }}
                 />
               </Tooltip>
               <Input
-                placeholder="搜索喜欢标签"
+                placeholder={t('favoriteTags.searchInputPlaceholder')}
                 allowClear
                 prefix={<SearchOutlined />}
                 value={keyword}
@@ -827,7 +977,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 icon={<PlusOutlined />}
                 onClick={() => setBatchAddModalOpen(true)}
               >
-                批量添加
+                {t('favoriteTags.batchAddAction')}
               </Button>
               <Button
                 icon={<ExportOutlined />}
@@ -932,7 +1082,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.addTitle')}
         open={addModalVisible}
-        closable={false}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => { setAddModalVisible(false); form.resetFields(); }}
         onOk={() => form.submit()}
         okText={t('details.favorite')}
@@ -961,23 +1113,54 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.configTitle', { name: configuringTag?.tagName || '' })}
         open={!!configuringTag}
-        closable={false}
+        closable={!savingDownloadConfig}
+        maskClosable={!savingDownloadConfig}
+        keyboard={!savingDownloadConfig}
         footer={null}
         onCancel={() => {
           setConfiguringTag(null);
           downloadForm.resetFields();
         }}
       >
-        <Form form={downloadForm} layout="vertical" initialValues={{ quality: 'original', perPage: 200, concurrency: 3, skipIfExists: true, notifications: true }}>
+        <Form form={downloadForm} layout="vertical" initialValues={DEFAULT_DOWNLOAD_BINDING_FORM_VALUES}>
           <Form.Item name="galleryId" label={t('favoriteTags.selectGallery')}>
-            <Select allowClear placeholder={t('favoriteTags.selectGalleryPlaceholder')} onChange={handleGalleryChange}>
+            <Select
+              showSearch
+              allowClear
+              optionFilterProp="children"
+              placeholder={t('favoriteTags.selectGalleryPlaceholder')}
+              onChange={handleGalleryChange}
+            >
               {galleries.map(gallery => (
                 <Select.Option key={gallery.id} value={gallery.id}>{gallery.name}</Select.Option>
               ))}
             </Select>
           </Form.Item>
-          <Form.Item name="downloadPath" label={t('favoriteTags.downloadPath')} rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}> 
-            <Input readOnly />
+          <Form.Item
+            label={t('favoriteTags.downloadPath')}
+            required
+            style={{ marginBottom: 0 }}
+          >
+            <Space.Compact style={{ width: '100%' }}>
+              <Form.Item
+                name="downloadPath"
+                noStyle
+                rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}
+              >
+                <Input readOnly aria-label={t('favoriteTags.downloadPath')} style={{ flex: 1 }} />
+              </Form.Item>
+              <Form.Item shouldUpdate={(prev, curr) => prev.galleryId !== curr.galleryId} noStyle>
+                {({ getFieldValue }) => (
+                  <Button
+                    aria-label={t('favoriteTags.selectFolder')}
+                    onClick={handleSelectFavoriteTagDownloadPath}
+                    disabled={Boolean(getFieldValue('galleryId'))}
+                  >
+                    {t('favoriteTags.selectFolder')}
+                  </Button>
+                )}
+              </Form.Item>
+            </Space.Compact>
           </Form.Item>
           <Form.Item name="autoCreateGallery" label={t('favoriteTags.autoCreateGallery')} valuePropName="checked">
             <Switch />
@@ -1018,7 +1201,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.historyTitle', { name: historyTag?.tagName || '' })}
         open={historyVisible}
-        closable={false}
+        closable
+        maskClosable
+        keyboard
         footer={
           <Button onClick={() => { setHistoryVisible(false); setHistoryTag(null); setDownloadHistory([]); }}>
             {t('common.close')}
@@ -1093,7 +1278,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
       <Modal
         title={t('favoriteTags.editTitle', { name: editingTag?.tagName || '' })}
         open={!!editingTag}
-        closable={false}
+        closable
+        maskClosable
+        keyboard
         onCancel={() => { setEditingTag(null); form.resetFields(); }}
         onOk={() => form.submit()}
         okText={t('common.save')}
@@ -1111,7 +1298,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
                 ]}
               />
             ) : (
-              <Tooltip title="已指派到具体站点，无法修改">
+              <Tooltip title={t('favoriteTags.siteAssignedLocked')}>
                 <Select
                   disabled
                   value={editingTag.siteId}
@@ -1131,12 +1318,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
 
       <BatchTagAddModal
         open={batchAddModalOpen}
-        title="批量添加收藏标签"
+        title={t('favoriteTags.batchAddTitle')}
         sites={sites}
         extraField={{
           name: 'labels',
-          label: '分组（逗号分隔）',
-          placeholder: '例如: 角色, 风格',
+          label: t('favoriteTags.groupSeparator'),
+          placeholder: t('favoriteTags.groupPlaceholder'),
         }}
         onCancel={() => setBatchAddModalOpen(false)}
         onSubmit={async (values) => {
@@ -1146,7 +1333,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
             values.extra || undefined
           );
           if (result.success && result.data) {
-            message.success(`已添加 ${result.data.added} 个标签，跳过 ${result.data.skipped} 个`);
+            message.success(t('favoriteTags.batchAddSuccess', {
+              added: result.data.added,
+              skipped: result.data.skipped,
+            }));
             setBatchAddModalOpen(false);
             loadFavoriteTags();
           } else {
@@ -1158,7 +1348,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
 
       <ImportTagsDialog
         open={importDialogOpen}
-        title="导入收藏标签"
+        title={t('favoriteTags.importDialogTitle')}
         sites={sites}
         onCancel={() => {
           setImportDialogOpen(false);
@@ -1178,11 +1368,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageProps> = ({ onTagClick }
         onImported={(result) => {
           setPendingLabelGroups(undefined);
           const r = result as { imported: number; skipped: number; labelsImported?: number; labelsSkipped?: number };
-          const parts = [`已导入 ${r.imported} 个标签，跳过 ${r.skipped} 个`];
-          if (r.labelsImported || r.labelsSkipped) {
-            parts.push(`分组: 导入 ${r.labelsImported ?? 0} / 跳过 ${r.labelsSkipped ?? 0}`);
-          }
-          message.success(parts.join('，'));
+          message.success(t('favoriteTags.importTagsSummary', {
+            imported: r.imported,
+            skipped: r.skipped,
+            labelsImported: r.labelsImported ?? 0,
+            labelsSkipped: r.labelsSkipped ?? 0,
+          }));
           setImportDialogOpen(false);
           loadFavoriteTags();
         }}

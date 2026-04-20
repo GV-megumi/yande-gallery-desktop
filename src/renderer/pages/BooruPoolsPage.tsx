@@ -5,6 +5,8 @@ import type { BooruPost, BooruSite, BooruPool } from '../../shared/types';
 import { BooruImageCard } from '../components/BooruImageCard';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { colors, spacing, fontSize } from '../styles/tokens';
+import { useFavorite } from '../hooks/useFavorite';
+import { useBooruPostActions } from '../hooks/useBooruPostActions';
 
 const { Text } = Typography;
 const { Search } = Input;
@@ -34,9 +36,20 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   const [poolLoading, setPoolLoading] = useState(false);
   const [poolPage, setPoolPage] = useState(1);
 
-  // 图片详情弹窗
-  const [detailPost, setDetailPost] = useState<BooruPost | null>(null);
-  const [detailOpen, setDetailOpen] = useState(false);
+  const { toggleFavorite: toggleLocalFavorite } = useFavorite({
+    siteId: activeSite?.id ?? null,
+    logPrefix: '[BooruPoolsPage]'
+  });
+
+  const postActions = useBooruPostActions({
+    siteId: activeSite?.id ?? null,
+    updatePosts: (updater) => setPoolPosts(prev => updater(prev)),
+    toggleLocalFavorite,
+    addToDownload: (postId, siteId) => window.electronAPI.booru.addToDownload(postId, siteId),
+    serverFavorite: (siteId, postId) => window.electronAPI.booru.serverFavorite(siteId, postId),
+    serverUnfavorite: (siteId, postId) => window.electronAPI.booru.serverUnfavorite(siteId, postId),
+    message,
+  });
 
   // 加载活跃站点
   useEffect(() => {
@@ -91,15 +104,15 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   }, [loadPools, selectedPool]);
 
   // 加载 Pool 详情
-  const loadPoolDetail = useCallback(async (pool: BooruPool) => {
+  const loadPoolDetail = useCallback(async (pool: BooruPool, targetPage = poolPage) => {
     if (!activeSite) return;
 
     setPoolLoading(true);
     try {
-      const result = await window.electronAPI.booru.getPool(activeSite.id, pool.id, poolPage);
+      const result = await window.electronAPI.booru.getPool(activeSite.id, pool.id, targetPage);
       if (result?.success && result.data) {
         setPoolPosts(result.data.posts || []);
-        console.log('[BooruPoolsPage] 加载 Pool 详情:', pool.name, '图片数:', result.data.posts?.length || 0);
+        console.log('[BooruPoolsPage] 加载 Pool 详情:', pool.name, '页码:', targetPage, '图片数:', result.data.posts?.length || 0);
       } else {
         setPoolPosts([]);
         if (result?.error) {
@@ -118,7 +131,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   const handlePoolClick = (pool: BooruPool) => {
     setSelectedPool(pool);
     setPoolPage(1);
-    loadPoolDetail(pool);
+    loadPoolDetail(pool, 1);
   };
 
   // 返回列表
@@ -135,62 +148,22 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
   // 图片详情（记录索引用于 Pool 内导航）
   const handlePostClick = (post: BooruPost, index?: number) => {
-    setDetailPost(post);
-    setDetailOpen(true);
+    void index;
+    postActions.openDetails(post);
   };
 
   // 收藏切换
   const handleToggleFavorite = async (post: BooruPost) => {
-    if (!activeSite) return;
-    try {
-      if (post.isFavorited) {
-        await window.electronAPI.booru.removeFavorite(post.postId);
-      } else {
-        await window.electronAPI.booru.addFavorite(post.postId, activeSite.id);
-      }
-      setPoolPosts(prev => prev.map(p =>
-        p.postId === post.postId ? { ...p, isFavorited: !p.isFavorited } : p
-      ));
-    } catch (error) {
-      console.error('[BooruPoolsPage] 切换收藏失败:', error);
-    }
+    await postActions.toggleFavorite(post);
   };
 
-  // 服务端喜欢状态管理
-  const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
-
   const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
-    if (!activeSite) return;
-    const isCurrentlyFavorited = serverFavorites.has(post.postId);
-    try {
-      if (isCurrentlyFavorited) {
-        await window.electronAPI.booru.serverUnfavorite(activeSite.id, post.postId);
-        setServerFavorites(prev => { const next = new Set(prev); next.delete(post.postId); return next; });
-        message.success('已取消喜欢');
-      } else {
-        await window.electronAPI.booru.serverFavorite(activeSite.id, post.postId);
-        setServerFavorites(prev => new Set(prev).add(post.postId));
-        message.success('已喜欢');
-      }
-    } catch (error) {
-      console.error('[BooruPoolsPage] 切换喜欢失败:', error);
-      message.error('操作失败');
-    }
-  }, [activeSite, serverFavorites]);
+    await postActions.toggleServerFavorite(post);
+  }, [postActions]);
 
   // 下载
   const handleDownload = async (post: BooruPost) => {
-    if (!activeSite) return;
-    try {
-      const result = await window.electronAPI.booru.addToDownload(post.postId, activeSite.id);
-      if (result.success) {
-        message.success('已添加到下载队列');
-      } else {
-        message.error('添加下载失败: ' + result.error);
-      }
-    } catch (error) {
-      console.error('[BooruPoolsPage] 添加下载失败:', error);
-    }
+    await postActions.download(post);
   };
 
   // Pool 详情视图
@@ -242,7 +215,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
               onClick={() => {
                 const newPage = poolPage - 1;
                 setPoolPage(newPage);
-                loadPoolDetail(selectedPool);
+                loadPoolDetail(selectedPool, newPage);
               }}
             >
               上一页
@@ -256,7 +229,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
               onClick={() => {
                 const newPage = poolPage + 1;
                 setPoolPage(newPage);
-                loadPoolDetail(selectedPool);
+                loadPoolDetail(selectedPool, newPage);
               }}
             >
               下一页 <RightOutlined />
@@ -290,7 +263,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
                   onDownload={() => handleDownload(post)}
                   onTagClick={onTagClick ? (tag) => onTagClick(tag, activeSite?.id) : undefined}
                   onToggleServerFavorite={activeSite?.username ? () => handleToggleServerFavorite(post) : undefined}
-                  isServerFavorited={serverFavorites.has(post.postId)}
+                  isServerFavorited={postActions.isServerFavorited(post)}
                 />
               ))}
             </div>
@@ -303,7 +276,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
                   onClick={() => {
                     const newPage = poolPage - 1;
                     setPoolPage(newPage);
-                    loadPoolDetail(selectedPool);
+                    loadPoolDetail(selectedPool, newPage);
                   }}
                 >
                   上一页
@@ -314,7 +287,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
                   onClick={() => {
                     const newPage = poolPage + 1;
                     setPoolPage(newPage);
-                    loadPoolDetail(selectedPool);
+                    loadPoolDetail(selectedPool, newPage);
                   }}
                 >
                   下一页
@@ -326,19 +299,19 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
         {/* 详情弹窗 */}
         <BooruPostDetailsPage
-          open={detailOpen && !suspended}
-          post={detailPost}
+          open={postActions.detailOpen && !suspended}
+          post={postActions.selectedPost}
           site={activeSite}
           posts={poolPosts}
-          initialIndex={detailPost ? poolPosts.findIndex(p => p.postId === detailPost.postId) : 0}
-          onClose={() => setDetailOpen(false)}
+          initialIndex={postActions.selectedPost ? poolPosts.findIndex(p => p.postId === postActions.selectedPost.postId) : 0}
+          onClose={postActions.closeDetails}
           onToggleFavorite={handleToggleFavorite}
           onDownload={handleDownload}
           onTagClick={(tag: string) => {
             console.log('[BooruPoolsPage] 详情页标签点击，打开子窗口:', tag);
             window.electronAPI?.window.openTagSearch(tag, activeSite?.id);
           }}
-          isServerFavorited={(p) => serverFavorites.has(p.postId)}
+          isServerFavorited={postActions.isServerFavorited}
           onToggleServerFavorite={activeSite?.username ? handleToggleServerFavorite : undefined}
           onArtistClick={(name: string) => {
             console.log('[BooruPoolsPage] 详情页艺术家点击，打开子窗口:', name);
