@@ -419,7 +419,7 @@ export async function getRecentImages(count: number = 100): Promise<{ success: b
         LEFT JOIN image_tags it ON i.id = it.imageId
         LEFT JOIN tags t ON it.tagId = t.id
         GROUP BY i.id
-        ORDER BY i.updatedAt DESC
+        ORDER BY i.updatedAt DESC, i.id DESC
         LIMIT ?
       `,
       [count]
@@ -443,6 +443,73 @@ export async function getRecentImages(count: number = 100): Promise<{ success: b
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Error getting recent images:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 获取比当前最近页顶部游标更新的图片。
+ * 用于缓存页恢复时的轻量增量刷新，避免重新加载并重排已有瀑布流块。
+ */
+export async function getRecentImagesAfter(
+  updatedAt: string,
+  id: number,
+  limit: number = 200,
+  beforeUpdatedAt?: string,
+  beforeId?: number
+): Promise<{ success: boolean; data?: Image[]; error?: string }> {
+  try {
+    const db = await getDatabase();
+
+    interface ImageQueryResult extends Omit<Image, 'tags'> {
+      tags?: string;
+    }
+
+    const hasBeforeCursor = !!beforeUpdatedAt && typeof beforeId === 'number';
+    const beforeCursorClause = hasBeforeCursor
+      ? 'AND (i.updatedAt < ? OR (i.updatedAt = ? AND i.id < ?))'
+      : '';
+    const params: Array<string | number> = [updatedAt, updatedAt, id];
+    if (hasBeforeCursor) {
+      params.push(beforeUpdatedAt!, beforeUpdatedAt!, beforeId!);
+    }
+    params.push(limit);
+
+    const images = await all<ImageQueryResult>(
+      db,
+      `
+        SELECT
+          i.*,
+          GROUP_CONCAT(t.name) as tags
+        FROM images i
+        LEFT JOIN image_tags it ON i.id = it.imageId
+        LEFT JOIN tags t ON it.tagId = t.id
+        WHERE (i.updatedAt > ? OR (i.updatedAt = ? AND i.id > ?))
+          ${beforeCursorClause}
+        GROUP BY i.id
+        ORDER BY i.updatedAt DESC, i.id DESC
+        LIMIT ?
+      `,
+      params
+    );
+
+    const result = images.map(image => {
+      const tagsArray = (image.tags && typeof image.tags === 'string' ? image.tags.split(',') : [])
+        .map((tag: string) => ({
+          id: 0,
+          name: tag,
+          createdAt: image.createdAt
+        }));
+      return {
+        ...image,
+        tags: tagsArray
+      };
+    });
+
+    return { success: true, data: result };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error getting recent images after cursor:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }

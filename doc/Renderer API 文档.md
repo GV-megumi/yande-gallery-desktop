@@ -41,6 +41,7 @@
 面向图库目录和图库内图片。
 
 - `getRecentImages(count?)`：获取最近图片
+- `getRecentImagesAfter(updatedAt, id, limit?, beforeUpdatedAt?, beforeId?)`：获取比给定最近图片游标更新的图片，按 `updatedAt DESC, id DESC` 返回。可选 `before*` 游标用于继续拉取下一页新增图片。用于最近图片页缓存恢复时做轻量增量刷新，不能替代完整进入页面时的 `getRecentImages`。
 - `getGalleries()`：获取图库列表
 - `getGallery(id)`：获取单个图库
 - `createGallery(galleryData)`：创建图库
@@ -65,6 +66,18 @@
 - `removeIgnoredFolder(id)`：从忽略名单中移除（允许下次扫描再次创建）
 
 忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的 `folderPath` 追加进来。
+
+### 最近图片游标查询
+
+`getRecentImagesAfter(updatedAt, id, limit?, beforeUpdatedAt?, beforeId?)` 的游标语义是：
+
+- 返回满足 `(image.updatedAt > updatedAt) || (image.updatedAt === updatedAt && image.id > id)` 的图片。
+- 如果传入 `beforeUpdatedAt + beforeId`，还会限制结果必须排在该 before 游标之后，也就是 `(image.updatedAt < beforeUpdatedAt) || (image.updatedAt === beforeUpdatedAt && image.id < beforeId)`。
+- 默认排序必须和最近图片主列表一致：`updatedAt DESC, id DESC`。
+- 调用方应传当前最近图片页顶部第一张图片的 `updatedAt` 与 `id`。
+- 当返回数量等于 `limit` 时，调用方应使用本页最后一张图片作为 `before*` 游标继续查询，直到返回数量小于 `limit`，避免缓存期间新增超过一页时漏图。
+- 该接口只用于“页面实例仍在缓存层中”的增量刷新；如果最近图片页已经卸载或缓存被释放，应重新调用 `getRecentImages(count)`。
+- 渲染层要负责去重，避免新增块、待查看队列和原始最近列表中出现同一 `image.id`。
 
 ## `config`
 

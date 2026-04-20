@@ -16,6 +16,7 @@ const getGallerySourceFavoriteTags = vi.fn();
 const getImages = vi.fn();
 const searchImages = vi.fn();
 const getRecentImages = vi.fn();
+const getRecentImagesAfter = vi.fn();
 const getConfig = vi.fn();
 const saveConfig = vi.fn();
 const getGalleryPagePreferences = vi.fn();
@@ -62,7 +63,25 @@ vi.mock('../../../src/renderer/components/ImageSearchBar', () => ({
 }));
 
 vi.mock('../../../src/renderer/components/LazyLoadFooter', () => ({
-  LazyLoadFooter: () => <div data-testid="lazy-load-footer" />,
+  LazyLoadFooter: ({
+    current,
+    total,
+    onLoadMore,
+  }: {
+    current?: number;
+    total?: number;
+    onLoadMore?: () => void;
+  }) => (
+    <button
+      type="button"
+      data-testid="lazy-load-footer"
+      data-current={current}
+      data-total={total}
+      onClick={onLoadMore}
+    >
+      加载更多
+    </button>
+  ),
 }));
 
 vi.mock('../../../src/renderer/components/GalleryCoverImage', () => ({
@@ -132,6 +151,7 @@ describe('GalleryPage gallery delete action', () => {
     getImages.mockResolvedValue({ success: true, data: [] });
     searchImages.mockResolvedValue({ success: true, data: [], total: 0 });
     getRecentImages.mockResolvedValue({ success: true, data: [] });
+    getRecentImagesAfter.mockResolvedValue({ success: true, data: [] });
     getConfig.mockResolvedValue({ success: true, data: {} });
     saveConfig.mockResolvedValue({ success: true });
     getGalleryPagePreferences.mockResolvedValue({ success: true, data: undefined });
@@ -170,6 +190,7 @@ describe('GalleryPage gallery delete action', () => {
         getGallery,
         getImagesByFolder,
         getRecentImages,
+        getRecentImagesAfter,
       },
       image: {
         getThumbnail,
@@ -508,6 +529,151 @@ describe('GalleryPage gallery delete action', () => {
 
     expect(getConfig).not.toHaveBeenCalled();
     expect(saveConfig).not.toHaveBeenCalled();
+  });
+
+  it('recent 缓存页从 suspended 恢复时不应重新加载或重置懒加载状态', async () => {
+    getRecentImages.mockResolvedValue({
+      success: true,
+      data: Array.from({ length: 250 }, (_, index) => ({
+        id: index + 1,
+        name: `recent-${index + 1}`,
+        updatedAt: new Date(Date.UTC(2026, 3, 20, 0, 0, 0, 250 - index)).toISOString(),
+      })),
+    });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('recent-1')).toBeTruthy();
+    expect(screen.queryByText('recent-250')).toBeNull();
+
+    await userEvent.click(screen.getByTestId('lazy-load-footer'));
+    expect(await screen.findByText('recent-250')).toBeTruthy();
+
+    expect(getGalleryPagePreferences).toHaveBeenCalledTimes(1);
+    expect(getRecentImages).toHaveBeenCalledTimes(1);
+    getGalleryPagePreferences.mockClear();
+    getRecentImages.mockClear();
+    getRecentImagesAfter.mockClear();
+
+    view.rerender(<GalleryPage subTab="recent" suspended={true} />);
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    expect(getGalleryPagePreferences).not.toHaveBeenCalled();
+    expect(getRecentImages).not.toHaveBeenCalled();
+    expect(getRecentImagesAfter).toHaveBeenCalledTimes(1);
+    expect(screen.getByText('recent-250')).toBeTruthy();
+  });
+
+  it('recent 缓存页恢复时应将新增图片放入独立的 20 张增量块', async () => {
+    const baseImages = Array.from({ length: 200 }, (_, index) => ({
+      id: 200 - index,
+      name: `base-${index + 1}`,
+      updatedAt: new Date(Date.UTC(2026, 3, 20, 0, 0, 0, 200 - index)).toISOString(),
+    }));
+    const newImages = Array.from({ length: 25 }, (_, index) => ({
+      id: 300 - index,
+      name: `new-${index + 1}`,
+      updatedAt: new Date(Date.UTC(2026, 3, 21, 0, 0, 0, 25 - index)).toISOString(),
+    }));
+
+    getRecentImages.mockResolvedValueOnce({ success: true, data: baseImages });
+    getRecentImagesAfter.mockResolvedValueOnce({ success: true, data: newImages });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('base-1')).toBeTruthy();
+    getRecentImages.mockClear();
+
+    view.rerender(<GalleryPage subTab="recent" suspended={true} />);
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('new-1')).toBeTruthy();
+      expect(screen.getByText('new-25')).toBeTruthy();
+    });
+
+    expect(getRecentImages).not.toHaveBeenCalled();
+    expect(getRecentImagesAfter).toHaveBeenCalledWith(
+      baseImages[0].updatedAt,
+      baseImages[0].id,
+      200,
+      undefined,
+      undefined
+    );
+    expect(screen.getByText('新· 1')).toBeTruthy();
+    expect(screen.getByText('新· 2')).toBeTruthy();
+  });
+
+  it('recent 空缓存页恢复时应回退到完整加载', async () => {
+    getRecentImages
+      .mockResolvedValueOnce({ success: true, data: [] })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ id: 1, name: 'first-new-image', updatedAt: '2026-04-21T00:00:00.000Z' }],
+      });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    await waitFor(() => {
+      expect(getRecentImages).toHaveBeenCalledTimes(1);
+    });
+
+    getRecentImagesAfter.mockClear();
+
+    view.rerender(<GalleryPage subTab="recent" suspended={true} />);
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('first-new-image')).toBeTruthy();
+    expect(getRecentImages).toHaveBeenCalledTimes(2);
+    expect(getRecentImagesAfter).not.toHaveBeenCalled();
+  });
+
+  it('recent 缓存页恢复时应分页拉取超过 200 张的新增图片', async () => {
+    const baseImages = [{
+      id: 1,
+      name: 'base-top',
+      updatedAt: '2026-04-20T00:00:00.000Z',
+    }];
+    const firstPage = Array.from({ length: 200 }, (_, index) => ({
+      id: 500 - index,
+      name: `new-page-1-${index + 1}`,
+      updatedAt: new Date(Date.UTC(2026, 3, 21, 0, 0, 0, 250 - index)).toISOString(),
+    }));
+    const secondPage = Array.from({ length: 50 }, (_, index) => ({
+      id: 300 - index,
+      name: `new-page-2-${index + 1}`,
+      updatedAt: new Date(Date.UTC(2026, 3, 21, 0, 0, 0, 50 - index)).toISOString(),
+    }));
+
+    getRecentImages.mockResolvedValueOnce({ success: true, data: baseImages });
+    getRecentImagesAfter
+      .mockResolvedValueOnce({ success: true, data: firstPage })
+      .mockResolvedValueOnce({ success: true, data: secondPage });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('base-top')).toBeTruthy();
+    getRecentImages.mockClear();
+
+    view.rerender(<GalleryPage subTab="recent" suspended={true} />);
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('new-page-2-50')).toBeTruthy();
+    });
+
+    expect(getRecentImages).not.toHaveBeenCalled();
+    expect(getRecentImagesAfter).toHaveBeenCalledTimes(2);
+    const lastFirstPageImage = firstPage[firstPage.length - 1];
+    expect(getRecentImagesAfter).toHaveBeenLastCalledWith(
+      baseImages[0].updatedAt,
+      baseImages[0].id,
+      200,
+      lastFirstPageImage.updatedAt,
+      lastFirstPageImage.id
+    );
   });
 
   it('galleries 子页激活时应通过 pagePreferences.gallery 恢复选中图集并重新打开详情视图', async () => {

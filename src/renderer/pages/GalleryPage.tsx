@@ -18,6 +18,61 @@ const areGalleryPreferencesEqual = (
   right?: GalleryPagePreferencesBySubTab,
 ) => JSON.stringify(left ?? {}) === JSON.stringify(right ?? {});
 
+const RECENT_INITIAL_LOAD_COUNT = 2000;
+const RECENT_VISIBLE_BATCH_SIZE = 200;
+const RECENT_NEW_SEGMENT_SIZE = 20;
+const RECENT_NEW_CHECK_LIMIT = 200;
+const RECENT_TOP_AUTO_APPLY_THRESHOLD = 120;
+
+interface RecentNewSegment {
+  id: string;
+  images: any[];
+  active: boolean;
+}
+
+const getImageTime = (image: any): number =>
+  new Date(image?.updatedAt || image?.createdAt || 0).getTime();
+
+const sortRecentImages = (images: any[]): any[] => [...images].sort((a, b) => {
+  const timeDiff = getImageTime(b) - getImageTime(a);
+  if (timeDiff !== 0) return timeDiff;
+  return Number(b?.id || 0) - Number(a?.id || 0);
+});
+
+const createRecentNewSegmentId = (images: any[], active: boolean): string => {
+  const firstId = images[0]?.id ?? 'start';
+  const lastId = images[images.length - 1]?.id ?? 'end';
+  return `recent-new-${active ? 'active' : 'frozen'}-${firstId}-${lastId}-${images.length}`;
+};
+
+const createRecentNewSegments = (images: any[]): RecentNewSegment[] => {
+  const sorted = sortRecentImages(images);
+  const segments: RecentNewSegment[] = [];
+  const remainder = sorted.length % RECENT_NEW_SEGMENT_SIZE;
+  let offset = 0;
+
+  if (remainder > 0) {
+    const activeImages = sorted.slice(0, remainder);
+    segments.push({
+      id: createRecentNewSegmentId(activeImages, true),
+      images: activeImages,
+      active: true,
+    });
+    offset = remainder;
+  }
+
+  for (; offset < sorted.length; offset += RECENT_NEW_SEGMENT_SIZE) {
+    const segmentImages = sorted.slice(offset, offset + RECENT_NEW_SEGMENT_SIZE);
+    segments.push({
+      id: createRecentNewSegmentId(segmentImages, false),
+      images: segmentImages,
+      active: false,
+    });
+  }
+
+  return segments;
+};
+
 // 添加样式，限制超大屏幕上最多5列
 const galleryGridStyle = `
   @media (min-width: 1200px) {
@@ -64,6 +119,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 }) => {
   // 分离不同模式的状态，避免相互干扰
   const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
+  const [recentNewSegments, setRecentNewSegments] = useState<RecentNewSegment[]>([]);
+  const [pendingRecentImages, setPendingRecentImages] = useState<any[]>([]);
   const [allImages, setAllImages] = useState<any[]>([]); // 所有图片分页数据（每次20张）
   const [galleryImages, setGalleryImages] = useState<any[]>([]); // 图集图片数据（懒加载，一次1000张）
   const [galleries, setGalleries] = useState<any[]>([]);
@@ -81,6 +138,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
   const [detailSourceFavoriteTags, setDetailSourceFavoriteTags] = useState<any[]>([]);
   const [modalSourceFavoriteTags, setModalSourceFavoriteTags] = useState<any[]>([]);
+  // 内容容器 ref，用于监听滚动和判断缓存恢复时是否可直接插入新增块
+  const contentRef = useRef<HTMLDivElement>(null);
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchPage, setSearchPage] = useState(1);
@@ -95,6 +154,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const preferencesHydratingRef = useRef(false);
   const skipNextPreferenceSaveRef = useRef(false);
   const lastSavedPreferencesRef = useRef<GalleryPagePreferencesBySubTab | undefined>(undefined);
+  const hydratedSubTabRef = useRef<'recent' | 'all' | 'galleries' | null>(null);
+  const currentSubTabRef = useRef<'recent' | 'all' | 'galleries'>(subTab);
+  const wasSuspendedRef = useRef(false);
+  const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
   const visibleRecentImages = useMemo(
@@ -204,8 +267,167 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     });
   };
 
+  const findScrollContainer = (): HTMLElement | null => {
+    if (!contentRef.current) return null;
+
+    let parent = contentRef.current.parentElement;
+    while (parent) {
+      const style = window.getComputedStyle(parent);
+      if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
+        return parent;
+      }
+      parent = parent.parentElement;
+    }
+    return null;
+  };
+
+  const isRecentScrollNearTop = (): boolean => {
+    const scrollContainer = findScrollContainer();
+    return !scrollContainer || scrollContainer.scrollTop <= RECENT_TOP_AUTO_APPLY_THRESHOLD;
+  };
+
+  const scrollRecentToTop = () => {
+    const scrollContainer = findScrollContainer();
+    if (!scrollContainer) return;
+    if (typeof scrollContainer.scrollTo === 'function') {
+      scrollContainer.scrollTo({ top: 0, behavior: 'smooth' });
+    } else {
+      scrollContainer.scrollTop = 0;
+    }
+  };
+
+  const getRecentTopCursor = () => {
+    const topImage = recentNewSegments[0]?.images[0] ?? recentImages[0];
+    if (!topImage?.updatedAt || typeof topImage.id !== 'number') {
+      return null;
+    }
+    return { updatedAt: topImage.updatedAt, id: topImage.id };
+  };
+
+  const mergeRecentNewImages = (images: any[]) => {
+    if (images.length === 0) return;
+
+    setRecentNewSegments((prev) => {
+      const baseIds = new Set(recentImages.map((image) => image.id));
+      const segmentIds = new Set(prev.flatMap((segment) => segment.images.map((image) => image.id)));
+      const uniqueImages = sortRecentImages(images).filter((image) => {
+        if (typeof image.id !== 'number') return false;
+        if (baseIds.has(image.id) || segmentIds.has(image.id)) return false;
+        baseIds.add(image.id);
+        segmentIds.add(image.id);
+        return true;
+      });
+
+      if (uniqueImages.length === 0) return prev;
+
+      const hasActiveSegment = prev[0]?.active;
+      const activeImages = hasActiveSegment ? prev[0].images : [];
+      const frozenSegments = hasActiveSegment ? prev.slice(1) : prev;
+      const rebuiltHeadSegments = createRecentNewSegments([...uniqueImages, ...activeImages]);
+      return [...rebuiltHeadSegments, ...frozenSegments];
+    });
+  };
+
+  const addPendingRecentImages = (images: any[]) => {
+    if (images.length === 0) return;
+
+    setPendingRecentImages((prev) => {
+      const existingIds = new Set([
+        ...recentImages.map((image) => image.id),
+        ...recentNewSegments.flatMap((segment) => segment.images.map((image) => image.id)),
+        ...prev.map((image) => image.id),
+      ]);
+      const uniqueImages = images.filter((image) => typeof image.id === 'number' && !existingIds.has(image.id));
+      return uniqueImages.length > 0 ? sortRecentImages([...uniqueImages, ...prev]) : prev;
+    });
+  };
+
+  const applyPendingRecentImages = () => {
+    if (pendingRecentImages.length === 0) return;
+    mergeRecentNewImages(pendingRecentImages);
+    setPendingRecentImages([]);
+    window.requestAnimationFrame(scrollRecentToTop);
+  };
+
+  const checkRecentImagesAfterCacheResume = async () => {
+    if (!window.electronAPI?.gallery?.getRecentImagesAfter || checkingRecentUpdatesRef.current) {
+      return;
+    }
+
+    const cursor = getRecentTopCursor();
+    if (!cursor) {
+      if (recentImages.length === 0 && recentNewSegments.length === 0 && pendingRecentImages.length === 0) {
+        console.log('[GalleryPage] 最近图片缓存为空，执行完整加载');
+        loadRecentImages(RECENT_INITIAL_LOAD_COUNT);
+      }
+      return;
+    }
+
+    checkingRecentUpdatesRef.current = true;
+    try {
+      console.log(`[GalleryPage] 缓存恢复，检查最近图片增量: ${cursor.updatedAt}, id=${cursor.id}`);
+      const freshImages: any[] = [];
+      let beforeCursor: { updatedAt: string; id: number } | null = null;
+
+      while (true) {
+        const result = await window.electronAPI.gallery.getRecentImagesAfter(
+          cursor.updatedAt,
+          cursor.id,
+          RECENT_NEW_CHECK_LIMIT,
+          beforeCursor?.updatedAt,
+          beforeCursor?.id
+        );
+
+        if (!result.success) {
+          console.warn('[GalleryPage] 检查最近图片增量失败:', result.error);
+          return;
+        }
+
+        const pageImages = sortRecentImages(result.data || []);
+        freshImages.push(...pageImages);
+
+        if (pageImages.length < RECENT_NEW_CHECK_LIMIT) {
+          break;
+        }
+
+        const lastImage = pageImages[pageImages.length - 1];
+        if (!lastImage?.updatedAt || typeof lastImage.id !== 'number') {
+          break;
+        }
+
+        const nextBeforeCursor = { updatedAt: lastImage.updatedAt, id: lastImage.id };
+        if (
+          beforeCursor &&
+          beforeCursor.updatedAt === nextBeforeCursor.updatedAt &&
+          beforeCursor.id === nextBeforeCursor.id
+        ) {
+          break;
+        }
+        beforeCursor = nextBeforeCursor;
+      }
+
+      const sortedFreshImages = sortRecentImages(freshImages);
+      if (sortedFreshImages.length === 0) {
+        console.log('[GalleryPage] 最近图片缓存恢复：没有新增图片');
+        return;
+      }
+
+      console.log(`[GalleryPage] 最近图片缓存恢复：发现 ${sortedFreshImages.length} 张新增图片`);
+      if (isRecentScrollNearTop()) {
+        mergeRecentNewImages([...sortedFreshImages, ...pendingRecentImages]);
+        setPendingRecentImages([]);
+      } else {
+        addPendingRecentImages(sortedFreshImages);
+      }
+    } catch (error) {
+      console.warn('[GalleryPage] 检查最近图片增量异常:', error);
+    } finally {
+      checkingRecentUpdatesRef.current = false;
+    }
+  };
+
   // 加载最近图片
-  const loadRecentImages = async (count: number = 2000) => {
+  const loadRecentImages = async (count: number = RECENT_INITIAL_LOAD_COUNT) => {
     if (!window.electronAPI) {
       console.error('electronAPI is not available');
       return;
@@ -214,7 +436,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     console.log(`[GalleryPage] 开始加载最近图片，数量: ${count}`);
     setLoading(true);
     // 每次重新加载最近图片时，重置可见数量
-    setRecentVisibleCount(200);
+    setRecentVisibleCount(RECENT_VISIBLE_BATCH_SIZE);
+    setRecentNewSegments([]);
+    setPendingRecentImages([]);
     try {
       const result = await window.electronAPI.gallery.getRecentImages(count);
       if (result.success) {
@@ -627,12 +851,26 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   };
 
   useEffect(() => {
+    if (currentSubTabRef.current !== subTab) {
+      currentSubTabRef.current = subTab;
+      hydratedSubTabRef.current = null;
+    }
     // bug1-I2：常驻缓存层下非活跃页面挂起水合副作用（含 loadRecentImages /
     // loadImages / loadGalleries 等主动 IPC 拉取）。其它页面切回当前页时
     // suspended 会回到 false，此时再进入水合流程。
     if (suspended) {
+      wasSuspendedRef.current = true;
       return;
     }
+    if (hydratedSubTabRef.current === subTab) {
+      console.log(`[GalleryPage] 恢复已缓存的 "${subTab}" 页面，跳过重新初始化`);
+      if (subTab === 'recent' && wasSuspendedRef.current) {
+        wasSuspendedRef.current = false;
+        checkRecentImagesAfterCacheResume();
+      }
+      return;
+    }
+    wasSuspendedRef.current = false;
     let cancelled = false;
     const runId = preferencesHydrationRunIdRef.current + 1;
     preferencesHydrationRunIdRef.current = runId;
@@ -658,13 +896,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           galleryInfoRequestRunIdRef.current += 1;
           setSelectedGalleryInfo(null);
           setModalSourceFavoriteTags([]);
-          setRecentVisibleCount(200);
+          setRecentVisibleCount(RECENT_VISIBLE_BATCH_SIZE);
           setIsSearchMode(false);
           setSearchQuery('');
           console.log('[GalleryPage] 清空其他模式的数据');
           setAllImages([]);
           setGalleryImages([]);
-          loadRecentImages(2000);
+          loadRecentImages(RECENT_INITIAL_LOAD_COUNT);
         } else if (subTab === 'all') {
           console.log('[GalleryPage] 初始化"所有图片"模式');
           galleryDetailRequestRunIdRef.current += 1;
@@ -681,6 +919,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           setSearchQuery(nextSearchQuery);
           console.log('[GalleryPage] 清空其他模式的数据');
           setRecentImages([]);
+          setRecentNewSegments([]);
+          setPendingRecentImages([]);
           setGalleryImages([]);
           setAllImages([]);
 
@@ -700,6 +940,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           galleryDetailRequestRunIdRef.current += 1;
           galleryInfoRequestRunIdRef.current += 1;
           setRecentImages([]);
+          setRecentNewSegments([]);
+          setPendingRecentImages([]);
           setAllImages([]);
           setGalleryImages([]);
           setSelectedGallery(null);
@@ -725,6 +967,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       } finally {
         if (!cancelled && preferencesHydrationRunIdRef.current === runId) {
           preferencesHydratingRef.current = false;
+          hydratedSubTabRef.current = subTab;
           setPreferencesHydrated(true);
           setPreferencesHydrationVersion(runId);
         }
@@ -831,30 +1074,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     setGalleries(filterAndSortGalleries(allGalleries, gallerySearchQuery, gallerySortKey, gallerySortOrder));
   }, [gallerySearchQuery, gallerySortKey, gallerySortOrder, allGalleries, subTab]);
 
-  // 内容容器 ref，用于监听滚动
-  const contentRef = useRef<HTMLDivElement>(null);
-
   // 最近图片：滚动到底部附近时，自动再加载 200 张（懒加载渲染）
   useEffect(() => {
     if (subTab !== 'recent') return;
 
     console.log('[GalleryPage] 注册滚动事件监听器（最近图片懒加载）');
     
-    // 查找最近的滚动容器（父级的 Content 元素）
-    const findScrollContainer = (): HTMLElement | null => {
-      if (!contentRef.current) return null;
-      
-      let parent = contentRef.current.parentElement;
-      while (parent) {
-        const style = window.getComputedStyle(parent);
-        if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-          return parent;
-        }
-        parent = parent.parentElement;
-      }
-      return null;
-    };
-
     const scrollContainer = findScrollContainer();
     if (!scrollContainer) {
       console.warn('[GalleryPage] 未找到滚动容器，使用 window 滚动');
@@ -945,6 +1170,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   // 根据 subTab 渲染不同内容
   const renderContent = () => {
     if (subTab === 'recent') {
+      const hasRecentContent =
+        visibleRecentImages.length > 0 ||
+        recentNewSegments.some((segment) => segment.images.length > 0);
+
       return (
         <>
           <ImageSearchBar
@@ -953,25 +1182,104 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             onSearch={handleSearchInput}
           />
 
-          <ImageListWrapper
-            images={visibleRecentImages}
-            loading={loading}
-            emptyDescription="暂无最近图片"
-            onReload={loadRecentImages}
-            groupBy="day"
-            showTimeline
-            layout="waterfall"
-          >
-            <LazyLoadFooter
-              current={recentVisibleCount}
-              total={recentImages.length}
-              onLoadMore={() =>
-                setRecentVisibleCount((prev) =>
-                  Math.min(prev + 200, recentImages.length)
-                )
-              }
+          {pendingRecentImages.length > 0 && (
+            <div
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: zIndex.sticky,
+                marginBottom: spacing.md,
+                display: 'flex',
+                justifyContent: 'center',
+                pointerEvents: 'none',
+              }}
+            >
+              <Button
+                type="primary"
+                size="small"
+                onClick={applyPendingRecentImages}
+                style={{ pointerEvents: 'auto', boxShadow: '0 8px 24px rgba(17, 24, 39, 0.12)' }}
+              >
+                新增 {pendingRecentImages.length} 张，点击查看
+              </Button>
+            </div>
+          )}
+
+          {loading ? (
+            <ImageListWrapper
+              key="recent-loading"
+              images={visibleRecentImages}
+              loading={loading}
+              emptyDescription="暂无最近图片"
+              onReload={loadRecentImages}
+              groupBy="day"
+              showTimeline
+              layout="waterfall"
             />
-          </ImageListWrapper>
+          ) : hasRecentContent ? (
+            <>
+              {recentNewSegments.map((segment, index) => (
+                <div key={segment.id} style={{ marginBottom: spacing.xxl }}>
+                  <div
+                    style={{
+                      margin: `${spacing.sm}px 0 ${spacing.md}px`,
+                      fontWeight: 700,
+                      fontSize: fontSize.lg,
+                      color: colors.textPrimary,
+                    }}
+                  >
+                    新· {index + 1}
+                  </div>
+                  <ImageListWrapper
+                    images={segment.images}
+                    loading={false}
+                    emptyDescription="暂无新增图片"
+                    onReload={loadRecentImages}
+                    groupBy="day"
+                    layout="waterfall"
+                    batchSize={RECENT_NEW_SEGMENT_SIZE}
+                    groupKeyPrefix={`recent-new-${segment.id}`}
+                  />
+                </div>
+              ))}
+
+              {visibleRecentImages.length > 0 && (
+                <ImageListWrapper
+                  key="recent-base"
+                  images={visibleRecentImages}
+                  loading={false}
+                  emptyDescription="暂无最近图片"
+                  onReload={loadRecentImages}
+                  groupBy="day"
+                  showTimeline
+                  layout="waterfall"
+                  batchSize={RECENT_VISIBLE_BATCH_SIZE}
+                  groupKeyPrefix="recent-base"
+                >
+                  <LazyLoadFooter
+                    current={recentVisibleCount}
+                    total={recentImages.length}
+                    onLoadMore={() =>
+                      setRecentVisibleCount((prev) =>
+                        Math.min(prev + RECENT_VISIBLE_BATCH_SIZE, recentImages.length)
+                      )
+                    }
+                  />
+                </ImageListWrapper>
+              )}
+            </>
+          ) : (
+            <ImageListWrapper
+              key="recent-empty"
+              images={[]}
+              loading={false}
+              emptyDescription="暂无最近图片"
+              onReload={loadRecentImages}
+              groupBy="day"
+              showTimeline
+              layout="waterfall"
+            />
+          )}
         </>
       );
     } else if (subTab === 'all') {
