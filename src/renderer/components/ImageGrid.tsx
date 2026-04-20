@@ -44,6 +44,8 @@ export interface ImageGridProps {
   currentGallery?: any;
   // 批次大小：先按批次分组（每批多少张），再在每个批次内按时间分组（默认200）
   batchSize?: number;
+  // 分组 DOM id 前缀：同一页面渲染多个 ImageGrid 时避免时间轴锚点冲突
+  groupKeyPrefix?: string;
 }
 
 // 将本地文件路径转换为 app:// 协议 URL
@@ -308,7 +310,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   layout = 'waterfall',
   onSetCover,
   currentGallery,
-  batchSize = 200
+  batchSize = 200,
+  groupKeyPrefix
 }) => {
   const [selectedImage, setSelectedImage] = useState<any>(null);
   // 存储每个图片的缩略图路径，key 是 image.id
@@ -522,9 +525,10 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
           <div>
             {Object.entries(groupedImages).map(([key, group]) => {
               const displayTitle = getGroupDisplayTitle(key);
+              const groupDomId = groupKeyPrefix ? `${groupKeyPrefix}${batchGroupSeparator}${key}` : key;
 
               return (
-                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={key}>
+                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={groupDomId}>
                   {groupBy !== 'none' && (
                     <div
                       style={{
@@ -588,10 +592,11 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
           >
             {Object.keys(groupedImages).map((key) => (
               <div
-                key={`timeline-${key}`}
+                key={`timeline-${groupKeyPrefix ? `${groupKeyPrefix}${batchGroupSeparator}${key}` : key}`}
                 style={{ marginBottom: spacing.lg, cursor: 'pointer', pointerEvents: 'auto' }}
                 onClick={() => {
-                  const el = document.getElementById(key);
+                  const groupDomId = groupKeyPrefix ? `${groupKeyPrefix}${batchGroupSeparator}${key}` : key;
+                  const el = document.getElementById(groupDomId);
                   if (el) {
                     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
                   }

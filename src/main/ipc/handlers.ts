@@ -16,6 +16,7 @@ import {
   getAllTags,
   searchTags,
   getRecentImages,
+  getRecentImagesAfter,
   getImagesByFolder,
   getAllFolders,
   scanAndImportFolder
@@ -589,6 +590,21 @@ export function setupIPC() {
   ipcMain.handle(IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES, async (_event: IpcMainInvokeEvent, count: number = 100) => {
     try {
       return await getRecentImages(count);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES_AFTER, async (
+    _event: IpcMainInvokeEvent,
+    updatedAt: string,
+    id: number,
+    limit: number = 200,
+    beforeUpdatedAt?: string,
+    beforeId?: number
+  ) => {
+    try {
+      return await getRecentImagesAfter(updatedAt, id, limit, beforeUpdatedAt, beforeId);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

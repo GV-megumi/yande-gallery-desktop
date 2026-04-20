@@ -25,6 +25,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   gallery: {
     getRecentImages: (count?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES, count),
+    getRecentImagesAfter: (updatedAt: string, id: number, limit?: number, beforeUpdatedAt?: string, beforeId?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES_AFTER, updatedAt, id, limit, beforeUpdatedAt, beforeId),
     getGalleries: () => ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_GALLERIES),
     getGallery: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_GALLERY, id),
     createGallery: (galleryData: any) =>
@@ -354,6 +356,7 @@ declare global {
       };
       gallery: {
         getRecentImages: (count?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getRecentImagesAfter: (updatedAt: string, id: number, limit?: number, beforeUpdatedAt?: string, beforeId?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getGalleries: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getGallery: (id: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         createGallery: (galleryData: any) => Promise<{ success: boolean; data?: number; error?: string }>;

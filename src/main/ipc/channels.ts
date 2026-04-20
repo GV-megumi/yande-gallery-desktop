@@ -14,6 +14,7 @@ export const IPC_CHANNELS = {
 
   // 图库操作
   GALLERY_GET_RECENT_IMAGES: 'gallery:get-recent-images',
+  GALLERY_GET_RECENT_IMAGES_AFTER: 'gallery:get-recent-images-after',
   GALLERY_GET_IMAGES_BY_FOLDER: 'gallery:get-images-by-folder',
   GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders',
   GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
