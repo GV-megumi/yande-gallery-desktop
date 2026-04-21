@@ -1,6 +1,6 @@
 # `handlers.ts` 模块化计划概述
 
-> **状态：计划，未落地。** 截至当前（refactor-todo-full 分支）主进程 IPC 仍集中在 [src/main/ipc/handlers.ts](../src/main/ipc/handlers.ts) 单一文件，本文档中的"子模块拆分"方案尚未实施。阅读时请把它当作规划文档，而不是现状说明；如果未来开始执行拆分，请同步更新本节状态与代码路径。
+> **状态：已落地。** 主进程 IPC 入口 [src/main/ipc/handlers.ts](../src/main/ipc/handlers.ts) 现在只保留幂等保护与注册编排；具体 IPC 注册已经拆入 [src/main/ipc/handlers/](../src/main/ipc/handlers/) 下的多个领域模块。当前包含 `galleryHandlers.ts`、`configHandlers.ts`、`systemHandlers.ts`、`booruHandlers.ts`、`bulkDownloadHandlers.ts`，并已补充子模块 runtime 注册测试。
 
 ## 背景
 
@@ -49,33 +49,35 @@
 
 ## 推荐实施顺序
 
-### Phase 1：最小拆分
+### Phase 1：最小拆分（已完成）
 
 先把与当前活跃功能最相关、依赖最集中的部分拆出去：
 
-- Booru 相关 handlers
-- 批量下载相关 handlers
+- Booru 相关 handlers：已拆至 `src/main/ipc/handlers/booruHandlers.ts`
+- 批量下载相关 handlers：已拆至 `src/main/ipc/handlers/bulkDownloadHandlers.ts`
 
 原因：
 
 - 当前 favorite tag / bulk download / history / import-export 都在这块活跃演进
 - 这两组逻辑本身耦合大，但和图库、Google、备份等模块并不属于同一层次
 
-### Phase 2：图库 / 系统拆分
+### Phase 2：图库 / 系统拆分（已完成）
 
 再拆：
 
-- gallery/image handlers
-- system/config handlers
+- gallery/image/db handlers：已拆至 `src/main/ipc/handlers/galleryHandlers.ts`
+- config/page-preferences handlers：已拆至 `src/main/ipc/handlers/configHandlers.ts`
+- system/network/backup handlers：已拆至 `src/main/ipc/handlers/systemHandlers.ts`
 
-### Phase 3：测试重构
+### Phase 3：测试重构（已完成）
 
 拆分完成后，再补真正更强的执行级测试：
 
 - 针对单个 `setupBooruHandlers()` 的 runtime 注册测试
 - 针对 `setupBulkDownloadHandlers()` 的 runtime 注册测试
+- 针对 `setupGalleryHandlers()`、`setupConfigHandlers()`、`setupSystemHandlers()` 的 runtime 注册测试
 
-这会比现在直接运行整个 `setupIPC()` 更稳定、成本更低。
+这些测试位于 `tests/main/ipc/handlerModules.runtime.test.ts`，直接调用各个 `setupXxxHandlers()` 并断言注册到 `ipcMain.handle` 的通道集合，避免只依赖 `setupIPC()` 整体注册或源码字符串检查。
 
 ## 预期收益
 
