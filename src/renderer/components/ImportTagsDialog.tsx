@@ -50,6 +50,7 @@ export interface ImportTagsDialogProps<T extends AnyRecord = AnyRecord> {
 }
 
 type Stage = 'pickSite' | 'preview';
+const GLOBAL_SITE_SELECT_VALUE = '__global__';
 
 export function ImportTagsDialog<T extends AnyRecord>({
   open,
@@ -181,10 +182,10 @@ export function ImportTagsDialog<T extends AnyRecord>({
             <Select
               style={{ width: '100%' }}
               placeholder="必须选择"
-              value={fallbackSiteId as any}
-              onChange={v => setFallbackSiteId(v)}
+              value={fallbackSiteId === null ? GLOBAL_SITE_SELECT_VALUE : fallbackSiteId}
+              onChange={v => setFallbackSiteId(v === GLOBAL_SITE_SELECT_VALUE ? null : v)}
               options={[
-                { label: '全局', value: null },
+                { label: '全局', value: GLOBAL_SITE_SELECT_VALUE },
                 ...sites.map(s => ({ label: s.name, value: s.id })),
               ]}
             />
@@ -223,9 +224,12 @@ export function ImportTagsDialog<T extends AnyRecord>({
           >
             <Table
               size="small"
-              rowKey={(r: any, idx) => `${r.tagName}-${idx}`}
+              rowKey="__previewRowKey"
               pagination={false}
-              dataSource={records.slice(0, 100) as any}
+              dataSource={records.slice(0, 100).map((record, index) => ({
+                ...record,
+                __previewRowKey: `${record.tagName}-${record.siteId ?? 'fallback'}-${index}`,
+              })) as any}
               columns={[
                 { title: '标签', dataIndex: 'tagName', key: 'tagName' },
                 {

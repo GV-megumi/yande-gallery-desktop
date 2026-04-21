@@ -177,7 +177,7 @@ export const BooruUserPage: React.FC<BooruUserPageProps> = ({
           </Card>
 
           <Card style={{ borderRadius: radius.lg }}>
-            <Descriptions column={1} size="small" labelStyle={{ width: 140 }}>
+            <Descriptions column={1} size="small" styles={{ label: { width: 140 } }}>
               <Descriptions.Item label="注册时间">{formatTime(profile.createdAt)}</Descriptions.Item>
               <Descriptions.Item label="收藏数">{profile.favoriteCount ?? 0}</Descriptions.Item>
               <Descriptions.Item label="反馈数">{profile.feedbackCount ?? 0}</Descriptions.Item>

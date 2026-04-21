@@ -70,6 +70,7 @@ const DEFAULT_DOWNLOAD_BINDING_FORM_VALUES: Omit<DownloadBindingFormValues, 'gal
   skipIfExists: true,
   notifications: true,
 };
+const GLOBAL_SITE_SELECT_VALUE = '__global__';
 
 const buildDownloadBindingFormValues = (record: FavoriteTagWithDownloadState): DownloadBindingFormValues => ({
   ...DEFAULT_DOWNLOAD_BINDING_FORM_VALUES,
@@ -1287,13 +1288,22 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         cancelText={t('common.cancel')}
       >
         <Form form={form} layout="vertical" onFinish={handleEdit}>
-          <Form.Item name="siteId" label={t('favoriteTags.site')}>
+          <Form.Item
+            name="siteId"
+            label={t('favoriteTags.site')}
+            getValueProps={(value) => ({
+              value: value === null ? GLOBAL_SITE_SELECT_VALUE : value,
+            })}
+            getValueFromEvent={(value) => (
+              value === GLOBAL_SITE_SELECT_VALUE ? null : value
+            )}
+          >
             {editingTag?.siteId == null ? (
               <Select
                 placeholder={t('favoriteTags.sitePlaceholder')}
                 allowClear={false}
                 options={[
-                  { label: t('favoriteTags.global'), value: null },
+                  { label: t('favoriteTags.global'), value: GLOBAL_SITE_SELECT_VALUE },
                   ...sites.map(s => ({ label: s.name, value: s.id })),
                 ]}
               />

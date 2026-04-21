@@ -9,7 +9,6 @@ import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
 
 const { Text } = Typography;
-const { Search } = Input;
 
 interface BooruPoolsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void;
@@ -29,6 +28,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   const [activeSite, setActiveSite] = useState<BooruSite | null>(null);
   const [page, setPage] = useState(1);
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchDraft, setSearchDraft] = useState('');
 
   // Pool 详情状态
   const [selectedPool, setSelectedPool] = useState<BooruPool | null>(null);
@@ -142,6 +142,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
   // 搜索
   const handleSearch = (value: string) => {
+    setSearchDraft(value);
     setSearchQuery(value);
     setPage(1);
   };
@@ -340,13 +341,16 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
           </span>
         </Space>
 
-        <Search
-          placeholder="搜索 Pool..."
-          allowClear
-          onSearch={handleSearch}
-          style={{ width: 300 }}
-          enterButton={<SearchOutlined />}
-        />
+        <Space.Compact style={{ width: 300 }}>
+          <Input
+            placeholder="搜索 Pool..."
+            allowClear
+            value={searchDraft}
+            onChange={(e) => setSearchDraft(e.target.value)}
+            onPressEnter={(e) => handleSearch(e.currentTarget.value)}
+          />
+          <Button icon={<SearchOutlined />} onClick={() => handleSearch(searchDraft)} />
+        </Space.Compact>
       </div>
 
       {/* Pool 列表 */}

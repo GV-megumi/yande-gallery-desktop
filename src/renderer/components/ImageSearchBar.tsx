@@ -1,9 +1,7 @@
 import React from 'react';
-import { Input } from 'antd';
+import { Button, Input, Space } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { spacing } from '../styles/tokens';
-
-const { Search } = Input;
 
 interface ImageSearchBarProps {
   placeholder?: string;
@@ -25,15 +23,16 @@ export const ImageSearchBar: React.FC<ImageSearchBarProps> = ({
 }) => {
   return (
     <div style={{ marginBottom: spacing.xl, display: 'flex', gap: spacing.md, alignItems: 'center' }}>
-      <Search
-        placeholder={placeholder}
-        allowClear
-        enterButton={<SearchOutlined />}
-        style={style}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        onSearch={onSearch}
-      />
+      <Space.Compact style={style}>
+        <Input
+          placeholder={placeholder}
+          allowClear
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onPressEnter={(e) => onSearch(e.currentTarget.value)}
+        />
+        <Button icon={<SearchOutlined />} onClick={() => onSearch(value)} />
+      </Space.Compact>
     </div>
   );
 };

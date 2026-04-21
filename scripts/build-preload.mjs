@@ -15,12 +15,15 @@
  *   node scripts/build-preload.mjs --watch   — watch 模式：先全量构建，再并发 watch 两个入口
  */
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, '..');
+const require = createRequire(import.meta.url);
+const viteCli = path.join(path.dirname(require.resolve('vite/package.json')), 'bin', 'vite.js');
 
 const isWatch = process.argv.includes('--watch');
 
@@ -36,13 +39,10 @@ function runViteBuild(entry, opts = {}) {
       PRELOAD_ENTRY: entry,
       ...(opts.noEmpty ? { PRELOAD_NO_EMPTY: 'true' } : {}),
     };
-    // Windows 下 npx 是 .cmd 脚本，spawn 需要 shell:true 才能解析；
-    // POSIX 下也可以用 shell:true（只是略慢）。统一打开避免平台分叉。
-    const child = spawn('npx', ['vite', 'build', '--config', 'vite.preload.config.ts'], {
+    const child = spawn(process.execPath, [viteCli, 'build', '--config', 'vite.preload.config.ts'], {
       cwd: projectRoot,
       stdio: 'inherit',
       env,
-      shell: true,
     });
     child.on('error', reject);
     child.on('exit', (code) => {
@@ -65,13 +65,12 @@ function spawnViteWatch(entry) {
     PRELOAD_NO_EMPTY: 'true',
   };
   const child = spawn(
-    'npx',
-    ['vite', 'build', '--watch', '--config', 'vite.preload.config.ts'],
+    process.execPath,
+    [viteCli, 'build', '--watch', '--config', 'vite.preload.config.ts'],
     {
       cwd: projectRoot,
       stdio: ['ignore', 'pipe', 'pipe'],
       env,
-      shell: true,
     }
   );
 
