@@ -145,9 +145,19 @@ async function loadHandlersModule() {
 
 describe('setupIPC source-level registration coverage', () => {
   const handlersPath = path.resolve(process.cwd(), 'src/main/ipc/handlers.ts');
+  const handlersModuleDir = path.resolve(process.cwd(), 'src/main/ipc/handlers');
   const preloadPath = path.resolve(process.cwd(), 'src/preload/index.ts');
   const channelsPath = path.resolve(process.cwd(), 'src/main/ipc/channels.ts');
-  const source = readFileSync(handlersPath, 'utf-8');
+  const handlersEntrySource = readFileSync(handlersPath, 'utf-8');
+  const handlersModuleSources = existsSync(handlersModuleDir)
+    ? readdirSync(handlersModuleDir)
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => readFileSync(path.join(handlersModuleDir, name), 'utf-8'))
+    : [];
+  const source = [
+    handlersEntrySource,
+    ...handlersModuleSources,
+  ].join('\n');
   const preloadSource = readFileSync(preloadPath, 'utf-8');
   const channelsSource = readFileSync(channelsPath, 'utf-8');
 
@@ -171,7 +181,7 @@ describe('setupIPC source-level registration coverage', () => {
     subwindowPreloadSource,
   ].join('\n');
 
-  it('应在真实 handlers.ts 中注册 favorite-tag 下载相关 handlers', () => {
+  it('应在真实 handlers 入口及子模块中注册 favorite-tag 下载相关 handlers', () => {
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE');
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING');
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_HISTORY');
@@ -181,7 +191,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD');
   });
 
-  it('应在真实 handlers.ts 中精确注册 favorite-tag 导入导出 handlers', () => {
+  it('应在真实 handlers 入口及子模块中精确注册 favorite-tag 导入导出 handlers', () => {
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_EXPORT_FAVORITE_TAGS');
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_PICK_FILE');
     expect(source).toContain('ipcMain.handle(IPC_CHANNELS.BOORU_IMPORT_FAVORITE_TAGS_COMMIT');
