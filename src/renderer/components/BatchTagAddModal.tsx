@@ -34,6 +34,8 @@ export interface BatchTagAddModalProps {
   }) => Promise<void>;
 }
 
+const GLOBAL_SITE_SELECT_VALUE = '__global__';
+
 export const BatchTagAddModal: React.FC<BatchTagAddModalProps> = ({
   open,
   title,
@@ -86,10 +88,19 @@ export const BatchTagAddModal: React.FC<BatchTagAddModalProps> = ({
       destroyOnHidden
     >
       <Form form={form} layout="vertical" initialValues={{ siteId: null }}>
-        <Form.Item name="siteId" label="所属站点">
+        <Form.Item
+          name="siteId"
+          label="所属站点"
+          getValueProps={(value) => ({
+            value: value === null ? GLOBAL_SITE_SELECT_VALUE : value,
+          })}
+          getValueFromEvent={(value) => (
+            value === GLOBAL_SITE_SELECT_VALUE ? null : value
+          )}
+        >
           <Select
             options={[
-              { label: '全局', value: null },
+              { label: '全局', value: GLOBAL_SITE_SELECT_VALUE },
               ...sites.map((s) => ({ label: s.name, value: s.id })),
             ]}
           />

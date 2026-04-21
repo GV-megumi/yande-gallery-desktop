@@ -181,7 +181,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
               <List.Item key={post.id} style={{ padding: 0, marginBottom: spacing.md, border: 'none' }}>
                 <Card
                   style={{ width: '100%', borderRadius: radius.lg }}
-                  bodyStyle={{ padding: spacing.lg }}
+                  styles={{ body: { padding: spacing.lg } }}
                   title={
                     <Space wrap>
                       <Tag color="blue">#{index + 1 + (postPage - 1) * PAGE_SIZE}</Tag>
@@ -269,7 +269,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
               <Card
                 hoverable
                 style={{ width: '100%', borderRadius: radius.lg }}
-                bodyStyle={{ padding: spacing.lg }}
+                styles={{ body: { padding: spacing.lg } }}
                 onClick={() => { setSelectedTopic(topic); setPostPage(1); }}
               >
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: spacing.md }}>

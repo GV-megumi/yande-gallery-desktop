@@ -150,15 +150,15 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
         name="path"
         rules={[{ required: true, message: '请选择下载路径' }]}
       >
-        <Input.Group compact>
+        <Space.Compact style={{ width: '100%' }}>
           <Input
-            style={{ width: 'calc(100% - 100px)' }}
+            style={{ flex: 1 }}
             placeholder="选择下载目录"
             readOnly
             value={form.getFieldValue('path') || ''} // 确保显示当前值
           />
           <Button onClick={handleSelectFolder}>选择文件夹</Button>
-        </Input.Group>
+        </Space.Compact>
       </Form.Item>
 
       <Form.Item

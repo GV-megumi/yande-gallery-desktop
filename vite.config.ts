@@ -13,6 +13,9 @@ export default defineConfig({
   build: {
     outDir: path.join(__dirname, 'build/renderer'),
     emptyOutDir: true,
+    // Electron 桌面包从本地磁盘加载资源。当前 vendor 单包是有意保留：
+    // React / antd / rc-* 细拆曾引入跨 chunk 初始化顺序风险，优先保证启动稳定。
+    chunkSizeWarningLimit: 1600,
     rollupOptions: {
       input: {
         main: path.join(__dirname, 'src/renderer/index.html')

@@ -11,8 +11,6 @@ import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
 
-const { Search } = Input;
-
 const areGalleryPreferencesEqual = (
   left?: GalleryPagePreferencesBySubTab,
   right?: GalleryPagePreferencesBySubTab,
@@ -1369,15 +1367,16 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               >
                 创建图集
               </Button>
-              <Search
-                placeholder="搜索图集名称..."
-                allowClear
-                enterButton={<SearchOutlined />}
-                style={{ width: 260 }}
-                value={gallerySearchQuery}
-                onChange={(e) => setGallerySearchQuery(e.target.value)}
-                onSearch={handleGallerySearch}
-              />
+              <Space.Compact style={{ width: 260 }}>
+                <Input
+                  placeholder="搜索图集名称..."
+                  allowClear
+                  value={gallerySearchQuery}
+                  onChange={(e) => setGallerySearchQuery(e.target.value)}
+                  onPressEnter={(e) => handleGallerySearch(e.currentTarget.value)}
+                />
+                <Button icon={<SearchOutlined />} onClick={() => handleGallerySearch(gallerySearchQuery)} />
+              </Space.Compact>
               <div style={{ flex: 1 }} />
               {/* 排序控件 */}
               <Space size={spacing.sm}>

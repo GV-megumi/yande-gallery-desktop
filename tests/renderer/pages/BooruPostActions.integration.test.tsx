@@ -13,6 +13,7 @@ import { BooruTagSearchPage } from '../../../src/renderer/pages/BooruTagSearchPa
 const getActiveSite = vi.fn();
 const getPopularRecent = vi.fn();
 const getPools = vi.fn();
+const searchPools = vi.fn();
 const getPool = vi.fn();
 const getSites = vi.fn();
 const getArtist = vi.fn();
@@ -231,7 +232,7 @@ describe('TP-11 试点页面动作桥接', () => {
         addFavoriteTag,
         removeFavoriteTagByName,
         getPools,
-        searchPools: vi.fn(),
+        searchPools,
         getPool,
         addToDownload,
         serverFavorite,
@@ -420,6 +421,30 @@ describe('TP-11 试点页面动作桥接', () => {
 
     await waitFor(() => {
       expect(getPool).toHaveBeenCalledWith(1, 99, 1);
+    });
+  });
+
+  it('BooruPoolsPage 输入搜索词时不应立即发起 Pool 搜索', async () => {
+    searchPools.mockResolvedValue({ success: true, data: [] });
+
+    render(
+      <App>
+        <BooruPoolsPage />
+      </App>
+    );
+
+    await screen.findByText('pool name');
+    const searchInput = screen.getByPlaceholderText('搜索 Pool...');
+
+    fireEvent.change(searchInput, { target: { value: 'abc' } });
+
+    expect(searchPools).not.toHaveBeenCalled();
+    expect(getPools).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+
+    await waitFor(() => {
+      expect(searchPools).toHaveBeenCalledWith(1, 'abc', 1);
     });
   });
 

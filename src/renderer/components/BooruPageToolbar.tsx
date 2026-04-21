@@ -10,7 +10,6 @@ import { BooruSite } from '../../shared/types';
 import { colors, spacing, radius, shadows, fontSize, zIndex } from '../styles/tokens';
 import { SearchSyntaxHelp } from './SearchSyntaxHelp';
 
-const { Search } = Input;
 const { Option } = Select;
 
 /** 分级筛选 */
@@ -234,31 +233,38 @@ export const BooruPageToolbar: React.FC<BooruPageToolbarProps> = React.memo(({
         {/* 搜索框 — 占据主要空间 */}
         {hasSearch && (
           <div style={{ flex: 1, minWidth: 200, display: 'flex', alignItems: 'center', gap: 4 }}>
-            <AutoComplete
-              style={{ flex: 1 }}
-              options={autoCompleteOptions}
-              value={searchQuery}
-              open={(historyOpen || tagSuggestions.length > 0) && autoCompleteOptions.length > 0}
-              onFocus={() => { if (!searchQuery.trim()) setHistoryOpen(true); }}
-              onBlur={() => setTimeout(() => { setHistoryOpen(false); setTagSuggestions([]); }, 200)}
-              onChange={handleInputChange}
-              onSelect={(value) => {
-                if (value === '__clear__') { handleClearHistory(); return; }
-                if (tagSuggestions.length > 0) { handleSelectTag(value); return; }
-                onSearchChange?.(value);
-                handleSearch(value);
-              }}
-              disabled={!selectedSiteId || loading}
-            >
-              <Search
-                placeholder="搜索标签..."
-                allowClear
-                enterButton={<SearchOutlined />}
-                onSearch={handleSearch}
+            <Space.Compact style={{ flex: 1 }}>
+              <AutoComplete
+                style={{ flex: 1 }}
+                options={autoCompleteOptions}
+                value={searchQuery}
+                open={(historyOpen || tagSuggestions.length > 0) && autoCompleteOptions.length > 0}
+                onFocus={() => { if (!searchQuery.trim()) setHistoryOpen(true); }}
+                onBlur={() => setTimeout(() => { setHistoryOpen(false); setTagSuggestions([]); }, 200)}
+                onChange={handleInputChange}
+                onSelect={(value) => {
+                  if (value === '__clear__') { handleClearHistory(); return; }
+                  if (tagSuggestions.length > 0) { handleSelectTag(value); return; }
+                  onSearchChange?.(value);
+                  handleSearch(value);
+                }}
+                disabled={!selectedSiteId || loading}
+              >
+                <Input
+                  placeholder="搜索标签..."
+                  allowClear
+                  onPressEnter={(e) => handleSearch(e.currentTarget.value)}
+                  disabled={!selectedSiteId || loading}
+                  size="middle"
+                />
+              </AutoComplete>
+              <Button
+                icon={<SearchOutlined />}
+                onClick={() => handleSearch(searchQuery)}
                 disabled={!selectedSiteId || loading}
                 size="middle"
               />
-            </AutoComplete>
+            </Space.Compact>
             <SearchSyntaxHelp />
           </div>
         )}

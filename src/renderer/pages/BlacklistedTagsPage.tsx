@@ -406,7 +406,7 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
           </Empty>
         </Card>
       ) : (
-        <Card style={{ borderRadius: radius.md }} bodyStyle={{ padding: 0 }}>
+        <Card style={{ borderRadius: radius.md }} styles={{ body: { padding: 0 } }}>
           <Table
             dataSource={blacklistedTags}
             columns={columns}
