@@ -129,6 +129,52 @@ describe('BooruBulkDownloadPage active gating', () => {
 
     expect(getActiveSessions).not.toHaveBeenCalled();
   });
+
+  it('接收 bulk-download:sessions-changed 后应防抖刷新会话', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    const unsubscribe = vi.fn();
+    (window as any).electronAPI.system = {
+      onAppEvent: vi.fn((callback) => {
+        appEventCallback = callback;
+        return unsubscribe;
+      }),
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    getActiveSessions.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'bulk-download:sessions-changed',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'bulkDownloadService',
+        payload: { reason: 'created', sessionId: 's1' },
+      });
+      appEventCallback?.({
+        type: 'bulk-download:sessions-changed',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'bulkDownloadService',
+        payload: { reason: 'statusChanged', sessionId: 's1' },
+      });
+      vi.advanceTimersByTime(200);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getActiveSessions).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('BooruBulkDownloadPage handleStartFromTask (bug2 regression)', () => {

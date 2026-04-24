@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { type AppShellPagePreference, type BlacklistedTagsPagePreference, type BooruAppearancePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab, type RendererSafeAppConfig } from '../main/services/config.js';
-import type { BooruForumPost, BooruForumTopic, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary } from '../shared/types.js';
+import type { BooruForumPost, BooruForumTopic, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, RendererAppEvent } from '../shared/types.js';
 import { IPC_CHANNELS } from '../main/ipc/channels.js';
 import { createWindowApi } from './shared/createWindowApi.js';
 import { createBooruApi } from './shared/createBooruApi.js';
@@ -353,6 +353,7 @@ declare global {
         onSystemNavigate: (
           callback: (payload: { section: string; subKey: string; sessionId?: string }) => void,
         ) => () => void;
+        onAppEvent: (callback: (event: RendererAppEvent) => void) => () => void;
       };
       gallery: {
         getRecentImages: (count?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;

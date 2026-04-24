@@ -162,11 +162,12 @@ describe('IPC_CHANNELS', () => {
     // 确保通道数量不会意外增减（随功能增加而更新）
     // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
     // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
-    expect(keys.length).toBe(187);
+    expect(keys.length).toBe(188);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {
     expect(IPC_CHANNELS.SYSTEM_NAVIGATE).toBe('system:navigate');
+    expect(IPC_CHANNELS.SYSTEM_APP_EVENT).toBe('system:app-event');
     expect(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS).toBe('config:get-notifications');
     expect(IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS).toBe('config:set-notifications');
     expect(IPC_CHANNELS.CONFIG_GET_DESKTOP).toBe('config:get-desktop');

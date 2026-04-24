@@ -560,6 +560,13 @@ export const AppContent: React.FC = () => {
     pushNavigation({ type: 'tag-search', tag, siteId });
   }, [pushNavigation]);
 
+  const openTagSearchWindow = useCallback(async (tag: string, siteId?: number | null) => {
+    const result = await window.electronAPI.window.openTagSearch(tag, siteId);
+    if (!result.success) {
+      throw new Error('打开标签搜索窗口失败');
+    }
+  }, []);
+
   const navigateToArtist = useCallback((name: string, siteId?: number | null) => {
     pushNavigation({ type: 'artist', name, siteId });
   }, [pushNavigation]);
@@ -776,7 +783,7 @@ export const AppContent: React.FC = () => {
       if (key === 'user-profile') return <BooruUserPage onTagClick={navigateToTagSearch} />;
       if (key === 'favorites') return <BooruFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
       if (key === 'server-favorites') return <BooruServerFavoritesPage onTagClick={navigateToTagSearch} suspended={baseSuspended} />;
-      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={navigateToTagSearch} active={isActive} defaultTab={(defaultTab as 'favorite' | 'blacklist' | undefined) ?? 'favorite'} />;
+      if (key === 'tag-management') return <BooruTagManagementPage onTagClick={openTagSearchWindow} active={isActive} defaultTab={(defaultTab as 'favorite' | 'blacklist' | undefined) ?? 'favorite'} />;
       if (key === 'download') return <BooruDownloadHubPage active={isActive} defaultTab={(defaultTab as 'downloads' | 'bulk' | undefined) ?? 'downloads'} />;
       if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
       if (key === 'booru-settings') return <BooruSettingsPage />;
@@ -791,6 +798,7 @@ export const AppContent: React.FC = () => {
   }, [
     navigationStack.length,
     navigateToTagSearch,
+    openTagSearchWindow,
     navigateToArtist,
     navigateToCharacter,
     navigateToUser,

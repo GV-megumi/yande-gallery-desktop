@@ -465,6 +465,115 @@ export interface ConfigChangedSummary {
   sections: string[];
 }
 
+export type RendererAppEventSource =
+  | 'booruService'
+  | 'bulkDownloadService'
+  | 'galleryService'
+  | 'imageService'
+  | 'ipc';
+
+export interface RendererAppEventBase<TType extends string, TPayload> {
+  type: TType;
+  version: 1;
+  occurredAt: string;
+  source: RendererAppEventSource;
+  payload: TPayload;
+}
+
+export interface RendererBulkDownloadSessionsChangedPayload {
+  sessionId?: string;
+  taskId?: string;
+  siteId?: number | null;
+  status?: BulkDownloadSessionStatus;
+  previousStatus?: BulkDownloadSessionStatus | null;
+  reason:
+    | 'created'
+    | 'deduplicated'
+    | 'statusChanged'
+    | 'deleted'
+    | 'retryStarted'
+    | 'retryMerged';
+  originType?: 'favoriteTag' | 'manual' | null;
+  originId?: number | null;
+}
+
+export type RendererBulkDownloadSessionsChangedEvent = RendererAppEventBase<
+  'bulk-download:sessions-changed',
+  RendererBulkDownloadSessionsChangedPayload
+>;
+
+export interface RendererFavoriteTagDownloadCreatedPayload {
+  favoriteTagId: number;
+  tagName: string;
+  siteId: number;
+  taskId: string;
+  sessionId: string;
+  deduplicated?: boolean;
+  status: 'starting' | 'pending' | 'queued' | 'dryRun' | 'running';
+}
+
+export type RendererFavoriteTagDownloadCreatedEvent = RendererAppEventBase<
+  'favorite-tag-download:created',
+  RendererFavoriteTagDownloadCreatedPayload
+>;
+
+export interface RendererFavoriteTagsChangedPayload {
+  action:
+    | 'created'
+    | 'batchCreated'
+    | 'updated'
+    | 'deleted'
+    | 'imported'
+    | 'bindingUpserted'
+    | 'bindingDeleted'
+    | 'labelCreated'
+    | 'labelDeleted';
+  favoriteTagId?: number;
+  siteId?: number | null;
+  tagName?: string;
+  affectedCount?: number;
+}
+
+export type RendererFavoriteTagsChangedEvent = RendererAppEventBase<
+  'favorite-tags:changed',
+  RendererFavoriteTagsChangedPayload
+>;
+
+export interface RendererGalleryImagesImportedPayload {
+  folderPath: string;
+  galleryId?: number;
+  imported: number;
+  skipped: number;
+  recursive?: boolean;
+  imageCount?: number;
+  lastScannedAt?: string;
+  reason: 'scanAndImportFolder' | 'syncGalleryFolder' | 'scanSubfolders';
+}
+
+export type RendererGalleryImagesImportedEvent = RendererAppEventBase<
+  'gallery:images-imported',
+  RendererGalleryImagesImportedPayload
+>;
+
+export interface RendererGalleriesChangedPayload {
+  galleryId?: number;
+  action: 'created' | 'updated' | 'deleted' | 'statsUpdated' | 'batchCreated';
+  affectedCount?: number;
+  folderPath?: string;
+}
+
+export type RendererGalleriesChangedEvent = RendererAppEventBase<
+  'gallery:galleries-changed',
+  RendererGalleriesChangedPayload
+>;
+
+export type RendererAppEvent =
+  | RendererBulkDownloadSessionsChangedEvent
+  | RendererFavoriteTagDownloadCreatedEvent
+  | RendererFavoriteTagsChangedEvent
+  | RendererGalleryImagesImportedEvent
+  | RendererGalleriesChangedEvent;
+
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {
   siteId: number;

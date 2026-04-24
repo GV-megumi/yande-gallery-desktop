@@ -3,6 +3,7 @@ import path from 'path';
 import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
+import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 
 // 图库类型
 export interface Gallery {
@@ -192,6 +193,12 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
 
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
 
+    emitBuiltRendererAppEvent({
+      type: 'gallery:galleries-changed',
+      source: 'galleryService',
+      payload: { galleryId: result?.id, action: 'created', folderPath },
+    });
+
     return { success: true, data: result?.id };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -238,6 +245,12 @@ export async function updateGallery(
 
     const sql = `UPDATE galleries SET ${setClauses.join(', ')} WHERE id = ?`;
     await run(db, sql, values);
+
+    emitBuiltRendererAppEvent({
+      type: 'gallery:galleries-changed',
+      source: 'galleryService',
+      payload: { galleryId: id, action: 'updated' },
+    });
 
     return { success: true };
   } catch (error) {
@@ -387,6 +400,12 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       );
     });
 
+    emitBuiltRendererAppEvent({
+      type: 'gallery:galleries-changed',
+      source: 'galleryService',
+      payload: { galleryId: id, action: 'deleted', folderPath: normalized },
+    });
+
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -414,6 +433,12 @@ export async function updateGalleryStats(
       SET imageCount = ?, lastScannedAt = ?, updatedAt = ?
       WHERE id = ?
     `, [imageCount, lastScannedAt, new Date().toISOString(), id]);
+
+    emitBuiltRendererAppEvent({
+      type: 'gallery:galleries-changed',
+      source: 'galleryService',
+      payload: { galleryId: id, action: 'statsUpdated' },
+    });
 
     return { success: true };
   } catch (error) {
@@ -565,6 +590,21 @@ export async function scanSubfoldersAndCreateGalleries(
                       importResult.data.imported,
                       new Date().toISOString()
                     );
+                    if (importResult.data.imported > 0) {
+                      emitBuiltRendererAppEvent({
+                        type: 'gallery:images-imported',
+                        source: 'galleryService',
+                        payload: {
+                          folderPath: fullPath,
+                          galleryId,
+                          imported: importResult.data.imported,
+                          skipped: importResult.data.skipped,
+                          recursive: false,
+                          imageCount: importResult.data.imported,
+                          reason: 'scanSubfolders',
+                        },
+                      });
+                    }
                   } else if (!importResult.success) {
                     console.warn(
                       `Import images failed: folder=${fullPath}, error=${importResult.error}`
@@ -676,6 +716,23 @@ export async function syncGalleryFolder(id: number): Promise<{
 
   // 5. 更新图集统计信息
   await updateGalleryStats(id, imageCount, lastScannedAt);
+
+  if (importResult.data.imported > 0) {
+    emitBuiltRendererAppEvent({
+      type: 'gallery:images-imported',
+      source: 'galleryService',
+      payload: {
+        folderPath: gallery.folderPath,
+        galleryId: id,
+        imported: importResult.data.imported,
+        skipped: importResult.data.skipped,
+        recursive: gallery.recursive ?? true,
+        imageCount,
+        lastScannedAt,
+        reason: 'syncGalleryFolder',
+      },
+    });
+  }
 
   console.log(
     `[galleryService] 同步完成: galleryId=${id}, imported=${importResult.data.imported}, skipped=${importResult.data.skipped}, imageCount=${imageCount}`

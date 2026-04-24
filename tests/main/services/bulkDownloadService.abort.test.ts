@@ -464,6 +464,13 @@ describe('bulkDownloadService abort semantics', () => {
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: vi.fn(() => undefined),
       getConfig: vi.fn(() => ({ booru: { download: {} } })),
+      getNotificationsConfig: vi.fn(() => ({
+        enabled: false,
+        bulkDownload: false,
+        bulkDownloadCompleted: false,
+        bulkDownloadFailed: false,
+        bulkDownloadAllSkipped: false,
+      })),
       getMaxConcurrentBulkDownloadSessions: vi.fn(() => 3),
     }));
 
@@ -671,6 +678,12 @@ describe('bulkDownloadService abort semantics', () => {
 
     expect(state.records).toHaveLength(1);
     expect(state.records[0].error).toContain('socket hang up');
+    await waitFor(() => send.mock.calls.some(([channel, payload]) => (
+      channel === IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS &&
+      payload?.sessionId === sessionId &&
+      payload?.url === state.records[0].url &&
+      payload?.status === 'failed'
+    )));
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, expect.objectContaining({
       sessionId,
       url: state.records[0].url,

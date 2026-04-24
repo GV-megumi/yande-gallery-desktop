@@ -12,7 +12,6 @@ import { v4 as uuidv4 } from 'uuid';
 import fs from 'fs';
 import path from 'path';
 import type sqlite3 from 'sqlite3';
-import { BrowserWindow } from 'electron';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import { getDatabase, run, runWithChanges, get, all } from './database.js';
 import { getProxyConfig, getMaxConcurrentBulkDownloadSessions } from './config.js';
@@ -27,7 +26,8 @@ import {
   BulkDownloadRecord,
   BulkDownloadOptions,
   BulkDownloadSessionStatus,
-  BulkDownloadRecordStatus
+  BulkDownloadRecordStatus,
+  RendererBulkDownloadSessionsChangedPayload
 } from '../../shared/types.js';
 import { BooruPost } from '../../shared/types.js';
 import {
@@ -36,6 +36,31 @@ import {
   validateDownloadedFileSize,
 } from './downloadFileProtocol.js';
 import { notifyBulkSession } from './notificationService.js';
+import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
+
+function broadcastToRendererWindows(channel: string, payload: unknown): void {
+  void (async () => {
+    try {
+      const electron = await import('electron');
+      const BrowserWindow = (electron as {
+        BrowserWindow?: {
+          getAllWindows?: () => Array<{ webContents?: { send?: (channel: string, payload: unknown) => void } }>;
+        };
+      }).BrowserWindow;
+      const windows = typeof BrowserWindow?.getAllWindows === 'function'
+        ? BrowserWindow.getAllWindows()
+        : [];
+      for (const win of windows) {
+        if (typeof win.webContents?.send === 'function') {
+          win.webContents.send(channel, payload);
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[bulkDownloadService] 广播渲染事件失败:', channel, message);
+    }
+  })();
+}
 
 function parseContentLengthHeader(contentLength: unknown): number | null {
   if (typeof contentLength !== 'string' || contentLength.trim() === '') {
@@ -54,6 +79,14 @@ const DESKTOP_NOTIFICATION_STATUSES = new Set<BulkDownloadSessionStatus>([
 
 function isDesktopNotificationStatus(status: BulkDownloadSessionStatus | undefined): status is 'completed' | 'failed' | 'allSkipped' {
   return typeof status === 'string' && DESKTOP_NOTIFICATION_STATUSES.has(status as 'completed' | 'failed' | 'allSkipped');
+}
+
+function emitBulkDownloadSessionsChanged(payload: RendererBulkDownloadSessionsChangedPayload): void {
+  emitBuiltRendererAppEvent({
+    type: 'bulk-download:sessions-changed',
+    source: 'bulkDownloadService',
+    payload,
+  });
 }
 
 async function getBulkDownloadSessionNotificationContext(sessionId: string): Promise<{
@@ -418,6 +451,14 @@ export async function createBulkDownloadSession(
         error: outcome.row.error,
         task,
       };
+      emitBulkDownloadSessionsChanged({
+        sessionId: existingSession.id,
+        taskId: existingSession.taskId,
+        siteId: existingSession.siteId,
+        status: existingSession.status,
+        previousStatus: existingSession.status,
+        reason: 'deduplicated',
+      });
       return { success: true, data: existingSession, deduplicated: true };
     }
 
@@ -431,6 +472,14 @@ export async function createBulkDownloadSession(
       task,
     };
     console.log('[bulkDownloadService] 会话创建成功:', outcome.sessionId);
+    emitBulkDownloadSessionsChanged({
+      sessionId: session.id,
+      taskId: session.taskId,
+      siteId: session.siteId,
+      status: session.status,
+      previousStatus: null,
+      reason: 'created',
+    });
     return { success: true, data: session };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -516,7 +565,7 @@ export async function hasActiveSessionForTask(taskId: string): Promise<boolean> 
     `SELECT COUNT(*) AS n FROM bulk_download_sessions
      WHERE taskId = ?
        AND deletedAt IS NULL
-       AND status IN ('pending', 'dryRun', 'running', 'paused')`,
+       AND status IN ('pending', 'queued', 'dryRun', 'running', 'paused')`,
     [taskId],
   );
   return (row?.n ?? 0) > 0;
@@ -709,6 +758,21 @@ export async function updateBulkDownloadSession(
       ? await getBulkDownloadSessionNotificationContext(sessionId)
       : null;
     const db = await getDatabase();
+    const previousSession = updates.status !== undefined
+      ? await get<{
+          taskId: string;
+          siteId: number | null;
+          status: BulkDownloadSessionStatus;
+          originType?: 'favoriteTag' | null;
+          originId?: number | null;
+        }>(
+          db,
+          `SELECT taskId, siteId, status, originType, originId
+             FROM bulk_download_sessions
+            WHERE id = ? AND deletedAt IS NULL`,
+          [sessionId],
+        )
+      : null;
     const setValues: string[] = [];
     const params: any[] = [];
 
@@ -756,6 +820,19 @@ export async function updateBulkDownloadSession(
         error: updates.error ?? notificationContext.error,
         sessionId,
         taskLevelEnabled: notificationContext.notificationsEnabled,
+      });
+    }
+
+    if (nextStatus !== undefined && previousSession && previousSession.status !== nextStatus) {
+      emitBulkDownloadSessionsChanged({
+        sessionId,
+        taskId: previousSession.taskId,
+        siteId: previousSession.siteId,
+        status: nextStatus,
+        previousStatus: previousSession.status,
+        reason: 'statusChanged',
+        originType: previousSession.originType ?? null,
+        originId: previousSession.originId ?? null,
       });
     }
   } catch (error) {
@@ -1860,18 +1937,15 @@ async function downloadRecord(
             `, ['completed', existingSize, existingSize, existingSize, record.url, sessionId]);
             
             // 广播状态变化到前端
-            const windows = BrowserWindow.getAllWindows();
-            for (const win of windows) {
-              win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
-                sessionId: sessionId,
-                url: record.url,
-                status: 'completed',
-                fileSize: existingSize,
-                progress: 100,
-                downloadedBytes: existingSize,
-                totalBytes: existingSize
-              });
-            }
+            broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
+              sessionId: sessionId,
+              url: record.url,
+              status: 'completed',
+              fileSize: existingSize,
+              progress: 100,
+              downloadedBytes: existingSize,
+              totalBytes: existingSize
+            });
             
             return;
           }
@@ -1933,16 +2007,13 @@ async function downloadRecord(
         // 广播进度到前端（实时推送，不依赖数据库轮询）
         const broadcastProgress = (bytes: number, total: number | null) => {
           const progress = total && total > 0 ? Math.round((bytes / total) * 100) : 0;
-          const windows = BrowserWindow.getAllWindows();
-          for (const win of windows) {
-            win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_PROGRESS, {
-              sessionId: sessionId,
-              url: record.url,
-              progress: progress,
-              downloadedBytes: bytes,
-              totalBytes: total || 0
-            });
-          }
+          broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_PROGRESS, {
+            sessionId: sessionId,
+            url: record.url,
+            progress: progress,
+            downloadedBytes: bytes,
+            totalBytes: total || 0
+          });
         };
 
         // 更新进度到数据库的函数（异步，不阻塞）
@@ -2144,18 +2215,15 @@ async function downloadRecord(
         
         // 广播状态变化到前端（通知下载完成）- 确保即使数据库更新失败也发送
         try {
-          const windows = BrowserWindow.getAllWindows();
-          for (const win of windows) {
-            win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
-              sessionId: sessionId,
-              url: record.url,
-              status: 'completed',
-              fileSize: actualSize,
-              progress: 100,
-              downloadedBytes: actualSize,
-              totalBytes: expectedSize || actualSize
-            });
-          }
+          broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
+            sessionId: sessionId,
+            url: record.url,
+            status: 'completed',
+            fileSize: actualSize,
+            progress: 100,
+            downloadedBytes: actualSize,
+            totalBytes: expectedSize || actualSize
+          });
           console.log(`[bulkDownloadService] 已广播状态更新: ${record.fileName}`);
         } catch (broadcastError) {
           console.error(`[bulkDownloadService] 广播状态更新失败: ${record.fileName}`, broadcastError);
@@ -2241,15 +2309,12 @@ async function downloadRecord(
     `, ['failed', errorMessage, record.url, sessionId]);
 
     // 广播状态变化到前端（通知下载失败）
-    const windows = BrowserWindow.getAllWindows();
-    for (const win of windows) {
-      win.webContents.send(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
-        sessionId: sessionId,
-        url: record.url,
-        status: 'failed',
-        error: errorMessage
-      });
-    }
+    broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
+      sessionId: sessionId,
+      url: record.url,
+      status: 'failed',
+      error: errorMessage
+    });
   }
 }
 
@@ -2356,12 +2421,37 @@ export async function deleteBulkDownloadSession(
   console.log('[bulkDownloadService] 删除会话:', sessionId);
   try {
     const db = await getDatabase();
+    const session = await get<{
+      taskId: string;
+      siteId: number | null;
+      status: BulkDownloadSessionStatus;
+      originType?: 'favoriteTag' | null;
+      originId?: number | null;
+    }>(
+      db,
+      `SELECT taskId, siteId, status, originType, originId
+         FROM bulk_download_sessions
+        WHERE id = ? AND deletedAt IS NULL`,
+      [sessionId],
+    );
     const now = new Date().toISOString();
     await run(db, `
       UPDATE bulk_download_sessions 
       SET deletedAt = ? 
       WHERE id = ?
     `, [now, sessionId]);
+    if (session) {
+      emitBulkDownloadSessionsChanged({
+        sessionId,
+        taskId: session.taskId,
+        siteId: session.siteId,
+        status: session.status,
+        previousStatus: session.status,
+        reason: 'deleted',
+        originType: session.originType ?? null,
+        originId: session.originId ?? null,
+      });
+    }
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

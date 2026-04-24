@@ -17,6 +17,11 @@ const getMock = vi.fn();
 const runMock = vi.fn();
 const allMock = vi.fn();
 
+vi.mock('electron', () => ({
+  BrowserWindow: { getAllWindows: () => [] },
+  Notification: vi.fn(),
+}));
+
 vi.mock('../../../src/main/services/database.js', () => ({
   getDatabase: vi.fn(async () => ({})),
   get: (...args: any[]) => getMock(...args),
