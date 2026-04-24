@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs/promises';
 import { generateThumbnail, deleteThumbnail } from './thumbnailService.js';
 import { getConfig } from './config.js';
+import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 
 /**
  * 图片服务 - 数据库操作实现
@@ -671,6 +672,20 @@ export async function scanAndImportFolder(
       } catch (error) {
         console.error(`Failed to process image ${file}:`, error);
       }
+    }
+
+    if (imported.length > 0) {
+      emitBuiltRendererAppEvent({
+        type: 'gallery:images-imported',
+        source: 'imageService',
+        payload: {
+          folderPath,
+          imported: imported.length,
+          skipped,
+          recursive,
+          reason: 'scanAndImportFolder',
+        },
+      });
     }
 
     return {

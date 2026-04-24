@@ -1,31 +1,15 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, HolderOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
-import {
-  DndContext,
-  closestCenter,
-  PointerSensor,
-  useSensor,
-  useSensors,
-  DragEndEvent,
-} from '@dnd-kit/core';
-import {
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-  arrayMove,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
-import { restrictToVerticalAxis } from '@dnd-kit/modifiers';
-import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
+import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined } from '@ant-design/icons';
+import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState, RendererAppEvent } from '../../shared/types';
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
 import { ImportTagsDialog } from '../components/ImportTagsDialog';
 
 interface FavoriteTagsPageProps {
-  onTagClick?: (tag: string, siteId?: number | null) => void;
+  onTagClick?: (tag: string, siteId?: number | null) => void | Promise<void>;
 }
 
 interface SiteOption {
@@ -86,35 +70,6 @@ const buildDownloadBindingFormValues = (record: FavoriteTagWithDownloadState): D
   blacklistedTags: record.downloadBinding?.blacklistedTags?.join(' ') || '',
 });
 
-const SortableRow: React.FC<any> = (props) => {
-  const { setNodeRef, transform, transition, isDragging } = useSortable({
-    id: props['data-row-key'],
-  });
-
-  const style: React.CSSProperties = {
-    ...props.style,
-    transform: CSS.Transform.toString(transform),
-    transition,
-    ...(isDragging ? { position: 'relative', zIndex: 9999, background: '#fafafa', boxShadow: '0 2px 8px rgba(0,0,0,0.15)' } : {}),
-  };
-
-  return <tr {...props} ref={setNodeRef} style={style} />;
-};
-
-const DragHandle: React.FC<{ id: number }> = ({ id }) => {
-  const { attributes, listeners } = useSortable({ id });
-
-  return (
-    <span
-      {...attributes}
-      {...listeners}
-      style={{ cursor: 'grab', color: '#999', display: 'inline-flex', alignItems: 'center' }}
-    >
-      <HolderOutlined />
-    </span>
-  );
-};
-
 interface FavoriteTagsPageInnerProps extends FavoriteTagsPageProps {
   active?: boolean;
 }
@@ -144,9 +99,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   // 通用 ImportTagsDialog 不感知该字段，由本页缓存透传即可。
   const [pendingLabelGroups, setPendingLabelGroups] = useState<import('../../shared/types').FavoriteTagLabelImportRecord[] | undefined>(undefined);
 
-  const [sortKey, setSortKey] = useState<'tagName' | 'galleryName' | 'lastDownloadedAt'>('tagName');
-  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
-
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -157,15 +109,20 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const skipNextKeywordResetRef = useRef(false);
   const preferencesHydrationRunIdRef = useRef(0);
   const preferencesHydratingRef = useRef(false);
+  const favoriteTagsRequestSeqRef = useRef(0);
+  const latestFavoriteTagsQueryKeyRef = useRef('');
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, {
-      activationConstraint: { distance: 5 },
-    })
-  );
-
-  // 是否处于非默认排序模式（非按标签名升序）
-  const isCustomSortActive = sortKey !== 'tagName' || sortOrder !== 'asc';
+  const buildFavoriteTagsQueryKey = useCallback((
+    nextFilterSiteId: number | undefined,
+    nextKeyword: string,
+    nextPage: number,
+    nextPageSize: number,
+  ) => JSON.stringify({
+    filterSiteId: nextFilterSiteId ?? null,
+    keyword: nextKeyword.trim(),
+    page: nextPage,
+    pageSize: nextPageSize,
+  }), []);
 
   useEffect(() => {
     const timer = setTimeout(() => setDebouncedKeyword(keyword), 300);
@@ -181,6 +138,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   }, [debouncedKeyword]);
 
   const loadFavoriteTags = useCallback(async () => {
+    const requestSeq = favoriteTagsRequestSeqRef.current + 1;
+    favoriteTagsRequestSeqRef.current = requestSeq;
+    const queryKey = buildFavoriteTagsQueryKey(filterSiteId, debouncedKeyword, page, pageSize);
+    latestFavoriteTagsQueryKeyRef.current = queryKey;
     setLoading(true);
     try {
       const offset = (page - 1) * pageSize;
@@ -189,9 +150,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         keyword: debouncedKeyword.trim() || undefined,
         offset,
         limit: pageSize,
-        sortKey,
-        sortOrder,
+        sortKey: 'tagName',
+        sortOrder: 'asc',
       });
+      if (favoriteTagsRequestSeqRef.current !== requestSeq || latestFavoriteTagsQueryKeyRef.current !== queryKey) {
+        return;
+      }
       if (result.success && result.data) {
         setFavoriteTags(result.data.items);
         setTotal(result.data.total);
@@ -203,9 +167,11 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       console.error('[FavoriteTagsPage] 加载收藏标签失败:', error);
       message.error(t('common.failed'));
     } finally {
-      setLoading(false);
+      if (favoriteTagsRequestSeqRef.current === requestSeq && latestFavoriteTagsQueryKeyRef.current === queryKey) {
+        setLoading(false);
+      }
     }
-  }, [filterSiteId, debouncedKeyword, page, pageSize, sortKey, sortOrder, t]);
+  }, [buildFavoriteTagsQueryKey, filterSiteId, debouncedKeyword, page, pageSize, t]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -257,8 +223,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         if (preferences) {
           skipNextKeywordResetRef.current = Boolean(preferences.keyword !== undefined);
           setFilterSiteId(preferences.filterSiteId);
-          setSortKey(preferences.sortKey ?? 'tagName');
-          setSortOrder(preferences.sortOrder ?? 'asc');
           setKeyword(preferences.keyword ?? '');
           setDebouncedKeyword(preferences.keyword ?? '');
           setPage(preferences.page ?? 1);
@@ -357,50 +321,50 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       }
     });
 
+    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
+      if (event.type === 'favorite-tags:changed') {
+        scheduleRefresh();
+        return;
+      }
+
+      if (event.type === 'favorite-tag-download:created') {
+        const { favoriteTagId, taskId, sessionId, status } = event.payload;
+        setFavoriteTags(prev => prev.map(tag => {
+          if (tag.id !== favoriteTagId) {
+            return tag;
+          }
+          return {
+            ...tag,
+            downloadBinding: tag.downloadBinding
+              ? {
+                  ...tag.downloadBinding,
+                  lastTaskId: taskId,
+                  lastSessionId: sessionId || tag.downloadBinding.lastSessionId,
+                  lastStartedAt: new Date().toISOString(),
+                  lastCompletedAt: null,
+                  lastStatus: status,
+                }
+              : tag.downloadBinding,
+          };
+        }));
+        scheduleRefresh();
+        return;
+      }
+
+      if (event.type === 'bulk-download:sessions-changed' && event.payload.originType === 'favoriteTag') {
+        scheduleRefresh();
+      }
+    });
+
     return () => {
       if (refreshTimer) {
         clearTimeout(refreshTimer);
       }
       removeProgressListener?.();
       removeStatusListener?.();
+      removeAppEventListener?.();
     };
   }, [active, loadFavoriteTags]);
-
-  const handleDragEnd = useCallback(async (event: DragEndEvent) => {
-    // DnD reordering is only meaningful when no keyword filter is active.
-    // With a filter the visible rows are cherry-picked from the sort-order axis,
-    // so writing sortOrder based on their visible position would corrupt the
-    // positions of the unshown rows sitting between them.
-    if (debouncedKeyword.trim()) {
-      message.warning('搜索过滤时不能拖动排序');
-      return;
-    }
-
-    const { active, over } = event;
-    if (!over || active.id === over.id) return;
-
-    const oldIndex = favoriteTags.findIndex(tag => tag.id === active.id);
-    const newIndex = favoriteTags.findIndex(tag => tag.id === over.id);
-    if (oldIndex === -1 || newIndex === -1) return;
-
-    const newTags = arrayMove(favoriteTags, oldIndex, newIndex);
-    setFavoriteTags(newTags);
-
-    try {
-      // Use an absolute offset so that page-N rows don't collide with page-1's
-      // sortOrder range (1..pageSize) after server-side pagination was introduced.
-      const baseOffset = (page - 1) * pageSize;
-      const updates = newTags.map((tag, index) => ({
-        id: tag.id,
-        sortOrder: baseOffset + index + 1,
-      }));
-      await Promise.all(updates.map(u => window.electronAPI.booru.updateFavoriteTag(u.id, { sortOrder: u.sortOrder })));
-    } catch (error) {
-      console.error('[FavoriteTagsPage] 排序保存失败:', error);
-      message.error(t('common.failed'));
-      loadFavoriteTags();
-    }
-  }, [favoriteTags, loadFavoriteTags, t, page, pageSize, debouncedKeyword]);
 
   const handleAdd = async (values: any) => {
     try {
@@ -471,8 +435,18 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   };
 
   const handleTagClick = (tag: FavoriteTag) => {
-    if (onTagClick) {
-      onTagClick(tag.tagName, tag.siteId);
+    try {
+      if (!onTagClick) {
+        message.error(t('common.failed'));
+        return;
+      }
+      void Promise.resolve(onTagClick(tag.tagName, tag.siteId)).catch((error) => {
+        console.error('[FavoriteTagsPage] 打开标签搜索失败:', error);
+        message.error(t('common.failed'));
+      });
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 打开标签搜索失败:', error);
+      message.error(t('common.failed'));
     }
   };
 
@@ -564,7 +538,23 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         } else {
           message.success(t('favoriteTags.downloadTaskCreated'));
         }
-        await loadFavoriteTags();
+        const status = result.data.deduplicated ? 'running' : 'starting';
+        setFavoriteTags(prev => prev.map(tag => tag.id === favoriteTagId
+          ? {
+              ...tag,
+              downloadBinding: tag.downloadBinding
+                ? {
+                    ...tag.downloadBinding,
+                    lastTaskId: result.data!.taskId,
+                    lastSessionId: result.data!.sessionId || tag.downloadBinding.lastSessionId,
+                    lastStartedAt: new Date().toISOString(),
+                    lastCompletedAt: null,
+                    lastStatus: status,
+                  }
+                : tag.downloadBinding,
+            }
+          : tag
+        ));
       } else {
         message.error(`${t('common.failed')}: ${result.error}`);
       }
@@ -727,8 +717,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       try {
         await window.electronAPI.pagePreferences.favoriteTags.save({
           filterSiteId,
-          sortKey,
-          sortOrder,
           keyword,
           page,
           pageSize,
@@ -746,17 +734,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     return () => {
       cancelled = true;
     };
-  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, sortKey, sortOrder, keyword, page, pageSize]);
+  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, keyword, page, pageSize]);
 
   const columns: TableColumnsType<FavoriteTagWithDownloadState> = [
-    // 排序模式下隐藏拖拽手柄，避免与数据排序冲突
-    ...(!isCustomSortActive ? [{
-      title: '',
-      dataIndex: 'sort',
-      key: 'sort',
-      width: 40,
-      render: (_: unknown, record: FavoriteTagWithDownloadState) => <DragHandle id={record.id} />,
-    }] as TableColumnsType<FavoriteTagWithDownloadState> : []),
     {
       title: t('favoriteTags.tagName'),
       dataIndex: 'tagName',
@@ -944,22 +924,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
                   <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
                 ))}
               </Select>
-              <Select
-                value={sortKey}
-                onChange={(val) => { setSortKey(val); setPage(1); }}
-                options={[
-                  { label: t('favoriteTags.sortByTagName'), value: 'tagName' },
-                  { label: t('favoriteTags.sortByGalleryName'), value: 'galleryName' },
-                  { label: t('favoriteTags.sortByLastDownloadTime'), value: 'lastDownloadedAt' },
-                ]}
-                style={{ width: 130, flex: '0 0 auto' }}
-              />
-              <Tooltip title={sortOrder === 'asc' ? t('favoriteTags.sortAscending') : t('favoriteTags.sortDescending')}>
-                <Button
-                  icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
-                  onClick={() => { setSortOrder(o => o === 'asc' ? 'desc' : 'asc'); setPage(1); }}
-                />
-              </Tooltip>
               <Input
                 placeholder={t('favoriteTags.searchInputPlaceholder')}
                 allowClear
@@ -1038,46 +1002,23 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       )}
 
       <Card>
-        {isCustomSortActive ? (
-          <Table
-            dataSource={favoriteTags}
-            columns={columns}
-            rowKey="id"
-            loading={loading}
-            scroll={{ x: 1600 }}
-            pagination={{
-              current: page,
-              pageSize,
-              total,
-              showSizeChanger: true,
-              pageSizeOptions: ['20', '50', '100'],
-              onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-            }}
-            locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
-          />
-        ) : (
-          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd} modifiers={[restrictToVerticalAxis]}>
-            <SortableContext items={favoriteTags.map(tag => tag.id)} strategy={verticalListSortingStrategy}>
-              <Table
-                dataSource={favoriteTags}
-                columns={columns}
-                rowKey="id"
-                loading={loading}
-                scroll={{ x: 1600 }}
-                pagination={{
-                  current: page,
-                  pageSize,
-                  total,
-                  showSizeChanger: true,
-                  pageSizeOptions: ['20', '50', '100'],
-                  onChange: (p, ps) => { setPage(p); setPageSize(ps); },
-                }}
-                locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
-                components={{ body: { row: SortableRow } }}
-              />
-            </SortableContext>
-          </DndContext>
-        )}
+        <Table
+          dataSource={favoriteTags}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          scroll={{ x: 1600 }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: ['20', '50', '100'],
+            position: ['bottomCenter'],
+            onChange: (p, ps) => { setPage(p); setPageSize(ps); },
+          }}
+          locale={{ emptyText: <Empty description={t('favoriteTags.noTags')} /> }}
+        />
       </Card>
 
       <Modal

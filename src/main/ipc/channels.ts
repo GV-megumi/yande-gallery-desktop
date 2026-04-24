@@ -64,6 +64,7 @@ export const IPC_CHANNELS = {
   // 主进程 → 渲染进程导航：通知 click 或其他主进程事件需要切换页面时发送
   // payload: { section: 'gallery'|'booru'|'google', subKey: string, sessionId?: string }
   SYSTEM_NAVIGATE: 'system:navigate',
+  SYSTEM_APP_EVENT: 'system:app-event',
   // 配置分域 getter/setter（notifications / desktop）
   CONFIG_GET_NOTIFICATIONS: 'config:get-notifications',
   CONFIG_SET_NOTIFICATIONS: 'config:set-notifications',

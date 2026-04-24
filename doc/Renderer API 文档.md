@@ -240,7 +240,7 @@
 - `getGallerySourceFavoriteTags(galleryId)`：获取图库关联的来源收藏标签
 - `upsertFavoriteTagDownloadBinding(input)`：创建或更新收藏标签的下载绑定
 - `removeFavoriteTagDownloadBinding(favoriteTagId)`：删除收藏标签的下载绑定
-- `startFavoriteTagBulkDownload(favoriteTagId)`：基于收藏标签启动批量下载，返回 `{ taskId, sessionId, deduplicated? }`；当检测到重复任务时 `deduplicated` 为 `true`
+- `startFavoriteTagBulkDownload(favoriteTagId)`：基于收藏标签启动批量下载，返回 `{ taskId, sessionId, deduplicated? }`；会话创建后即返回，扫描 / dryRun 在后台继续；当检测到重复任务且已有存活会话时 `deduplicated` 为 `true`
 - `getFavoriteTagLabels()`
 - `addFavoriteTagLabel(name, color?)`
 - `removeFavoriteTagLabel(id)`
@@ -372,12 +372,19 @@
 - `testGoogle()`：测试 Google 连通性
 - `checkForUpdate()`：通过 GitHub Releases API 查询最新发布版本，返回 `UpdateCheckResult`（含当前版本、最新版本、`hasUpdate`、`releaseUrl` 等）。主进程侧对成功结果做短时缓存（约 60s），错误响应不缓存以便重试。
 - `onSystemNavigate(callback)`：订阅主进程发来的系统导航事件（通知点击 / 托盘入口等），payload 为 `{ section, subKey, sessionId? }`
+- `onAppEvent(callback)`：订阅主进程广播给一个或多个页面消费的应用内事件，返回取消订阅函数
 
 ### 事件订阅
 
 - `onBulkDownloadRecordProgress(callback)`
 - `onBulkDownloadRecordStatus(callback)`
 - `onSystemNavigate(callback)`
+- `onAppEvent(callback)`：当前事件类型包括：
+  - `bulk-download:sessions-changed`：批量下载会话创建、删除或状态变化，下载中心据此刷新会话列表
+  - `favorite-tag-download:created`：收藏标签下载任务 / 会话创建完成，收藏标签页可立即更新当前行，下载中心可主动刷新
+  - `favorite-tags:changed`：收藏标签、标签分组或下载绑定变更，收藏标签页据此刷新
+  - `gallery:images-imported`：图库扫描 / 同步导入新图片，最近图片页据此做增量加载
+  - `gallery:galleries-changed`：图集创建、更新、删除或统计变化
 
 ## 返回值约定
 
@@ -476,6 +483,7 @@ unsubscribe();
 - `system.onBulkDownloadRecordProgress`
 - `system.onBulkDownloadRecordStatus`
 - `system.onSystemNavigate`
+- `system.onAppEvent`
 
 ## 说明与边界
 

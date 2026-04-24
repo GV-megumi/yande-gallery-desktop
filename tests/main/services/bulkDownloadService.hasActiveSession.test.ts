@@ -19,6 +19,12 @@ vi.mock('../../../src/main/services/database.js', () => ({
   all: (...args: any[]) => allMock(...args),
 }));
 
+vi.mock('electron', () => ({
+  BrowserWindow: {
+    getAllWindows: () => [],
+  },
+}));
+
 describe('bulkDownloadService.hasActiveSessionForTask', () => {
   beforeEach(() => {
     getMock.mockReset();
@@ -44,7 +50,7 @@ describe('bulkDownloadService.hasActiveSessionForTask', () => {
     expect(result).toBe(false);
   });
 
-  it('SQL 只统计 pending/dryRun/running/paused 且 deletedAt IS NULL', async () => {
+  it('SQL 统计 pending/queued/dryRun/running/paused 且 deletedAt IS NULL', async () => {
     getMock.mockResolvedValueOnce({ n: 0 });
     const { hasActiveSessionForTask } = await import(
       '../../../src/main/services/bulkDownloadService.js'
@@ -53,7 +59,7 @@ describe('bulkDownloadService.hasActiveSessionForTask', () => {
     const sql = String(getMock.mock.calls[0][1]);
     expect(sql).toMatch(/taskId = \?/);
     expect(sql).toMatch(/deletedAt IS NULL/);
-    expect(sql).toMatch(/status IN \('pending', 'dryRun', 'running', 'paused'\)/);
+    expect(sql).toMatch(/status IN \('pending', 'queued', 'dryRun', 'running', 'paused'\)/);
     const params = getMock.mock.calls[0][2];
     expect(params).toEqual(['task-x']);
   });

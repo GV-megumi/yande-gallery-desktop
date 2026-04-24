@@ -18,6 +18,7 @@ const createBulkDownloadTask = vi.fn();
 const createBulkDownloadSession = vi.fn();
 const startBulkDownloadSession = vi.fn();
 const hasActiveSessionForTask = vi.fn();
+const emitBuiltRendererAppEvent = vi.fn();
 
 vi.mock('../../../src/main/services/bulkDownloadService.js', () => ({
   createBulkDownloadTask: (...a: any[]) => createBulkDownloadTask(...a),
@@ -25,6 +26,10 @@ vi.mock('../../../src/main/services/bulkDownloadService.js', () => ({
   startBulkDownloadSession: (...a: any[]) => startBulkDownloadSession(...a),
   hasActiveSessionForTask: (...a: any[]) => hasActiveSessionForTask(...a),
   getBulkDownloadSessionSnapshot: vi.fn(async () => null),
+}));
+
+vi.mock('../../../src/main/services/rendererEventBus.js', () => ({
+  emitBuiltRendererAppEvent: (...args: any[]) => emitBuiltRendererAppEvent(...args),
 }));
 
 // ---- 2. mock database.js：通过 SQL 片段分发到不同 stub ----
@@ -107,6 +112,7 @@ describe('booruService.startFavoriteTagBulkDownload - deduplicated 分流', () =
     createBulkDownloadSession.mockReset();
     startBulkDownloadSession.mockReset();
     hasActiveSessionForTask.mockReset();
+    emitBuiltRendererAppEvent.mockReset();
     runMock.mockClear();
   });
 
@@ -147,5 +153,38 @@ describe('booruService.startFavoriteTagBulkDownload - deduplicated 分流', () =
     expect(result.taskId).toBe('task-b');
     expect(result.sessionId).toBe('session-new');
     expect(result.deduplicated).toBeUndefined();
+  });
+
+  it('创建会话后应立即返回，不等待 dryRun/扫描完成', async () => {
+    createBulkDownloadTask.mockResolvedValueOnce({
+      success: true,
+      data: { id: 'task-fast' },
+    });
+    createBulkDownloadSession.mockResolvedValueOnce({
+      success: true,
+      data: { id: 'session-fast', status: 'pending' },
+    });
+
+    let resolveStart!: (value: { success: boolean }) => void;
+    startBulkDownloadSession.mockReturnValueOnce(new Promise(resolve => {
+      resolveStart = resolve;
+    }));
+
+    const mod = await import('../../../src/main/services/booruService.js');
+    const result = await mod.startFavoriteTagBulkDownload(1);
+
+    expect(result).toEqual({ taskId: 'task-fast', sessionId: 'session-fast' });
+    expect(startBulkDownloadSession).toHaveBeenCalledWith('session-fast');
+    expect(emitBuiltRendererAppEvent).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'favorite-tag-download:created',
+      source: 'booruService',
+      payload: expect.objectContaining({
+        favoriteTagId: 1,
+        taskId: 'task-fast',
+        sessionId: 'session-fast',
+      }),
+    }));
+
+    resolveStart({ success: true });
   });
 });

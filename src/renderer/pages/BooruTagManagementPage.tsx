@@ -19,7 +19,7 @@ type TabKey = 'favorite' | 'blacklist';
 
 interface BooruTagManagementPageProps {
   /** 标签点击回调（透传给 FavoriteTagsPage） */
-  onTagClick?: (tag: string, siteId?: number | null) => void;
+  onTagClick?: (tag: string, siteId?: number | null) => void | Promise<void>;
   /** 初始激活的 tab，默认 'favorite' */
   defaultTab?: TabKey;
   /** 页面整体是否处于可见激活状态；隐藏时下层副作用应停下 */

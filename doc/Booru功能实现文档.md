@@ -101,8 +101,9 @@ Hub 页面同时挂载两个子页面，用 `display:none` 隐藏非活跃页，
 - 批量下载任务 / 会话
 - 批量下载并发闸门 + 等待队列：`bulkDownload.maxConcurrentSessions` 决定同一时刻允许的运行槽位数（只计 `dryRun` / `running`）；超限的 `startSession` 写入 `queued`，任何会话离开运行槽位后 `promoteNextQueued` 推进队首，进程重启恢复逻辑走同一闸门。配套的状态机约束见 `doc/注意事项/下载与批量会话状态机.md`。
 - 批量下载会话去重与重试合并：同 taskId 同时只允许一个存活会话，历史会话重试遇到存活会话时返回 `merged` 语义，避免重复运行同一任务。
-- 收藏标签下载绑定：为收藏标签配置下载路径和参数，一键创建批量下载任务
+- 收藏标签下载绑定：为收藏标签配置下载路径和参数，一键创建批量下载任务；任务 / 会话创建成功后即提示并广播 `favorite-tag-download:created`，扫描和 dryRun 不阻塞按钮反馈
 - 批量下载任务去重：按下载路径 + 标签集合去重，避免创建重复任务；复用任务模板时仍会创建新会话，不会被"模板已存在"阻止
+- 下载中心监听 `bulk-download:sessions-changed` 和 `favorite-tag-download:created`，收藏标签页触发下载后下载中心会主动刷新。
 - 图片缓存统计与清理
 - 文件名模板系统
 - 数据备份恢复

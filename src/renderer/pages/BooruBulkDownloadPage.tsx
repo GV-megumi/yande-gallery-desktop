@@ -7,7 +7,7 @@
  * - 管理批量下载会话（启动、暂停、取消、删除）
  */
 
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Tabs } from 'antd';
 import {
   DownloadOutlined,
@@ -20,7 +20,7 @@ import {
   ThunderboltOutlined,
   SaveOutlined
 } from '@ant-design/icons';
-import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask } from '../../shared/types';
+import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask, RendererAppEvent } from '../../shared/types';
 import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
 import { BulkDownloadSessionCard } from '../components/BulkDownloadSessionCard';
 
@@ -37,16 +37,23 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   const [formVisible, setFormVisible] = useState(false);
   const [editingTask, setEditingTask] = useState<BulkDownloadTask | undefined>(undefined);
   const [activeSessionTab, setActiveSessionTab] = useState('active');
+  const activeRef = useRef(active);
+
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
 
   // 加载活跃会话
-  const loadSessions = async () => {
+  const loadSessions = useCallback(async () => {
     setLoading(true);
     try {
       if (!window.electronAPI) return;
 
       const result = await window.electronAPI.bulkDownload.getActiveSessions();
       if (result.success && result.data) {
-        setSessions(result.data);
+        if (activeRef.current) {
+          setSessions(result.data);
+        }
       } else {
         message.error('加载会话失败: ' + (result.error || '未知错误'));
       }
@@ -54,9 +61,11 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       console.error('加载会话失败:', error);
       message.error('加载会话失败');
     } finally {
-      setLoading(false);
+      if (activeRef.current) {
+        setLoading(false);
+      }
     }
-  };
+  }, [message]);
 
   // 根据 startSession 的返回值决定是否弹 "已加入队列" 提示。
   //
@@ -73,34 +82,38 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   };
 
   // 加载已保存的任务
-  const loadTasks = async () => {
+  const loadTasks = useCallback(async () => {
     try {
       if (!window.electronAPI) return;
 
       const result = await window.electronAPI.bulkDownload.getTasks();
       if (result.success && result.data) {
-        setTasks(result.data);
+        if (activeRef.current) {
+          setTasks(result.data);
+        }
       } else {
         console.error('加载任务失败:', result.error);
       }
     } catch (error) {
       console.error('加载任务失败:', error);
     }
-  };
+  }, []);
 
   // 加载站点列表
-  const loadSites = async () => {
+  const loadSites = useCallback(async () => {
     try {
       if (!window.electronAPI) return;
 
       const result = await window.electronAPI.booru.getSites();
       if (result.success && result.data) {
-        setSites(result.data);
+        if (activeRef.current) {
+          setSites(result.data);
+        }
       }
     } catch (error) {
       console.error('加载站点失败:', error);
     }
-  };
+  }, []);
 
   // 下载恢复已移至 init.ts，程序启动时自动后台恢复，无需手动触发
   useEffect(() => {
@@ -111,7 +124,43 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     loadSessions();
     loadTasks();
     loadSites();
-  }, [active]);
+  }, [active, loadSessions, loadSites, loadTasks]);
+
+  useEffect(() => {
+    if (!active) {
+      return;
+    }
+
+    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRefresh = (withTasks: boolean) => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      refreshTimer = setTimeout(() => {
+        loadSessions();
+        if (withTasks) {
+          loadTasks();
+        }
+      }, 200);
+    };
+
+    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
+      if (event.type === 'bulk-download:sessions-changed') {
+        scheduleRefresh(false);
+        return;
+      }
+      if (event.type === 'favorite-tag-download:created') {
+        scheduleRefresh(true);
+      }
+    });
+
+    return () => {
+      if (refreshTimer) {
+        clearTimeout(refreshTimer);
+      }
+      removeAppEventListener?.();
+    };
+  }, [active, loadSessions, loadTasks]);
 
   // 分离活跃会话和历史会话
   const { activeSessions, historySessions } = useMemo(() => {
@@ -157,7 +206,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       if (interval) clearInterval(interval);
       document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [active, activeSessions.length]); // 当页面可见性或活跃会话数量变化时重新设置定时器
+  }, [active, activeSessions.length, loadSessions]); // 当页面可见性或活跃会话数量变化时重新设置定时器
 
   // 创建或更新任务
   const handleCreateOrUpdateTask = async (options: BulkDownloadOptions, taskId?: string) => {

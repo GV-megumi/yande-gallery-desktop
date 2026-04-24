@@ -218,6 +218,9 @@ describe('bulkDownloadService desktop notifications', () => {
     });
 
     expect(notificationShow).toHaveBeenCalledTimes(1);
+    // updateBulkDownloadSession now also emits renderer app events, which query
+    // BrowserWindow independently from the notification click restore path.
+    getAllWindows.mockClear();
     expect(getAllWindows).toHaveBeenCalledTimes(0);
     expect(restoreOrCreateMainWindow).toHaveBeenCalledTimes(0);
     expect(() => fireNotificationClick()).not.toThrow();

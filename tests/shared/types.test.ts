@@ -1,5 +1,37 @@
 import { describe, it, expect } from 'vitest';
 
+describe('RendererAppEvent 事件契约', () => {
+  const eventTypes = [
+    'bulk-download:sessions-changed',
+    'favorite-tag-download:created',
+    'favorite-tags:changed',
+    'gallery:images-imported',
+    'gallery:galleries-changed',
+  ];
+
+  it('事件类型字符串应唯一', () => {
+    expect(new Set(eventTypes).size).toBe(eventTypes.length);
+  });
+
+  it('事件 envelope 应包含 type/version/occurredAt/source/payload', () => {
+    const event = {
+      type: 'gallery:images-imported',
+      version: 1,
+      occurredAt: '2026-04-24T00:00:00.000Z',
+      source: 'galleryService',
+      payload: { folderPath: 'D:/x', imported: 1, skipped: 0, reason: 'syncGalleryFolder' },
+    };
+
+    expect(event).toEqual(expect.objectContaining({
+      type: expect.any(String),
+      version: 1,
+      occurredAt: expect.any(String),
+      source: expect.any(String),
+      payload: expect.any(Object),
+    }));
+  });
+});
+
 /**
  * shared/types.ts 类型结构与数据验证测试
  * 测试类型的运行时数据完整性校验逻辑

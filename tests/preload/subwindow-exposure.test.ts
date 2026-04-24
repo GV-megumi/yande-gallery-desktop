@@ -11,6 +11,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 const exposed: Record<string, unknown> = {};
+const ipcRendererMock = vi.hoisted(() => ({
+  invoke: vi.fn(async () => undefined),
+  on: vi.fn(),
+  removeListener: vi.fn(),
+}));
 
 vi.mock('electron', () => ({
   contextBridge: {
@@ -18,15 +23,14 @@ vi.mock('electron', () => ({
       exposed[name] = api;
     },
   },
-  ipcRenderer: {
-    invoke: vi.fn(async () => undefined),
-    on: vi.fn(),
-    removeListener: vi.fn(),
-  },
+  ipcRenderer: ipcRendererMock,
 }));
 
 beforeEach(() => {
   for (const k of Object.keys(exposed)) delete exposed[k];
+  ipcRendererMock.invoke.mockClear();
+  ipcRendererMock.on.mockClear();
+  ipcRendererMock.removeListener.mockClear();
   vi.resetModules();
 });
 
@@ -87,5 +91,17 @@ describe('subwindow preload 暴露面', () => {
     await import('../../src/preload/subwindow-index');
     const api = exposed.electronAPI as { system: Record<string, unknown> };
     expect(typeof api.system.openExternal).toBe('function');
+  });
+
+  it('system 域暴露 onAppEvent 并返回 unsubscribe', async () => {
+    await import('../../src/preload/subwindow-index');
+    const api = exposed.electronAPI as { system: { onAppEvent: (callback: (event: unknown) => void) => () => void } };
+
+    const unsubscribe = api.system.onAppEvent(vi.fn());
+    expect(typeof unsubscribe).toBe('function');
+    expect(ipcRendererMock.on).toHaveBeenCalledWith('system:app-event', expect.any(Function));
+
+    unsubscribe();
+    expect(ipcRendererMock.removeListener).toHaveBeenCalledWith('system:app-event', expect.any(Function));
   });
 });

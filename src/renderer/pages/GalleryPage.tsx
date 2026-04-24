@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
+import type { RendererAppEvent } from '../../shared/types';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
@@ -423,6 +424,70 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       checkingRecentUpdatesRef.current = false;
     }
   };
+
+  useEffect(() => {
+    if (suspended || (subTab !== 'recent' && subTab !== 'galleries')) {
+      return;
+    }
+
+    let recentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let galleriesRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
+      if (event.type === 'gallery:images-imported' && subTab === 'recent') {
+        if (recentRefreshTimer) {
+          clearTimeout(recentRefreshTimer);
+        }
+        recentRefreshTimer = setTimeout(() => {
+          checkRecentImagesAfterCacheResume();
+        }, 200);
+      }
+
+      if (event.type === 'gallery:galleries-changed' && subTab === 'galleries') {
+        if (galleriesRefreshTimer) {
+          clearTimeout(galleriesRefreshTimer);
+        }
+        galleriesRefreshTimer = setTimeout(async () => {
+          await loadGalleries();
+          const changedGalleryId = event.payload.galleryId;
+          if (changedGalleryId && selectedGallery?.id === changedGalleryId) {
+            if (event.payload.action === 'deleted') {
+              galleryDetailRequestRunIdRef.current += 1;
+              setSelectedGallery(null);
+              setGalleryImages([]);
+              setDetailSourceFavoriteTags([]);
+            } else {
+              const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
+              if (result.success && result.data) {
+                setSelectedGallery(result.data);
+              }
+            }
+          }
+          if (changedGalleryId && selectedGalleryInfo?.id === changedGalleryId) {
+            if (event.payload.action === 'deleted') {
+              galleryInfoRequestRunIdRef.current += 1;
+              setSelectedGalleryInfo(null);
+              setModalSourceFavoriteTags([]);
+            } else {
+              const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
+              if (result.success && result.data) {
+                setSelectedGalleryInfo(result.data);
+              }
+            }
+          }
+        }, 200);
+      }
+    });
+
+    return () => {
+      if (recentRefreshTimer) {
+        clearTimeout(recentRefreshTimer);
+      }
+      if (galleriesRefreshTimer) {
+        clearTimeout(galleriesRefreshTimer);
+      }
+      removeAppEventListener?.();
+    };
+  }, [subTab, suspended, recentImages, recentNewSegments, pendingRecentImages, selectedGallery, selectedGalleryInfo]);
 
   // 加载最近图片
   const loadRecentImages = async (count: number = RECENT_INITIAL_LOAD_COUNT) => {
@@ -1211,7 +1276,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               emptyDescription="暂无最近图片"
               onReload={loadRecentImages}
               groupBy="day"
-              showTimeline
               layout="waterfall"
             />
           ) : hasRecentContent ? (
@@ -1249,7 +1313,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   emptyDescription="暂无最近图片"
                   onReload={loadRecentImages}
                   groupBy="day"
-                  showTimeline
                   layout="waterfall"
                   batchSize={RECENT_VISIBLE_BATCH_SIZE}
                   groupKeyPrefix="recent-base"
@@ -1274,7 +1337,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               emptyDescription="暂无最近图片"
               onReload={loadRecentImages}
               groupBy="day"
-              showTimeline
               layout="waterfall"
             />
           )}

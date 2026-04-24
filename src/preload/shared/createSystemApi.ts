@@ -8,6 +8,7 @@
  */
 import { ipcRenderer } from 'electron';
 import { IPC_CHANNELS } from '../../main/ipc/channels.js';
+import type { RendererAppEvent } from '../../shared/types.js';
 
 export function createSystemApi() {
   return {
@@ -41,6 +42,11 @@ export function createSystemApi() {
       const subscription = (_event: any, payload: { section: string; subKey: string; sessionId?: string }) => callback(payload);
       ipcRenderer.on(IPC_CHANNELS.SYSTEM_NAVIGATE, subscription);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_NAVIGATE, subscription);
+    },
+    onAppEvent: (callback: (event: RendererAppEvent) => void) => {
+      const subscription = (_event: any, event: RendererAppEvent) => callback(event);
+      ipcRenderer.on(IPC_CHANNELS.SYSTEM_APP_EVENT, subscription);
+      return () => ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_APP_EVENT, subscription);
     },
   } as const;
 }
