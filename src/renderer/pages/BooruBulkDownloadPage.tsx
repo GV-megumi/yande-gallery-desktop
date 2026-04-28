@@ -132,13 +132,18 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     }
 
     let refreshTimer: ReturnType<typeof setTimeout> | null = null;
+    let refreshNeedsTasks = false;
     const scheduleRefresh = (withTasks: boolean) => {
+      refreshNeedsTasks = refreshNeedsTasks || withTasks;
       if (refreshTimer) {
         clearTimeout(refreshTimer);
       }
       refreshTimer = setTimeout(() => {
+        const shouldLoadTasks = refreshNeedsTasks;
+        refreshTimer = null;
+        refreshNeedsTasks = false;
         loadSessions();
-        if (withTasks) {
+        if (shouldLoadTasks) {
           loadTasks();
         }
       }, 200);
