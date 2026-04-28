@@ -175,6 +175,60 @@ describe('BooruBulkDownloadPage active gating', () => {
 
     expect(getActiveSessions).toHaveBeenCalledTimes(1);
   });
+
+  it('favorite-tag-download:created 后紧跟 session 事件时仍应刷新任务', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system = {
+      onAppEvent: vi.fn((callback) => {
+        appEventCallback = callback;
+        return vi.fn();
+      }),
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    getActiveSessions.mockClear();
+    getTasks.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'favorite-tag-download:created',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'booruService',
+        payload: {
+          favoriteTagId: 1,
+          tagName: 'tag_a',
+          siteId: 1,
+          taskId: 'task-1',
+          sessionId: 'session-1',
+          status: 'pending',
+        },
+      });
+      appEventCallback?.({
+        type: 'bulk-download:sessions-changed',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'bulkDownloadService',
+        payload: { reason: 'statusChanged', sessionId: 'session-1', status: 'dryRun' },
+      });
+      vi.advanceTimersByTime(200);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getActiveSessions).toHaveBeenCalledTimes(1);
+    expect(getTasks).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe('BooruBulkDownloadPage handleStartFromTask (bug2 regression)', () => {
