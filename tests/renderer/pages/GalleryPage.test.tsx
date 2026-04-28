@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Dropdown, Modal, message } from 'antd';
 import { GalleryPage } from '../../../src/renderer/pages/GalleryPage';
@@ -1154,5 +1154,140 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.queryByText('late_tag')).toBeNull();
     expect(screen.queryByRole('button', { name: /返\s*回/ })).toBeNull();
     expect(screen.getByTestId('image-list-wrapper').getAttribute('data-loading')).toBe('true');
+  });
+});
+
+describe('GalleryPage app event refresh', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+
+    Object.defineProperty(window, 'matchMedia', {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    getGalleries.mockResolvedValue({ success: true, data: [] });
+    getGallery.mockResolvedValue({ success: true, data: undefined });
+    getImagesByFolder.mockResolvedValue({ success: true, data: [] });
+    getThumbnail.mockResolvedValue({ success: false, error: 'no-thumb' });
+    deleteGallery.mockResolvedValue({ success: true });
+    getGallerySourceFavoriteTags.mockResolvedValue({ success: true, data: [] });
+    getImages.mockResolvedValue({ success: true, data: [] });
+    searchImages.mockResolvedValue({ success: true, data: [], total: 0 });
+    getRecentImages.mockResolvedValue({ success: true, data: [] });
+    getRecentImagesAfter.mockResolvedValue({ success: true, data: [] });
+    getConfig.mockResolvedValue({ success: true, data: {} });
+    saveConfig.mockResolvedValue({ success: true });
+    getGalleryPagePreferences.mockResolvedValue({ success: true, data: undefined });
+    saveGalleryPagePreferences.mockResolvedValue({ success: true });
+
+    (window as any).electronAPI = {
+      gallery: {
+        getGalleries,
+        deleteGallery,
+        getGallery,
+        getImagesByFolder,
+        getRecentImages,
+        getRecentImagesAfter,
+      },
+      image: {
+        getThumbnail,
+      },
+      system: {
+        showItem: vi.fn(),
+        selectFolder: vi.fn(),
+      },
+      db: {
+        getImages,
+        searchImages,
+      },
+      booru: {
+        getGallerySourceFavoriteTags,
+      },
+      config: {
+        get: getConfig,
+        save: saveConfig,
+      },
+      pagePreferences: {
+        gallery: {
+          get: getGalleryPagePreferences,
+          save: saveGalleryPagePreferences,
+        },
+      },
+    };
+  });
+
+  it('recent 页收到 gallery:images-imported 事件后应走游标增量刷新', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    const baseImages = [{
+      id: 10,
+      name: 'base-top-for-event',
+      updatedAt: '2026-04-20T00:00:00.000Z',
+    }];
+    const newImages = [{
+      id: 11,
+      name: 'event-new-image',
+      updatedAt: '2026-04-21T00:00:00.000Z',
+    }];
+    getRecentImages.mockResolvedValueOnce({ success: true, data: baseImages });
+    getRecentImagesAfter.mockResolvedValueOnce({ success: true, data: newImages });
+
+    render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('base-top-for-event')).toBeTruthy();
+    getRecentImagesAfter.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:images-imported',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'galleryService',
+        payload: {
+          folderPath: 'D:/gallery',
+          imported: 1,
+          skipped: 0,
+          reason: 'scanAndImportFolder',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(getRecentImagesAfter).toHaveBeenCalledWith(
+        baseImages[0].updatedAt,
+        baseImages[0].id,
+        200,
+        undefined,
+        undefined
+      );
+    });
+    expect(await screen.findByText('event-new-image')).toBeTruthy();
+  });
+
+  it('suspended 的 recent 页不应订阅 gallery:images-imported 事件', () => {
+    const onAppEvent = vi.fn(() => vi.fn());
+    (window as any).electronAPI.system.onAppEvent = onAppEvent;
+
+    render(<GalleryPage subTab="recent" suspended />);
+
+    expect(onAppEvent).not.toHaveBeenCalled();
   });
 });

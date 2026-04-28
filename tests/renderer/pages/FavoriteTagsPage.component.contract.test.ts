@@ -49,11 +49,12 @@ describe('FavoriteTagsPage component contract', () => {
     expect(source).toContain('optionFilterProp="children"');
   });
 
-  it('收藏标签页不再暴露自定义排序和拖拽手柄，分页位于底部居中', () => {
+  it('收藏标签页不再暴露拖拽手柄，但保留普通排序控件，分页位于底部居中', () => {
     expect(source).not.toContain('@dnd-kit');
     expect(source).not.toContain('DragHandle');
-    expect(source).not.toContain('SortAscendingOutlined');
-    expect(source).not.toContain('setSortKey');
+    expect(source).toContain('SortAscendingOutlined');
+    expect(source).toContain('setSortKey');
+    expect(source).toContain("t('favoriteTags.sortByTagName')");
     expect(source).toContain("position: ['bottomCenter']");
   });
 });

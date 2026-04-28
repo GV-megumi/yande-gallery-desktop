@@ -447,7 +447,7 @@ describe('FavoriteTagsPage render behavior', () => {
       success: true,
       data: {
         filterSiteId: 1,
-        // 旧版本保存过的自定义排序应被忽略，收藏标签页固定按标签名升序。
+        // 收藏标签页应恢复并继续使用普通排序偏好。
         sortKey: 'galleryName',
         sortOrder: 'desc',
         keyword: 'persisted keyword',
@@ -474,14 +474,16 @@ describe('FavoriteTagsPage render behavior', () => {
         keyword: 'persisted keyword',
         offset: 100,
         limit: 50,
-        sortKey: 'tagName',
-        sortOrder: 'asc',
+        sortKey: 'galleryName',
+        sortOrder: 'desc',
       }));
     });
 
     await waitFor(() => {
       expect(saveFavoriteTagsPagePreferences).toHaveBeenCalledWith({
         filterSiteId: 1,
+        sortKey: 'galleryName',
+        sortOrder: 'desc',
         keyword: 'persisted keyword',
         page: 3,
         pageSize: 50,
@@ -519,7 +521,7 @@ describe('FavoriteTagsPage render behavior', () => {
   it('重新激活时应先重新 hydrate，再保存新的收藏标签页面偏好', async () => {
     const firstPreferences = {
       filterSiteId: 1,
-      // 旧排序偏好保留在配置里也不再影响查询。
+      // 重新激活后应恢复最新的普通排序偏好。
       sortKey: 'galleryName',
       sortOrder: 'desc',
       keyword: 'first keyword',
@@ -550,8 +552,8 @@ describe('FavoriteTagsPage render behavior', () => {
         keyword: 'first keyword',
         offset: 100,
         limit: 50,
-        sortKey: 'tagName',
-        sortOrder: 'asc',
+        sortKey: 'galleryName',
+        sortOrder: 'desc',
       }));
     });
 
@@ -567,7 +569,7 @@ describe('FavoriteTagsPage render behavior', () => {
         keyword: 'reactivated keyword',
         offset: 300,
         limit: 100,
-        sortKey: 'tagName',
+        sortKey: 'lastDownloadedAt',
         sortOrder: 'asc',
       }));
     });
@@ -575,6 +577,8 @@ describe('FavoriteTagsPage render behavior', () => {
     await waitFor(() => {
       expect(saveFavoriteTagsPagePreferences).toHaveBeenCalledWith({
         filterSiteId: 1,
+        sortKey: 'lastDownloadedAt',
+        sortOrder: 'asc',
         keyword: 'reactivated keyword',
         page: 4,
         pageSize: 100,
