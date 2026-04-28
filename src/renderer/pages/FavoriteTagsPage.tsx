@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
-import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined } from '@ant-design/icons';
+import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState, RendererAppEvent } from '../../shared/types';
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
@@ -55,6 +55,8 @@ const DEFAULT_DOWNLOAD_BINDING_FORM_VALUES: Omit<DownloadBindingFormValues, 'gal
   notifications: true,
 };
 const GLOBAL_SITE_SELECT_VALUE = '__global__';
+type FavoriteTagsSortKey = 'tagName' | 'galleryName' | 'lastDownloadedAt';
+type FavoriteTagsSortOrder = 'asc' | 'desc';
 
 const buildDownloadBindingFormValues = (record: FavoriteTagWithDownloadState): DownloadBindingFormValues => ({
   ...DEFAULT_DOWNLOAD_BINDING_FORM_VALUES,
@@ -99,6 +101,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   // 通用 ImportTagsDialog 不感知该字段，由本页缓存透传即可。
   const [pendingLabelGroups, setPendingLabelGroups] = useState<import('../../shared/types').FavoriteTagLabelImportRecord[] | undefined>(undefined);
 
+  const [sortKey, setSortKey] = useState<FavoriteTagsSortKey>('tagName');
+  const [sortOrder, setSortOrder] = useState<FavoriteTagsSortOrder>('asc');
   const [keyword, setKeyword] = useState('');
   const [debouncedKeyword, setDebouncedKeyword] = useState('');
   const [page, setPage] = useState(1);
@@ -117,11 +121,15 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     nextKeyword: string,
     nextPage: number,
     nextPageSize: number,
+    nextSortKey: FavoriteTagsSortKey,
+    nextSortOrder: FavoriteTagsSortOrder,
   ) => JSON.stringify({
     filterSiteId: nextFilterSiteId ?? null,
     keyword: nextKeyword.trim(),
     page: nextPage,
     pageSize: nextPageSize,
+    sortKey: nextSortKey,
+    sortOrder: nextSortOrder,
   }), []);
 
   useEffect(() => {
@@ -140,7 +148,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const loadFavoriteTags = useCallback(async () => {
     const requestSeq = favoriteTagsRequestSeqRef.current + 1;
     favoriteTagsRequestSeqRef.current = requestSeq;
-    const queryKey = buildFavoriteTagsQueryKey(filterSiteId, debouncedKeyword, page, pageSize);
+    const queryKey = buildFavoriteTagsQueryKey(filterSiteId, debouncedKeyword, page, pageSize, sortKey, sortOrder);
     latestFavoriteTagsQueryKeyRef.current = queryKey;
     setLoading(true);
     try {
@@ -150,8 +158,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         keyword: debouncedKeyword.trim() || undefined,
         offset,
         limit: pageSize,
-        sortKey: 'tagName',
-        sortOrder: 'asc',
+        sortKey,
+        sortOrder,
       });
       if (favoriteTagsRequestSeqRef.current !== requestSeq || latestFavoriteTagsQueryKeyRef.current !== queryKey) {
         return;
@@ -171,7 +179,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         setLoading(false);
       }
     }
-  }, [buildFavoriteTagsQueryKey, filterSiteId, debouncedKeyword, page, pageSize, t]);
+  }, [buildFavoriteTagsQueryKey, filterSiteId, debouncedKeyword, page, pageSize, sortKey, sortOrder, t]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -223,6 +231,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         if (preferences) {
           skipNextKeywordResetRef.current = Boolean(preferences.keyword !== undefined);
           setFilterSiteId(preferences.filterSiteId);
+          setSortKey(preferences.sortKey ?? 'tagName');
+          setSortOrder(preferences.sortOrder ?? 'asc');
           setKeyword(preferences.keyword ?? '');
           setDebouncedKeyword(preferences.keyword ?? '');
           setPage(preferences.page ?? 1);
@@ -717,6 +727,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       try {
         await window.electronAPI.pagePreferences.favoriteTags.save({
           filterSiteId,
+          sortKey,
+          sortOrder,
           keyword,
           page,
           pageSize,
@@ -734,7 +746,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     return () => {
       cancelled = true;
     };
-  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, keyword, page, pageSize]);
+  }, [active, preferencesHydrated, preferencesHydrationVersion, filterSiteId, sortKey, sortOrder, keyword, page, pageSize]);
 
   const columns: TableColumnsType<FavoriteTagWithDownloadState> = [
     {
@@ -924,6 +936,29 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
                   <Select.Option key={site.id} value={site.id}>{site.name}</Select.Option>
                 ))}
               </Select>
+              <Select
+                value={sortKey}
+                onChange={(value: FavoriteTagsSortKey) => {
+                  setSortKey(value);
+                  setPage(1);
+                }}
+                options={[
+                  { label: t('favoriteTags.sortByTagName'), value: 'tagName' },
+                  { label: t('favoriteTags.sortByGalleryName'), value: 'galleryName' },
+                  { label: t('favoriteTags.sortByLastDownloadTime'), value: 'lastDownloadedAt' },
+                ]}
+                style={{ width: 130, flex: '0 0 auto' }}
+              />
+              <Tooltip title={sortOrder === 'asc' ? t('favoriteTags.sortAscending') : t('favoriteTags.sortDescending')}>
+                <Button
+                  aria-label={sortOrder === 'asc' ? t('favoriteTags.sortAscending') : t('favoriteTags.sortDescending')}
+                  icon={sortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                  onClick={() => {
+                    setSortOrder(order => order === 'asc' ? 'desc' : 'asc');
+                    setPage(1);
+                  }}
+                />
+              </Tooltip>
               <Input
                 placeholder={t('favoriteTags.searchInputPlaceholder')}
                 allowClear
