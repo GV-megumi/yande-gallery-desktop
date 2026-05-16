@@ -13,7 +13,7 @@ import fs from 'fs';
 import path from 'path';
 import type sqlite3 from 'sqlite3';
 import { IPC_CHANNELS } from '../ipc/channels.js';
-import { getDatabase, run, runWithChanges, get, all } from './database.js';
+import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 import { getProxyConfig, getMaxConcurrentBulkDownloadSessions } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import { generateFileName, FileNameTokens } from './filenameGenerator.js';
@@ -887,9 +887,7 @@ export async function createBulkDownloadRecords(
     const db = await getDatabase();
     const now = new Date().toISOString();
 
-    // 使用事务批量插入
-    await run(db, 'BEGIN TRANSACTION');
-    try {
+    await runInTransaction(db, async () => {
       for (const record of records) {
         await run(db, `
           INSERT OR IGNORE INTO bulk_download_records (
@@ -909,11 +907,7 @@ export async function createBulkDownloadRecords(
           record.sourceUrl || null
         ]);
       }
-      await run(db, 'COMMIT');
-    } catch (error) {
-      await run(db, 'ROLLBACK');
-      throw error;
-    }
+    });
   } catch (error) {
     console.error('[bulkDownloadService] 批量创建记录失败:', error);
     throw error;
@@ -1034,7 +1028,7 @@ export async function getBulkDownloadRecordsBySession(
                   // 文件存在且不为空，尝试验证完整性
                   try {
                     const axios = (await import('axios')).default;
-                    const proxyConfig = getProxyConfig();
+                    const proxyConfig = getProxyConfig(record.url);
                     const headResponse = await axios.head(record.url, {
                       proxy: proxyConfig,
                       timeout: 5000, // 5秒超时，快速检查
@@ -1903,7 +1897,7 @@ async function downloadRecord(
           try {
             // 尝试通过 HEAD 请求获取服务器文件大小
             const axios = (await import('axios')).default;
-            const proxyConfig = getProxyConfig();
+            const proxyConfig = getProxyConfig(record.url);
             const headResponse = await axios.head(record.url, {
               proxy: proxyConfig,
               timeout: 10000,
@@ -1962,7 +1956,7 @@ async function downloadRecord(
 
     // 使用 axios 下载（带重试机制）
     const axios = (await import('axios')).default;
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig(record.url);
     
     let downloadSuccess = false;
     let lastError: Error | null = null;

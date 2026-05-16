@@ -191,6 +191,45 @@ describe('runInTransaction', () => {
     const row = await get<{ value: number }>(db, "SELECT value FROM test_items WHERE name = 'nested1'");
     expect(row!.value).toBe(999);
   });
+
+  it('应串行化同一连接上的并发事务', async () => {
+    let releaseFirstTransaction!: () => void;
+
+    const firstTransactionGate = new Promise<void>((resolve) => {
+      releaseFirstTransaction = resolve;
+    });
+    let notifyFirstTransactionStarted!: () => void;
+    const firstTransactionStarted = new Promise<void>((resolve) => {
+      notifyFirstTransactionStarted = resolve;
+    });
+    const firstTransaction = runInTransaction(db, async () => {
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('queued_tx_first_start', 1, '2024-02-05')");
+      notifyFirstTransactionStarted();
+      await firstTransactionGate;
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('queued_tx_first_end', 2, '2024-02-05')");
+    });
+
+    await firstTransactionStarted;
+
+    const secondTransaction = runInTransaction(db, async () => {
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('queued_tx_second', 3, '2024-02-05')");
+      return 'second';
+    });
+
+    releaseFirstTransaction();
+
+    await expect(Promise.all([firstTransaction, secondTransaction])).resolves.toEqual([undefined, 'second']);
+
+    const rows = await all<{ name: string }>(
+      db,
+      "SELECT name FROM test_items WHERE name LIKE 'queued_tx_%' ORDER BY id ASC"
+    );
+    expect(rows.map((row) => row.name)).toEqual([
+      'queued_tx_first_start',
+      'queued_tx_first_end',
+      'queued_tx_second',
+    ]);
+  });
 });
 
 describe('数据库 CRUD 集成测试', () => {

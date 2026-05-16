@@ -175,7 +175,7 @@ export class DanbooruClient implements IBooruClient {
   constructor(config: BooruClientConfig) {
     this.config = config;
 
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig(config.baseUrl);
     console.log('[DanbooruClient] 代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
 
     // Danbooru 使用 HTTP Basic Auth

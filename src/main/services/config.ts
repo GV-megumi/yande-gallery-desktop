@@ -12,6 +12,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
+import { execFileSync } from 'child_process';
 
 // ============= Token 选项类型 =============
 
@@ -1476,31 +1477,410 @@ export function getDesktopConfig(): {
 }
 
 /**
- * 获取代理配置（如果启用）
- * 返回 Axios 代理配置格式
+ * 获取代理配置。
+ *
+ * 优先级：
+ * 1. 设置页启用的自定义代理；
+ * 2. 系统代理；
+ * 3. 直连。
  */
-export function getProxyConfig() {
-  const cfg = getConfig();
+export interface AxiosProxyConfig {
+  protocol: AppConfig['network']['proxy']['protocol'];
+  host: string;
+  port: number;
+  auth?: {
+    username: string;
+    password: string;
+  };
+}
 
-  if (!cfg.network.proxy.enabled) {
+function normalizeProxyProtocol(protocol?: string): AppConfig['network']['proxy']['protocol'] {
+  const normalized = protocol?.replace(':', '').toLowerCase();
+  if (normalized === 'https') {
+    return 'https';
+  }
+  if (normalized === 'socks' || normalized === 'socks5') {
+    return 'socks5';
+  }
+  return 'http';
+}
+
+function getDefaultProxyPort(protocol: AppConfig['network']['proxy']['protocol']): number {
+  if (protocol === 'https') {
+    return 443;
+  }
+  if (protocol === 'socks5') {
+    return 1080;
+  }
+  return 80;
+}
+
+function normalizeHostIdentifier(hostname: string): string {
+  const host = hostname.trim().toLowerCase();
+  return host.startsWith('[') && host.endsWith(']') ? host.slice(1, -1) : host;
+}
+
+function buildAxiosProxyConfig(proxy: {
+  protocol?: string;
+  host?: string;
+  port?: number | string;
+  username?: string;
+  password?: string;
+}): AxiosProxyConfig | undefined {
+  const port = Number(proxy.port);
+  if (!proxy.host || !proxy.port || !Number.isFinite(port)) {
     return undefined;
   }
 
-  const { protocol, host, port, username, password } = cfg.network.proxy;
-
-  const proxyConfig: any = {
-    protocol,
-    host,
+  const proxyConfig: AxiosProxyConfig = {
+    protocol: normalizeProxyProtocol(proxy.protocol),
+    host: proxy.host,
     port
   };
 
-  // 如果有认证信息，添加 auth
-  if (username && password) {
+  if (proxy.username && proxy.password) {
     proxyConfig.auth = {
-      username,
-      password
+      username: proxy.username,
+      password: proxy.password
     };
   }
 
   return proxyConfig;
+}
+
+function parseProxyEndpoint(
+  endpoint: string,
+  defaultProtocol: AppConfig['network']['proxy']['protocol'] = 'http'
+): AxiosProxyConfig | undefined {
+  const value = endpoint.trim();
+  if (!value) {
+    return undefined;
+  }
+
+  const hasProtocol = /^[a-z][a-z0-9+.-]*:\/\//i.test(value);
+  const urlText = hasProtocol ? value : `${defaultProtocol}://${value}`;
+
+  try {
+    const url = new URL(urlText);
+    const protocol = normalizeProxyProtocol(hasProtocol ? url.protocol : defaultProtocol);
+    const port = url.port ? Number(url.port) : getDefaultProxyPort(protocol);
+    if (!url.hostname || !Number.isFinite(port)) {
+      return undefined;
+    }
+
+    return buildAxiosProxyConfig({
+      protocol,
+      host: normalizeHostIdentifier(url.hostname),
+      port,
+      username: decodeURIComponent(url.username || ''),
+      password: decodeURIComponent(url.password || ''),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+function getTargetProxyKey(targetUrlOrProtocol?: string): 'http' | 'https' | 'socks' | undefined {
+  if (!targetUrlOrProtocol?.trim()) {
+    return undefined;
+  }
+
+  const value = targetUrlOrProtocol.trim().toLowerCase();
+  if (value.startsWith('http://') || value === 'http' || value === 'http:') {
+    return 'http';
+  }
+  if (value.startsWith('https://') || value === 'https' || value === 'https:') {
+    return 'https';
+  }
+  if (value.startsWith('socks://') || value.startsWith('socks5://') || value === 'socks' || value === 'socks5') {
+    return 'socks';
+  }
+
+  return undefined;
+}
+
+function getTargetUrl(targetUrlOrProtocol?: string): URL | undefined {
+  if (!targetUrlOrProtocol?.trim()) {
+    return undefined;
+  }
+
+  try {
+    return new URL(targetUrlOrProtocol);
+  } catch {
+    return undefined;
+  }
+}
+
+function splitProxyBypassList(proxyBypassList?: string): string[] {
+  return proxyBypassList
+    ?.split(/[;,]/)
+    .map((entry) => entry.trim())
+    .filter(Boolean) ?? [];
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function isLocalProxyHost(hostname: string): boolean {
+  const host = normalizeHostIdentifier(hostname);
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || !host.includes('.');
+}
+
+function splitBypassHostAndPort(entry: string): { host: string; port?: string } {
+  if (entry.startsWith('[')) {
+    const closeIndex = entry.indexOf(']');
+    if (closeIndex >= 0) {
+      const host = entry.slice(1, closeIndex);
+      const rest = entry.slice(closeIndex + 1);
+      return rest.startsWith(':') ? { host, port: rest.slice(1) } : { host };
+    }
+  }
+
+  const colonIndex = entry.lastIndexOf(':');
+  if (colonIndex > -1 && entry.indexOf(':') === colonIndex) {
+    const possiblePort = entry.slice(colonIndex + 1);
+    if (/^\d+$/.test(possiblePort)) {
+      return {
+        host: entry.slice(0, colonIndex),
+        port: possiblePort,
+      };
+    }
+  }
+
+  return { host: entry };
+}
+
+function normalizeProxyBypassEntry(rawEntry: string): { host: string; port?: string; local?: boolean; all?: boolean } | undefined {
+  const entry = rawEntry.trim().toLowerCase();
+  if (!entry) {
+    return undefined;
+  }
+  if (entry === '*') {
+    return { host: '*', all: true };
+  }
+  if (entry === '<local>') {
+    return { host: '<local>', local: true };
+  }
+
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(entry)) {
+    try {
+      const url = new URL(entry);
+      return { host: normalizeHostIdentifier(url.hostname), port: url.port || undefined };
+    } catch {
+      return undefined;
+    }
+  }
+
+  const { host, port } = splitBypassHostAndPort(entry);
+  return host ? { host: normalizeHostIdentifier(host), port } : undefined;
+}
+
+function matchesProxyBypassHost(targetHost: string, bypassHost: string): boolean {
+  if (bypassHost.startsWith('*.')) {
+    const suffix = bypassHost.slice(2);
+    return targetHost === suffix || targetHost.endsWith(`.${suffix}`);
+  }
+  if (bypassHost.startsWith('.')) {
+    const suffix = bypassHost.slice(1);
+    return targetHost === suffix || targetHost.endsWith(`.${suffix}`);
+  }
+  if (bypassHost.includes('*')) {
+    const pattern = new RegExp(`^${escapeRegExp(bypassHost).replace(/\\\*/g, '.*')}$`, 'i');
+    return pattern.test(targetHost);
+  }
+  return targetHost === bypassHost || targetHost.endsWith(`.${bypassHost}`);
+}
+
+function shouldBypassProxy(targetUrlOrProtocol?: string, proxyBypassList?: string): boolean {
+  const targetUrl = getTargetUrl(targetUrlOrProtocol);
+  if (!targetUrl) {
+    return false;
+  }
+
+  const targetHost = normalizeHostIdentifier(targetUrl.hostname);
+  const targetPort = targetUrl.port || (targetUrl.protocol === 'https:' ? '443' : targetUrl.protocol === 'http:' ? '80' : '');
+
+  return splitProxyBypassList(proxyBypassList).some((rawEntry) => {
+    const entry = normalizeProxyBypassEntry(rawEntry);
+    if (!entry) {
+      return false;
+    }
+    if (entry.all) {
+      return true;
+    }
+    if (entry.local) {
+      return isLocalProxyHost(targetHost);
+    }
+    if (entry.port && entry.port !== targetPort) {
+      return false;
+    }
+    return matchesProxyBypassHost(targetHost, entry.host);
+  });
+}
+
+export function parseSystemProxyServer(
+  proxyServer?: string,
+  targetUrlOrProtocol?: string,
+  proxyBypassList?: string
+): AxiosProxyConfig | undefined {
+  if (!proxyServer?.trim()) {
+    return undefined;
+  }
+  if (shouldBypassProxy(targetUrlOrProtocol, proxyBypassList)) {
+    return undefined;
+  }
+
+  const entries = proxyServer
+    .split(';')
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const keyedEntries = entries
+    .map((entry) => {
+      const separatorIndex = entry.indexOf('=');
+      if (separatorIndex < 0) {
+        return undefined;
+      }
+
+      return {
+        key: entry.slice(0, separatorIndex).trim().toLowerCase(),
+        value: entry.slice(separatorIndex + 1).trim(),
+      };
+    })
+    .filter((entry): entry is { key: string; value: string } => Boolean(entry?.key && entry.value));
+
+  if (keyedEntries.length === 0) {
+    return parseProxyEndpoint(proxyServer, 'http');
+  }
+
+  const targetProxyKey = getTargetProxyKey(targetUrlOrProtocol);
+  if (targetProxyKey) {
+    const targetEntry = keyedEntries.find((entry) => entry.key === targetProxyKey);
+    if (!targetEntry) {
+      return undefined;
+    }
+    return parseProxyEndpoint(targetEntry.value, targetEntry.key === 'socks' ? 'socks5' : 'http');
+  }
+
+  const selectedEntry =
+    keyedEntries.find((entry) => entry.key === 'https') ??
+    keyedEntries.find((entry) => entry.key === 'http') ??
+    keyedEntries.find((entry) => entry.key === 'socks') ??
+    keyedEntries[0];
+
+  return parseProxyEndpoint(selectedEntry.value, selectedEntry.key === 'socks' ? 'socks5' : 'http');
+}
+
+function readWindowsRegistryValue(valueName: string): string | undefined {
+  try {
+    const output = execFileSync(
+      'reg',
+      ['query', 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings', '/v', valueName],
+      {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+      }
+    );
+
+    const line = output
+      .split(/\r?\n/)
+      .find((item) => new RegExp(`\\b${valueName}\\b`, 'i').test(item));
+
+    return line?.trim().split(/\s{2,}/).at(2);
+  } catch {
+    return undefined;
+  }
+}
+
+function getEnvironmentProxyServer(targetUrlOrProtocol?: string): string | undefined {
+  if (shouldBypassProxy(targetUrlOrProtocol, process.env.NO_PROXY || process.env.no_proxy)) {
+    return undefined;
+  }
+
+  const targetProxyKey = getTargetProxyKey(targetUrlOrProtocol);
+
+  if (targetProxyKey === 'http') {
+    return process.env.HTTP_PROXY || process.env.http_proxy || process.env.ALL_PROXY || process.env.all_proxy;
+  }
+  if (targetProxyKey === 'https') {
+    return process.env.HTTPS_PROXY || process.env.https_proxy || process.env.ALL_PROXY || process.env.all_proxy;
+  }
+  if (targetProxyKey === 'socks') {
+    return process.env.ALL_PROXY || process.env.all_proxy;
+  }
+
+  return (
+    process.env.HTTPS_PROXY ||
+    process.env.https_proxy ||
+    process.env.HTTP_PROXY ||
+    process.env.http_proxy ||
+    process.env.ALL_PROXY ||
+    process.env.all_proxy
+  );
+}
+
+export function parseEnvironmentProxyServer(
+  env: NodeJS.ProcessEnv,
+  targetUrlOrProtocol?: string
+): AxiosProxyConfig | undefined {
+  if (shouldBypassProxy(targetUrlOrProtocol, env.NO_PROXY || env.no_proxy)) {
+    return undefined;
+  }
+
+  const targetProxyKey = getTargetProxyKey(targetUrlOrProtocol);
+  let proxyServer: string | undefined;
+
+  if (targetProxyKey === 'http') {
+    proxyServer = env.HTTP_PROXY || env.http_proxy || env.ALL_PROXY || env.all_proxy;
+  } else if (targetProxyKey === 'https') {
+    proxyServer = env.HTTPS_PROXY || env.https_proxy || env.ALL_PROXY || env.all_proxy;
+  } else if (targetProxyKey === 'socks') {
+    proxyServer = env.ALL_PROXY || env.all_proxy;
+  } else {
+    proxyServer =
+      env.HTTPS_PROXY ||
+      env.https_proxy ||
+      env.HTTP_PROXY ||
+      env.http_proxy ||
+      env.ALL_PROXY ||
+      env.all_proxy;
+  }
+
+  return parseSystemProxyServer(proxyServer, targetUrlOrProtocol);
+}
+
+function getSystemProxyServer(targetUrlOrProtocol?: string): string | undefined {
+  if (process.platform !== 'win32') {
+    return getEnvironmentProxyServer(targetUrlOrProtocol);
+  }
+
+  const proxyEnable = readWindowsRegistryValue('ProxyEnable');
+  const isEnabled = proxyEnable ? Number.parseInt(proxyEnable, 16) === 1 : false;
+  if (!isEnabled) {
+    return undefined;
+  }
+  if (shouldBypassProxy(targetUrlOrProtocol, readWindowsRegistryValue('ProxyOverride'))) {
+    return undefined;
+  }
+
+  return readWindowsRegistryValue('ProxyServer');
+}
+
+export function resolveEffectiveProxyConfig(
+  configuredProxy: AppConfig['network']['proxy'],
+  systemProxyServer?: string,
+  targetUrlOrProtocol?: string
+): AxiosProxyConfig | undefined {
+  if (configuredProxy.enabled) {
+    return buildAxiosProxyConfig(configuredProxy);
+  }
+
+  return parseSystemProxyServer(systemProxyServer, targetUrlOrProtocol);
+}
+
+export function getProxyConfig(targetUrlOrProtocol?: string): AxiosProxyConfig | undefined {
+  const cfg = getConfig();
+  return resolveEffectiveProxyConfig(cfg.network.proxy, getSystemProxyServer(targetUrlOrProtocol), targetUrlOrProtocol);
 }

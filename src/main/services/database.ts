@@ -5,6 +5,7 @@ import { getDatabasePath } from './config.js';
 
 // 数据库连接实例
 let db: sqlite3.Database | null = null;
+const transactionQueues = new WeakMap<sqlite3.Database, Promise<void>>();
 
 /**
  * 获取数据库连接（单例模式）
@@ -848,15 +849,33 @@ export function all<T = any>(db: sqlite3.Database, sql: string, params: any[] = 
  * @param fn 包含数据库操作的异步函数
  */
 export async function runInTransaction<T>(db: sqlite3.Database, fn: () => Promise<T>): Promise<T> {
-  await run(db, 'BEGIN TRANSACTION');
-  try {
-    const result = await fn();
-    await run(db, 'COMMIT');
-    return result;
-  } catch (error) {
-    await run(db, 'ROLLBACK');
-    throw error;
-  }
+  const previousTransaction = transactionQueues.get(db) ?? Promise.resolve();
+
+  const transaction = previousTransaction
+    .catch(() => undefined)
+    .then(async () => {
+      let committed = false;
+
+      await run(db, 'BEGIN TRANSACTION');
+      try {
+        const result = await fn();
+        await run(db, 'COMMIT');
+        committed = true;
+        return result;
+      } catch (error) {
+        if (!committed) {
+          try {
+            await run(db, 'ROLLBACK');
+          } catch (rollbackError) {
+            console.error('[database] ROLLBACK failed:', rollbackError);
+          }
+        }
+        throw error;
+      }
+    });
+
+  transactionQueues.set(db, transaction.then(() => undefined, () => undefined));
+  return transaction;
 }
 
 /**

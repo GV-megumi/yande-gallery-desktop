@@ -110,7 +110,7 @@ export class MoebooruClient implements IBooruClient {
     this.config = config;
 
     // 获取代理配置
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig(config.baseUrl);
     console.log('[MoebooruClient] 代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
 
     this.client = axios.create({

@@ -577,16 +577,10 @@ export async function setActiveBooruSite(id: number): Promise<void> {
   try {
     const db = await getDatabase();
 
-    // 使用事务确保两步操作的原子性
-    await run(db, 'BEGIN TRANSACTION');
-    try {
+    await runInTransaction(db, async () => {
       await run(db, 'UPDATE booru_sites SET active = 0');
       await run(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
-      await run(db, 'COMMIT');
-    } catch (txError) {
-      await run(db, 'ROLLBACK');
-      throw txError;
-    }
+    });
 
     console.log('[booruService] 设置激活站点成功:', id);
   } catch (error) {
@@ -958,24 +952,23 @@ export async function addToFavorites(apiPostId: number, siteId: number, notes?: 
       return existing.id;
     }
 
-    // 使用事务确保 INSERT + UPDATE 的原子性
-    await run(db, 'BEGIN TRANSACTION');
-    try {
+    const favoriteId = await runInTransaction(db, async () => {
       await run(db, `
         INSERT OR IGNORE INTO booru_favorites (postId, siteId, notes, createdAt)
         VALUES (?, ?, ?, ?)
       `, [dbId, siteId, notes || null, now]);
 
       await run(db, 'UPDATE booru_posts SET isFavorited = 1 WHERE id = ?', [dbId]);
-
-      await run(db, 'COMMIT');
-    } catch (txError) {
-      await run(db, 'ROLLBACK');
-      throw txError;
-    }
-
-    const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
-    const favoriteId = result!.id;
+      const favorite = await get<{ id: number }>(
+        db,
+        'SELECT id FROM booru_favorites WHERE postId = ?',
+        [dbId]
+      );
+      if (!favorite) {
+        throw new Error(`收藏记录创建失败: ${apiPostId}`);
+      }
+      return favorite.id;
+    });
 
     console.log('[booruService] 添加收藏成功:', apiPostId);
     return favoriteId;
