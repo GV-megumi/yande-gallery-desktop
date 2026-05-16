@@ -1,8 +1,8 @@
-import { BrowserWindow, screen, ipcMain, app, dialog } from 'electron';
+import { BrowserWindow, screen, ipcMain, app, dialog, type LoadFileOptions } from 'electron';
 import { IPC_CHANNELS } from './ipc/channels.js';
 import { getDesktopConfig } from './services/config.js';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -64,6 +64,8 @@ const ALLOWED_WEBVIEW_HOSTS = new Set([
   'photos.google.com',
   'gemini.google.com',
 ]);
+
+const DEV_SERVER_URL = 'http://localhost:5173';
 
 let isAppQuitting = false;
 let isCloseToTrayEnabled = false;
@@ -159,6 +161,244 @@ function isAllowedWebviewUrl(url: string): boolean {
   }
 
   return parsed.protocol === 'https:' && ALLOWED_WEBVIEW_HOSTS.has(parsed.hostname);
+}
+
+function isDevServerAppUrl(url: string): boolean {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+
+  return (
+    parsed.protocol === ALLOWED_DEV_ORIGIN.protocol
+    && parsed.hostname === ALLOWED_DEV_ORIGIN.hostname
+    && parsed.port === ALLOWED_DEV_ORIGIN.port
+  );
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function createAppEntryFailurePageUrl(options: {
+  targetUrl: string;
+  errorCode: number;
+  errorDescription: string;
+  windowLabel: string;
+  isDevServer: boolean;
+}): string {
+  const targetUrl = options.targetUrl || DEV_SERVER_URL;
+  const safeTargetUrl = escapeHtml(targetUrl);
+  const safeError = escapeHtml(`${options.errorCode} ${options.errorDescription}`.trim());
+  const safeWindowLabel = escapeHtml(options.windowLabel);
+  const title = options.isDevServer ? '本地界面服务还没连接上' : '应用界面加载失败';
+  const description = options.isDevServer
+    ? '确认后端或开发服务已经启动后，点击刷新重试即可重新加载应用。'
+    : '确认应用文件完整后，点击刷新重试即可重新加载界面。';
+  const retryHint = options.isDevServer ? '服务启动完成后再点一次。' : '如果仍然失败，请重新构建或重新安装应用。';
+  const retryTargetJson = JSON.stringify(targetUrl);
+
+  const html = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Yande Gallery Desktop</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f8;
+      --panel: #ffffff;
+      --text: #1d2733;
+      --muted: #65758b;
+      --line: #d8dee8;
+      --accent: #b3261e;
+      --accent-dark: #8f1d18;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        linear-gradient(135deg, rgba(179, 38, 30, 0.08), transparent 38%),
+        var(--bg);
+      color: var(--text);
+      font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    }
+
+    main {
+      width: min(560px, calc(100vw - 56px));
+      padding: 34px 36px 32px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(29, 39, 51, 0.12);
+    }
+
+    .eyebrow {
+      margin: 0 0 12px;
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 0 0 12px;
+      font-size: 28px;
+      line-height: 1.25;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 15px;
+      line-height: 1.7;
+    }
+
+    .meta {
+      margin: 22px 0 26px;
+      padding: 14px 16px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #fafbfc;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 12px;
+      line-height: 1.55;
+      color: #3d4b5f;
+      overflow-wrap: anywhere;
+    }
+
+    .actions {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    button {
+      height: 40px;
+      padding: 0 18px;
+      border: 0;
+      border-radius: 6px;
+      background: var(--accent);
+      color: white;
+      font: inherit;
+      font-size: 14px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 120ms ease, transform 120ms ease;
+    }
+
+    button:hover { background: var(--accent-dark); }
+    button:active { transform: translateY(1px); }
+
+    .hint {
+      font-size: 13px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <p class="eyebrow">${safeWindowLabel}</p>
+    <h1>${escapeHtml(title)}</h1>
+    <p>${escapeHtml(description)}</p>
+    <div class="meta">
+      <div>目标：${safeTargetUrl}</div>
+      <div>错误：${safeError}</div>
+    </div>
+    <div class="actions">
+      <button id="retryButton" type="button">刷新重试</button>
+      <span class="hint">${escapeHtml(retryHint)}</span>
+    </div>
+  </main>
+  <script>
+    document.getElementById('retryButton').addEventListener('click', function () {
+      window.location.replace(${retryTargetJson});
+    });
+  </script>
+</body>
+</html>`;
+
+  return `data:text/html;charset=utf-8,${encodeURIComponent(html)}`;
+}
+
+function loadUrlWithLogging(window: BrowserWindow, url: string, context: string): void {
+  void Promise.resolve(window.loadURL(url)).catch((error) => {
+    console.warn(`[Window] ${context} loadURL failed:`, error);
+  });
+}
+
+function loadFileWithLogging(window: BrowserWindow, filePath: string, context: string, options?: LoadFileOptions): void {
+  void Promise.resolve(window.loadFile(filePath, options)).catch((error) => {
+    console.warn(`[Window] ${context} loadFile failed:`, error);
+  });
+}
+
+function attachAppEntryFailurePage(
+  window: BrowserWindow,
+  windowLabel: string,
+  fallbackTargetUrl: string,
+  options: { isDevServer: boolean },
+): void {
+  window.webContents.on('did-fail-load', (
+    _event,
+    errorCode,
+    errorDescription,
+    validatedURL,
+    isMainFrame,
+  ) => {
+    const retryTargetUrl = validatedURL || fallbackTargetUrl;
+    const canHandleFailure = options.isDevServer
+      ? isDevServerAppUrl(retryTargetUrl)
+      : isTrustedAppUrl(retryTargetUrl);
+
+    if (!isMainFrame || !canHandleFailure) {
+      return;
+    }
+
+    console.warn('[Window] App entry load failed:', {
+      window: windowLabel,
+      retryTargetUrl,
+      errorCode,
+      errorDescription,
+    });
+
+    const failurePageUrl = createAppEntryFailurePageUrl({
+      targetUrl: retryTargetUrl,
+      errorCode,
+      errorDescription,
+      windowLabel,
+      isDevServer: options.isDevServer,
+    });
+
+    void Promise.resolve(window.loadURL(failurePageUrl))
+      .catch((error) => {
+        console.error('[Window] Failed to show renderer retry page:', error);
+      })
+      .finally(() => {
+        if (typeof window.isDestroyed === 'function' && window.isDestroyed()) {
+          return;
+        }
+        window.show();
+      });
+  });
 }
 
 function attachSecurityGuards(window: BrowserWindow): void {
@@ -259,10 +499,13 @@ export function createWindow(): BrowserWindow {
 
   // 加载应用
   if (process.env.NODE_ENV === 'development') {
-    mainWindow.loadURL('http://localhost:5173');
+    attachAppEntryFailurePage(mainWindow, '主窗口', DEV_SERVER_URL, { isDevServer: true });
+    loadUrlWithLogging(mainWindow, DEV_SERVER_URL, 'main window');
     mainWindow.webContents.openDevTools();
   } else {
-    mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'));
+    const rendererEntry = path.join(__dirname, '../renderer/index.html');
+    attachAppEntryFailurePage(mainWindow, '主窗口', pathToFileURL(rendererEntry).toString(), { isDevServer: false });
+    loadFileWithLogging(mainWindow, rendererEntry, 'main window');
   }
 
   // 窗口事件
@@ -414,9 +657,13 @@ export function createSubWindow(hash: string): BrowserWindow {
   });
 
   if (process.env.NODE_ENV === 'development') {
-    subWindow.loadURL(`http://localhost:5173#${hash}`);
+    const devUrl = `${DEV_SERVER_URL}#${hash}`;
+    attachAppEntryFailurePage(subWindow, '子窗口', devUrl, { isDevServer: true });
+    loadUrlWithLogging(subWindow, devUrl, 'sub window');
   } else {
-    subWindow.loadFile(path.join(__dirname, '../renderer/index.html'), { hash });
+    const rendererEntry = path.join(__dirname, '../renderer/index.html');
+    attachAppEntryFailurePage(subWindow, '子窗口', pathToFileURL(rendererEntry).toString(), { isDevServer: false });
+    loadFileWithLogging(subWindow, rendererEntry, 'sub window', { hash });
   }
 
   subWindow.once('ready-to-show', () => {
