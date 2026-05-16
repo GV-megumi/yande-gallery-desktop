@@ -20,6 +20,7 @@ const mockMarkAppQuitting = vi.fn();
 const mockSetCloseToTrayEnabled = vi.fn();
 const mockRestoreOrCreateMainWindow = vi.fn();
 const mockSetMainWindowFactory = vi.fn();
+const mockGetStartupHardwareAccelerationEnabled = vi.fn(() => false);
 
 vi.mock('electron', () => ({
   app: {
@@ -67,12 +68,29 @@ vi.mock('../../src/main/services/init.js', () => ({
   shutdownAppResources: mockShutdownAppResources,
 }));
 
+vi.mock('../../src/main/services/config.js', () => ({
+  getCachePath: vi.fn(() => 'M:/data/cache'),
+  getDataDir: vi.fn(() => 'M:/data'),
+  getDesktopConfig: vi.fn(() => ({
+    closeAction: 'hide-to-tray',
+    autoLaunch: false,
+    startMinimized: false,
+  })),
+  getDownloadsPath: vi.fn(() => 'M:/data/downloads'),
+  getGalleryFolders: vi.fn(() => []),
+  getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
+  getThumbnailsPath: vi.fn(() => 'M:/data/thumbnails'),
+}));
+
 describe('main index startup sequencing', () => {
   const originalProcessOn = process.on;
 
   beforeEach(() => {
     vi.resetModules();
     mockWhenReady.mockReset();
+    mockWhenReady.mockImplementation(() => ({
+      then: () => Promise.resolve(),
+    }));
     mockOn.mockReset();
     mockQuit.mockReset();
     mockDisableHardwareAcceleration.mockReset();
@@ -96,6 +114,8 @@ describe('main index startup sequencing', () => {
     mockSetCloseToTrayEnabled.mockReset();
     mockRestoreOrCreateMainWindow.mockReset();
     mockSetMainWindowFactory.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(false);
     Object.defineProperty(process, 'on', {
       value: mockProcessOn,
       configurable: true,
@@ -288,5 +308,21 @@ describe('main index startup sequencing', () => {
     await renderProcessGoneHandler?.({}, { reason: 'crashed', exitCode: 1 });
 
     expect(mockShutdownAppResources).toHaveBeenCalledTimes(1);
+  });
+  it('配置启用硬件加速时不应调用 Electron 禁用硬件加速接口', async () => {
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(true);
+
+    await import('../../src/main/index.js');
+
+    expect(mockGetStartupHardwareAccelerationEnabled).toHaveBeenCalledTimes(1);
+    expect(mockDisableHardwareAcceleration).not.toHaveBeenCalled();
+  });
+
+  it('配置未启用硬件加速时应保持既有行为并禁用硬件加速', async () => {
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(false);
+
+    await import('../../src/main/index.js');
+
+    expect(mockDisableHardwareAcceleration).toHaveBeenCalledTimes(1);
   });
 });

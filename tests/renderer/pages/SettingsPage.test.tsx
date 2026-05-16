@@ -9,6 +9,10 @@ import { SettingsPage } from '../../../src/renderer/pages/SettingsPage';
 import { BooruSettingsPage } from '../../../src/renderer/pages/BooruSettingsPage';
 
 const getConfig = vi.fn();
+const getNotifications = vi.fn();
+const setNotifications = vi.fn();
+const getDesktop = vi.fn();
+const setDesktop = vi.fn();
 const getAppearancePreference = vi.fn();
 const saveConfig = vi.fn();
 const updateGalleryFolders = vi.fn();
@@ -66,6 +70,10 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.thumbnails': '缩略图',
         'settings.thumbnailsFooter': '缩略图设置',
         'settings.thumbnailSize': '缩略图大小',
+        'settings.thumbnailEffort': '压缩强度',
+        'settings.thumbnailEffortFast': '快速 (2)',
+        'settings.thumbnailEffortBalanced': '均衡 (3)',
+        'settings.thumbnailEffortBest': '最高压缩 (6)',
         'settings.sizeSmall': '小',
         'settings.sizeMedium': '中',
         'settings.sizeLarge': '大',
@@ -92,6 +100,8 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.cacheFiles': '个文件',
         'settings.clearCache': '清理缓存',
         'settings.clearCacheDesc': '清理缓存说明',
+        'settings.hardwareAcceleration': '启用硬件加速',
+        'settings.hardwareAccelerationDesc': '使用 GPU 加速窗口渲染和媒体显示，重启后生效。',
         'settings.advanced': '高级',
         'settings.reindexDb': '重建索引',
         'settings.resetAll': '重置全部',
@@ -146,7 +156,7 @@ beforeEach(() => {
     success: true,
     data: {
       downloads: { path: 'D:/downloads', createSubfolders: true, subfolderFormat: ['tags'] },
-      thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+      thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
       galleries: { folders: [] },
       network: {
         proxy: {
@@ -213,6 +223,26 @@ beforeEach(() => {
     },
   });
   saveConfig.mockResolvedValue({ success: true });
+  getNotifications.mockResolvedValue({
+    success: true,
+    data: {
+      enabled: true,
+      byStatus: { completed: true, failed: true, allSkipped: true },
+      singleDownload: { enabled: false },
+      clickAction: 'openDownloadHub',
+    },
+  });
+  setNotifications.mockResolvedValue({ success: true });
+  getDesktop.mockResolvedValue({
+    success: true,
+    data: {
+      closeAction: 'hide-to-tray',
+      autoLaunch: false,
+      startMinimized: false,
+      hardwareAcceleration: false,
+    },
+  });
+  setDesktop.mockResolvedValue({ success: true });
   getCacheStats.mockResolvedValue({ success: true, data: { sizeMB: 0, fileCount: 0 } });
   checkForUpdate.mockResolvedValue({ success: false, error: 'skip' });
   getSites.mockResolvedValue({ success: true, data: [] });
@@ -228,6 +258,10 @@ beforeEach(() => {
       get: getConfig,
       save: saveConfig,
       updateGalleryFolders,
+      getNotifications,
+      setNotifications,
+      getDesktop,
+      setDesktop,
     },
     booru: {
       getCacheStats,
@@ -359,6 +393,21 @@ describe('SettingsPage general tab behavior', () => {
     expect(screen.queryByText('高级')).toBeNull();
     expect(screen.queryByText('重建索引')).toBeNull();
     expect(screen.queryByText('重置全部')).toBeNull();
+  });
+  it('应在桌面行为中展示硬件加速开关并保存到 desktop 配置域', async () => {
+    render(<SettingsPage />);
+
+    const label = await screen.findByText('启用硬件加速');
+    const row = label.closest('div[style*="display: flex"]') as HTMLElement | null;
+    expect(row).not.toBeNull();
+    const switchButton = row!.querySelector('.ant-switch') as HTMLButtonElement | null;
+    expect(switchButton).not.toBeNull();
+
+    await userEvent.click(switchButton!);
+
+    await waitFor(() => {
+      expect(setDesktop).toHaveBeenCalledWith({ hardwareAcceleration: true });
+    });
   });
 });
 

@@ -201,6 +201,7 @@ export const SettingsPage: React.FC = () => {
   const [downloadPath, setDownloadPath] = useState('');
   const [thumbnailSize, setThumbnailSize] = useState(800);
   const [thumbnailQuality, setThumbnailQuality] = useState(92);
+  const [thumbnailEffort, setThumbnailEffort] = useState(3);
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyProtocol, setProxyProtocol] = useState('http');
   const [proxyHost, setProxyHost] = useState('127.0.0.1');
@@ -228,10 +229,12 @@ export const SettingsPage: React.FC = () => {
     closeAction: 'hide-to-tray' | 'quit' | 'ask';
     autoLaunch: boolean;
     startMinimized: boolean;
+    hardwareAcceleration: boolean;
   }>({
     closeAction: 'hide-to-tray',
     autoLaunch: false,
     startMinimized: false,
+    hardwareAcceleration: false,
   });
 
   const handleCheckForUpdate = async () => {
@@ -311,7 +314,7 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const setDesktop = async (key: 'closeAction' | 'autoLaunch' | 'startMinimized', value: any) => {
+  const setDesktop = async (key: 'closeAction' | 'autoLaunch' | 'startMinimized' | 'hardwareAcceleration', value: any) => {
     setDesktopState(prev => ({ ...prev, [key]: value }));
     try {
       const patch: any = { [key]: value };
@@ -349,9 +352,11 @@ export const SettingsPage: React.FC = () => {
         const dp = config.downloads?.path || './downloads';
         const ts = config.thumbnails?.maxWidth || 800;
         const tq = config.thumbnails?.quality || 92;
+        const te = config.thumbnails?.effort ?? 3;
         setDownloadPath(dp);
         setThumbnailSize(ts);
         setThumbnailQuality(tq);
+        setThumbnailEffort(te);
 
         const proxy = config.network?.proxy || { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 };
         setProxyEnabled(proxy.enabled);
@@ -483,7 +488,7 @@ export const SettingsPage: React.FC = () => {
       const updatedConfig = {
         ...configResult.data,
         downloads: { ...configResult.data.downloads, path: downloadPath },
-        thumbnails: { ...configResult.data.thumbnails, maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality },
+        thumbnails: { ...configResult.data.thumbnails, maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality, effort: thumbnailEffort },
         network: { ...configResult.data.network, proxy: nextProxy },
       };
       const result = await window.electronAPI.config.save(updatedConfig);
@@ -691,7 +696,6 @@ export const SettingsPage: React.FC = () => {
             />
             <SettingsRow
               label={t('settings.thumbnailQuality')}
-              isLast
               extra={
                 <Select
                   value={thumbnailQuality}
@@ -704,6 +708,22 @@ export const SettingsPage: React.FC = () => {
                   <Option value={90}>{t('settings.qualityHigh')}</Option>
                   <Option value={92}>{t('settings.qualityVeryHigh')}</Option>
                   <Option value={95}>{t('settings.qualityMax')}</Option>
+                </Select>
+              }
+            />
+            <SettingsRow
+              label={t('settings.thumbnailEffort')}
+              isLast
+              extra={
+                <Select
+                  value={thumbnailEffort}
+                  onChange={(v) => setThumbnailEffort(v)}
+                  style={{ width: 150 }}
+                  variant="borderless"
+                >
+                  <Option value={2}>{t('settings.thumbnailEffortFast')}</Option>
+                  <Option value={3}>{t('settings.thumbnailEffortBalanced')}</Option>
+                  <Option value={6}>{t('settings.thumbnailEffortBest')}</Option>
                 </Select>
               }
             />
@@ -806,9 +826,14 @@ export const SettingsPage: React.FC = () => {
               extra={<Switch checked={desktop.autoLaunch} onChange={v => setDesktop('autoLaunch', v)} />}
             />
             <SettingsRow
-              isLast
               label={t('settings.startMinimized')}
               extra={<Switch checked={desktop.startMinimized} onChange={v => setDesktop('startMinimized', v)} disabled={!desktop.autoLaunch} />}
+            />
+            <SettingsRow
+              isLast
+              label={t('settings.hardwareAcceleration')}
+              description={t('settings.hardwareAccelerationDesc')}
+              extra={<Switch checked={desktop.hardwareAcceleration} onChange={v => setDesktop('hardwareAcceleration', v)} />}
             />
           </SettingsGroup>
 

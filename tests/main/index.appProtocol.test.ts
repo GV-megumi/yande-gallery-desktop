@@ -31,6 +31,7 @@ const mockGetDownloadsPath = vi.fn();
 const mockGetDataDir = vi.fn();
 const mockGetCachePath = vi.fn();
 const mockGetThumbnailsPath = vi.fn();
+const mockGetStartupHardwareAccelerationEnabled = vi.fn(() => false);
 const mockSetCloseToTrayEnabled = vi.fn();
 const mockRestoreOrCreateMainWindow = vi.fn();
 const mockSetMainWindowFactory = vi.fn();
@@ -86,6 +87,7 @@ vi.mock('../../src/main/services/config.js', () => ({
   getDataDir: mockGetDataDir,
   getCachePath: mockGetCachePath,
   getThumbnailsPath: mockGetThumbnailsPath,
+  getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
 }));
 
 describe('main index app protocol containment', () => {
@@ -117,6 +119,8 @@ describe('main index app protocol containment', () => {
     mockGetDataDir.mockReset();
     mockGetCachePath.mockReset();
     mockGetThumbnailsPath.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(false);
     mockSetCloseToTrayEnabled.mockReset();
     mockRestoreOrCreateMainWindow.mockReset();
     mockSetMainWindowFactory.mockReset();

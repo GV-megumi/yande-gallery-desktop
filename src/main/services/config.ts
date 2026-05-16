@@ -13,6 +13,8 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
+import dotenv from 'dotenv';
+import { load as loadYaml } from 'js-yaml';
 
 // ============= Token 选项类型 =============
 
@@ -144,6 +146,7 @@ export interface AppConfig {
     maxHeight: number;
     quality: number;
     format: string;
+    effort: number;
   };
   app: {
     recentImagesCount: number;
@@ -245,6 +248,7 @@ export interface AppConfig {
     closeAction?: 'hide-to-tray' | 'quit' | 'ask';
     autoLaunch?: boolean;
     startMinimized?: boolean;
+    hardwareAcceleration?: boolean;
   };
 }
 
@@ -299,7 +303,8 @@ const DEFAULT_CONFIG: AppConfig = {
     maxWidth: 800,
     maxHeight: 800,
     quality: 92,
-    format: 'webp'
+    format: 'webp',
+    effort: 3
   },
   app: {
     recentImagesCount: 100,
@@ -345,6 +350,7 @@ const DEFAULT_CONFIG: AppConfig = {
     closeAction: 'hide-to-tray',
     autoLaunch: false,
     startMinimized: false,
+    hardwareAcceleration: false,
   },
   booru: {
     appearance: {
@@ -434,6 +440,22 @@ const configSaveOutcomes = new Map<number, Promise<{ success: boolean; error?: s
 
 // 默认配置目录名
 const DEFAULT_CONFIG_DIR_NAME = '.yandegallery';
+let dotenvLoaded = false;
+
+function loadDotenvFromCwd(): void {
+  if (dotenvLoaded) {
+    return;
+  }
+  dotenvLoaded = true;
+
+  try {
+    const envPath = path.join(process.cwd(), '.env');
+    dotenv.config({ path: envPath });
+    console.log('[config] 尝试加载 .env:', envPath);
+  } catch (error) {
+    console.warn('[config] 加载 dotenv 失败（非致命）:', error);
+  }
+}
 
 /**
  * 初始化路径系统
@@ -443,16 +465,7 @@ const DEFAULT_CONFIG_DIR_NAME = '.yandegallery';
  * 4. 确保目录存在
  */
 export async function initPaths(): Promise<void> {
-  // 加载 .env 文件（从多个可能的位置查找）
-  try {
-    const dotenv = await import('dotenv');
-    // 优先从 process.cwd()（程序启动目录）加载
-    const envPath = path.join(process.cwd(), '.env');
-    dotenv.config({ path: envPath });
-    console.log('[config] 尝试加载 .env:', envPath);
-  } catch (error) {
-    console.warn('[config] 加载 dotenv 失败（非致命）:', error);
-  }
+  loadDotenvFromCwd();
 
   // 确定 configDir
   const envConfigDir = process.env.CONFIG_DIR;
@@ -571,6 +584,37 @@ let config: AppConfig | null = null;
  */
 function isPlainObject(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
+}
+
+function resolveStartupConfigDir(): string {
+  loadDotenvFromCwd();
+
+  const envConfigDir = process.env.CONFIG_DIR;
+  if (envConfigDir) {
+    return envConfigDir.startsWith('~')
+      ? path.join(os.homedir(), envConfigDir.slice(1))
+      : path.resolve(envConfigDir);
+  }
+  return path.join(os.homedir(), DEFAULT_CONFIG_DIR_NAME);
+}
+
+export function getStartupHardwareAccelerationEnabled(configPath?: string): boolean {
+  const defaultValue = DEFAULT_CONFIG.desktop?.hardwareAcceleration ?? false;
+  const configFilePath = configPath || path.join(resolveStartupConfigDir(), 'config.yaml');
+
+  try {
+    const configData = fsSync.readFileSync(configFilePath, 'utf-8');
+    const rawConfig = loadYaml(configData);
+    if (!isPlainObject(rawConfig) || !isPlainObject(rawConfig.desktop)) {
+      return defaultValue;
+    }
+
+    return typeof rawConfig.desktop.hardwareAcceleration === 'boolean'
+      ? rawConfig.desktop.hardwareAcceleration
+      : defaultValue;
+  } catch {
+    return defaultValue;
+  }
 }
 
 function deepMergeWithDefaults(defaults: unknown, user: unknown): { merged: unknown; wasFilled: boolean } {
@@ -1131,6 +1175,7 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       maxHeight: input.thumbnails?.maxHeight ?? currentConfig.thumbnails.maxHeight,
       quality: input.thumbnails?.quality ?? currentConfig.thumbnails.quality,
       format: input.thumbnails?.format ?? currentConfig.thumbnails.format,
+      effort: input.thumbnails?.effort ?? currentConfig.thumbnails.effort,
     },
     app: {
       recentImagesCount: input.app?.recentImagesCount ?? currentConfig.app.recentImagesCount,
@@ -1209,6 +1254,7 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       closeAction: input.desktop?.closeAction ?? currentConfig.desktop?.closeAction ?? 'hide-to-tray',
       autoLaunch: input.desktop?.autoLaunch ?? currentConfig.desktop?.autoLaunch ?? false,
       startMinimized: input.desktop?.startMinimized ?? currentConfig.desktop?.startMinimized ?? false,
+      hardwareAcceleration: input.desktop?.hardwareAcceleration ?? currentConfig.desktop?.hardwareAcceleration ?? false,
     },
   };
 }
@@ -1462,6 +1508,7 @@ export function getDesktopConfig(): {
   closeAction: 'hide-to-tray' | 'quit' | 'ask';
   autoLaunch: boolean;
   startMinimized: boolean;
+  hardwareAcceleration: boolean;
 } {
   let cfg: AppConfig['desktop'] | undefined;
   try {
@@ -1473,6 +1520,7 @@ export function getDesktopConfig(): {
     closeAction: cfg?.closeAction ?? 'hide-to-tray',
     autoLaunch: cfg?.autoLaunch ?? false,
     startMinimized: cfg?.startMinimized ?? false,
+    hardwareAcceleration: cfg?.hardwareAcceleration ?? false,
   };
 }
 

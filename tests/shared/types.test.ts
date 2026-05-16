@@ -7,6 +7,7 @@ describe('RendererAppEvent 事件契约', () => {
     'favorite-tags:changed',
     'gallery:images-imported',
     'gallery:galleries-changed',
+    'thumbnail:generated',
   ];
 
   it('事件类型字符串应唯一', () => {
@@ -28,6 +29,30 @@ describe('RendererAppEvent 事件契约', () => {
       occurredAt: expect.any(String),
       source: expect.any(String),
       payload: expect.any(Object),
+    }));
+  });
+
+  it('thumbnail:generated 浜嬩欢搴斿寘鍚師鍥捐矾寰勫拰鐢熸垚缁撴灉', () => {
+    const event = {
+      type: 'thumbnail:generated',
+      version: 1,
+      occurredAt: '2026-05-16T00:00:00.000Z',
+      source: 'thumbnailService',
+      payload: {
+        imagePath: 'D:/images/a.jpg',
+        thumbnailPath: 'D:/data/thumbnails/a.webp',
+        success: true,
+      },
+    };
+
+    expect(event).toEqual(expect.objectContaining({
+      type: 'thumbnail:generated',
+      source: 'thumbnailService',
+      payload: expect.objectContaining({
+        imagePath: expect.any(String),
+        thumbnailPath: expect.any(String),
+        success: true,
+      }),
     }));
   });
 });

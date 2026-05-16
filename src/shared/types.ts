@@ -470,6 +470,7 @@ export type RendererAppEventSource =
   | 'bulkDownloadService'
   | 'galleryService'
   | 'imageService'
+  | 'thumbnailService'
   | 'ipc';
 
 export interface RendererAppEventBase<TType extends string, TPayload> {
@@ -567,12 +568,26 @@ export type RendererGalleriesChangedEvent = RendererAppEventBase<
   RendererGalleriesChangedPayload
 >;
 
+export interface RendererThumbnailGeneratedPayload {
+  imagePath: string;
+  thumbnailPath?: string;
+  success: boolean;
+  error?: string;
+  missing?: boolean;
+}
+
+export type RendererThumbnailGeneratedEvent = RendererAppEventBase<
+  'thumbnail:generated',
+  RendererThumbnailGeneratedPayload
+>;
+
 export type RendererAppEvent =
   | RendererBulkDownloadSessionsChangedEvent
   | RendererFavoriteTagDownloadCreatedEvent
   | RendererFavoriteTagsChangedEvent
   | RendererGalleryImagesImportedEvent
-  | RendererGalleriesChangedEvent;
+  | RendererGalleriesChangedEvent
+  | RendererThumbnailGeneratedEvent;
 
 // 批量下载任务选项（用于创建任务）
 export interface BulkDownloadOptions {

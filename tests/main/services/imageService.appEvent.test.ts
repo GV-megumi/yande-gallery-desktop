@@ -8,7 +8,7 @@ const get = vi.fn();
 const runInTransaction = vi.fn();
 const readdir = vi.fn();
 const stat = vi.fn();
-const generateThumbnail = vi.fn();
+const enqueueThumbnailGeneration = vi.fn();
 const deleteThumbnail = vi.fn();
 const getConfig = vi.fn();
 const emitBuiltRendererAppEvent = vi.fn();
@@ -31,7 +31,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
-  generateThumbnail,
+  enqueueThumbnailGeneration,
   deleteThumbnail,
 }));
 
@@ -53,7 +53,7 @@ describe('imageService.scanAndImportFolder app event', () => {
     get.mockResolvedValue({ id: 101 });
     runInTransaction.mockImplementation(async (_db, callback) => callback());
     getConfig.mockReturnValue({ app: { autoScan: false } });
-    generateThumbnail.mockResolvedValue(undefined);
+    enqueueThumbnailGeneration.mockReturnValue(undefined);
     deleteThumbnail.mockResolvedValue(undefined);
   });
 

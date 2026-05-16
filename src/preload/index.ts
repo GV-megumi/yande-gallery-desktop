@@ -203,7 +203,7 @@ declare global {
       image: {
         scanFolder: (folderPath: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         generateThumbnail: (imagePath: string, force?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>;
-        getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; error?: string }>;
+        getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; pending?: boolean; missing?: boolean; error?: string }>;
         deleteThumbnail: (imagePath: string) => Promise<{ success: boolean; error?: string }>;
         deleteImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
       };

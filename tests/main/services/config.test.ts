@@ -1,4 +1,5 @@
 import path from 'path';
+import fsSync from 'fs';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { AppConfig } from '../../../src/main/services/config.js';
 
@@ -23,6 +24,17 @@ vi.mock('js-yaml', () => ({
   dump: vi.fn(() => 'mocked yaml'),
 }));
 
+const dotenvMocks = vi.hoisted(() => ({
+  config: vi.fn(),
+}));
+
+vi.mock('dotenv', () => ({
+  default: {
+    config: dotenvMocks.config,
+  },
+  config: dotenvMocks.config,
+}));
+
 const mockedFs = vi.mocked((await import('fs/promises')).default);
 const mockedYaml = vi.mocked(await import('js-yaml'));
 
@@ -41,6 +53,7 @@ describe('config 模块纯函数测试', () => {
     vi.resetModules();
     vi.clearAllMocks();
     process.env.CONFIG_DIR = 'M:/test-config-root';
+    dotenvMocks.config.mockReturnValue({ parsed: {} });
   });
 
   afterEach(() => {
@@ -312,7 +325,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -476,7 +489,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -557,13 +570,67 @@ describe('config 模块纯函数测试', () => {
     });
   });
 
+  describe('getStartupHardwareAccelerationEnabled', () => {
+    it('配置文件缺失或未配置时应默认保持关闭硬件加速', async () => {
+      const readSpy = vi.spyOn(fsSync, 'readFileSync').mockImplementation(() => {
+        throw new Error('missing config');
+      });
+      try {
+        const { getStartupHardwareAccelerationEnabled } = await import('../../../src/main/services/config.js');
+
+        expect(getStartupHardwareAccelerationEnabled('M:/test-config-root/config.yaml')).toBe(false);
+      } finally {
+        readSpy.mockRestore();
+      }
+    });
+
+    it('应从 config.yaml 的 desktop.hardwareAcceleration 读取启动期硬件加速开关', async () => {
+      const readSpy = vi.spyOn(fsSync, 'readFileSync').mockReturnValue('desktop:\n  hardwareAcceleration: true\n');
+      mockedYaml.load.mockReturnValueOnce({
+        desktop: {
+          hardwareAcceleration: true,
+        },
+      });
+      try {
+        const { getStartupHardwareAccelerationEnabled } = await import('../../../src/main/services/config.js');
+
+        expect(getStartupHardwareAccelerationEnabled('M:/test-config-root/config.yaml')).toBe(true);
+      } finally {
+        readSpy.mockRestore();
+      }
+    });
+
+    it('应先加载 .env 再解析默认启动配置路径', async () => {
+      delete process.env.CONFIG_DIR;
+      dotenvMocks.config.mockImplementationOnce(() => {
+        process.env.CONFIG_DIR = 'M:/env-config-root';
+        return { parsed: { CONFIG_DIR: 'M:/env-config-root' } };
+      });
+      const readSpy = vi.spyOn(fsSync, 'readFileSync').mockReturnValue('desktop:\n  hardwareAcceleration: true\n');
+      mockedYaml.load.mockReturnValueOnce({
+        desktop: {
+          hardwareAcceleration: true,
+        },
+      });
+      try {
+        const { getStartupHardwareAccelerationEnabled } = await import('../../../src/main/services/config.js');
+
+        expect(getStartupHardwareAccelerationEnabled()).toBe(true);
+        expect(dotenvMocks.config).toHaveBeenCalledWith({ path: path.join(process.cwd(), '.env') });
+        expect(readSpy).toHaveBeenCalledWith(path.join('M:/env-config-root', 'config.yaml'), 'utf-8');
+      } finally {
+        readSpy.mockRestore();
+      }
+    });
+  });
+
   describe('mergeSensitiveConfig', () => {
     const current: AppConfig = {
       dataPath: 'data',
       database: { path: 'gallery.db', logging: true },
       downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
       galleries: { folders: [] },
-      thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+      thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
       app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
       yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
       logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -638,7 +705,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -704,6 +771,7 @@ describe('config 模块纯函数测试', () => {
           closeAction: 'hide-to-tray',
           autoLaunch: false,
           startMinimized: false,
+          hardwareAcceleration: false,
         },
       });
       expect(result).not.toHaveProperty('extraTopLevel');
@@ -716,7 +784,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -785,7 +853,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -908,7 +976,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
@@ -984,7 +1052,7 @@ describe('config 模块纯函数测试', () => {
         database: { path: 'gallery.db', logging: true },
         downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
         galleries: { folders: [] },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
         yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },

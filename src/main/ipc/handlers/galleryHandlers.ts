@@ -29,7 +29,7 @@ import {
   updateIgnoredFolder,
   removeIgnoredFolder,
 } from '../../services/galleryService.js';
-import { generateThumbnail, getThumbnailIfExists, deleteThumbnail } from '../../services/thumbnailService.js';
+import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail } from '../../services/thumbnailService.js';
 import {
   reportInvalidImage,
   getInvalidImages,
@@ -113,31 +113,10 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // 获取缩略图路径（如果不存在则自动生成）
+  // Queue missing thumbnails instead of blocking the IPC call until generation completes.
   ipcMain.handle(IPC_CHANNELS.IMAGE_GET_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string) => {
     try {
-      console.log(`[IPC] 获取缩略图: ${imagePath}`);
-      // 先检查缩略图是否存在
-      let thumbnailPath = await getThumbnailIfExists(imagePath);
-      
-      // 如果不存在，自动生成
-      if (!thumbnailPath) {
-        console.log(`[IPC] 缩略图不存在，开始自动生成: ${imagePath}`);
-        const generateResult = await generateThumbnail(imagePath, false);
-        if (generateResult.success && generateResult.data) {
-          thumbnailPath = generateResult.data;
-          console.log(`[IPC] 缩略图生成成功: ${thumbnailPath}`);
-        } else {
-          console.error(`[IPC] 缩略图生成失败: ${generateResult.error}`);
-          // 如果错误信息包含"原图不存在"，标记为 missing 以便渲染进程上报
-          const isMissing = generateResult.error?.includes('原图不存在') ?? false;
-          return { success: false, error: generateResult.error || '生成缩略图失败', missing: isMissing };
-        }
-      } else {
-        console.log(`[IPC] 使用已存在的缩略图: ${thumbnailPath}`);
-      }
-      
-      return { success: true, data: thumbnailPath };
+      return await requestThumbnailGeneration(imagePath);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error(`[IPC] 获取缩略图失败: ${errorMessage}`);
