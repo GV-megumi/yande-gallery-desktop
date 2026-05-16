@@ -4,6 +4,7 @@ const mockWhenReady = vi.fn();
 const mockOn = vi.fn();
 const mockQuit = vi.fn();
 const mockDisableHardwareAcceleration = vi.fn();
+const mockSetLoginItemSettings = vi.fn();
 const mockRequestSingleInstanceLock = vi.fn(() => true);
 const mockSetApplicationMenu = vi.fn();
 const mockBuildFromTemplate = vi.fn((template) => template);
@@ -21,6 +22,7 @@ const mockSetCloseToTrayEnabled = vi.fn();
 const mockSetMainWindowFactory = vi.fn();
 const mockRestoreOrCreateMainWindow = vi.fn();
 const mockResolveAppIconPath = vi.fn(() => 'M:/assets/icon.png');
+const mockGetStartupHardwareAccelerationEnabled = vi.fn(() => false);
 const mockTrayShouldThrowRef = { current: false };
 const mockTrayContextMenuShouldThrowRef = { current: false };
 const trayConstructorArgs: string[] = [];
@@ -45,6 +47,7 @@ vi.mock('electron', () => ({
     on: mockOn,
     quit: mockQuit,
     disableHardwareAcceleration: mockDisableHardwareAcceleration,
+    setLoginItemSettings: mockSetLoginItemSettings,
     requestSingleInstanceLock: mockRequestSingleInstanceLock,
     isPackaged: false,
   },
@@ -108,6 +111,14 @@ vi.mock('../../src/main/services/config.js', () => ({
   getDataDir: vi.fn(() => 'M:/data'),
   getCachePath: vi.fn(() => 'M:/data/cache'),
   getThumbnailsPath: vi.fn(() => 'M:/data/thumbnails'),
+  getDesktopConfig: vi.fn(() => ({
+    autoStart: false,
+    minimizeToTray: true,
+    closeToTray: true,
+    startMinimized: false,
+    hardwareAcceleration: false,
+  })),
+  getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
 }));
 
 describe('main index tray wiring', () => {
@@ -119,6 +130,9 @@ describe('main index tray wiring', () => {
     mockOn.mockReset();
     mockQuit.mockReset();
     mockDisableHardwareAcceleration.mockReset();
+    mockSetLoginItemSettings.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReset();
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(false);
     mockRequestSingleInstanceLock.mockReset();
     mockRequestSingleInstanceLock.mockReturnValue(true);
     mockSetApplicationMenu.mockReset();

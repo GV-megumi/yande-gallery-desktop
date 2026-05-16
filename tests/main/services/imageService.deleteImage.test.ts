@@ -12,6 +12,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
   run: (...args: any[]) => runMock(...args),
 }));
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  enqueueThumbnailGeneration: vi.fn(),
   deleteThumbnail: (...args: any[]) => deleteThumbnailMock(...args),
 }));
 vi.mock('fs/promises', () => ({

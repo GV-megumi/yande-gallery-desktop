@@ -2,7 +2,7 @@ import { Image, Tag } from '../../shared/types.js';
 import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
-import { generateThumbnail, deleteThumbnail } from './thumbnailService.js';
+import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 
@@ -661,11 +661,9 @@ export async function scanAndImportFolder(
           if (result.success && result.data) {
             imported.push({ ...imageInfo, id: result.data });
 
-            // 自动生成缩略图（如果配置启用了自动生成）
+            // 扫描导入只提交后台任务；可见图片请求会在缩略图队列中获得更高优先级。
             if (autoThumbnail) {
-              generateThumbnail(file).catch(error => {
-                console.error(`自动生成缩略图失败 ${file}:`, error);
-              });
+              enqueueThumbnailGeneration(file);
             }
           }
         }

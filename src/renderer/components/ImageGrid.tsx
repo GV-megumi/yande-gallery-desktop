@@ -5,6 +5,7 @@ import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows, transitions, layout as layoutTokens } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
+import type { RendererAppEvent } from '../../shared/types';
 
 // --- 静态样式常量（避免每次渲染创建新对象） ---
 const cardWrapperStyle: React.CSSProperties = {
@@ -325,6 +326,36 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     [images]
   );
 
+  useEffect(() => {
+    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
+      if (event.type !== 'thumbnail:generated') return;
+
+      const matchedImage = images.find((image) => (
+        image.filepath === event.payload.imagePath &&
+        typeof image.id === 'number'
+      ));
+      if (!matchedImage || typeof matchedImage.id !== 'number') return;
+
+      const nextValue = event.payload.success && event.payload.thumbnailPath
+        ? event.payload.thumbnailPath
+        : null;
+
+      setThumbnailPaths((current) => {
+        const nextPaths = { ...current, [matchedImage.id]: nextValue };
+        thumbnailPathsRef.current = nextPaths;
+        return nextPaths;
+      });
+
+      if (!event.payload.success && event.payload.missing) {
+        window.electronAPI.gallery.reportInvalidImage(matchedImage.id).catch(() => {});
+      }
+    });
+
+    return () => {
+      removeAppEventListener?.();
+    };
+  }, [thumbnailLoadKey, images]);
+
   // 加载所有图片的缩略图（异步批量加载）
   useEffect(() => {
     if (!window.electronAPI || images.length === 0) {
@@ -378,7 +409,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
       let pendingSinceLastFlush = 0;
 
       // 批量加载缩略图，限制并发数量以避免过载
-      const concurrency = 10; // 每次并发10张
+      const concurrency = 4; // 控制前台缩略图请求压力，实际生成并发由主进程队列兜底
       const flushInterval = 100; // 每100张刷新一次UI
       for (let i = 0; i < imagesToLoad.length; i += concurrency) {
         if (cancelled) return;
@@ -393,6 +424,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
               if (cancelled) return;
               if (result.success && result.data) {
                 thumbnails[image.id] = result.data;
+              } else if ((result as any).pending) {
+                return;
               } else {
                 thumbnails[image.id] = null;
                 // 源文件丢失：异步上报为无效图片

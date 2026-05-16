@@ -11,6 +11,7 @@ import {
   getDesktopConfig,
   getDownloadsPath,
   getGalleryFolders,
+  getStartupHardwareAccelerationEnabled,
   getThumbnailsPath,
 } from './services/config.js';
 
@@ -213,6 +214,11 @@ function registerLifecycleGuards(): void {
 
 registerLifecycleGuards();
 
+// Electron 的硬件加速必须在 app ready 前决定；默认沿用旧行为（禁用），显式开启后下次启动生效。
+if (!getStartupHardwareAccelerationEnabled()) {
+  app.disableHardwareAcceleration();
+}
+
 // 初始化应用（加载配置、初始化数据库、初始化图库）
 app.whenReady().then(async () => {
   try {
@@ -271,9 +277,6 @@ app.whenReady().then(async () => {
     console.error('❌ 应用启动失败:', error);
   }
 });
-
-// 禁用硬件加速（可选，解决某些渲染问题）
-app.disableHardwareAcceleration();
 
 // 单实例应用
 const gotTheLock = app.requestSingleInstanceLock();

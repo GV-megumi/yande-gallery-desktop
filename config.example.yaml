@@ -63,6 +63,7 @@ thumbnails:
   maxWidth: 1000
   maxHeight: 1000
   quality: 95
+  effort: 3
   format: webp
 
 # -------- 应用 --------
@@ -100,6 +101,14 @@ network:
     port: '7890'
     username: ''
     password: ''
+
+# -------- 桌面行为 --------
+desktop:
+  closeAction: hide-to-tray   # hide-to-tray | quit | ask
+  autoLaunch: false
+  startMinimized: false
+  # true: 下次启动时启用 Chromium/Electron GPU 硬件加速
+  hardwareAcceleration: false
 
 # -------- Booru 浏览与下载 --------
 booru:

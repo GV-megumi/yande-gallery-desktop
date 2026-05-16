@@ -28,7 +28,7 @@ function baseConfigWithGalleryId(selectedGalleryId: number = 42): AppConfig {
     database: { path: 'gallery.db', logging: true },
     downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
     galleries: { folders: [] },
-    thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp' },
+    thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
     app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
     yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
     logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },

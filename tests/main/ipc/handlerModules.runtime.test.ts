@@ -86,6 +86,8 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
   generateThumbnail: vi.fn(),
+  requestThumbnailGeneration: vi.fn(),
+  enqueueThumbnailGeneration: vi.fn(),
   getThumbnailIfExists: vi.fn(),
   deleteThumbnail: vi.fn(),
 }));
