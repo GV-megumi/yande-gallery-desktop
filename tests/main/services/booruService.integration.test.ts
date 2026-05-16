@@ -39,6 +39,7 @@ const state = {
       updatedAt: '2024-01-01',
     },
   ] as Array<Record<string, any>>,
+  booruFavorites: [] as Array<{ id: number; postId: number; siteId: number; notes: string | null; createdAt: string }>,
   downloadQueue: [] as Array<Record<string, any>>,
   bindings: [
     {
@@ -160,6 +161,7 @@ let lastInsertedFavoriteTagId = 0;
 let lastInsertedFavoriteTagLabelId = 0;
 // last_insert_rowid() 的返回值：根据最近一次 INSERT 更新，供 addFavoriteTag / addFavoriteTagLabel 共用
 let lastInsertRowid = 0;
+let simulateQueuedInsertAfterTransaction = false;
 
 vi.mock('../../../src/main/services/database', () => ({
   getDatabase: vi.fn(async () => ({})),
@@ -194,6 +196,28 @@ vi.mock('../../../src/main/services/database', () => ({
         totalBytes: 0,
         retryCount: 0,
       });
+    }
+    if (/^\s*INSERT\s+OR\s+IGNORE\s+INTO\s+booru_favorites\b/i.test(sql)) {
+      const p = params ?? [];
+      const duplicated = state.booruFavorites.some(item => item.postId === p[0]);
+      if (!duplicated) {
+        const existingIds = state.booruFavorites.map(item => item.id);
+        const nextId = (existingIds.length > 0 ? Math.max(...existingIds) : 0) + 1;
+        lastInsertRowid = nextId;
+        state.booruFavorites.push({
+          id: nextId,
+          postId: p[0],
+          siteId: p[1],
+          notes: p[2] ?? null,
+          createdAt: p[3],
+        });
+      }
+    }
+    if (/^\s*UPDATE\s+booru_posts\s+SET\s+isFavorited\s*=\s*1\s+WHERE\s+id\s*=\s*\?/i.test(sql)) {
+      const post = state.booruPosts.find(item => item.id === params?.[0]);
+      if (post) {
+        post.isFavorited = 1;
+      }
     }
     if (/^\s*INSERT\s+INTO\s+booru_favorite_tags\b/i.test(sql)) {
       // 与 addFavoriteTag 的 INSERT 列顺序保持一致：
@@ -264,13 +288,25 @@ vi.mock('../../../src/main/services/database', () => ({
     return undefined;
   }),
   runWithChanges: vi.fn(async () => ({ changes: 1 })),
-  runInTransaction: vi.fn(async (_db, fn) => fn()),
+  runInTransaction: vi.fn(async (_db, fn) => {
+    const result = await fn();
+    if (simulateQueuedInsertAfterTransaction) {
+      lastInsertRowid = 999;
+    }
+    return result;
+  }),
   get: vi.fn(async (_db, sql: string, params?: any[]) => {
     if (sql.includes('FROM booru_favorite_tags WHERE id = ?')) {
       return state.favoriteTags.find(tag => tag.id === params?.[0]);
     }
     if (sql.includes('SELECT id FROM booru_posts WHERE siteId = ? AND postId = ?')) {
       return state.booruPosts.find(post => post.siteId === params?.[0] && post.postId === params?.[1]);
+    }
+    if (sql.includes('SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?')) {
+      return state.booruPosts.find(post => post.postId === params?.[0] && post.siteId === params?.[1]);
+    }
+    if (sql.includes('SELECT id FROM booru_favorites WHERE postId = ?')) {
+      return state.booruFavorites.find(favorite => favorite.postId === params?.[0]);
     }
     if (sql.includes('SELECT id, status FROM booru_download_queue WHERE postId = ? AND siteId = ?')) {
       return state.downloadQueue.find(item => item.postId === params?.[0] && item.siteId === params?.[1]);
@@ -447,6 +483,10 @@ describe('booruService integration-ish behavior', () => {
   beforeEach(() => {
     vi.resetModules();
     state.downloadQueue = [];
+    state.booruFavorites = [];
+    state.booruPosts[0].isFavorited = 0;
+    lastInsertRowid = 0;
+    simulateQueuedInsertAfterTransaction = false;
   });
 
   it('addToDownloadQueue 应将 API postId 映射为 booru_posts.id 再入队', async () => {
@@ -459,6 +499,18 @@ describe('booruService integration-ish behavior', () => {
     expect(state.downloadQueue[0]?.postId).toBe(42);
     expect(state.downloadQueue[0]?.siteId).toBe(1);
     expect(state.downloadQueue[0]?.targetPath).toBe('D:/downloads/1259292.jpg');
+  });
+
+  it('addToFavorites should return the favorite id created inside the transaction', async () => {
+    simulateQueuedInsertAfterTransaction = true;
+    const service = await import('../../../src/main/services/booruService');
+
+    const favoriteId = await service.addToFavorites(1259292, 1, 'saved');
+
+    expect(favoriteId).toBe(1);
+    expect(state.booruFavorites).toHaveLength(1);
+    expect(state.booruFavorites[0]?.postId).toBe(42);
+    expect(state.booruPosts[0].isFavorited).toBe(1);
   });
 
   it('getFavoriteTagsWithDownloadState 应返回带 binding 和 galleryName 的 enriched 结果', async () => {

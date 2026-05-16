@@ -234,7 +234,7 @@ export function setupSystemHandlers() {
   // ===== 网络连接测试（从主进程发起，绕过CORS） =====
   ipcMain.handle(IPC_CHANNELS.NETWORK_TEST_BAIDU, async () => {
     console.log('[IPC] 测试百度连接（主进程）');
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig('https://www.baidu.com');
     console.log('[IPC] 当前代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
 
     try {
@@ -261,7 +261,7 @@ export function setupSystemHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.NETWORK_TEST_GOOGLE, async () => {
     console.log('[IPC] 测试Google连接（主进程）');
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig('https://www.google.com');
     console.log('[IPC] 当前代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
 
     try {

@@ -487,7 +487,7 @@ class DownloadManager {
       await fsPromises.mkdir(targetDir, { recursive: true });
 
       // 配置请求
-      const proxyConfig = getProxyConfig();
+      const proxyConfig = getProxyConfig(post.fileUrl);
       const response = await axios({
         method: 'GET',
         url: post.fileUrl,

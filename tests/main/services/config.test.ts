@@ -1136,6 +1136,213 @@ describe('config 模块纯函数测试', () => {
       const result = extractProxyConfig(config);
       expect(result).not.toHaveProperty('auth');
     });
+
+    it('should prefer custom proxy over system proxy when custom proxy is enabled', async () => {
+      const { resolveEffectiveProxyConfig } = await import('../../../src/main/services/config.js');
+      const result = resolveEffectiveProxyConfig(
+        {
+          enabled: true,
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: 7890,
+        },
+        'system.example.com:8080'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: 7890,
+      });
+    });
+
+    it('should accept custom proxy ports loaded from YAML strings', async () => {
+      const { resolveEffectiveProxyConfig } = await import('../../../src/main/services/config.js');
+      const result = resolveEffectiveProxyConfig(
+        {
+          enabled: true,
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: '7890',
+        } as any,
+        undefined
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: 7890,
+      });
+    });
+
+    it('should use system proxy when custom proxy is disabled', async () => {
+      const { resolveEffectiveProxyConfig } = await import('../../../src/main/services/config.js');
+      const result = resolveEffectiveProxyConfig(
+        {
+          enabled: false,
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: 7890,
+        },
+        '127.0.0.1:7897'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: 7897,
+      });
+    });
+
+    it('should use default ports for proxy URLs without explicit ports', async () => {
+      const configModule = await import('../../../src/main/services/config.js');
+      const result = configModule.parseEnvironmentProxyServer(
+        {
+          HTTPS_PROXY: 'https://proxy-https.local',
+        },
+        'https://example.com/post.json'
+      );
+
+      expect(result).toEqual({
+        protocol: 'https',
+        host: 'proxy-https.local',
+        port: 443,
+      });
+    });
+
+    it('should use direct connection when both custom and system proxy are unavailable', async () => {
+      const { resolveEffectiveProxyConfig } = await import('../../../src/main/services/config.js');
+      const result = resolveEffectiveProxyConfig(
+        {
+          enabled: false,
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: 7890,
+        },
+        undefined
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should parse Windows per-protocol system proxy entries', async () => {
+      const { parseSystemProxyServer } = await import('../../../src/main/services/config.js');
+      const result = parseSystemProxyServer(
+        'http=proxy-http.local:8080;https=proxy-https.local:8443;socks=127.0.0.1:1080'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'proxy-https.local',
+        port: 8443,
+      });
+    });
+
+    it('should select the matching system proxy entry for HTTP targets', async () => {
+      const { parseSystemProxyServer } = await import('../../../src/main/services/config.js');
+      const result = parseSystemProxyServer(
+        'http=proxy-http.local:8080;https=proxy-https.local:8443;socks=127.0.0.1:1080',
+        'http://example.com/post.json'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'proxy-http.local',
+        port: 8080,
+      });
+    });
+
+    it('should not use another Windows proxy scheme when the target scheme is missing', async () => {
+      const { parseSystemProxyServer } = await import('../../../src/main/services/config.js');
+      const result = parseSystemProxyServer(
+        'https=proxy-https.local:8443',
+        'http://example.com/post.json'
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should bypass Windows system proxy for ProxyOverride matches', async () => {
+      const { parseSystemProxyServer } = await import('../../../src/main/services/config.js');
+      const result = parseSystemProxyServer(
+        'http=proxy-http.local:8080;https=proxy-https.local:8443',
+        'https://mirror.internal.example.com/post.json',
+        '*.internal.example.com;localhost;<local>'
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should bypass Windows system proxy for local hosts with <local>', async () => {
+      const { parseSystemProxyServer } = await import('../../../src/main/services/config.js');
+      const result = parseSystemProxyServer(
+        '127.0.0.1:7890',
+        'http://intranet/post.json',
+        '<local>'
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should select environment proxy variables by target scheme', async () => {
+      const configModule = await import('../../../src/main/services/config.js');
+      const result = configModule.parseEnvironmentProxyServer(
+        {
+          HTTPS_PROXY: 'proxy-https.local:8443',
+          HTTP_PROXY: 'proxy-http.local:8080',
+        },
+        'http://example.com/post.json'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'proxy-http.local',
+        port: 8080,
+      });
+    });
+
+    it('should honor NO_PROXY for environment proxy variables', async () => {
+      const configModule = await import('../../../src/main/services/config.js');
+      const result = configModule.parseEnvironmentProxyServer(
+        {
+          HTTPS_PROXY: 'proxy-https.local:8443',
+          NO_PROXY: '.internal.example.com,localhost,127.0.0.1',
+        },
+        'https://mirror.internal.example.com/post.json'
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should honor IPv6 NO_PROXY entries without brackets', async () => {
+      const configModule = await import('../../../src/main/services/config.js');
+      const result = configModule.parseEnvironmentProxyServer(
+        {
+          HTTP_PROXY: 'proxy-http.local:8080',
+          NO_PROXY: '::1',
+        },
+        'http://[::1]:8080/post.json'
+      );
+
+      expect(result).toBeUndefined();
+    });
+
+    it('should honor NO_PROXY entries with ports', async () => {
+      const configModule = await import('../../../src/main/services/config.js');
+      const result = configModule.parseEnvironmentProxyServer(
+        {
+          HTTP_PROXY: 'proxy-http.local:8080',
+          NO_PROXY: 'example.com:8081',
+        },
+        'http://example.com:8080/post.json'
+      );
+
+      expect(result).toEqual({
+        protocol: 'http',
+        host: 'proxy-http.local',
+        port: 8080,
+      });
+    });
   });
 
   describe('getAbsolutePath 逻辑', () => {

@@ -306,7 +306,7 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
   console.log(`[imageCacheService] 开始缓存图片: ${url.substring(0, 100)}...`);
 
   try {
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig(url);
 
     // 先用 HEAD 请求检查文件大小，拒绝超大文件
     try {

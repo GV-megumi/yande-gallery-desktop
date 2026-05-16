@@ -93,6 +93,7 @@ logging:
 # -------- 网络/代理 --------
 network:
   proxy:
+    # true: use this custom proxy first; false: fall back to system proxy, then direct
     enabled: false
     protocol: http           # http | https | socks5
     host: 127.0.0.1

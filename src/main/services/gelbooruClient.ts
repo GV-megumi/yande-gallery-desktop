@@ -98,7 +98,7 @@ export class GelbooruClient implements IBooruClient {
   constructor(config: BooruClientConfig) {
     this.config = config;
 
-    const proxyConfig = getProxyConfig();
+    const proxyConfig = getProxyConfig(config.baseUrl);
     console.log('[GelbooruClient] 代理配置:', proxyConfig ? `${proxyConfig.protocol}://${proxyConfig.host}:${proxyConfig.port}` : '无');
 
     this.client = axios.create({

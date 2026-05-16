@@ -343,11 +343,18 @@ describe('bulkDownloadService TP-03', () => {
       runWithChanges,
       get,
       all,
+      runInTransaction: vi.fn(async (_db: unknown, fn: () => Promise<unknown>) => fn()),
     }));
 
     vi.doMock('../../../src/main/services/config.js', () => ({
       getProxyConfig: vi.fn(() => undefined),
       getConfig: vi.fn(() => ({ booru: { download: {} } })),
+      getNotificationsConfig: vi.fn(() => ({
+        enabled: false,
+        byStatus: { completed: false, failed: false, allSkipped: false },
+        singleDownload: { enabled: false },
+        clickAction: 'openDownloadHub',
+      })),
       getMaxConcurrentBulkDownloadSessions: vi.fn(() => 3),
     }));
 

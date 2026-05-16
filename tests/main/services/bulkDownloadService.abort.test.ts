@@ -459,6 +459,7 @@ describe('bulkDownloadService abort semantics', () => {
       runWithChanges,
       get,
       all,
+      runInTransaction: vi.fn(async (_db: unknown, fn: () => Promise<unknown>) => fn()),
     }));
 
     vi.doMock('../../../src/main/services/config.js', () => ({
