@@ -155,6 +155,76 @@ describe('window.ts 安全边界行为', () => {
     expect(openHandler({ url: 'http://localhost:5173@evil.com/' })).toEqual({ action: 'deny' });
   });
 
+  it('开发服务未启动时应显示可点击刷新重试页', async () => {
+    process.env.NODE_ENV = 'development';
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await createMainWindowAndGetSecurityHooks();
+
+    const instance = browserWindowInstances[0];
+    const failHandler = instance.webContents.handlers['did-fail-load'];
+    expect(failHandler).toBeTypeOf('function');
+
+    failHandler(
+      {},
+      -102,
+      'ERR_CONNECTION_REFUSED',
+      'http://localhost:5173/',
+      true,
+      0,
+      0,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(instance.loadURL).toHaveBeenCalledTimes(2);
+    const retryPageUrl = instance.loadURL.mock.calls[1][0] as string;
+    expect(retryPageUrl).toContain('data:text/html;charset=utf-8,');
+
+    const html = decodeURIComponent(retryPageUrl.split(',', 2)[1]);
+    expect(html).toContain('本地界面服务还没连接上');
+    expect(html).toContain('刷新重试');
+    expect(html).toContain('http://localhost:5173/');
+    expect(instance.show).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
+  it('生产模式界面文件加载失败时应显示可点击刷新重试页', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+
+    await createMainWindowAndGetSecurityHooks();
+
+    const instance = browserWindowInstances[0];
+    const failHandler = instance.webContents.handlers['did-fail-load'];
+    expect(failHandler).toBeTypeOf('function');
+    expect(instance.loadFile).toHaveBeenCalledTimes(1);
+
+    failHandler(
+      {},
+      -6,
+      'ERR_FILE_NOT_FOUND',
+      '',
+      true,
+      0,
+      0,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(instance.loadURL).toHaveBeenCalledTimes(1);
+    const retryPageUrl = instance.loadURL.mock.calls[0][0] as string;
+    expect(retryPageUrl).toContain('data:text/html;charset=utf-8,');
+
+    const html = decodeURIComponent(retryPageUrl.split(',', 2)[1]);
+    expect(html).toContain('应用界面加载失败');
+    expect(html).toContain('刷新重试');
+    expect(html).toContain('file:///');
+    expect(instance.show).toHaveBeenCalledTimes(1);
+
+    warnSpy.mockRestore();
+  });
+
   it('拒绝非受控 file 导航', async () => {
     const { navigateHandler } = await createMainWindowAndGetSecurityHooks();
     const preventDefault = vi.fn();
