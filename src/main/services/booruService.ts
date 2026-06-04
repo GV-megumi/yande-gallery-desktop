@@ -981,17 +981,17 @@ export async function addToFavorites(apiPostId: number, siteId: number, notes?: 
 /**
  * 从收藏中移除
  */
-export async function removeFromFavorites(apiPostId: number): Promise<void> {
+export async function removeFromFavorites(apiPostId: number, siteId?: number): Promise<void> {
   console.log('[booruService] 从收藏中移除:', apiPostId);
   try {
     const db = await getDatabase();
 
     // 查找 booru_posts 的数据库主键
-    const dbPost = await get<{ id: number }>(
-      db,
-      'SELECT id FROM booru_posts WHERE postId = ?',
-      [apiPostId]
-    );
+    const sql = siteId === undefined
+      ? 'SELECT id FROM booru_posts WHERE postId = ?'
+      : 'SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?';
+    const params = siteId === undefined ? [apiPostId] : [apiPostId, siteId];
+    const dbPost = await get<{ id: number }>(db, sql, params);
     if (dbPost) {
       await run(db, 'DELETE FROM booru_favorites WHERE postId = ?', [dbPost.id]);
       await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [dbPost.id]);

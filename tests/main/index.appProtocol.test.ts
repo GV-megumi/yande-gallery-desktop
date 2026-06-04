@@ -15,6 +15,7 @@ const mockWhenReady = vi.fn();
 const mockOn = vi.fn();
 const mockQuit = vi.fn();
 const mockDisableHardwareAcceleration = vi.fn();
+const mockAppendSwitch = vi.fn();
 const mockRequestSingleInstanceLock = vi.fn(() => true);
 const mockSetApplicationMenu = vi.fn();
 const mockBuildFromTemplate = vi.fn((template) => template);
@@ -42,6 +43,9 @@ vi.mock('electron', () => ({
     on: mockOn,
     quit: mockQuit,
     disableHardwareAcceleration: mockDisableHardwareAcceleration,
+    commandLine: {
+      appendSwitch: mockAppendSwitch,
+    },
     requestSingleInstanceLock: mockRequestSingleInstanceLock,
   },
   BrowserWindow: {
@@ -99,6 +103,7 @@ describe('main index app protocol containment', () => {
     mockOn.mockReset();
     mockQuit.mockReset();
     mockDisableHardwareAcceleration.mockReset();
+    mockAppendSwitch.mockReset();
     mockRequestSingleInstanceLock.mockReset();
     mockRequestSingleInstanceLock.mockReturnValue(true);
     mockSetApplicationMenu.mockReset();

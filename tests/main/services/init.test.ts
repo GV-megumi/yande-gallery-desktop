@@ -73,6 +73,11 @@ vi.mock('../../../src/main/services/booruService.js', () => ({
   cleanExpiredTags: mockCleanExpiredTags,
 }));
 
+const mockStopApiService = vi.fn().mockResolvedValue(undefined);
+vi.mock('../../../src/main/api/apiServiceManager.js', () => ({
+  stopApiService: mockStopApiService,
+}));
+
 describe('initializeApp', () => {
   beforeEach(() => {
     vi.resetModules();
@@ -80,6 +85,7 @@ describe('initializeApp', () => {
     mockPauseAll.mockResolvedValue(true);
     mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
     mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
+    mockStopApiService.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -162,6 +168,7 @@ describe('initGalleriesFromConfig 逻辑', () => {
     mockPauseAll.mockResolvedValue(true);
     mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
     mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
+    mockStopApiService.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -219,6 +226,7 @@ describe('resumeDownloadsInBackground 逻辑', () => {
     mockPauseAll.mockResolvedValue(true);
     mockGetActiveBulkDownloadSessions.mockResolvedValue([]);
     mockPauseBulkDownloadSession.mockResolvedValue({ success: true });
+    mockStopApiService.mockResolvedValue(undefined);
     vi.useFakeTimers();
   });
 
@@ -299,9 +307,11 @@ describe('resumeDownloadsInBackground 逻辑', () => {
     expect(mockResumePendingDownloads).not.toHaveBeenCalled();
     expect(mockResumeRunningSessions).not.toHaveBeenCalled();
     expect(mockCleanExpiredTags).not.toHaveBeenCalled();
+    expect(mockStopApiService).toHaveBeenCalledTimes(1);
     expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
-    expect(mockPauseAll.mock.invocationCallOrder[0]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
-    expect(mockPauseBulkDownloadSession.mock.invocationCallOrder[1]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
+    expect(mockPauseAll.mock.invocationCallOrder[0]).toBeLessThan(mockStopApiService.mock.invocationCallOrder[0]);
+    expect(mockPauseBulkDownloadSession.mock.invocationCallOrder[1]).toBeLessThan(mockStopApiService.mock.invocationCallOrder[0]);
+    expect(mockStopApiService.mock.invocationCallOrder[0]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
   });
 
   it('任务冻结失败时不应继续关闭数据库，且后续允许再次重试', async () => {
@@ -312,12 +322,15 @@ describe('resumeDownloadsInBackground 逻辑', () => {
     const { shutdownAppResources } = await import('../../../src/main/services/init.js');
 
     await expect(shutdownAppResources()).rejects.toThrow('pause all failed');
+    expect(mockStopApiService).not.toHaveBeenCalled();
     expect(mockCloseDatabase).not.toHaveBeenCalled();
 
     await expect(shutdownAppResources()).resolves.toBeUndefined();
 
     expect(mockPauseAll).toHaveBeenCalledTimes(2);
+    expect(mockStopApiService).toHaveBeenCalledTimes(1);
     expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
+    expect(mockStopApiService.mock.invocationCallOrder[0]).toBeLessThan(mockCloseDatabase.mock.invocationCallOrder[0]);
   });
 
   it('重复关闭初始化资源成功时应只关闭一次数据库', async () => {
@@ -326,6 +339,7 @@ describe('resumeDownloadsInBackground 逻辑', () => {
     await shutdownAppResources();
     await shutdownAppResources();
 
+    expect(mockStopApiService).toHaveBeenCalledTimes(1);
     expect(mockCloseDatabase).toHaveBeenCalledTimes(1);
   });
 

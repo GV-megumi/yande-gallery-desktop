@@ -33,6 +33,11 @@ const deleteSite = vi.fn();
 const getPosts = vi.fn();
 const login = vi.fn();
 const logout = vi.fn();
+const getApiServiceConfig = vi.fn();
+const saveApiServiceConfig = vi.fn();
+const getApiServiceStatus = vi.fn();
+const generateApiServiceKey = vi.fn();
+const getApiServiceLogs = vi.fn();
 const setThemeMode = vi.fn();
 const setLocale = vi.fn();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
@@ -252,6 +257,45 @@ beforeEach(() => {
   getPosts.mockResolvedValue({ success: true, data: [] });
   login.mockResolvedValue({ success: true });
   logout.mockResolvedValue({ success: true });
+  getApiServiceConfig.mockResolvedValue({
+    success: true,
+    data: {
+      enabled: false,
+      mode: 'localhost',
+      port: 38947,
+      apiKey: 'secret-key',
+      permissions: {
+        galleryRead: true,
+        imageRead: true,
+        imageBinary: false,
+        booruRead: true,
+        booruWrite: false,
+        favoriteTagsRead: true,
+        favoriteTagsWrite: false,
+        downloadsRead: true,
+        downloadsControl: false,
+        eventsSubscribe: false,
+        apiLogsRead: false,
+      },
+      logs: { enabled: false, visibleInUi: false, retentionDays: 14, maxEntries: 1000 },
+    },
+  });
+  saveApiServiceConfig.mockResolvedValue({ success: true });
+  getApiServiceStatus.mockResolvedValue({
+    success: true,
+    data: {
+      running: false,
+      enabled: false,
+      mode: 'localhost',
+      port: 38947,
+      bindAddress: null,
+      baseUrl: null,
+      startedAt: null,
+      lastError: null,
+    },
+  });
+  generateApiServiceKey.mockResolvedValue({ success: true, data: { apiKey: 'new-key' } });
+  getApiServiceLogs.mockResolvedValue({ success: true, data: { items: [], total: 0 } });
 
   (window as any).electronAPI = {
     config: {
@@ -292,6 +336,13 @@ beforeEach(() => {
     gallery: {
       scanSubfolders,
     },
+    apiService: {
+      getConfig: getApiServiceConfig,
+      saveConfig: saveApiServiceConfig,
+      getStatus: getApiServiceStatus,
+      generateKey: generateApiServiceKey,
+      getLogs: getApiServiceLogs,
+    },
   };
 });
 
@@ -302,6 +353,62 @@ afterEach(() => {
 });
 
 describe('SettingsPage general tab behavior', () => {
+  it('API 服务页应加载配置并保存启用状态的精确 patch', async () => {
+    render(<SettingsPage />);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+
+    await screen.findByText('监听模式');
+    await screen.findByText('图集读取');
+
+    const enableLabel = screen.getByText('启用 API 服务');
+    const enableRow = enableLabel.closest('div[style*="display: flex"]') as HTMLElement;
+    const enableSwitch = enableRow.querySelector('.ant-switch') as HTMLButtonElement;
+    await userEvent.click(enableSwitch);
+
+    await waitFor(() => {
+      expect(saveApiServiceConfig).toHaveBeenCalledWith({ enabled: true });
+    });
+  });
+
+  it('API 权限开关应只保存单个权限的 nested patch', async () => {
+    render(<SettingsPage />);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+
+    const permissionLabel = await screen.findByText('图片内容访问');
+    const permissionRow = permissionLabel.closest('div[style*="display: flex"]') as HTMLElement;
+    const permissionSwitch = permissionRow.querySelector('.ant-switch') as HTMLButtonElement;
+    await userEvent.click(permissionSwitch);
+
+    await waitFor(() => {
+      expect(saveApiServiceConfig).toHaveBeenCalledWith({
+        permissions: { imageBinary: true },
+      });
+    });
+  });
+
+  it('API 端口应先编辑 draft，失焦后再保存', async () => {
+    render(<SettingsPage />);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+
+    const portInput = await screen.findByDisplayValue('38947') as HTMLInputElement;
+    await userEvent.clear(portInput);
+    await userEvent.type(portInput, '38948');
+
+    expect(saveApiServiceConfig).not.toHaveBeenCalled();
+
+    portInput.blur();
+
+    await waitFor(() => {
+      expect(saveApiServiceConfig).toHaveBeenCalledWith({ port: 38948 });
+    });
+  });
+
   it('不展示没有真实配置链路的自动生成缩略图伪设置', async () => {
     render(<SettingsPage />);
 
@@ -439,6 +546,33 @@ describe('SettingsPage save behavior', () => {
     expect((saveConfig.mock.calls[0]?.[0] as any)?.network?.proxy).not.toHaveProperty('username');
     expect((saveConfig.mock.calls[0]?.[0] as any)?.network?.proxy).not.toHaveProperty('password');
     expect(consoleErrorSpy.mock.calls).toEqual([]);
+  });
+
+  it('保存所有设置时不应把已单独保存的 desktop 配置整包回写', async () => {
+    render(<SettingsPage />);
+
+    const hardwareAccelerationLabel = await screen.findByText('启用硬件加速');
+    const hardwareAccelerationRow = hardwareAccelerationLabel.closest('div[style*="display: flex"]') as HTMLElement | null;
+    expect(hardwareAccelerationRow).not.toBeNull();
+    const hardwareAccelerationSwitch = hardwareAccelerationRow!.querySelector('.ant-switch') as HTMLButtonElement | null;
+    expect(hardwareAccelerationSwitch).not.toBeNull();
+
+    await userEvent.click(hardwareAccelerationSwitch!);
+
+    await waitFor(() => {
+      expect(setDesktop).toHaveBeenCalledWith({ hardwareAcceleration: true });
+    });
+
+    const saveButtonLabel = await screen.findByText('保存所有设置');
+    const saveButton = saveButtonLabel.closest('button');
+    expect(saveButton).not.toBeNull();
+    await userEvent.click(saveButton!);
+
+    await waitFor(() => {
+      expect(saveConfig).toHaveBeenCalledTimes(1);
+    });
+
+    expect(saveConfig.mock.calls[0]?.[0]).not.toHaveProperty('desktop');
   });
 
   it('编辑站点时不应预填敏感凭据，且保存普通字段时不回传 salt 与 apiKey', async () => {

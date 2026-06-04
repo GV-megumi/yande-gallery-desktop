@@ -7,7 +7,7 @@ import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutline
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
-import type { UpdateCheckResult } from '../../shared/types';
+import type { ApiLogEntry, ApiServiceConfig, ApiServicePermissionKey, ApiServiceStatus, UpdateCheckResult } from '../../shared/types';
 import pkgJson from '../../../package.json';
 import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
 
@@ -20,6 +20,32 @@ interface GalleryFolder {
   recursive: boolean;
   extensions: string[];
 }
+
+const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
+  galleryRead: '图集读取',
+  imageRead: '图片元数据读取',
+  imageBinary: '图片内容访问',
+  booruRead: 'Booru 只读',
+  booruWrite: 'Booru 业务写操作',
+  favoriteTagsRead: '收藏标签只读',
+  favoriteTagsWrite: '收藏标签写操作',
+  downloadsRead: '下载只读',
+  downloadsControl: '下载控制',
+  eventsSubscribe: '事件订阅',
+  apiLogsRead: 'API 日志查看',
+};
+
+type ApiServicePatch = Partial<Omit<ApiServiceConfig, 'permissions' | 'logs'>> & {
+  permissions?: Partial<ApiServiceConfig['permissions']>;
+  logs?: Partial<ApiServiceConfig['logs']>;
+};
+
+const mergeApiServicePatch = (config: ApiServiceConfig, patch: ApiServicePatch): ApiServiceConfig => ({
+  ...config,
+  ...patch,
+  permissions: patch.permissions ? { ...config.permissions, ...patch.permissions } : config.permissions,
+  logs: patch.logs ? { ...config.logs, ...patch.logs } : config.logs,
+});
 
 /** iOS 风格分组容器 */
 const SettingsGroup: React.FC<{
@@ -195,7 +221,7 @@ export const SettingsPage: React.FC = () => {
   const [proxyForm] = Form.useForm();
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
-  const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'about'>('general');
+  const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'api' | 'about'>('general');
 
   // 表单值状态（用于即时渲染）
   const [downloadPath, setDownloadPath] = useState('');
@@ -211,6 +237,11 @@ export const SettingsPage: React.FC = () => {
   const [updateChecking, setUpdateChecking] = useState(false);
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null);
   const [ignoredModalOpen, setIgnoredModalOpen] = useState(false);
+  const [apiConfig, setApiConfig] = useState<ApiServiceConfig | null>(null);
+  const [apiStatus, setApiStatus] = useState<ApiServiceStatus | null>(null);
+  const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [apiPortDraft, setApiPortDraft] = useState('');
 
   // bug9：通知 / 桌面行为状态。mount 时通过新 preload API 拉取，setter 立即写回主进程。
   // 使用 optimistic update：先 setState 给 UI 即时反馈，setter 失败再 load 回滚。
@@ -329,6 +360,80 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
+  const loadApiService = async () => {
+    if (!window.electronAPI?.apiService) return;
+    try {
+      const [configRes, statusRes, logsRes] = await Promise.all([
+        window.electronAPI.apiService.getConfig(),
+        window.electronAPI.apiService.getStatus(),
+        window.electronAPI.apiService.getLogs({ limit: 10, offset: 0 }),
+      ]);
+      if (configRes?.success && configRes.data) {
+        setApiConfig(configRes.data);
+        setApiPortDraft(String(configRes.data.port));
+      }
+      if (statusRes?.success && statusRes.data) setApiStatus(statusRes.data);
+      if (logsRes?.success && logsRes.data) setApiLogs(logsRes.data.items || []);
+    } catch (err) {
+      console.warn('[SettingsPage] 加载 API 服务配置失败:', err);
+    }
+  };
+
+  const saveApiServicePatch = async (patch: ApiServicePatch) => {
+    if (!window.electronAPI?.apiService) return;
+    const previous = apiConfig;
+    if (previous) {
+      setApiConfig(mergeApiServicePatch(previous, patch));
+    }
+    let saved = false;
+    try {
+      const res = await window.electronAPI.apiService.saveConfig(patch);
+      if (!res?.success) {
+        message.error(res?.error || '保存 API 服务配置失败');
+      } else {
+        saved = true;
+      }
+    } catch (err) {
+      message.error('保存 API 服务配置失败');
+    } finally {
+      await loadApiService();
+      if (!saved && previous) setApiConfig(previous);
+    }
+  };
+
+  const saveApiServiceNestedPatch = async (
+    key: 'permissions' | 'logs',
+    value: Partial<ApiServiceConfig['permissions']> | Partial<ApiServiceConfig['logs']>,
+  ) => {
+    await saveApiServicePatch({ [key]: value } as ApiServicePatch);
+  };
+
+  const commitApiServicePortDraft = async () => {
+    if (!apiConfig) return;
+    const nextPort = Number(apiPortDraft);
+    if (!Number.isInteger(nextPort) || nextPort < 1 || nextPort > 65535) {
+      message.error('端口必须是 1-65535 的整数');
+      setApiPortDraft(String(apiConfig.port));
+      return;
+    }
+    if (nextPort === apiConfig.port) return;
+    await saveApiServicePatch({ port: nextPort });
+  };
+
+  const generateApiServiceKey = async () => {
+    if (!window.electronAPI?.apiService) return;
+    try {
+      const result = await window.electronAPI.apiService.generateKey();
+      if (!result?.success) {
+        message.error(result?.error || '生成 API Key 失败');
+      }
+    } catch (err) {
+      message.error('生成 API Key 失败');
+    } finally {
+      await loadApiService();
+    }
+  };
+
   useEffect(() => {
     if (activeTab !== 'proxy') return;
     proxyForm.setFieldsValue({
@@ -338,6 +443,11 @@ export const SettingsPage: React.FC = () => {
       proxyPort: Number(proxyPort),
     });
   }, [activeTab, proxyEnabled, proxyProtocol, proxyHost, proxyPort, proxyForm]);
+
+  useEffect(() => {
+    if (activeTab !== 'api') return;
+    void loadApiService();
+  }, [activeTab]);
 
   const loadConfig = async () => {
     if (!window.electronAPI) return;
@@ -486,10 +596,9 @@ export const SettingsPage: React.FC = () => {
       }
 
       const updatedConfig = {
-        ...configResult.data,
-        downloads: { ...configResult.data.downloads, path: downloadPath },
-        thumbnails: { ...configResult.data.thumbnails, maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality, effort: thumbnailEffort },
-        network: { ...configResult.data.network, proxy: nextProxy },
+        downloads: { path: downloadPath },
+        thumbnails: { maxWidth: thumbnailSize, maxHeight: thumbnailSize, quality: thumbnailQuality, effort: thumbnailEffort },
+        network: { proxy: nextProxy },
       };
       const result = await window.electronAPI.config.save(updatedConfig);
       if (result.success) { message.success(t('settings.saveSuccess')); }
@@ -567,10 +676,11 @@ export const SettingsPage: React.FC = () => {
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: spacing.xl }}>
         <Segmented
           value={activeTab}
-          onChange={(value) => setActiveTab(value as 'general' | 'proxy' | 'about')}
+          onChange={(value) => setActiveTab(value as 'general' | 'proxy' | 'api' | 'about')}
           options={[
             { label: t('settings.tabGeneral'), value: 'general' },
             { label: t('settings.tabProxy'), value: 'proxy' },
+            { label: 'API 服务', value: 'api' },
             { label: t('settings.tabAbout'), value: 'about' },
           ]}
         />
@@ -956,6 +1066,119 @@ export const SettingsPage: React.FC = () => {
         </>
       )}
 
+      {/* ===== API 服务 ===== */}
+      {activeTab === 'api' && apiConfig && apiStatus && (
+        <>
+          <SettingsGroup title="API 服务" footer="默认仅本机访问；局域网模式仍会拦截非私网来源。">
+            <SettingsRow
+              label="启用 API 服务"
+              description={apiStatus.running ? `运行中 ${apiStatus.baseUrl || ''}` : (apiStatus.lastError || '未运行')}
+              extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}
+            />
+            <SettingsRow
+              label="监听模式"
+              extra={
+                <Segmented
+                  value={apiConfig.mode}
+                  onChange={(mode) => void saveApiServicePatch({ mode: mode as ApiServiceConfig['mode'] })}
+                  options={[
+                    { label: '仅本机', value: 'localhost' },
+                    { label: '局域网', value: 'lan' },
+                  ]}
+                  size="small"
+                />
+              }
+            />
+            <SettingsRow
+              label="端口"
+              extra={
+                <Input
+                  type="number"
+                  value={apiPortDraft}
+                  style={{ width: 120, textAlign: 'right' }}
+                  variant="borderless"
+                  onChange={event => setApiPortDraft(event.target.value)}
+                  onBlur={() => { void commitApiServicePortDraft(); }}
+                  onPressEnter={() => { void commitApiServicePortDraft(); }}
+                />
+              }
+            />
+            <SettingsRow
+              label="当前绑定地址"
+              description={apiStatus.bindAddress || '-'}
+              isLast
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="API Key" footer="生成后客户端需要使用新的 key。">
+            <SettingsRow
+              label="API Key"
+              description={apiKeyVisible ? (apiConfig.apiKey || '未生成') : (apiConfig.apiKey ? '已生成，当前隐藏' : '未生成')}
+              extra={
+                <Space size={spacing.sm}>
+                  <Button size="small" onClick={() => setApiKeyVisible(v => !v)}>
+                    {apiKeyVisible ? '隐藏' : '显示'}
+                  </Button>
+                  <Button size="small" onClick={() => void generateApiServiceKey()}>
+                    生成新 Key
+                  </Button>
+                </Space>
+              }
+            />
+            <SettingsRow
+              label="当前值"
+              description={apiKeyVisible ? apiConfig.apiKey || '未生成' : '已隐藏'}
+              isLast
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="权限">
+            {Object.entries(API_PERMISSION_LABELS).map(([key, label], index, entries) => {
+              const permissionKey = key as ApiServicePermissionKey;
+              return (
+                <SettingsRow
+                  key={permissionKey}
+                  label={label}
+                  extra={
+                    <Switch
+                      checked={Boolean(apiConfig.permissions[permissionKey])}
+                      onChange={checked => void saveApiServiceNestedPatch('permissions', { [permissionKey]: checked })}
+                    />
+                  }
+                  isLast={index === entries.length - 1}
+                />
+              );
+            })}
+          </SettingsGroup>
+
+          <SettingsGroup title="日志">
+            <SettingsRow
+              label="启用 API 日志"
+              extra={
+                <Switch
+                  checked={apiConfig.logs.enabled}
+                  onChange={enabled => void saveApiServiceNestedPatch('logs', { enabled })}
+                />
+              }
+            />
+            <SettingsRow
+              label="在界面显示日志"
+              extra={
+                <Switch
+                  checked={apiConfig.logs.visibleInUi}
+                  onChange={visibleInUi => void saveApiServiceNestedPatch('logs', { visibleInUi })}
+                />
+              }
+            />
+            <SettingsRow
+              label="最近日志"
+              description={apiLogs.length > 0 ? `${apiLogs.length} 条` : '暂无日志'}
+              isLast
+            />
+          </SettingsGroup>
+        </>
+      )}
+
       {/* ===== 代理配置 ===== */}
       {activeTab === 'proxy' && (
         <>
@@ -1049,7 +1272,7 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {/* ===== 保存按钮（关于页不显示） ===== */}
-      {activeTab !== 'about' && (
+      {(activeTab === 'general' || activeTab === 'proxy') && (
         <div style={{ marginBottom: spacing.xxl, display: 'flex', justifyContent: 'center', gap: spacing.md }}>
           <Button
             type="primary"

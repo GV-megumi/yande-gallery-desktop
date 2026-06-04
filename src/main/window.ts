@@ -662,7 +662,7 @@ export function createSubWindow(hash: string): BrowserWindow {
     loadUrlWithLogging(subWindow, devUrl, 'sub window');
   } else {
     const rendererEntry = path.join(__dirname, '../renderer/index.html');
-    attachAppEntryFailurePage(subWindow, '子窗口', pathToFileURL(rendererEntry).toString(), { isDevServer: false });
+    attachAppEntryFailurePage(subWindow, '子窗口', `${pathToFileURL(rendererEntry).toString()}#${hash}`, { isDevServer: false });
     loadFileWithLogging(subWindow, rendererEntry, 'sub window', { hash });
   }
 
