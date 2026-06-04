@@ -1,3 +1,71 @@
+// API 服务相关类型定义
+export type ApiServiceMode = 'localhost' | 'lan';
+
+export type ApiServicePermissionKey =
+  | 'galleryRead'
+  | 'imageRead'
+  | 'imageBinary'
+  | 'booruRead'
+  | 'booruWrite'
+  | 'favoriteTagsRead'
+  | 'favoriteTagsWrite'
+  | 'downloadsRead'
+  | 'downloadsControl'
+  | 'eventsSubscribe'
+  | 'apiLogsRead';
+
+export type ApiServicePermissions = Record<ApiServicePermissionKey, boolean>;
+
+export interface ApiServiceLogsConfig {
+  enabled: boolean;
+  visibleInUi: boolean;
+  retentionDays?: number;
+  maxEntries?: number;
+}
+
+export interface ApiServiceConfig {
+  enabled: boolean;
+  mode: ApiServiceMode;
+  port: number;
+  apiKey: string;
+  permissions: ApiServicePermissions;
+  logs: ApiServiceLogsConfig;
+}
+
+export interface ApiServiceStatus {
+  running: boolean;
+  enabled: boolean;
+  mode: ApiServiceMode;
+  port: number;
+  bindAddress: string | null;
+  baseUrl: string | null;
+  startedAt: string | null;
+  lastError: string | null;
+}
+
+export interface ApiLogEntry {
+  id: number;
+  timestamp: string;
+  sourceIp: string;
+  method: string;
+  path: string;
+  permissionKey?: ApiServicePermissionKey | null;
+  statusCode: number;
+  success: boolean;
+  durationMs: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  requestSummary?: string | null;
+}
+
+export interface ApiLogQuery {
+  limit?: number;
+  offset?: number;
+  success?: boolean;
+  method?: string;
+  path?: string;
+}
+
 // 图片类型定义
 export interface Image {
   id: number;

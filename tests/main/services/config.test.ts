@@ -743,6 +743,33 @@ describe('config 模块纯函数测试', () => {
 
       expect(result).toEqual({
         ...current,
+        apiService: {
+          enabled: false,
+          mode: 'localhost',
+          port: 38947,
+          apiKey: '',
+          permissions: {
+            galleryRead: true,
+            imageRead: true,
+            imageBinary: false,
+            booruRead: true,
+            booruWrite: false,
+            favoriteTagsRead: true,
+            favoriteTagsWrite: false,
+            downloadsRead: true,
+            downloadsControl: false,
+            eventsSubscribe: false,
+            apiLogsRead: false,
+          },
+          logs: {
+            enabled: false,
+            visibleInUi: false,
+            retentionDays: 14,
+            maxEntries: 1000,
+          },
+        },
+        booru: undefined,
+        bulkDownload: undefined,
         downloads: { ...current.downloads, path: 'D:/downloads' },
         network: {
           proxy: {
@@ -773,6 +800,7 @@ describe('config 模块纯函数测试', () => {
           startMinimized: false,
           hardwareAcceleration: false,
         },
+        ui: undefined,
       });
       expect(result).not.toHaveProperty('extraTopLevel');
     });

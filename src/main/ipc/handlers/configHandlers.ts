@@ -1,6 +1,12 @@
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../channels.js';
-import type { ConfigChangedSummary } from '../../../shared/types.js';
+import {
+  getApiServiceStatus,
+  syncApiServiceFromConfig,
+  generateAndSaveApiKey,
+} from '../../api/apiServiceManager.js';
+import { queryApiLogs } from '../../services/apiLogService.js';
+import type { ApiLogQuery, ApiServiceStatus, ConfigChangedSummary } from '../../../shared/types.js';
 import {
   getConfig,
   getBooruAppearancePreference,
@@ -11,6 +17,7 @@ import {
   getNotificationsConfig,
   getDesktopConfig,
   type AppShellPagePreference,
+  type ApiServiceConfigPatch,
   type BlacklistedTagsPagePreference,
   type ConfigSaveInput,
   type FavoriteTagsPagePreference,
@@ -80,11 +87,102 @@ export function setupConfigHandlers() {
     return sections;
   };
 
+  const getErrorMessage = (error: unknown): string => (
+    error instanceof Error ? error.message : String(error)
+  );
+
+  const sanitizeGenericConfigSaveInput = (input: ConfigSaveInput): ConfigSaveInput => {
+    const apiService = input.apiService;
+    if (!apiService || typeof apiService !== 'object' || !('apiKey' in apiService)) {
+      return input;
+    }
+
+    const { apiKey: _apiKey, ...safeApiServicePatch } = apiService as Record<string, unknown>;
+    return {
+      ...input,
+      apiService: safeApiServicePatch as ConfigSaveInput['apiService'],
+    };
+  };
+
+  const syncApiServiceAfterConfigSave = async (reason: string): Promise<string | undefined> => {
+    try {
+      const status: ApiServiceStatus = await syncApiServiceFromConfig();
+      if (status?.enabled === true && status.running === false && typeof status.lastError === 'string' && status.lastError.trim().length > 0) {
+        console.warn(`[IPC] API service resync reported start failure after ${reason}:`, status.lastError);
+        return status.lastError;
+      }
+      return undefined;
+    } catch (error) {
+      const message = getErrorMessage(error);
+      console.warn(`[IPC] API service resync failed after ${reason}:`, error);
+      return message;
+    }
+  };
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_CONFIG, async () => {
+    try {
+      return { success: true, data: getConfig().apiService };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_SAVE_CONFIG, async (_event: IpcMainInvokeEvent, patch: ApiServiceConfigPatch) => {
+    try {
+      const result = await saveConfig({ apiService: patch });
+      if (result.success) {
+        const syncError = await syncApiServiceAfterConfigSave('apiService save');
+        broadcastConfigChanged(['apiService']);
+        return syncError ? { ...result, syncError } : result;
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_STATUS, async () => {
+    try {
+      return { success: true, data: getApiServiceStatus() };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_GENERATE_KEY, async () => {
+    try {
+      const result = await generateAndSaveApiKey();
+      if (result.success) {
+        const syncError = await syncApiServiceAfterConfigSave('api key generation');
+        broadcastConfigChanged(['apiService']);
+        return syncError ? { ...result, syncError } : result;
+      }
+      return result;
+    } catch (error) {
+      return { success: false, error: getErrorMessage(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_LOGS, async (_event: IpcMainInvokeEvent, query: ApiLogQuery = {}) => {
+    try {
+      return { success: true, data: await queryApiLogs(query) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   ipcMain.handle(IPC_CHANNELS.CONFIG_SAVE, async (_event: IpcMainInvokeEvent, newConfig: ConfigSaveInput) => {
     try {
-      const result = await saveConfig(newConfig);
+      const sanitizedConfig = sanitizeGenericConfigSaveInput(newConfig);
+      const result = await saveConfig(sanitizedConfig);
       if (result.success) {
-        broadcastConfigChanged(collectConfigSaveSections(newConfig));
+        const sections = collectConfigSaveSections(sanitizedConfig);
+        let syncError: string | undefined;
+        if (sections.includes('apiService')) {
+          syncError = await syncApiServiceAfterConfigSave('generic config save');
+        }
+        broadcastConfigChanged(sections);
+        return syncError ? { ...result, syncError } : result;
       }
       return result;
     } catch (error) {

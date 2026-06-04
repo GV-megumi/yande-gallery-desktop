@@ -5,6 +5,7 @@ import { normalizePath } from '../utils/path.js';
 import { downloadManager } from './downloadManager.js';
 import * as bulkDownloadService from './bulkDownloadService.js';
 import { cleanExpiredTags } from './booruService.js';
+import { stopApiService } from '../api/apiServiceManager.js';
 
 /**
  * 初始化应用（加载配置 + 初始化数据库 + 初始化图库）
@@ -95,6 +96,7 @@ export async function shutdownAppResources(): Promise<void> {
 
   clearResumeDownloadsTimer();
   await freezeActiveTasksForShutdown();
+  await stopApiService();
   await closeDatabase();
   hasShutdownAppResources = true;
 }

@@ -2,6 +2,7 @@ import { app, BrowserWindow, protocol, Menu, Tray } from 'electron';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { syncApiServiceFromConfig } from './api/apiServiceManager.js';
 import { createWindow, markAppQuitting, resolveAppIconPath, restoreOrCreateMainWindow, setCloseToTrayEnabled, setMainWindowFactory, setupWindowIPC } from './window.js';
 import { setupIPC } from './ipc/handlers.js';
 import { initializeApp, shutdownAppResources } from './services/init.js';
@@ -216,6 +217,9 @@ registerLifecycleGuards();
 
 // Electron 的硬件加速必须在 app ready 前决定；默认沿用旧行为（禁用），显式开启后下次启动生效。
 if (!getStartupHardwareAccelerationEnabled()) {
+  // Electron 39 在部分 Windows GPU/驱动组合下仅 disableHardwareAcceleration 仍会原生崩溃。
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-software-rasterizer');
   app.disableHardwareAcceleration();
 }
 
@@ -253,6 +257,7 @@ app.whenReady().then(async () => {
       // 继续启动应用，让用户看到错误信息
     } else {
       console.log('✅ 应用初始化成功');
+      await syncApiServiceFromConfig();
     }
 
     // bug9：把 desktop.autoLaunch / startMinimized 应用到系统登录项。
