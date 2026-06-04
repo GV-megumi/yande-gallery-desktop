@@ -4,6 +4,7 @@ const mockWhenReady = vi.fn();
 const mockOn = vi.fn();
 const mockQuit = vi.fn();
 const mockDisableHardwareAcceleration = vi.fn();
+const mockAppendSwitch = vi.fn();
 const mockSetLoginItemSettings = vi.fn();
 const mockRequestSingleInstanceLock = vi.fn(() => true);
 const mockSetApplicationMenu = vi.fn();
@@ -47,6 +48,9 @@ vi.mock('electron', () => ({
     on: mockOn,
     quit: mockQuit,
     disableHardwareAcceleration: mockDisableHardwareAcceleration,
+    commandLine: {
+      appendSwitch: mockAppendSwitch,
+    },
     setLoginItemSettings: mockSetLoginItemSettings,
     requestSingleInstanceLock: mockRequestSingleInstanceLock,
     isPackaged: false,
@@ -130,6 +134,7 @@ describe('main index tray wiring', () => {
     mockOn.mockReset();
     mockQuit.mockReset();
     mockDisableHardwareAcceleration.mockReset();
+    mockAppendSwitch.mockReset();
     mockSetLoginItemSettings.mockReset();
     mockGetStartupHardwareAccelerationEnabled.mockReset();
     mockGetStartupHardwareAccelerationEnabled.mockReturnValue(false);

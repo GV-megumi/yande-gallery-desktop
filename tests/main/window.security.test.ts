@@ -190,6 +190,37 @@ describe('window.ts 安全边界行为', () => {
     warnSpy.mockRestore();
   });
 
+  it('生产模式子窗口重试页应保留原始 hash 路由', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const module = await import('../../src/main/window');
+
+    module.createSubWindow('artist?name=test');
+
+    const instance = browserWindowInstances[0];
+    const failHandler = instance.webContents.handlers['did-fail-load'];
+    expect(failHandler).toBeTypeOf('function');
+    expect(instance.loadFile).toHaveBeenCalledTimes(1);
+
+    failHandler(
+      {},
+      -6,
+      'ERR_FILE_NOT_FOUND',
+      '',
+      true,
+      0,
+      0,
+    );
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(instance.loadURL).toHaveBeenCalledTimes(1);
+    const retryPageUrl = instance.loadURL.mock.calls[0][0] as string;
+    const html = decodeURIComponent(retryPageUrl.split(',', 2)[1]);
+    expect(html).toContain('#artist?name=test');
+
+    warnSpy.mockRestore();
+  });
+
   it('生产模式界面文件加载失败时应显示可点击刷新重试页', async () => {
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
 

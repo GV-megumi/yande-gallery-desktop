@@ -15,6 +15,7 @@ import os from 'os';
 import { execFileSync } from 'child_process';
 import dotenv from 'dotenv';
 import { load as loadYaml } from 'js-yaml';
+import type { ApiServiceConfig, ApiServiceLogsConfig, ApiServicePermissions } from '../../shared/types.js';
 
 // ============= Token 选项类型 =============
 
@@ -250,6 +251,7 @@ export interface AppConfig {
     startMinimized?: boolean;
     hardwareAcceleration?: boolean;
   };
+  apiService?: ApiServiceConfig;
 }
 
 export interface GalleryFolder {
@@ -264,22 +266,27 @@ export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appeara
 
 export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
 export type RendererSafeGoogleConfig = Omit<NonNullable<AppConfig['google']>, 'clientSecret'>;
-export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'google'> & {
+export type RendererSafeApiServiceConfig = Omit<ApiServiceConfig, 'apiKey'> & {
+  hasApiKey: boolean;
+};
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'google' | 'apiService'> & {
   network: {
     proxy: RendererSafeProxyConfig;
   };
   google?: RendererSafeGoogleConfig;
+  apiService?: RendererSafeApiServiceConfig;
 };
 
 export type DeepPartial<T> = {
-  [K in keyof T]?: T[K] extends Array<any>
+  [K in keyof T]?: NonNullable<T[K]> extends Array<any>
     ? T[K]
-    : T[K] extends object
-      ? DeepPartial<T[K]>
+    : NonNullable<T[K]> extends object
+      ? DeepPartial<NonNullable<T[K]>>
       : T[K];
 };
 
 export type ConfigSaveInput = DeepPartial<RendererSafeAppConfig>;
+export type ApiServiceConfigPatch = DeepPartial<ApiServiceConfig>;
 
 // ============= 默认配置 =============
 
@@ -351,6 +358,31 @@ const DEFAULT_CONFIG: AppConfig = {
     autoLaunch: false,
     startMinimized: false,
     hardwareAcceleration: false,
+  },
+  apiService: {
+    enabled: false,
+    mode: 'localhost',
+    port: 38947,
+    apiKey: '',
+    permissions: {
+      galleryRead: true,
+      imageRead: true,
+      imageBinary: false,
+      booruRead: true,
+      booruWrite: false,
+      favoriteTagsRead: true,
+      favoriteTagsWrite: false,
+      downloadsRead: true,
+      downloadsControl: false,
+      eventsSubscribe: false,
+      apiLogsRead: false,
+    },
+    logs: {
+      enabled: false,
+      visibleInUi: false,
+      retentionDays: 14,
+      maxEntries: 1000,
+    },
   },
   booru: {
     appearance: {
@@ -699,6 +731,7 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     // 与 DEFAULT_CONFIG 深合并，填充缺失字段
     const { merged, wasFilled } = deepMergeWithDefaults(DEFAULT_CONFIG, rawConfig);
     config = merged as AppConfig;
+    config.apiService = normalizeApiServiceConfig({ apiService: config.apiService }, undefined);
 
     console.log('[config] 配置文件加载成功:', configFilePath);
 
@@ -901,8 +934,8 @@ function sanitizeRendererSafeProxyConfig(
 }
 
 function sanitizeRendererSafeGoogleConfig(
-  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
-): Partial<NonNullable<AppConfig['google']>> | undefined {
+  incomingGoogle?: DeepPartial<NonNullable<AppConfig['google']>>
+): DeepPartial<NonNullable<AppConfig['google']>> | undefined {
   if (!incomingGoogle) {
     return undefined;
   }
@@ -944,7 +977,7 @@ function rebuildProxyConfig(
 
 function rebuildGoogleConfig(
   currentGoogle: AppConfig['google'],
-  incomingGoogle?: Partial<NonNullable<AppConfig['google']>>
+  incomingGoogle?: DeepPartial<NonNullable<AppConfig['google']>>
 ): AppConfig['google'] {
   if (!currentGoogle && !incomingGoogle) {
     return undefined;
@@ -1103,10 +1136,21 @@ export function toRendererSafeUiConfig(source?: UIConfig): UIConfig | undefined 
 
 export function toRendererSafeConfig(source: AppConfig): RendererSafeAppConfig {
   const safeUi = toRendererSafeUiConfig(source.ui);
+  const safeApiService = source.apiService
+    ? {
+        enabled: source.apiService.enabled,
+        mode: source.apiService.mode,
+        port: source.apiService.port,
+        hasApiKey: source.apiService.apiKey.trim().length > 0,
+        permissions: source.apiService.permissions,
+        logs: source.apiService.logs,
+      }
+    : undefined;
 
   return {
     ...source,
     ui: safeUi,
+    apiService: safeApiService,
     network: {
       ...source.network,
       proxy: {
@@ -1152,6 +1196,69 @@ export function getBooruAppearancePreference(source: Pick<AppConfig, 'booru'> | 
     margin: currentAppearance?.margin ?? defaultAppearance.margin,
     maxCacheSizeMB: currentAppearance?.maxCacheSizeMB ?? defaultAppearance.maxCacheSizeMB,
   };
+}
+
+function normalizeApiServiceConfig(
+  currentConfig: Pick<AppConfig, 'apiService'> | undefined,
+  input: DeepPartial<ApiServiceConfig> | undefined,
+): ApiServiceConfig {
+  const defaults = DEFAULT_CONFIG.apiService!;
+  const current = currentConfig?.apiService;
+  const normalizeBoolean = (value: unknown, fallback: boolean): boolean => (
+    typeof value === 'boolean' ? value : fallback
+  );
+  const normalizeMode = (value: unknown, fallback: ApiServiceConfig['mode']): ApiServiceConfig['mode'] => (
+    value === 'localhost' || value === 'lan' ? value : fallback
+  );
+  const normalizePort = (value: unknown, fallback: number): number => (
+    typeof value === 'number' && Number.isInteger(value) && value >= 1 && value <= 65535
+      ? value
+      : fallback
+  );
+  const normalizePositiveInteger = (value: unknown, fallback: number): number => (
+    typeof value === 'number' && Number.isInteger(value) && value > 0 ? value : fallback
+  );
+  const normalizeString = (value: unknown, fallback: string): string => (
+    typeof value === 'string' ? value : fallback
+  );
+  const currentEnabled = normalizeBoolean(current?.enabled, defaults.enabled);
+  const currentMode = normalizeMode(current?.mode, defaults.mode);
+  const currentPort = normalizePort(current?.port, defaults.port);
+  const currentApiKey = normalizeString(current?.apiKey, defaults.apiKey);
+  const currentPermissions: Partial<ApiServicePermissions> = current?.permissions ?? {};
+  const inputPermissions: Partial<ApiServicePermissions> = input?.permissions ?? {};
+  const currentLogs: Partial<ApiServiceLogsConfig> = current?.logs ?? {};
+  const inputLogs: Partial<ApiServiceLogsConfig> = input?.logs ?? {};
+
+  return {
+    enabled: normalizeBoolean(input?.enabled, currentEnabled),
+    mode: normalizeMode(input?.mode, currentMode),
+    port: normalizePort(input?.port, currentPort),
+    apiKey: normalizeString(input?.apiKey, currentApiKey),
+    permissions: {
+      galleryRead: normalizeBoolean(inputPermissions.galleryRead, normalizeBoolean(currentPermissions.galleryRead, defaults.permissions.galleryRead)),
+      imageRead: normalizeBoolean(inputPermissions.imageRead, normalizeBoolean(currentPermissions.imageRead, defaults.permissions.imageRead)),
+      imageBinary: normalizeBoolean(inputPermissions.imageBinary, normalizeBoolean(currentPermissions.imageBinary, defaults.permissions.imageBinary)),
+      booruRead: normalizeBoolean(inputPermissions.booruRead, normalizeBoolean(currentPermissions.booruRead, defaults.permissions.booruRead)),
+      booruWrite: normalizeBoolean(inputPermissions.booruWrite, normalizeBoolean(currentPermissions.booruWrite, defaults.permissions.booruWrite)),
+      favoriteTagsRead: normalizeBoolean(inputPermissions.favoriteTagsRead, normalizeBoolean(currentPermissions.favoriteTagsRead, defaults.permissions.favoriteTagsRead)),
+      favoriteTagsWrite: normalizeBoolean(inputPermissions.favoriteTagsWrite, normalizeBoolean(currentPermissions.favoriteTagsWrite, defaults.permissions.favoriteTagsWrite)),
+      downloadsRead: normalizeBoolean(inputPermissions.downloadsRead, normalizeBoolean(currentPermissions.downloadsRead, defaults.permissions.downloadsRead)),
+      downloadsControl: normalizeBoolean(inputPermissions.downloadsControl, normalizeBoolean(currentPermissions.downloadsControl, defaults.permissions.downloadsControl)),
+      eventsSubscribe: normalizeBoolean(inputPermissions.eventsSubscribe, normalizeBoolean(currentPermissions.eventsSubscribe, defaults.permissions.eventsSubscribe)),
+      apiLogsRead: normalizeBoolean(inputPermissions.apiLogsRead, normalizeBoolean(currentPermissions.apiLogsRead, defaults.permissions.apiLogsRead)),
+    },
+    logs: {
+      enabled: normalizeBoolean(inputLogs.enabled, normalizeBoolean(currentLogs.enabled, defaults.logs.enabled)),
+      visibleInUi: normalizeBoolean(inputLogs.visibleInUi, normalizeBoolean(currentLogs.visibleInUi, defaults.logs.visibleInUi)),
+      retentionDays: normalizePositiveInteger(inputLogs.retentionDays, normalizePositiveInteger(currentLogs.retentionDays, defaults.logs.retentionDays!)),
+      maxEntries: normalizePositiveInteger(inputLogs.maxEntries, normalizePositiveInteger(currentLogs.maxEntries, defaults.logs.maxEntries!)),
+    },
+  };
+}
+
+export function getApiServiceConfig(): ApiServiceConfig {
+  return normalizeApiServiceConfig({ apiService: getConfig().apiService }, undefined);
 }
 
 export function normalizeConfigSaveInput(currentConfig: AppConfig, input: ConfigSaveInput): AppConfig {
@@ -1256,6 +1363,7 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       startMinimized: input.desktop?.startMinimized ?? currentConfig.desktop?.startMinimized ?? false,
       hardwareAcceleration: input.desktop?.hardwareAcceleration ?? currentConfig.desktop?.hardwareAcceleration ?? false,
     },
+    apiService: normalizeApiServiceConfig(currentConfig, input.apiService),
   };
 }
 

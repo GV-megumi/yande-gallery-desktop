@@ -4,6 +4,7 @@ const mockWhenReady = vi.fn();
 const mockOn = vi.fn();
 const mockQuit = vi.fn();
 const mockDisableHardwareAcceleration = vi.fn();
+const mockAppendSwitch = vi.fn();
 const mockRequestSingleInstanceLock = vi.fn(() => true);
 const mockSetApplicationMenu = vi.fn();
 const mockBuildFromTemplate = vi.fn((template) => template);
@@ -15,6 +16,7 @@ const mockSetupWindowIPC = vi.fn();
 const mockSetupIPC = vi.fn();
 const mockInitializeApp = vi.fn(() => new Promise<{ success: boolean }>(() => {}));
 const mockShutdownAppResources = vi.fn().mockResolvedValue(undefined);
+const mockSyncApiServiceFromConfig = vi.fn().mockResolvedValue(undefined);
 const mockProcessOn = vi.fn();
 const mockMarkAppQuitting = vi.fn();
 const mockSetCloseToTrayEnabled = vi.fn();
@@ -28,6 +30,9 @@ vi.mock('electron', () => ({
     on: mockOn,
     quit: mockQuit,
     disableHardwareAcceleration: mockDisableHardwareAcceleration,
+    commandLine: {
+      appendSwitch: mockAppendSwitch,
+    },
     requestSingleInstanceLock: mockRequestSingleInstanceLock,
   },
   BrowserWindow: {
@@ -68,6 +73,10 @@ vi.mock('../../src/main/services/init.js', () => ({
   shutdownAppResources: mockShutdownAppResources,
 }));
 
+vi.mock('../../src/main/api/apiServiceManager.js', () => ({
+  syncApiServiceFromConfig: mockSyncApiServiceFromConfig,
+}));
+
 vi.mock('../../src/main/services/config.js', () => ({
   getCachePath: vi.fn(() => 'M:/data/cache'),
   getDataDir: vi.fn(() => 'M:/data'),
@@ -94,6 +103,7 @@ describe('main index startup sequencing', () => {
     mockOn.mockReset();
     mockQuit.mockReset();
     mockDisableHardwareAcceleration.mockReset();
+    mockAppendSwitch.mockReset();
     mockRequestSingleInstanceLock.mockReset();
     mockRequestSingleInstanceLock.mockReturnValue(true);
     mockSetApplicationMenu.mockReset();
@@ -109,6 +119,8 @@ describe('main index startup sequencing', () => {
     mockInitializeApp.mockImplementation(() => new Promise<{ success: boolean }>(() => {}));
     mockShutdownAppResources.mockReset();
     mockShutdownAppResources.mockResolvedValue(undefined);
+    mockSyncApiServiceFromConfig.mockReset();
+    mockSyncApiServiceFromConfig.mockResolvedValue(undefined);
     mockProcessOn.mockReset();
     mockMarkAppQuitting.mockReset();
     mockSetCloseToTrayEnabled.mockReset();
@@ -324,5 +336,63 @@ describe('main index startup sequencing', () => {
     await import('../../src/main/index.js');
 
     expect(mockDisableHardwareAcceleration).toHaveBeenCalledTimes(1);
+  });
+
+  it('关闭硬件加速时应追加 Chromium GPU 禁用开关', async () => {
+    await import('../../src/main/index.js');
+
+    expect(mockDisableHardwareAcceleration).toHaveBeenCalledTimes(1);
+    expect(mockAppendSwitch).toHaveBeenCalledWith('disable-gpu');
+    expect(mockAppendSwitch).toHaveBeenCalledWith('disable-software-rasterizer');
+  });
+
+  it('启用硬件加速时不应追加 GPU 禁用开关', async () => {
+    mockGetStartupHardwareAccelerationEnabled.mockReturnValue(true);
+
+    await import('../../src/main/index.js');
+
+    expect(mockDisableHardwareAcceleration).not.toHaveBeenCalled();
+    expect(mockAppendSwitch).not.toHaveBeenCalled();
+  });
+
+  it('initializeApp 成功后应同步启动 API 服务一次', async () => {
+    mockInitializeApp.mockResolvedValueOnce({ success: true });
+    let readyHandler: (() => Promise<void> | void) | undefined;
+    mockWhenReady.mockImplementation(() => ({
+      then: (handler: () => Promise<void> | void) => {
+        readyHandler = handler;
+        return Promise.resolve();
+      },
+    }));
+
+    await import('../../src/main/index.js');
+
+    expect(readyHandler).toBeTypeOf('function');
+    await readyHandler?.();
+    await Promise.resolve();
+
+    expect(mockInitializeApp).toHaveBeenCalledTimes(1);
+    expect(mockSyncApiServiceFromConfig).toHaveBeenCalledTimes(1);
+    expect(mockInitializeApp.mock.invocationCallOrder[0]).toBeLessThan(mockSyncApiServiceFromConfig.mock.invocationCallOrder[0]);
+  });
+
+  it('initializeApp 失败时不应同步启动 API 服务', async () => {
+    mockInitializeApp.mockResolvedValueOnce({ success: false, error: 'init failed' });
+    let readyHandler: (() => Promise<void> | void) | undefined;
+    mockWhenReady.mockImplementation(() => ({
+      then: (handler: () => Promise<void> | void) => {
+        readyHandler = handler;
+        return Promise.resolve();
+      },
+    }));
+
+    await import('../../src/main/index.js');
+
+    expect(readyHandler).toBeTypeOf('function');
+    await readyHandler?.();
+    await Promise.resolve();
+
+    expect(mockInitializeApp).toHaveBeenCalledTimes(1);
+    expect(mockSyncApiServiceFromConfig).not.toHaveBeenCalled();
   });
 });

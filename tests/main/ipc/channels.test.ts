@@ -157,12 +157,23 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE).toBe('booru-preferences:get-appearance');
   });
 
+  it('should include API service channels', () => {
+    expect(IPC_CHANNELS.API_SERVICE_GET_CONFIG).toBe('api-service:get-config');
+    expect(IPC_CHANNELS.API_SERVICE_SAVE_CONFIG).toBe('api-service:save-config');
+    expect(IPC_CHANNELS.API_SERVICE_GET_STATUS).toBe('api-service:get-status');
+    expect(IPC_CHANNELS.API_SERVICE_GENERATE_KEY).toBe('api-service:generate-key');
+    expect(IPC_CHANNELS.API_SERVICE_GET_LOGS).toBe('api-service:get-logs');
+    expect(IPC_CHANNELS.API_SERVICE_STATUS_CHANGED).toBe('api-service:status-changed');
+    expect(IPC_CHANNELS.API_SERVICE_LOG_RECEIVED).toBe('api-service:log-received');
+  });
+
   it('应有正确数量的通道', () => {
     const keys = Object.keys(IPC_CHANNELS);
     // 确保通道数量不会意外增减（随功能增加而更新）
     // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
     // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
-    expect(keys.length).toBe(188);
+    // Phase 1 API service adds 7 API_SERVICE_* channels.
+    expect(keys.length).toBe(195);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {

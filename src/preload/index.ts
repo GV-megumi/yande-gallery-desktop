@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
-import { type AppShellPagePreference, type BlacklistedTagsPagePreference, type BooruAppearancePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab, type RendererSafeAppConfig } from '../main/services/config.js';
-import type { BooruForumPost, BooruForumTopic, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, RendererAppEvent } from '../shared/types.js';
+import { type ApiServiceConfigPatch, type AppShellPagePreference, type BlacklistedTagsPagePreference, type BooruAppearancePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab, type RendererSafeAppConfig } from '../main/services/config.js';
+import type { ApiLogEntry, ApiLogQuery, ApiServiceConfig, ApiServiceStatus, BooruForumPost, BooruForumTopic, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, RendererAppEvent } from '../shared/types.js';
 import { IPC_CHANNELS } from '../main/ipc/channels.js';
 import { createWindowApi } from './shared/createWindowApi.js';
 import { createBooruApi } from './shared/createBooruApi.js';
@@ -94,6 +94,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.on(IPC_CHANNELS.CONFIG_CHANGED, subscription);
       return () => ipcRenderer.removeListener(IPC_CHANNELS.CONFIG_CHANGED, subscription);
     }
+  },
+
+  apiService: {
+    getConfig: () => ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GET_CONFIG),
+    saveConfig: (patch: ApiServiceConfigPatch) =>
+      ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_SAVE_CONFIG, patch),
+    getStatus: () => ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GET_STATUS),
+    generateKey: () => ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GENERATE_KEY),
+    getLogs: (query?: ApiLogQuery) =>
+      ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GET_LOGS, query),
   },
 
   // booruPreferences 域通过工厂统一定义，主/子窗口 preload 共用
@@ -385,7 +395,7 @@ declare global {
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
-        save: (newConfig: ConfigSaveInput) => Promise<{ success: boolean; error?: string }>;
+        save: (newConfig: ConfigSaveInput) => Promise<{ success: boolean; error?: string; syncError?: string }>;
         updateGalleryFolders: (folders: any[]) => Promise<{ success: boolean; error?: string }>;
         reload: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
         onConfigChanged: (callback: (config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void) => () => void;
@@ -412,6 +422,7 @@ declare global {
             closeAction: 'hide-to-tray' | 'quit' | 'ask';
             autoLaunch: boolean;
             startMinimized: boolean;
+            hardwareAcceleration: boolean;
           };
           error?: string;
         }>;
@@ -419,7 +430,15 @@ declare global {
           closeAction?: 'hide-to-tray' | 'quit' | 'ask';
           autoLaunch?: boolean;
           startMinimized?: boolean;
+          hardwareAcceleration?: boolean;
         }) => Promise<{ success: boolean; error?: string }>;
+      };
+      apiService: {
+        getConfig: () => Promise<{ success: boolean; data?: ApiServiceConfig; error?: string }>;
+        saveConfig: (patch: ApiServiceConfigPatch) => Promise<{ success: boolean; error?: string; syncError?: string }>;
+        getStatus: () => Promise<{ success: boolean; data?: ApiServiceStatus; error?: string }>;
+        generateKey: () => Promise<{ success: boolean; data?: { apiKey: string }; error?: string; syncError?: string }>;
+        getLogs: (query?: ApiLogQuery) => Promise<{ success: boolean; data?: { items: ApiLogEntry[]; total: number }; error?: string }>;
       };
       booruPreferences: {
         appearance: {

@@ -85,16 +85,18 @@ vi.mock('../../../src/renderer/components/LazyLoadFooter', () => ({
 }));
 
 vi.mock('../../../src/renderer/components/GalleryCoverImage', () => ({
-  GalleryCoverImage: ({ onInfoClick }: { onInfoClick?: () => void }) => (
-    <button
-      type="button"
+  GalleryCoverImage: ({ thumbnailPath, onInfoClick }: { thumbnailPath?: string | null; onInfoClick?: () => void }) => (
+    <div data-testid="gallery-cover-image" data-thumbnail-path={thumbnailPath ?? ''}>
+      <button
+        type="button"
       onClick={(event) => {
         event.stopPropagation();
         onInfoClick?.();
       }}
     >
       封面
-    </button>
+      </button>
+    </div>
   ),
 }));
 
@@ -1289,5 +1291,54 @@ describe('GalleryPage app event refresh', () => {
     render(<GalleryPage subTab="recent" suspended />);
 
     expect(onAppEvent).not.toHaveBeenCalled();
+  });
+
+  it('galleries 子页应在 thumbnail:generated 事件后补上封面缩略图', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    getGalleries.mockResolvedValueOnce({
+      success: true,
+      data: [{
+        id: 1,
+        name: 'cover-event-gallery',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        isWatching: false,
+        coverImage: {
+          id: 101,
+          filepath: 'D:/images/cover-event.jpg',
+        },
+      }],
+    });
+    getThumbnail.mockResolvedValueOnce({ success: true, pending: true });
+
+    render(<GalleryPage subTab="galleries" suspended={false} />);
+
+    expect(await screen.findByText('cover-event-gallery')).toBeTruthy();
+    expect(screen.getByTestId('gallery-cover-image').getAttribute('data-thumbnail-path')).toBe('');
+
+    act(() => {
+      appEventCallback?.({
+        type: 'thumbnail:generated',
+        version: 1,
+        occurredAt: '2026-05-23T00:00:00.000Z',
+        source: 'thumbnailService',
+        payload: {
+          imagePath: 'D:/images/cover-event.jpg',
+          thumbnailPath: 'D:/data/thumbnails/cover-event.webp',
+          success: true,
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('gallery-cover-image').getAttribute('data-thumbnail-path')).toBe('D:/data/thumbnails/cover-event.webp');
+    });
   });
 });

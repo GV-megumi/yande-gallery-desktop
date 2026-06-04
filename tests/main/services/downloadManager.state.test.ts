@@ -1,4 +1,6 @@
 import fsPromises from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { Readable } from 'stream';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
@@ -269,6 +271,10 @@ describe('downloadManager 状态语义', () => {
   it('已有最终文件时完成下载应走统一 replace 语义而不是直接 rename', async () => {
     const renameSpy = vi.spyOn(fsPromises, 'rename').mockRejectedValue(Object.assign(new Error('rename should not be called'), { code: 'EEXIST' }));
     const replaceSpy = vi.fn();
+    const tempDir = await fsPromises.mkdtemp(path.join(os.tmpdir(), 'download-manager-state-'));
+    const targetPath = path.join(tempDir, 'existing.jpg');
+    await fsPromises.writeFile(targetPath, 'old');
+
     const { downloadManager, updateDownloadStatus, updateDownloadProgress, markPostAsDownloaded } = await loadModule({
       getBooruPostById: {
         id: 99,
@@ -277,16 +283,20 @@ describe('downloadManager 状态语义', () => {
       replaceFileWithTemp: replaceSpy,
     });
 
-    await downloadManager.startDownload({
-      id: 1,
-      postId: 99,
-      targetPath: '/downloads/existing.jpg',
-    });
+    try {
+      await downloadManager.startDownload({
+        id: 1,
+        postId: 99,
+        targetPath,
+      });
 
-    expect(replaceSpy).toHaveBeenCalledWith('/downloads/existing.jpg.part', '/downloads/existing.jpg');
-    expect(renameSpy).not.toHaveBeenCalled();
-    expect(updateDownloadStatus).toHaveBeenCalledWith(1, 'completed');
-    expect(updateDownloadProgress).toHaveBeenCalledWith(1, 100, 4, 4);
-    expect(markPostAsDownloaded).toHaveBeenCalledWith(99, '/downloads/existing.jpg');
+      expect(replaceSpy).toHaveBeenCalledWith(`${targetPath}.part`, targetPath);
+      expect(renameSpy).not.toHaveBeenCalled();
+      expect(updateDownloadStatus).toHaveBeenCalledWith(1, 'completed');
+      expect(updateDownloadProgress).toHaveBeenCalledWith(1, 100, 4, 4);
+      expect(markPostAsDownloaded).toHaveBeenCalledWith(99, targetPath);
+    } finally {
+      await fsPromises.rm(tempDir, { recursive: true, force: true });
+    }
   });
 });

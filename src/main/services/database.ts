@@ -152,6 +152,32 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       `, (err) => err ? reject(err) : resolve());
     });
 
+    // API 服务访问日志
+    await run(database, `
+      CREATE TABLE IF NOT EXISTS api_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        timestamp TEXT NOT NULL,
+        sourceIp TEXT NOT NULL,
+        method TEXT NOT NULL,
+        path TEXT NOT NULL,
+        permissionKey TEXT,
+        statusCode INTEGER NOT NULL,
+        success INTEGER NOT NULL CHECK(success IN (0, 1)),
+        durationMs INTEGER NOT NULL,
+        errorCode TEXT,
+        errorMessage TEXT,
+        requestSummary TEXT
+      )
+    `);
+
+    await new Promise<void>((resolve, reject) => {
+      database.exec(`
+        CREATE INDEX IF NOT EXISTS idx_api_logs_timestamp ON api_logs (timestamp DESC);
+        CREATE INDEX IF NOT EXISTS idx_api_logs_success ON api_logs (success);
+        CREATE INDEX IF NOT EXISTS idx_api_logs_path ON api_logs (path);
+      `, (err) => err ? reject(err) : resolve());
+    });
+
     // === Booru 相关表开始 ===
     console.log('[database] 开始创建 Booru 相关表...');
 
