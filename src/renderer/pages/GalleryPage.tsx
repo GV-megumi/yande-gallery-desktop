@@ -442,6 +442,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         }, 200);
       }
 
+      if (event.type === 'thumbnail:generated' && subTab === 'galleries') {
+        const thumbnailPath = event.payload.success && event.payload.thumbnailPath
+          ? event.payload.thumbnailPath
+          : null;
+        updateCoverThumbnailByImagePath(event.payload.imagePath, thumbnailPath);
+      }
+
       if (event.type === 'gallery:galleries-changed' && subTab === 'galleries') {
         if (galleriesRefreshTimer) {
           clearTimeout(galleriesRefreshTimer);
@@ -487,7 +494,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       }
       removeAppEventListener?.();
     };
-  }, [subTab, suspended, recentImages, recentNewSegments, pendingRecentImages, selectedGallery, selectedGalleryInfo]);
+  }, [subTab, suspended, recentImages, recentNewSegments, pendingRecentImages, galleries, allGalleries, selectedGallery, selectedGalleryInfo]);
 
   // 加载最近图片
   const loadRecentImages = async (count: number = RECENT_INITIAL_LOAD_COUNT) => {
@@ -734,7 +741,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
     console.log(`[GalleryPage] 开始设置图集封面，图集ID: ${selectedGallery.id}, 图片ID: ${imageId}`);
     try {
-      const result = await window.electronAPI.gallery.setGalleryCover(selectedGallery.id, imageId);
+      const targetGalleryId = selectedGallery.id;
+      const result = await window.electronAPI.gallery.setGalleryCover(targetGalleryId, imageId);
       if (result.success) {
         console.log('[GalleryPage] 封面设置成功');
         message.success('封面设置成功');
@@ -756,7 +764,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         // 更新 allGalleries 中的封面信息（用于图集列表显示，不影响当前查看的图集）
         setAllGalleries((prevAllGalleries) => {
           return prevAllGalleries.map((gallery: any) => {
-            if (gallery.id === selectedGallery.id) {
+            if (gallery.id === targetGalleryId) {
               return {
                 ...gallery,
                 coverImage: newCoverImage || gallery.coverImage,
@@ -772,7 +780,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         if (subTab === 'galleries' && !selectedGallery) {
           setGalleries((prevGalleries) => {
             return prevGalleries.map((gallery: any) => {
-              if (gallery.id === selectedGallery.id) {
+              if (gallery.id === targetGalleryId) {
                 return {
                   ...gallery,
                   coverImage: newCoverImage || gallery.coverImage,
@@ -786,6 +794,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
         // 异步加载新封面的缩略图（不阻塞 UI）
         if (newCoverImage?.filepath) {
+          setCoverThumbnails((prev) => ({ ...prev, [targetGalleryId]: null }));
           console.log('[GalleryPage] 异步加载新封面的缩略图');
           window.electronAPI.image
             .getThumbnail(newCoverImage.filepath)
@@ -793,7 +802,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               if (thumbResult.success && thumbResult.data) {
                 setCoverThumbnails((prev) => ({
                   ...prev,
-                  [selectedGallery.id]: thumbResult.data || null
+                  [targetGalleryId]: thumbResult.data || null
                 }));
                 console.log('[GalleryPage] 新封面缩略图加载成功');
               }
@@ -1174,6 +1183,48 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
   // 图集封面缩略图状态
   const [coverThumbnails, setCoverThumbnails] = useState<Record<number, string | null>>({});
+
+  function updateCoverThumbnailsByGalleryIds(galleryIds: Iterable<number>, thumbnailPath: string | null) {
+    const normalizedIds = Array.from(new Set(
+      Array.from(galleryIds).filter((galleryId): galleryId is number => typeof galleryId === 'number')
+    ));
+    if (normalizedIds.length === 0) {
+      return;
+    }
+
+    setCoverThumbnails((previous) => {
+      let changed = false;
+      const next = { ...previous };
+      for (const galleryId of normalizedIds) {
+        if ((next[galleryId] ?? null) !== thumbnailPath) {
+          next[galleryId] = thumbnailPath;
+          changed = true;
+        }
+      }
+      return changed ? next : previous;
+    });
+  }
+
+  function updateCoverThumbnailByImagePath(imagePath: string, thumbnailPath: string | null) {
+    const matchedGalleryIds = new Set<number>();
+    const galleryCandidates = [
+      ...galleries,
+      ...allGalleries,
+      selectedGallery,
+      selectedGalleryInfo,
+    ].filter(Boolean);
+
+    for (const gallery of galleryCandidates) {
+      if (
+        typeof gallery?.id === 'number'
+        && gallery?.coverImage?.filepath === imagePath
+      ) {
+        matchedGalleryIds.add(gallery.id);
+      }
+    }
+
+    updateCoverThumbnailsByGalleryIds(matchedGalleryIds, thumbnailPath);
+  }
 
   // 加载图集封面缩略图（并发加载 + 取消支持）
   useEffect(() => {

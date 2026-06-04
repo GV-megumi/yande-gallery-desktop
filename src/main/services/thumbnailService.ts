@@ -143,7 +143,11 @@ class ThumbnailQueue {
 const thumbnailQueue = new ThumbnailQueue();
 
 function normalizeThumbnailEffort(effort: unknown): number {
-  return Math.min(6, Math.max(0, Math.trunc(Number(effort ?? 3))));
+  const normalized = Number(effort ?? 3);
+  if (!Number.isFinite(normalized)) {
+    return 3;
+  }
+  return Math.min(6, Math.max(0, Math.trunc(normalized)));
 }
 
 async function generateThumbnailInternal(
@@ -252,12 +256,7 @@ export async function requestThumbnailGeneration(
   }
 
   thumbnailQueue.enqueue(imagePath, { priority: 'foreground', notify: true }).catch((error) => {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    emitThumbnailGenerated(imagePath, {
-      success: false,
-      error: errorMessage,
-      missing: isMissingSourceError(errorMessage),
-    });
+    console.warn(`[ThumbnailQueue] foreground thumbnail failed: ${imagePath}`, error);
   });
 
   return { success: true, pending: true };

@@ -1,17 +1,29 @@
 {
-  // 这是 launch.json 的模板。首次 checkout 后复制为 launch.json 再按需修改。
-  // launch.json 已被 .gitignore 忽略，本地改动不会污染仓库。
+  // Copy this file to launch.json for local debugging if launch.json is missing.
+  // launch.json is intentionally ignored by git.
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "1. 启动 Vite 服务器",
+      "name": "Electron: Dev",
       "type": "node",
       "request": "launch",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": ["run", "dev:renderer"],
       "cwd": "${workspaceFolder}",
+      "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/electron.exe"
+      },
+      "program": "${workspaceFolder}/build/main/index.js",
+      "env": {
+        "NODE_ENV": "development",
+        "ELECTRON_ENABLE_LOGGING": "1"
+      },
       "console": "integratedTerminal",
       "internalConsoleOptions": "neverOpen",
+      "skipFiles": ["<node_internals>/**"],
+      "autoAttachChildProcesses": false,
+      "preLaunchTask": "dev: prepare electron",
+      "sourceMaps": true,
+      "outFiles": ["${workspaceFolder}/build/main/**/*.js"],
       "presentation": {
         "hidden": false,
         "group": "dev",
@@ -19,25 +31,45 @@
       }
     },
     {
-      "name": "2. 启动 Electron",
+      "name": "Electron: Production Build",
       "type": "node",
       "request": "launch",
       "cwd": "${workspaceFolder}",
       "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/electron",
+      "windows": {
+        "runtimeExecutable": "${workspaceFolder}/node_modules/electron/dist/electron.exe"
+      },
       "program": "${workspaceFolder}/build/main/index.js",
-      "args": [],
       "env": {
-        "NODE_ENV": "development"
+        "NODE_ENV": "production",
+        "ELECTRON_ENABLE_LOGGING": "1"
       },
       "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
       "skipFiles": ["<node_internals>/**"],
-      "preLaunchTask": "📦 仅编译（主进程 + Preload）",
+      "autoAttachChildProcesses": false,
+      "preLaunchTask": "npm: build",
       "sourceMaps": true,
       "outFiles": ["${workspaceFolder}/build/main/**/*.js"],
       "presentation": {
         "hidden": false,
         "group": "dev",
         "order": 2
+      }
+    },
+    {
+      "name": "Vite: Renderer",
+      "type": "node",
+      "request": "launch",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev:renderer", "--", "--host", "localhost", "--port", "5173", "--strictPort"],
+      "cwd": "${workspaceFolder}",
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "presentation": {
+        "hidden": false,
+        "group": "dev",
+        "order": 3
       }
     }
   ]
