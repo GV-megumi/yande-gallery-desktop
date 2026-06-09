@@ -18,7 +18,11 @@ export function createBooruPreferencesApi() {
       // 注：忽略 summary.version —— 当前唯一消费者只是替换状态，不会累积；
       // 若未来有订阅者需要识别过期事件，应改为显式透传 summary。
       onChanged: (callback: (appearance: BooruAppearancePreference) => void) => {
-        const subscription = async (_event: any, _summary: ConfigChangedSummary) => {
+        const subscription = async (_event: any, summary: ConfigChangedSummary) => {
+          if (!summary.sections.some(section => section === 'booru' || section.startsWith('booru.') || section === 'ui' || section.startsWith('ui.'))) {
+            return;
+          }
+
           try {
             const response = await ipcRenderer.invoke(IPC_CHANNELS.BOORU_PREFERENCES_GET_APPEARANCE);
             if (response?.success && response.data) {

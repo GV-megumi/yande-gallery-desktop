@@ -5,6 +5,7 @@ import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { ContextMenu } from '../components/ContextMenu';
 import { LazyLoadFooter } from '../components/LazyLoadFooter';
+import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 interface InvalidImage {
   id: number;
@@ -57,6 +58,25 @@ export const InvalidImagesPage: React.FC = () => {
   useEffect(() => {
     loadImages(1);
   }, [loadImages]);
+
+  useGalleryDomainEvents({
+    onInvalidImagesChanged: (payload) => {
+      if (payload.action === 'reported') {
+        loadImages(1);
+        return;
+      }
+      if (payload.action === 'deleted' && payload.invalidImageId) {
+        setImages(prev => prev.filter(img => img.id !== payload.invalidImageId));
+        setTotal(prev => Math.max(0, prev - 1));
+        return;
+      }
+      if (payload.action === 'cleared') {
+        setImages([]);
+        setTotal(0);
+        setHasMore(false);
+      }
+    },
+  });
 
   const handleLoadMore = useCallback(() => {
     if (!loading && hasMore) {

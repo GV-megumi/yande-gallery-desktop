@@ -5,6 +5,7 @@ import fs from 'fs/promises';
 import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
+import { emitGalleryImagesChanged } from './appEventPublisher.js';
 
 /**
  * 图片服务 - 数据库操作实现
@@ -270,6 +271,16 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     const row = await get<{ filepath: string }>(
       db, 'SELECT filepath FROM images WHERE id = ?', [id]
     );
+    const gallery = row?.filepath
+      ? await get<{ id: number }>(
+          db,
+          `SELECT id FROM galleries
+             WHERE ? LIKE folderPath || '%'
+             ORDER BY LENGTH(folderPath) DESC
+             LIMIT 1`,
+          [row.filepath]
+        )
+      : null;
 
     // 删除数据库记录
     await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
@@ -288,6 +299,19 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
       // deleteThumbnail 内部已对 ENOENT 容错
       await deleteThumbnail(row.filepath).catch((err: any) => {
         console.warn(`[imageService] 删除缩略图失败: ${row.filepath}`, err?.message ?? err);
+      });
+    }
+
+    if (row) {
+      emitGalleryImagesChanged({
+        action: 'deleted',
+        imageId: id,
+        galleryId: gallery?.id ?? null,
+        affectedGalleryIds: gallery ? [gallery.id] : undefined,
+        affectedImageIds: [id],
+        affectedCount: 1,
+        reason: 'userDelete',
+        filepath: row.filepath,
       });
     }
 
@@ -316,6 +340,13 @@ export async function updateImageTags(imageId: number, tags: string[]): Promise<
 
     // 更新updatedAt
     await run(db, 'UPDATE images SET updatedAt = ? WHERE id = ?', [new Date().toISOString(), imageId]);
+
+    emitGalleryImagesChanged({
+      action: 'tagsUpdated',
+      imageId,
+      affectedImageIds: [imageId],
+      affectedCount: 1,
+    });
 
     return { success: true };
   } catch (error) {

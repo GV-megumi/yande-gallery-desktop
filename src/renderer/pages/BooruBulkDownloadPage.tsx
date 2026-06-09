@@ -20,9 +20,10 @@ import {
   ThunderboltOutlined,
   SaveOutlined
 } from '@ant-design/icons';
-import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask, RendererAppEvent } from '../../shared/types';
+import { BulkDownloadSession, BulkDownloadOptions, BooruSite, BulkDownloadTask } from '../../shared/types';
 import { BulkDownloadTaskForm } from '../components/BulkDownloadTaskForm';
 import { BulkDownloadSessionCard } from '../components/BulkDownloadSessionCard';
+import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 
 interface BooruBulkDownloadPageProps {
   active?: boolean;
@@ -38,6 +39,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   const [editingTask, setEditingTask] = useState<BulkDownloadTask | undefined>(undefined);
   const [activeSessionTab, setActiveSessionTab] = useState('active');
   const activeRef = useRef(active);
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshNeedsTasksRef = useRef(false);
 
   useEffect(() => {
     activeRef.current = active;
@@ -115,6 +118,30 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     }
   }, []);
 
+  const scheduleRefresh = useCallback((withTasks: boolean) => {
+    refreshNeedsTasksRef.current = refreshNeedsTasksRef.current || withTasks;
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      const shouldLoadTasks = refreshNeedsTasksRef.current;
+      refreshTimerRef.current = null;
+      refreshNeedsTasksRef.current = false;
+      loadSessions();
+      if (shouldLoadTasks) {
+        loadTasks();
+      }
+    }, 200);
+  }, [loadSessions, loadTasks]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+    refreshNeedsTasksRef.current = false;
+  }, []);
+
   // 下载恢复已移至 init.ts，程序启动时自动后台恢复，无需手动触发
   useEffect(() => {
     if (!active) {
@@ -126,46 +153,28 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     loadSites();
   }, [active, loadSessions, loadSites, loadTasks]);
 
-  useEffect(() => {
-    if (!active) {
+  useRendererAppEvent([
+    'bulk-download:sessions-changed',
+    'bulk-download:tasks-changed',
+    'bulk-download:records-changed',
+    'favorite-tag-download:created',
+  ] as const, (event) => {
+    if (event.type === 'bulk-download:sessions-changed') {
+      scheduleRefresh(false);
       return;
     }
-
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let refreshNeedsTasks = false;
-    const scheduleRefresh = (withTasks: boolean) => {
-      refreshNeedsTasks = refreshNeedsTasks || withTasks;
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        const shouldLoadTasks = refreshNeedsTasks;
-        refreshTimer = null;
-        refreshNeedsTasks = false;
-        loadSessions();
-        if (shouldLoadTasks) {
-          loadTasks();
-        }
-      }, 200);
-    };
-
-    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
-      if (event.type === 'bulk-download:sessions-changed') {
-        scheduleRefresh(false);
-        return;
-      }
-      if (event.type === 'favorite-tag-download:created') {
-        scheduleRefresh(true);
-      }
-    });
-
-    return () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      removeAppEventListener?.();
-    };
-  }, [active, loadSessions, loadTasks]);
+    if (event.type === 'bulk-download:tasks-changed') {
+      scheduleRefresh(true);
+      return;
+    }
+    if (event.type === 'bulk-download:records-changed') {
+      scheduleRefresh(false);
+      return;
+    }
+    if (event.type === 'favorite-tag-download:created') {
+      scheduleRefresh(true);
+    }
+  }, { active, replayDirtyOnActive: false });
 
   // 分离活跃会话和历史会话
   const { activeSessions, historySessions } = useMemo(() => {

@@ -20,6 +20,7 @@ import {
 } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { useLocale } from '../../locales';
+import { useBooruDomainEvents } from '../../hooks/useBooruDomainEvents';
 
 interface ToolbarProps {
   post: BooruPost;
@@ -60,6 +61,16 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
 
   // 是否已登录
   const isLoggedIn = !!site?.authenticated;
+
+  useBooruDomainEvents({
+    siteId: site?.id ?? null,
+    active: Boolean(site && post.postId),
+    onPostVoteChanged: (payload) => {
+      if (payload.postId === post.postId) {
+        setVoteState(payload.vote);
+      }
+    },
+  });
 
   // 加载收藏用户列表
   useEffect(() => {

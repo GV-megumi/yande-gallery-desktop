@@ -61,7 +61,7 @@
 
 ### Bug5：Booru 状态变更缺少全局通知与跨页面消费
 
-- 状态：已确认 / 简略规划
+- 状态：已修复 / 已补全全局领域事件基础设施（2026-06-09）
 - 现象：Booru 中帖子被本地收藏、服务端喜欢，或标签加入 / 移出黑名单后，其他窗口、子页面和已打开列表往往不会立即同步。加入黑名单后，当前 Booru 列表页应马上隐藏命中图片，黑名单命中列表也应立刻加入新标签；当前实现需要重新加载、切换站点或依赖局部状态刷新，体验不稳定。
 - 查证：项目已有 `rendererEventBus`，会把 `RendererAppEvent` 广播到所有 `BrowserWindow`，并桥接到 API 事件流；`preload` 也暴露了 `system.onAppEvent` 供 renderer 订阅。但 `RendererAppEvent` 目前只覆盖批量下载、收藏标签、图库和缩略图事件，没有 `booru:post-favorite-changed`、`booru:server-favorite-changed`、`booru:blacklist-tags-changed` 等 Booru 状态事件。`booruService` 只在收藏标签相关操作里发出 `favorite-tags:changed`，普通帖子收藏、服务端喜欢、黑名单增删改没有发全局事件。`BooruPage` 只在站点变化时调用 `getActiveBlacklistTagNames`，黑名单命中统计和过滤结果都来自本页本地 `blacklistTagNames`；`useFavorite`、`useBooruPostActions` 以及多个 Booru 子页面也主要维护本地 `Set`，没有统一消费全局变更。
 - 原因：现有事件总线能力存在，但 Booru 领域事件目录不完整；数据变更方没有统一在 mutation 成功后发布领域事件，消费方也没有统一 hook / store 来同步跨窗口、跨子页面状态，导致“谁改谁知道，别人不知道”。
@@ -70,6 +70,7 @@
 - 处理建议：先扩展 `RendererAppEvent` 的 Booru 领域事件契约，例如 `booru:post-favorite-changed`、`booru:server-favorite-changed`、`booru:blacklist-tags-changed`，payload 至少包含 `siteId`、`postId` / `tagName`、目标状态、动作类型和受影响数量。主进程在 `addToFavorites` / `removeFromFavorites`、`serverFavorite` / `serverUnfavorite`、黑名单 add / remove / toggle / update / batch / import 成功后统一发事件。renderer 侧沉淀 `useRendererAppEvent` / `useBooruDomainEvents` 一类消费 hook，支持按站点过滤、局部乐观更新、必要时防抖重新拉取。`BooruPage` 应先消费黑名单事件，更新 `blacklistTagNames` 后立即重算当前页过滤和命中统计；详情页、卡片列表和收藏 / 喜欢相关页面再消费帖子收藏与服务端喜欢事件，避免多处本地 Set 长期漂移。
 - 简略重构规划：第一步补事件类型和主进程发事件测试，确保所有窗口都能收到同一 Booru 变更；第二步做 renderer 统一消费 hook，并优先接入黑名单变更，让当前页立即隐藏命中图片、命中列表立即更新；第三步接入本地收藏和服务端喜欢，统一同步列表卡片、详情页工具栏和各子页面；第四步整理文档，把哪些 mutation 会发哪些事件、消费者应该如何订阅写入 Renderer API / Booru 文档。
 - 验证方式：补共享事件类型测试和 `rendererEventBus` 广播测试；补 `booruService` / IPC mutation 成功后发事件测试；补 `BooruPage` 回归测试，模拟黑名单新增事件后当前页命中图片立即从列表消失且命中统计出现新标签；补多组件挂载测试，模拟收藏 / 喜欢事件后列表卡片、详情工具栏和收藏页状态同步。
+- 实施记录：已新增 `src/shared/appEvents.ts`、`src/main/services/appEventPublisher.ts`、`useRendererAppEvent`、`useBooruDomainEvents`、`useGalleryDomainEvents`，并将 Booru 收藏 / 服务端喜欢 / 黑名单 / 站点 / 保存搜索 / 分组 / 下载状态 / 投票、Gallery 图片 / 图集 / 无效图 / 忽略文件夹、批量下载任务 / record、配置、备份恢复、API 服务状态纳入统一 `RendererAppEvent`。高频下载进度仍保留专用 IPC。详细设计、落地范围和验证记录见 `doc/superpowers/specs/2026-06-09-global-domain-events-sync-design.md`、`doc/superpowers/plans/2026-06-09-global-domain-events-sync-fix.md` 和 `doc/全局领域事件与跨窗口状态同步缺陷审查.md`。
 
 ## 条目模板
 

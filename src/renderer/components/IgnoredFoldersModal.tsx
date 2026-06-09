@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Modal, List, Button, Input, Space, Popconfirm, message } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useLocale } from '../locales';
+import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 /**
  * IgnoredFoldersModal
@@ -75,6 +76,13 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
     if (open) load();
   }, [open]);
 
+  useGalleryDomainEvents({
+    active: open,
+    onIgnoredFoldersChanged: () => {
+      load();
+    },
+  });
+
   const handleAdd = async () => {
     if (!ensureApiReady(true)) return;
     const picked = await window.electronAPI.system.selectFolder();
@@ -82,7 +90,6 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
     const r = await window.electronAPI.gallery.addIgnoredFolder(picked.data);
     if (r?.success) {
       message.success(t('settings.ignoredFolderAddSuccess'));
-      load();
     } else {
       message.error(r?.error || t('settings.ignoredFolderAddFailed'));
     }
@@ -98,7 +105,6 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
     const r = await window.electronAPI.gallery.updateIgnoredFolder(id, { note: editingNote });
     if (r?.success) {
       setEditingId(null);
-      load();
     } else {
       message.error(r?.error || t('settings.ignoredFolderSaveFailed'));
     }
@@ -107,9 +113,7 @@ export const IgnoredFoldersModal: React.FC<Props> = ({ open, onClose }) => {
   const handleRemove = async (id: number) => {
     if (!ensureApiReady(false)) return;
     const r = await window.electronAPI.gallery.removeIgnoredFolder(id);
-    if (r?.success) {
-      load();
-    } else {
+    if (!r?.success) {
       message.error(r?.error || t('settings.ignoredFolderRemoveFailed'));
     }
   };

@@ -10,6 +10,7 @@ import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 import { canOpenWikiTitleQuery } from '../utils/booruQuery';
 import { getDirectImplicationTags, resolveCanonicalTag, type TagRelationships } from '../utils/tagRelationships';
 
@@ -219,6 +220,46 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   // 服务端喜欢状态管理
   const [serverFavorites, setServerFavorites] = useState<Set<number>>(new Set());
 
+  const patchPostFavorite = useCallback((postId: number, isFavorited: boolean) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (isFavorited) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    setPosts(prevPosts => prevPosts.map(p => (
+      p.postId === postId ? { ...p, isFavorited } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isFavorited } : post
+    ));
+  }, [setFavorites]);
+
+  const patchServerFavorite = useCallback((postId: number, isLiked: boolean) => {
+    setServerFavorites(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    setPosts(prevPosts => prevPosts.map(p => (
+      p.postId === postId ? { ...p, isLiked } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isLiked } : post
+    ));
+  }, []);
+
+  const patchDownloadState = useCallback((postId: number, downloaded: boolean, localImageId?: number) => {
+    const patch = localImageId === undefined ? { downloaded } : { downloaded, localImageId };
+    setPosts(prevPosts => prevPosts.map(p => (
+      p.postId === postId ? { ...p, ...patch } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, ...patch } : post
+    ));
+  }, []);
+
   const handleToggleServerFavorite = useCallback(async (post: BooruPost) => {
     if (!selectedSiteId) return;
     const isCurrentlyFavorited = serverFavorites.has(post.postId);
@@ -329,6 +370,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         console.log('[BooruTagSearchPage] 搜索成功:', data.length, '张图片');
         
         setPosts(data);
+        setServerFavorites(new Set(data.filter((p: any) => p.isLiked).map((p: any) => p.postId)));
         setCurrentPage(page);
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
@@ -368,6 +410,32 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
       console.error('[BooruTagSearchPage] 加载收藏状态失败:', error);
     }
   };
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: !suspended,
+    onPostFavoriteChanged: (payload) => {
+      patchPostFavorite(payload.postId, payload.isFavorited);
+    },
+    onServerFavoriteChanged: (payload) => {
+      const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
+      postIds.forEach((postId) => patchServerFavorite(postId, payload.isLiked));
+    },
+    onPostDownloadStateChanged: (payload) => {
+      if (payload.postId == null) return;
+      if (payload.action === 'markedDownloaded' || payload.downloaded) {
+        patchDownloadState(payload.postId, true, payload.localImageId);
+      }
+    },
+    onFavoriteTagsChanged: (payload) => {
+      if (!payload.tagName || payload.tagName === searchTag) {
+        checkTagFavoriteStatus(searchTag);
+      }
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   // 处理站点切换
   const handleSiteChange = (siteId: number) => {

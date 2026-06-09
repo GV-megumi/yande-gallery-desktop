@@ -27,10 +27,22 @@ import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './
 import { createGallery, getGallery, updateGalleryStats } from './galleryService.js';
 import { scanAndImportFolder } from './imageService.js';
 import { getConfig, resolveConfigPath } from './config.js';
+import { createBooruClient } from './booruClientFactory.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { dialog } from 'electron';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
+import {
+  emitBooruBlacklistTagsChanged,
+  emitBooruFavoriteGroupsChanged,
+  emitBooruPostDownloadStateChanged,
+  emitBooruPostFavoriteChanged,
+  emitBooruPostServerFavoriteChanged,
+  emitBooruPostVoteChanged,
+  emitBooruSavedSearchesChanged,
+  emitBooruSearchHistoryChanged,
+  emitBooruSitesChanged,
+} from './appEventPublisher.js';
 
 type FavoriteTagDownloadBindingRow = {
   id: number;
@@ -74,7 +86,8 @@ function emitFavoriteTagsChanged(payload: {
     | 'bindingUpserted'
     | 'bindingDeleted'
     | 'labelCreated'
-    | 'labelDeleted';
+    | 'labelDeleted'
+    | 'downloadStateChanged';
   favoriteTagId?: number;
   siteId?: number | null;
   tagName?: string;
@@ -304,6 +317,18 @@ async function updateFavoriteTagDownloadBindingSnapshot(
     SET ${fields.join(', ')}
     WHERE favoriteTagId = ?
   `, values);
+  const tag = await get<{ siteId: number | null; tagName: string }>(
+    db,
+    'SELECT siteId, tagName FROM booru_favorite_tags WHERE id = ?',
+    [favoriteTagId],
+  );
+  emitFavoriteTagsChanged({
+    action: 'downloadStateChanged',
+    favoriteTagId,
+    siteId: tag?.siteId ?? null,
+    tagName: tag?.tagName,
+    affectedCount: 1,
+  });
 }
 
 async function getRuntimeProgressBySessionId(sessionId: string): Promise<FavoriteTagDownloadRuntimeProgress | null> {
@@ -475,6 +500,12 @@ export async function addBooruSite(site: Omit<BooruSiteRecord, 'id' | 'createdAt
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
     const id = result!.id;
 
+    emitBooruSitesChanged({
+      action: 'created',
+      siteId: id,
+      activeSiteId: site.active ? id : undefined,
+      affectedCount: 1,
+    });
     console.log('[booruService] 添加站点成功:', site.name, 'ID:', id);
     return id;
   } catch (error) {
@@ -492,48 +523,59 @@ export async function updateBooruSite(id: number, updates: Partial<BooruSiteReco
     const db = await getDatabase();
     const now = new Date().toISOString();
 
-    const fields = [];
-    const values = [];
+    const fields: string[] = [];
+    const values: any[] = [];
+    const changedFields: string[] = [];
 
     if (updates.name !== undefined) {
       fields.push('name = ?');
       values.push(updates.name);
+      changedFields.push('name');
     }
     if (updates.url !== undefined) {
       fields.push('url = ?');
       values.push(updates.url);
+      changedFields.push('url');
     }
     if (updates.type !== undefined) {
       fields.push('type = ?');
       values.push(updates.type);
+      changedFields.push('type');
     }
     if (updates.salt !== undefined) {
       fields.push('salt = ?');
       values.push(updates.salt);
+      changedFields.push('salt');
     }
     if (updates.version !== undefined) {
       fields.push('version = ?');
       values.push(updates.version);
+      changedFields.push('version');
     }
     if (updates.apiKey !== undefined) {
       fields.push('apiKey = ?');
       values.push(updates.apiKey);
+      changedFields.push('apiKey');
     }
     if (updates.username !== undefined) {
       fields.push('username = ?');
       values.push(updates.username);
+      changedFields.push('username');
     }
     if (updates.passwordHash !== undefined) {
       fields.push('passwordHash = ?');
       values.push(updates.passwordHash);
+      changedFields.push('passwordHash');
     }
     if (updates.favoriteSupport !== undefined) {
       fields.push('favoriteSupport = ?');
       values.push(updates.favoriteSupport ? 1 : 0);
+      changedFields.push('favoriteSupport');
     }
     if (updates.active !== undefined) {
       fields.push('active = ?');
       values.push(updates.active ? 1 : 0);
+      changedFields.push('active');
     }
 
     if (fields.length === 0) {
@@ -545,9 +587,23 @@ export async function updateBooruSite(id: number, updates: Partial<BooruSiteReco
     values.push(now);
     values.push(id);
 
-    await run(db, `UPDATE booru_sites SET ${fields.join(', ')} WHERE id = ?`, values);
+    const result = await runWithChanges(db, `UPDATE booru_sites SET ${fields.join(', ')} WHERE id = ?`, values);
 
     console.log('[booruService] 更新站点成功:', id);
+    if (result.changes > 0) {
+      const action = updates.active !== undefined
+        ? 'activeChanged'
+        : changedFields.some(field => field === 'username' || field === 'passwordHash')
+          ? 'authChanged'
+          : 'updated';
+      emitBooruSitesChanged({
+        action,
+        siteId: id,
+        activeSiteId: updates.active ? id : undefined,
+        changedFields,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 更新Booru站点失败:', id, error);
     throw error;
@@ -561,8 +617,15 @@ export async function deleteBooruSite(id: number): Promise<void> {
   console.log('[booruService] 删除Booru站点:', id);
   try {
     const db = await getDatabase();
-    await run(db, 'DELETE FROM booru_sites WHERE id = ?', [id]);
+    const result = await runWithChanges(db, 'DELETE FROM booru_sites WHERE id = ?', [id]);
     console.log('[booruService] 删除站点成功:', id);
+    if (result.changes > 0) {
+      emitBooruSitesChanged({
+        action: 'deleted',
+        siteId: id,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 删除Booru站点失败:', id, error);
     throw error;
@@ -577,12 +640,20 @@ export async function setActiveBooruSite(id: number): Promise<void> {
   try {
     const db = await getDatabase();
 
-    await runInTransaction(db, async () => {
+    const result = await runInTransaction(db, async () => {
       await run(db, 'UPDATE booru_sites SET active = 0');
-      await run(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
+      return runWithChanges(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
     });
 
     console.log('[booruService] 设置激活站点成功:', id);
+    if (result.changes > 0) {
+      emitBooruSitesChanged({
+        action: 'activeChanged',
+        siteId: id,
+        activeSiteId: id,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 设置激活站点失败:', id, error);
     throw error;
@@ -904,14 +975,29 @@ export async function markPostAsDownloaded(
   try {
     const db = await getDatabase();
     const now = new Date().toISOString();
+    const post = await get<{ siteId: number; postId: number }>(
+      db,
+      'SELECT siteId, postId FROM booru_posts WHERE id = ?',
+      [postId],
+    );
 
-    await run(db, `
+    const result = await runWithChanges(db, `
       UPDATE booru_posts
       SET downloaded = 1, localPath = ?, localImageId = ?, updatedAt = ?
       WHERE id = ?
     `, [localPath, localImageId || null, now, postId]);
 
     console.log('[booruService] 标记下载成功:', postId);
+    if (result.changes > 0 && post) {
+      emitBooruPostDownloadStateChanged({
+        action: 'markedDownloaded',
+        siteId: post.siteId,
+        postId: post.postId,
+        downloaded: true,
+        localImageId,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 标记图片下载失败:', postId, error);
     throw error;
@@ -949,6 +1035,22 @@ export async function addToFavorites(apiPostId: number, siteId: number, notes?: 
 
     if (existing) {
       console.log('[booruService] 图片已在收藏中:', apiPostId);
+      const repairResult = await runWithChanges(
+        db,
+        'UPDATE booru_posts SET isFavorited = 1 WHERE id = ? AND (isFavorited IS NULL OR isFavorited != 1)',
+        [dbId],
+      );
+      if (repairResult.changes > 0) {
+        emitBooruPostFavoriteChanged({
+          action: 'repaired',
+          siteId,
+          postId: apiPostId,
+          dbPostId: dbId,
+          favoriteId: existing.id,
+          isFavorited: true,
+          affectedCount: repairResult.changes,
+        });
+      }
       return existing.id;
     }
 
@@ -971,6 +1073,15 @@ export async function addToFavorites(apiPostId: number, siteId: number, notes?: 
     });
 
     console.log('[booruService] 添加收藏成功:', apiPostId);
+    emitBooruPostFavoriteChanged({
+      action: 'added',
+      siteId,
+      postId: apiPostId,
+      dbPostId: dbId,
+      favoriteId,
+      isFavorited: true,
+      affectedCount: 1,
+    });
     return favoriteId;
   } catch (error) {
     console.error('[booruService] 添加收藏失败:', apiPostId, error);
@@ -981,20 +1092,28 @@ export async function addToFavorites(apiPostId: number, siteId: number, notes?: 
 /**
  * 从收藏中移除
  */
-export async function removeFromFavorites(apiPostId: number, siteId?: number): Promise<void> {
-  console.log('[booruService] 从收藏中移除:', apiPostId);
+export async function removeFromFavorites(apiPostId: number, siteId: number): Promise<void> {
+  console.log('[booruService] 从收藏中移除:', apiPostId, 'siteId:', siteId);
   try {
     const db = await getDatabase();
 
     // 查找 booru_posts 的数据库主键
-    const sql = siteId === undefined
-      ? 'SELECT id FROM booru_posts WHERE postId = ?'
-      : 'SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?';
-    const params = siteId === undefined ? [apiPostId] : [apiPostId, siteId];
-    const dbPost = await get<{ id: number }>(db, sql, params);
+    const dbPost = await get<{ id: number }>(
+      db,
+      'SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?',
+      [apiPostId, siteId],
+    );
     if (dbPost) {
-      await run(db, 'DELETE FROM booru_favorites WHERE postId = ?', [dbPost.id]);
-      await run(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [dbPost.id]);
+      const deleteResult = await runWithChanges(db, 'DELETE FROM booru_favorites WHERE postId = ?', [dbPost.id]);
+      const updateResult = await runWithChanges(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [dbPost.id]);
+      emitBooruPostFavoriteChanged({
+        action: 'removed',
+        siteId,
+        postId: apiPostId,
+        dbPostId: dbPost.id,
+        isFavorited: false,
+        affectedCount: Math.max(deleteResult.changes, updateResult.changes),
+      });
     }
 
     console.log('[booruService] 移除收藏成功:', apiPostId);
@@ -1119,13 +1238,79 @@ export async function isFavorited(apiPostId: number): Promise<boolean> {
  * 设置帖子的服务端喜欢状态
  * 在 SERVER_FAVORITE / SERVER_UNFAVORITE 及获取喜欢列表后调用
  */
-export async function setPostLiked(siteId: number, apiPostId: number, liked: boolean): Promise<void> {
+interface SetPostLikedOptions {
+  emit?: boolean;
+  action?: 'liked' | 'unliked' | 'synced';
+}
+
+export async function setPostLiked(
+  siteId: number,
+  apiPostId: number,
+  liked: boolean,
+  options: SetPostLikedOptions = {},
+): Promise<number> {
   try {
     const db = await getDatabase();
-    await run(db, 'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?', [liked ? 1 : 0, siteId, apiPostId]);
+    const result = await runWithChanges(
+      db,
+      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?',
+      [liked ? 1 : 0, siteId, apiPostId],
+    );
+    if (options.emit !== false) {
+      emitBooruPostServerFavoriteChanged({
+        action: options.action ?? (liked ? 'liked' : 'unliked'),
+        siteId,
+        postId: apiPostId,
+        isLiked: liked,
+        affectedCount: result.changes,
+      });
+    }
+    return result.changes;
   } catch (error) {
     console.error('[booruService] 设置喜欢状态失败:', apiPostId, error);
+    throw error;
   }
+}
+
+export async function syncPostLikedStates(siteId: number, postIds: number[]): Promise<number> {
+  const uniquePostIds = Array.from(new Set(postIds.filter((postId) => Number.isFinite(postId))));
+  let changedCount = 0;
+  const changedPostIds: number[] = [];
+
+  for (const postId of uniquePostIds) {
+    const changes = await setPostLiked(siteId, postId, true, { emit: false, action: 'synced' });
+    if (changes > 0) {
+      changedCount += changes;
+      changedPostIds.push(postId);
+    }
+  }
+
+  if (changedCount > 0) {
+    emitBooruPostServerFavoriteChanged({
+      action: 'synced',
+      siteId,
+      postIds: changedPostIds,
+      isLiked: true,
+      affectedCount: changedCount,
+    });
+  }
+
+  return changedCount;
+}
+
+export async function votePost(siteId: number, postId: number, score: 1 | 0 | -1): Promise<void> {
+  const site = await getBooruSiteById(siteId);
+  if (!site) {
+    throw new Error('Site not found');
+  }
+
+  if (!site.username || !site.passwordHash) {
+    throw new Error('Authentication is required before voting');
+  }
+
+  const client = createBooruClient(site);
+  await client.votePost(postId, score);
+  emitBooruPostVoteChanged({ siteId, postId, vote: score });
 }
 
 // ========= 下载队列管理 =========
@@ -1160,13 +1345,35 @@ export async function addToDownloadQueue(postId: number, siteId: number, priorit
     if (existing) {
       if (existing.status === 'failed') {
         console.log('[booruService] 重试失败的下载任务:', existing.id);
-        await run(db, 'UPDATE booru_download_queue SET status = "pending", priority = ?, targetPath = ?, updatedAt = ?, errorMessage = NULL WHERE id = ?',
+        const result = await runWithChanges(db, 'UPDATE booru_download_queue SET status = "pending", priority = ?, targetPath = ?, updatedAt = ?, errorMessage = NULL WHERE id = ?',
           [priority, targetPath || null, now, existing.id]);
+        if (result.changes > 0) {
+          emitBooruPostDownloadStateChanged({
+            action: 'queued',
+            queueId: existing.id,
+            siteId,
+            postId,
+            status: 'pending',
+            previousStatus: existing.status,
+            affectedCount: result.changes,
+          });
+        }
         return existing.id;
       } else if (existing.status === 'completed') {
          console.log('[booruService] 任务已完成，重新下载:', existing.id);
-         await run(db, 'UPDATE booru_download_queue SET status = "pending", priority = ?, targetPath = ?, updatedAt = ?, errorMessage = NULL, progress = 0, downloadedBytes = 0 WHERE id = ?',
+         const result = await runWithChanges(db, 'UPDATE booru_download_queue SET status = "pending", priority = ?, targetPath = ?, updatedAt = ?, errorMessage = NULL, progress = 0, downloadedBytes = 0 WHERE id = ?',
            [priority, targetPath || null, now, existing.id]);
+         if (result.changes > 0) {
+           emitBooruPostDownloadStateChanged({
+             action: 'queued',
+             queueId: existing.id,
+             siteId,
+             postId,
+             status: 'pending',
+             previousStatus: existing.status,
+             affectedCount: result.changes,
+           });
+         }
          return existing.id;
       } else {
         console.log('[booruService] 图片已在下载队列中:', postId);
@@ -1184,6 +1391,14 @@ export async function addToDownloadQueue(postId: number, siteId: number, priorit
     const queueId = result!.id;
 
     console.log('[booruService] 添加下载队列成功:', queueId);
+    emitBooruPostDownloadStateChanged({
+      action: 'queued',
+      queueId,
+      siteId,
+      postId,
+      status: 'pending',
+      affectedCount: 1,
+    });
     return queueId;
   } catch (error) {
     console.error('[booruService] 添加下载队列失败:', postId, error);
@@ -1286,6 +1501,14 @@ export async function updateDownloadStatus(id: number, status: string, errorMess
   console.log('[booruService] 更新下载状态:', id, status);
   try {
     const db = await getDatabase();
+    const existing = await get<{ siteId: number; postId: number; status: string }>(
+      db,
+      `SELECT q.siteId, p.postId, q.status
+       FROM booru_download_queue q
+       INNER JOIN booru_posts p ON p.id = q.postId
+       WHERE q.id = ?`,
+      [id],
+    );
     const now = new Date().toISOString();
     const updates: any[] = [status, now];
     let sql = 'UPDATE booru_download_queue SET status = ?, updatedAt = ?';
@@ -1303,7 +1526,18 @@ export async function updateDownloadStatus(id: number, status: string, errorMess
     sql += ' WHERE id = ?';
     updates.push(id);
 
-    await run(db, sql, updates);
+    const result = await runWithChanges(db, sql, updates);
+    if (result.changes > 0 && existing && (status === 'completed' || status === 'failed')) {
+      emitBooruPostDownloadStateChanged({
+        action: status,
+        queueId: id,
+        siteId: existing.siteId,
+        postId: existing.postId,
+        status,
+        previousStatus: existing.status,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 更新下载状态失败:', id, error);
     throw error;
@@ -1317,7 +1551,25 @@ export async function removeFromDownloadQueue(id: number): Promise<void> {
   console.log('[booruService] 从下载队列移除:', id);
   try {
     const db = await getDatabase();
-    await run(db, 'DELETE FROM booru_download_queue WHERE id = ?', [id]);
+    const existing = await get<{ siteId: number; postId: number; status: string }>(
+      db,
+      `SELECT q.siteId, p.postId, q.status
+       FROM booru_download_queue q
+       INNER JOIN booru_posts p ON p.id = q.postId
+       WHERE q.id = ?`,
+      [id],
+    );
+    const result = await runWithChanges(db, 'DELETE FROM booru_download_queue WHERE id = ?', [id]);
+    if (result.changes > 0) {
+      emitBooruPostDownloadStateChanged({
+        action: 'removed',
+        queueId: id,
+        siteId: existing?.siteId,
+        postId: existing?.postId,
+        status: existing?.status,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 移除下载队列失败:', id, error);
     throw error;
@@ -1335,6 +1587,13 @@ export async function clearDownloadRecords(status: 'completed' | 'failed'): Prom
     const db = await getDatabase();
     const result = await runWithChanges(db, 'DELETE FROM booru_download_queue WHERE status = ?', [status]);
     console.log('[booruService] 清空下载记录成功，删除数量:', result.changes);
+    if (result.changes > 0) {
+      emitBooruPostDownloadStateChanged({
+        action: 'cleared',
+        status,
+        affectedCount: result.changes,
+      });
+    }
     return result.changes;
   } catch (error) {
     console.error('[booruService] 清空下载记录失败:', status, error);
@@ -1353,11 +1612,29 @@ export async function deleteDownloadRecord(queueId: number): Promise<boolean> {
   console.log('[booruService] 删除下载记录:', queueId);
   try {
     const db = await getDatabase();
+    const existing = await get<{ siteId: number; postId: number; status: string }>(
+      db,
+      `SELECT q.siteId, p.postId, q.status
+       FROM booru_download_queue q
+       INNER JOIN booru_posts p ON p.id = q.postId
+       WHERE q.id = ?`,
+      [queueId],
+    );
     const result = await runWithChanges(
       db,
       'DELETE FROM booru_download_queue WHERE id = ?',
       [queueId],
     );
+    if (result.changes > 0) {
+      emitBooruPostDownloadStateChanged({
+        action: 'removed',
+        queueId,
+        siteId: existing?.siteId,
+        postId: existing?.postId,
+        status: existing?.status,
+        affectedCount: result.changes,
+      });
+    }
     return result.changes > 0;
   } catch (error) {
     console.error('[booruService] 删除下载记录失败:', queueId, error);
@@ -2739,6 +3016,11 @@ export async function addSearchHistory(siteId: number, query: string, resultCoun
       );
     }
     console.log('[booruService] 搜索历史已保存');
+    emitBooruSearchHistoryChanged({
+      action: 'created',
+      siteId,
+      affectedCount: 1,
+    });
   } catch (error) {
     console.error('[booruService] 添加搜索历史失败:', error);
     throw error;
@@ -2782,12 +3064,20 @@ export async function clearSearchHistory(siteId?: number): Promise<void> {
   console.log('[booruService] 清除搜索历史:', { siteId });
   try {
     const db = await getDatabase();
+    let result: { changes: number };
     if (siteId) {
-      await run(db, 'DELETE FROM booru_search_history WHERE siteId = ?', [siteId]);
+      result = await runWithChanges(db, 'DELETE FROM booru_search_history WHERE siteId = ?', [siteId]);
     } else {
-      await run(db, 'DELETE FROM booru_search_history');
+      result = await runWithChanges(db, 'DELETE FROM booru_search_history');
     }
     console.log('[booruService] 搜索历史已清除');
+    if (result.changes > 0) {
+      emitBooruSearchHistoryChanged({
+        action: 'cleared',
+        siteId: siteId ?? null,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 清除搜索历史失败:', error);
     throw error;
@@ -2796,10 +3086,12 @@ export async function clearSearchHistory(siteId?: number): Promise<void> {
 
 // ========= 黑名单标签管理 =========
 
-/**
- * 添加黑名单标签
- */
-export async function addBlacklistedTag(tagName: string, siteId?: number | null, reason?: string): Promise<BlacklistedTag> {
+async function addBlacklistedTagInternal(
+  tagName: string,
+  siteId?: number | null,
+  reason?: string,
+  options: { emit?: boolean } = { emit: true },
+): Promise<BlacklistedTag> {
   console.log('[booruService] 添加黑名单标签:', { tagName, siteId, reason });
   try {
     const db = await getDatabase();
@@ -2817,14 +3109,32 @@ export async function addBlacklistedTag(tagName: string, siteId?: number | null,
     );
 
     console.log('[booruService] 黑名单标签已添加:', inserted?.id);
-    return {
+    const tag = {
       ...inserted,
       isActive: Boolean(inserted.isActive)
     };
+    if (options.emit !== false) {
+      emitBooruBlacklistTagsChanged({
+        action: 'created',
+        siteId: tag.siteId ?? null,
+        blacklistTagId: tag.id,
+        tagName: tag.tagName,
+        isActive: tag.isActive,
+        affectedCount: 1,
+      });
+    }
+    return tag;
   } catch (error) {
     console.error('[booruService] 添加黑名单标签失败:', error);
     throw error;
   }
+}
+
+/**
+ * 添加黑名单标签
+ */
+export async function addBlacklistedTag(tagName: string, siteId?: number | null, reason?: string): Promise<BlacklistedTag> {
+  return addBlacklistedTagInternal(tagName, siteId, reason, { emit: true });
 }
 
 /**
@@ -2841,7 +3151,7 @@ export async function addBlacklistedTags(tagString: string, siteId?: number | nu
 
   for (const tag of tags) {
     try {
-      await addBlacklistedTag(tag, siteId, reason);
+      await addBlacklistedTagInternal(tag, siteId, reason, { emit: false });
       added++;
     } catch (error: any) {
       if (error.message?.includes('UNIQUE constraint')) {
@@ -2853,6 +3163,13 @@ export async function addBlacklistedTags(tagString: string, siteId?: number | nu
     }
   }
 
+  if (added > 0) {
+    emitBooruBlacklistTagsChanged({
+      action: 'batchCreated',
+      siteId: siteId ?? null,
+      affectedCount: added,
+    });
+  }
   console.log('[booruService] 批量添加完成:', { added, skipped });
   return { added, skipped };
 }
@@ -2877,12 +3194,14 @@ export async function importBlacklistedTagsCommit(params: {
 
   let imported = 0;
   let skipped = 0;
+  const importedScopes = new Set<number | null>();
 
   for (const record of records) {
     try {
       const siteId = record.siteId !== undefined ? record.siteId : fallbackSiteId;
-      await addBlacklistedTag(record.tagName, siteId, record.reason);
+      await addBlacklistedTagInternal(record.tagName, siteId, record.reason, { emit: false });
       imported += 1;
+      importedScopes.add(siteId ?? null);
     } catch (error: any) {
       if (error?.message?.includes('UNIQUE constraint')) {
         skipped += 1;
@@ -2893,6 +3212,15 @@ export async function importBlacklistedTagsCommit(params: {
     }
   }
 
+  if (imported > 0) {
+    const scopes = Array.from(importedScopes);
+    const eventSiteId = scopes.length === 1 ? scopes[0] : undefined;
+    emitBooruBlacklistTagsChanged({
+      action: 'imported',
+      ...(eventSiteId !== undefined ? { siteId: eventSiteId } : {}),
+      affectedCount: imported,
+    });
+  }
   console.log('[booruService] importBlacklistedTagsCommit 完成:', { imported, skipped });
   return { imported, skipped };
 }
@@ -3084,12 +3412,20 @@ export async function toggleBlacklistedTag(id: number): Promise<BlacklistedTag> 
     }
 
     const newIsActive = tag.isActive ? 0 : 1;
-    await run(db,
+    const result = await runWithChanges(db,
       'UPDATE booru_blacklisted_tags SET isActive = ?, updatedAt = ? WHERE id = ?',
       [newIsActive, now, id]
     );
 
     console.log('[booruService] 黑名单标签状态已切换:', id, '->', newIsActive);
+    emitBooruBlacklistTagsChanged({
+      action: 'toggled',
+      siteId: tag.siteId ?? null,
+      blacklistTagId: id,
+      tagName: tag.tagName,
+      isActive: Boolean(newIsActive),
+      affectedCount: result.changes,
+    });
     return {
       ...tag,
       isActive: Boolean(newIsActive),
@@ -3109,6 +3445,10 @@ export async function updateBlacklistedTag(id: number, updates: Partial<Pick<Bla
   try {
     const db = await getDatabase();
     const now = new Date().toISOString();
+    const existing = await get<any>(db, 'SELECT * FROM booru_blacklisted_tags WHERE id = ?', [id]);
+    if (!existing) {
+      throw new Error('黑名单标签不存在');
+    }
     const setClauses: string[] = ['updatedAt = ?'];
     const params: any[] = [now];
 
@@ -3126,8 +3466,16 @@ export async function updateBlacklistedTag(id: number, updates: Partial<Pick<Bla
     }
 
     params.push(id);
-    await run(db, `UPDATE booru_blacklisted_tags SET ${setClauses.join(', ')} WHERE id = ?`, params);
+    const result = await runWithChanges(db, `UPDATE booru_blacklisted_tags SET ${setClauses.join(', ')} WHERE id = ?`, params);
     console.log('[booruService] 黑名单标签已更新:', id);
+    emitBooruBlacklistTagsChanged({
+      action: 'updated',
+      siteId: existing.siteId ?? null,
+      blacklistTagId: id,
+      tagName: updates.tagName ?? existing.tagName,
+      isActive: updates.isActive !== undefined ? updates.isActive : Boolean(existing.isActive),
+      affectedCount: result.changes,
+    });
   } catch (error) {
     console.error('[booruService] 更新黑名单标签失败:', error);
     throw error;
@@ -3141,8 +3489,18 @@ export async function removeBlacklistedTag(id: number): Promise<void> {
   console.log('[booruService] 删除黑名单标签:', id);
   try {
     const db = await getDatabase();
-    await run(db, 'DELETE FROM booru_blacklisted_tags WHERE id = ?', [id]);
+    const existing = await get<any>(db, 'SELECT * FROM booru_blacklisted_tags WHERE id = ?', [id]);
+    const result = await runWithChanges(db, 'DELETE FROM booru_blacklisted_tags WHERE id = ?', [id]);
     console.log('[booruService] 黑名单标签已删除:', id);
+    if (existing) {
+      emitBooruBlacklistTagsChanged({
+        action: 'deleted',
+        siteId: existing.siteId ?? null,
+        blacklistTagId: id,
+        tagName: existing.tagName,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[booruService] 删除黑名单标签失败:', error);
     throw error;
@@ -3173,7 +3531,16 @@ export async function createFavoriteGroup(name: string, siteId?: number, color?:
     'INSERT INTO booru_favorite_groups (name, siteId, color, sortOrder, createdAt) VALUES (?, ?, ?, 0, ?)',
     [name, siteId ?? null, color ?? null, now]
   );
-  return get(db, 'SELECT * FROM booru_favorite_groups WHERE name = ? ORDER BY createdAt DESC LIMIT 1', [name]);
+  const group = await get<any>(db, 'SELECT * FROM booru_favorite_groups WHERE name = ? ORDER BY createdAt DESC LIMIT 1', [name]);
+  if (group) {
+    emitBooruFavoriteGroupsChanged({
+      action: 'created',
+      siteId: group.siteId ?? null,
+      groupId: group.id,
+      affectedCount: 1,
+    });
+  }
+  return group;
 }
 
 /**
@@ -3181,13 +3548,22 @@ export async function createFavoriteGroup(name: string, siteId?: number, color?:
  */
 export async function updateFavoriteGroup(id: number, updates: { name?: string; color?: string }): Promise<void> {
   const db = await getDatabase();
+  const existing = await get<any>(db, 'SELECT id, siteId FROM booru_favorite_groups WHERE id = ?', [id]);
   const sets: string[] = [];
   const params: any[] = [];
   if (updates.name != null) { sets.push('name = ?'); params.push(updates.name); }
   if (updates.color != null) { sets.push('color = ?'); params.push(updates.color); }
   if (sets.length === 0) return;
   params.push(id);
-  await run(db, `UPDATE booru_favorite_groups SET ${sets.join(', ')} WHERE id = ?`, params);
+  const result = await runWithChanges(db, `UPDATE booru_favorite_groups SET ${sets.join(', ')} WHERE id = ?`, params);
+  if (result.changes > 0 && existing) {
+    emitBooruFavoriteGroupsChanged({
+      action: 'updated',
+      siteId: existing.siteId ?? null,
+      groupId: id,
+      affectedCount: result.changes,
+    });
+  }
 }
 
 /**
@@ -3195,19 +3571,66 @@ export async function updateFavoriteGroup(id: number, updates: { name?: string; 
  */
 export async function deleteFavoriteGroup(id: number): Promise<void> {
   const db = await getDatabase();
+  const existing = await get<any>(db, 'SELECT id, siteId FROM booru_favorite_groups WHERE id = ?', [id]);
   await run(db, 'UPDATE booru_favorites SET groupId = NULL WHERE groupId = ?', [id]);
-  await run(db, 'DELETE FROM booru_favorite_groups WHERE id = ?', [id]);
+  const result = await runWithChanges(db, 'DELETE FROM booru_favorite_groups WHERE id = ?', [id]);
+  if (result.changes > 0 && existing) {
+    emitBooruFavoriteGroupsChanged({
+      action: 'deleted',
+      siteId: existing.siteId ?? null,
+      groupId: id,
+      affectedCount: result.changes,
+    });
+  }
 }
 
 /**
  * 将收藏移入分组（groupId 为 null 表示移出分组）
  */
-export async function moveFavoriteToGroup(apiPostId: number, groupId: number | null): Promise<void> {
+export async function moveFavoriteToGroup(siteId: number, apiPostId: number, groupId: number | null): Promise<void> {
   const db = await getDatabase();
+  if (groupId != null) {
+    const group = await get<{ id: number; siteId: number | null }>(
+      db,
+      'SELECT id, siteId FROM booru_favorite_groups WHERE id = ?',
+      [groupId],
+    );
+    if (!group) {
+      throw new Error('收藏分组不存在');
+    }
+    if (group.siteId != null && group.siteId !== siteId) {
+      throw new Error('收藏分组不属于当前站点');
+    }
+  }
   // booru_favorites.postId 存储 booru_posts.id，需先查找数据库主键
-  const dbPost = await get<{ id: number }>(db, 'SELECT id FROM booru_posts WHERE postId = ?', [apiPostId]);
+  const dbPost = await get<{ id: number; siteId: number }>(
+    db,
+    'SELECT id, siteId FROM booru_posts WHERE postId = ? AND siteId = ?',
+    [apiPostId, siteId],
+  );
   if (dbPost) {
-    await run(db, 'UPDATE booru_favorites SET groupId = ? WHERE postId = ?', [groupId, dbPost.id]);
+    const favorite = await get<{ id: number }>(db, 'SELECT id FROM booru_favorites WHERE postId = ?', [dbPost.id]);
+    const result = await runWithChanges(db, 'UPDATE booru_favorites SET groupId = ? WHERE postId = ?', [groupId, dbPost.id]);
+    if (result.changes > 0) {
+      emitBooruFavoriteGroupsChanged({
+        action: 'favoriteMoved',
+        siteId: dbPost.siteId,
+        groupId,
+        postId: apiPostId,
+        favoriteId: favorite?.id,
+        affectedCount: result.changes,
+      });
+      emitBooruPostFavoriteChanged({
+        action: 'moved',
+        siteId: dbPost.siteId,
+        postId: apiPostId,
+        dbPostId: dbPost.id,
+        groupId,
+        favoriteId: favorite?.id,
+        isFavorited: true,
+        affectedCount: result.changes,
+      });
+    }
   }
 }
 
@@ -3236,21 +3659,38 @@ export async function addSavedSearch(siteId: number | null, name: string, query:
     [siteId, name, query, now]
   );
   const row = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
-  return row?.id ?? 0;
+  const id = row?.id ?? 0;
+  emitBooruSavedSearchesChanged({
+    action: 'created',
+    siteId,
+    searchId: id,
+    affectedCount: 1,
+  });
+  return id;
 }
 
 /**
  * 更新保存的搜索
  */
-export async function updateSavedSearch(id: number, updates: { name?: string; query?: string }): Promise<void> {
+export async function updateSavedSearch(id: number, updates: { name?: string; query?: string; siteId?: number | null }): Promise<void> {
   const db = await getDatabase();
+  const existing = await get<any>(db, 'SELECT id, siteId FROM booru_saved_searches WHERE id = ?', [id]);
   const sets: string[] = [];
   const params: any[] = [];
   if (updates.name != null) { sets.push('name = ?'); params.push(updates.name); }
   if (updates.query != null) { sets.push('query = ?'); params.push(updates.query); }
+  if (updates.siteId !== undefined) { sets.push('siteId = ?'); params.push(updates.siteId); }
   if (sets.length === 0) return;
   params.push(id);
-  await run(db, `UPDATE booru_saved_searches SET ${sets.join(', ')} WHERE id = ?`, params);
+  const result = await runWithChanges(db, `UPDATE booru_saved_searches SET ${sets.join(', ')} WHERE id = ?`, params);
+  if (result.changes > 0 && existing) {
+    emitBooruSavedSearchesChanged({
+      action: 'updated',
+      siteId: updates.siteId !== undefined ? updates.siteId : existing.siteId ?? null,
+      searchId: id,
+      affectedCount: result.changes,
+    });
+  }
 }
 
 /**
@@ -3258,7 +3698,16 @@ export async function updateSavedSearch(id: number, updates: { name?: string; qu
  */
 export async function deleteSavedSearch(id: number): Promise<void> {
   const db = await getDatabase();
-  await run(db, 'DELETE FROM booru_saved_searches WHERE id = ?', [id]);
+  const existing = await get<any>(db, 'SELECT id, siteId FROM booru_saved_searches WHERE id = ?', [id]);
+  const result = await runWithChanges(db, 'DELETE FROM booru_saved_searches WHERE id = ?', [id]);
+  if (result.changes > 0 && existing) {
+    emitBooruSavedSearchesChanged({
+      action: 'deleted',
+      siteId: existing.siteId ?? null,
+      searchId: id,
+      affectedCount: result.changes,
+    });
+  }
 }
 
 // ========= 批量导出 =========
@@ -3286,6 +3735,8 @@ export default {
   getFavorites,
   isFavorited,
   setPostLiked,
+  syncPostLikedStates,
+  votePost,
 
   // 下载队列管理
   addToDownloadQueue,

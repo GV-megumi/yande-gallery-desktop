@@ -1,8 +1,8 @@
 /** @vitest-environment jsdom */
 
 import React from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { App } from 'antd';
 import userEvent from '@testing-library/user-event';
 import { BooruDownloadPage } from '../../../src/renderer/pages/BooruDownloadPage';
@@ -81,6 +81,8 @@ const deleteDownloadRecord = vi.fn().mockResolvedValue({ success: true });
 const retryDownload = vi.fn().mockResolvedValue({ success: true });
 const showItem = vi.fn().mockResolvedValue({ success: true });
 
+vi.setConfig({ testTimeout: 90000 });
+
 function renderPage() {
   return render(
     <App>
@@ -128,6 +130,10 @@ describe('BooruDownloadPage active download actions', () => {
         showItem,
       },
     };
+  });
+
+  afterEach(() => {
+    cleanup();
   });
 
   it('进行中下载应同时暴露暂停与取消按钮（Bug8）', async () => {

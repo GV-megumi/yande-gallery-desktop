@@ -224,13 +224,14 @@ declare global {
         updateSite: (id: number, updates: Partial<Omit<BooruSiteRecord, 'id' | 'createdAt' | 'updatedAt' | 'authenticated'>>) => Promise<{ success: boolean; error?: string }>;
         deleteSite: (id: number) => Promise<{ success: boolean; error?: string }>;
         getActiveSite: () => Promise<{ success: boolean; data?: BooruSite | null; error?: string }>;
+        setActiveSite: (siteId: number) => Promise<{ success: boolean; error?: string }>;
         getPosts: (siteId: number, page?: number, tags?: string[], limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPost: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         searchPosts: (siteId: number, tags: string[], page?: number, limit?: number, fetchTagCategories?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
         onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => () => void;
-        removeFavorite: (postId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
+        removeFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
         addToDownload: (postId: number, siteId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         retryDownload: (postId: number, siteId: number) => Promise<{ success: boolean; error?: string }>;
         getDownloadQueue: (status?: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
@@ -280,6 +281,11 @@ declare global {
         getFavoriteTagLabels: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavoriteTagLabel: (name: string, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagLabel: (id: number) => Promise<{ success: boolean; error?: string }>;
+        getFavoriteGroups: (siteId?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        createFavoriteGroup: (name: string, siteId?: number, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
+        updateFavoriteGroup: (id: number, updates: { name?: string; color?: string }) => Promise<{ success: boolean; error?: string }>;
+        deleteFavoriteGroup: (id: number) => Promise<{ success: boolean; error?: string }>;
+        moveFavoriteToGroup: (postId: number, siteId: number, groupId: number | null) => Promise<{ success: boolean; error?: string }>;
         addSearchHistory: (siteId: number, query: string, resultCount?: number) => Promise<{ success: boolean; error?: string }>;
         getSearchHistory: (siteId?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         clearSearchHistory: (siteId?: number) => Promise<{ success: boolean; error?: string }>;

@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 
 import React from 'react';
-import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vitest';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
+import type { RendererAppEvent } from '../../../src/shared/types';
 import { BooruCharacterPage } from '../../../src/renderer/pages/BooruCharacterPage';
 
 const getSites = vi.fn();
@@ -14,12 +15,32 @@ const isFavoriteTag = vi.fn();
 const addToDownload = vi.fn();
 const getAppearancePreference = vi.fn();
 const getConfig = vi.fn();
+const onAppEvent = vi.fn();
+let appEventCallback: ((event: RendererAppEvent) => void) | undefined;
+
+function appEvent<TType extends RendererAppEvent['type']>(
+  type: TType,
+  payload: Extract<RendererAppEvent, { type: TType }>['payload'],
+): Extract<RendererAppEvent, { type: TType }> {
+  return {
+    type,
+    version: 1,
+    occurredAt: '2026-06-09T00:00:00.000Z',
+    source: 'booruService',
+    payload,
+  } as Extract<RendererAppEvent, { type: TType }>;
+}
 
 vi.mock('../../../src/renderer/components/BooruGridLayout', () => ({
-  BooruGridLayout: ({ posts, onDownload }: { posts: any[]; onDownload: (post: any) => void }) => (
+  BooruGridLayout: ({ posts, onDownload, serverFavorites }: { posts: any[]; onDownload: (post: any) => void; serverFavorites?: Set<number> }) => (
     <div>
       <button onClick={() => onDownload(posts[0])}>触发下载</button>
       <div data-testid="post-count">{posts.length}</div>
+      <div data-testid="first-favorite">{String(Boolean(posts[0]?.isFavorited))}</div>
+      <div data-testid="first-liked">{String(Boolean(posts[0]?.isLiked))}</div>
+      <div data-testid="first-server-favorite">{String(Boolean(posts[0] && serverFavorites?.has(posts[0].postId)))}</div>
+      <div data-testid="first-downloaded">{String(Boolean(posts[0]?.downloaded))}</div>
+      <div data-testid="first-local-image-id">{String(posts[0]?.localImageId ?? '')}</div>
     </div>
   ),
 }));
@@ -49,8 +70,17 @@ vi.mock('../../../src/renderer/hooks/useFavorite', () => ({
 }));
 
 describe('BooruCharacterPage download bridge', () => {
+  afterEach(() => {
+    cleanup();
+  });
+
   beforeEach(() => {
+    appEventCallback = undefined;
     vi.clearAllMocks();
+    onAppEvent.mockImplementation((callback: (event: RendererAppEvent) => void) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -132,6 +162,9 @@ describe('BooruCharacterPage download bridge', () => {
       window: {
         openTagSearch: vi.fn(),
       },
+      system: {
+        onAppEvent,
+      },
     };
   });
 
@@ -168,5 +201,48 @@ describe('BooruCharacterPage download bridge', () => {
     await waitFor(() => {
       expect(addToDownload).toHaveBeenCalledWith(12345, 1);
     });
+  });
+
+  it('应响应统一 Booru 领域事件并局部更新当前结果', async () => {
+    render(
+      <App>
+        <BooruCharacterPage characterName="asuka" />
+      </App>
+    );
+
+    await waitFor(() => {
+      expect(searchPosts).toHaveBeenCalledWith(1, ['asuka'], 1, 20);
+    });
+    expect(screen.getByTestId('first-favorite').textContent).toBe('false');
+    expect(screen.getByTestId('first-liked').textContent).toBe('false');
+    expect(screen.getByTestId('first-downloaded').textContent).toBe('false');
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:post-favorite-changed', {
+        action: 'added',
+        siteId: 1,
+        postId: 12345,
+        isFavorited: true,
+      }));
+      appEventCallback?.(appEvent('booru:post-server-favorite-changed', {
+        action: 'liked',
+        siteId: 1,
+        postId: 12345,
+        isLiked: true,
+      }));
+      appEventCallback?.(appEvent('booru:post-download-state-changed', {
+        action: 'markedDownloaded',
+        siteId: 1,
+        postId: 12345,
+        downloaded: true,
+        localImageId: 987,
+      }));
+    });
+
+    expect(screen.getByTestId('first-favorite').textContent).toBe('true');
+    expect(screen.getByTestId('first-liked').textContent).toBe('true');
+    expect(screen.getByTestId('first-server-favorite').textContent).toBe('true');
+    expect(screen.getByTestId('first-downloaded').textContent).toBe('true');
+    expect(screen.getByTestId('first-local-image-id').textContent).toBe('987');
   });
 });

@@ -14,7 +14,7 @@ interface Post {
 
 interface FavoriteAPI {
   addFavorite: (postId: number, siteId: number, isServer: boolean) => Promise<{ success: boolean; error?: string }>;
-  removeFavorite: (postId: number) => Promise<{ success: boolean; error?: string }>;
+  removeFavorite: (postId: number, siteId: number, isServer: boolean) => Promise<{ success: boolean; error?: string }>;
 }
 
 class FavoriteManager {
@@ -40,7 +40,7 @@ class FavoriteManager {
 
     try {
       if (currentlyFavorited) {
-        const result = await this.api.removeFavorite(post.postId);
+        const result = await this.api.removeFavorite(post.postId, this.siteId, false);
         if (result.success) {
           this.favorites.delete(post.postId);
           return { success: true, isFavorited: false };
@@ -136,7 +136,7 @@ describe('FavoriteManager（useFavorite 等价逻辑）', () => {
       const result = await manager.toggleFavorite({ postId: 100 });
 
       expect(result).toEqual({ success: true, isFavorited: false });
-      expect(mockAPI.removeFavorite).toHaveBeenCalledWith(100);
+      expect(mockAPI.removeFavorite).toHaveBeenCalledWith(100, 1, false);
       expect(manager.isFavorited({ postId: 100 })).toBe(false);
     });
 

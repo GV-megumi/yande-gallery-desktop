@@ -2,9 +2,10 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { BlacklistedTagsPage } from '../../../src/renderer/pages/BlacklistedTagsPage';
+import type { RendererAppEvent } from '../../../src/shared/types';
 
 const getBlacklistedTags = vi.fn();
 const getSites = vi.fn();
@@ -12,6 +13,8 @@ const getConfig = vi.fn();
 const saveConfig = vi.fn();
 const getBlacklistedTagsPreferences = vi.fn();
 const saveBlacklistedTagsPreferences = vi.fn();
+const onAppEvent = vi.fn();
+let appEventCallback: ((event: RendererAppEvent) => void) | undefined;
 
 function renderPage(active = true) {
   return render(
@@ -21,9 +24,23 @@ function renderPage(active = true) {
   );
 }
 
+function appEvent<TType extends RendererAppEvent['type']>(
+  type: TType,
+  payload: Extract<RendererAppEvent, { type: TType }>['payload'],
+): Extract<RendererAppEvent, { type: TType }> {
+  return {
+    type,
+    version: 1,
+    occurredAt: '2026-06-09T00:00:00.000Z',
+    source: 'booruService',
+    payload,
+  } as Extract<RendererAppEvent, { type: TType }>;
+}
+
 describe('BlacklistedTagsPage page preference persistence', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    appEventCallback = undefined;
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -59,6 +76,10 @@ describe('BlacklistedTagsPage page preference persistence', () => {
     saveConfig.mockResolvedValue({ success: true });
     getBlacklistedTagsPreferences.mockResolvedValue({ success: true, data: undefined });
     saveBlacklistedTagsPreferences.mockResolvedValue({ success: true });
+    onAppEvent.mockImplementation((callback: (event: RendererAppEvent) => void) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
 
     (window as any).electronAPI = {
       booru: {
@@ -81,6 +102,9 @@ describe('BlacklistedTagsPage page preference persistence', () => {
           get: getBlacklistedTagsPreferences,
           save: saveBlacklistedTagsPreferences,
         },
+      },
+      system: {
+        onAppEvent,
       },
     };
   });
@@ -217,6 +241,72 @@ describe('BlacklistedTagsPage page preference persistence', () => {
 
     const firstReactivatedSave = saveBlacklistedTagsPreferences.mock.calls[0]?.[0];
     expect(firstReactivatedSave).toEqual(reactivatedPreferences);
+  });
+
+  it('active 页面收到黑名单和站点领域事件后应重拉列表与站点', async () => {
+    renderPage(true);
+
+    await waitFor(() => {
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
+
+    getBlacklistedTags.mockClear();
+    getSites.mockClear();
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'blocked_tag',
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
+
+    getBlacklistedTags.mockClear();
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:sites-changed', {
+        action: 'activeChanged',
+        siteId: 1,
+        activeSiteId: 1,
+        affectedCount: 1,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getSites).toHaveBeenCalledTimes(1);
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('应合并连续黑名单领域事件的列表重拉', async () => {
+    renderPage(true);
+
+    await waitFor(() => {
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
+
+    getBlacklistedTags.mockClear();
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'tag_a',
+      }));
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'deleted',
+        siteId: 1,
+        tagName: 'tag_b',
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
   });
 
 });

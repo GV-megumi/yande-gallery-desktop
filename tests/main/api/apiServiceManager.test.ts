@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const { closeAllApiEvents } = vi.hoisted(() => ({
+const { closeAllApiEvents, publishApiEvent } = vi.hoisted(() => ({
   closeAllApiEvents: vi.fn(),
+  publishApiEvent: vi.fn(),
 }));
 const saveConfig = vi.fn(async () => ({ success: true }));
 const createApiHttpServer = vi.fn();
@@ -26,6 +27,7 @@ vi.mock('../../../src/main/api/server.js', () => ({
 vi.mock('../../../src/main/api/events/eventHub.js', () => ({
   apiEventHub: {
     closeAll: closeAllApiEvents,
+    publish: publishApiEvent,
   },
 }));
 
@@ -154,6 +156,7 @@ describe('apiServiceManager', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.resetAllMocks();
+    publishApiEvent.mockReset();
     saveConfig.mockResolvedValue({ success: true });
     getApiServiceConfig.mockReturnValue(createConfig());
   });

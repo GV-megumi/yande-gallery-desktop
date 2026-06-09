@@ -8,6 +8,7 @@ import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { spacing, colors, fontSize } from '../styles/tokens';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Text } = Typography;
 
@@ -94,23 +95,30 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
   }, []);
 
   // 加载活跃站点
-  useEffect(() => {
-    const loadActiveSite = async () => {
-      try {
-        if (!window.electronAPI) return;
-        const result = await window.electronAPI.booru.getActiveSite();
-        if (result.success && result.data) {
-          const site = result.data;
-          console.log('[BooruServerFavoritesPage] 活跃站点:', site.name, '用户:', site.username || '未登录');
-          setActiveSite(site);
-          setIsLoggedIn(!!site.authenticated);
-        }
-      } catch (error) {
-        console.error('[BooruServerFavoritesPage] 加载活跃站点失败:', error);
+  const loadActiveSite = useCallback(async () => {
+    try {
+      if (!window.electronAPI) return;
+      const result = await window.electronAPI.booru.getActiveSite();
+      if (result.success && result.data) {
+        const site = result.data;
+        console.log('[BooruServerFavoritesPage] 活跃站点:', site.name, '用户:', site.username || '未登录');
+        setActiveSite(site);
+        setIsLoggedIn(!!site.authenticated);
+      } else {
+        setActiveSite(null);
+        setIsLoggedIn(false);
+        setPosts([]);
+        setServerFavorites(new Set());
+        setCurrentPage(1);
       }
-    };
-    loadActiveSite();
+    } catch (error) {
+      console.error('[BooruServerFavoritesPage] 加载活跃站点失败:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    loadActiveSite();
+  }, [loadActiveSite]);
 
   // 加载服务端喜欢列表
   const loadServerFavorites = useCallback(async (page: number = 1) => {
@@ -140,6 +148,38 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
     }
   }, [activeSite, isLoggedIn, appearanceConfig.itemsPerPage]);
 
+  useBooruDomainEvents({
+    siteId: activeSite?.id ?? null,
+    active: !suspended,
+    onServerFavoriteChanged: (payload) => {
+      const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
+      if (postIds.length === 0) return;
+      const postIdSet = new Set(postIds);
+
+      setServerFavorites(prev => {
+        const next = new Set(prev);
+        for (const postId of postIdSet) {
+          if (payload.isLiked) next.add(postId);
+          else next.delete(postId);
+        }
+        return next;
+      });
+      if (!payload.isLiked) {
+        setPosts(prev => prev.filter(post => !postIdSet.has(post.postId)));
+      } else {
+        loadServerFavorites(1);
+      }
+    },
+    onPostFavoriteChanged: (payload) => {
+      setPosts(prev => prev.map(post =>
+        post.postId === payload.postId ? { ...post, isFavorited: payload.isFavorited } : post
+      ));
+    },
+    onSitesChanged: () => {
+      loadActiveSite();
+    },
+  });
+
   // 当站点和登录状态就绪时，加载喜欢列表
   useEffect(() => {
     if (activeSite && isLoggedIn) {
@@ -152,7 +192,7 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
     if (!activeSite) return;
     try {
       if (post.isFavorited) {
-        await window.electronAPI.booru.removeFavorite(post.postId);
+        await window.electronAPI.booru.removeFavorite(post.postId, activeSite.id);
         message.success('已取消收藏');
       } else {
         await window.electronAPI.booru.addFavorite(post.postId, activeSite.id);

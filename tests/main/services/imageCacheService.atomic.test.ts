@@ -38,6 +38,7 @@ async function loadService(cacheDir: string, axiosMock = vi.fn()) {
     incrementBrowsing: vi.fn(),
     decrementBrowsing: vi.fn(),
   };
+  const emitBooruImageCacheCleared = vi.fn();
 
   vi.doMock('../../../src/main/services/config.js', () => ({
     getCachePath: () => cacheDir,
@@ -55,12 +56,16 @@ async function loadService(cacheDir: string, axiosMock = vi.fn()) {
     networkScheduler,
   }));
 
+  vi.doMock('../../../src/main/services/appEventPublisher.js', () => ({
+    emitBooruImageCacheCleared,
+  }));
+
   vi.doMock('axios', () => ({
     default: axiosMock,
   }));
 
   const service = await import('../../../src/main/services/imageCacheService.js');
-  return { service, axiosMock, networkScheduler };
+  return { service, axiosMock, networkScheduler, emitBooruImageCacheCleared };
 }
 
 function createDeferred<T = void>() {
@@ -88,6 +93,7 @@ describe('imageCacheService atomic cache writes', () => {
     createWriteStreamSpy.mockRestore();
     vi.doUnmock('../../../src/main/services/config.js');
     vi.doUnmock('../../../src/main/services/networkScheduler.js');
+    vi.doUnmock('../../../src/main/services/appEventPublisher.js');
     vi.doUnmock('axios');
     await fs.rm(cacheDir, { recursive: true, force: true });
   });
@@ -228,6 +234,24 @@ describe('imageCacheService atomic cache writes', () => {
     await expect(service.cacheImage(TEST_URL, md5, extension)).resolves.toBe(final);
     await expect(fs.readFile(final, 'utf8')).resolves.toBe(existingBytes);
     await expect(exists(part)).resolves.toBe(false);
+  });
+
+  it('emits a cache-cleared domain event after deleting cache files', async () => {
+    const first = finalPath(cacheDir, 'aaclearone', 'jpg');
+    const second = finalPath(cacheDir, 'bbcleartwo', 'png');
+    await fs.mkdir(path.dirname(first), { recursive: true });
+    await fs.mkdir(path.dirname(second), { recursive: true });
+    await fs.writeFile(first, 'one');
+    await fs.writeFile(second, 'two');
+
+    const { service, emitBooruImageCacheCleared } = await loadService(cacheDir);
+
+    await expect(service.clearAllCache()).resolves.toMatchObject({ deletedCount: 2 });
+    expect(emitBooruImageCacheCleared).toHaveBeenCalledTimes(1);
+    expect(emitBooruImageCacheCleared).toHaveBeenCalledWith({
+      action: 'cleared',
+      affectedCount: 2,
+    });
   });
 
   it('cleans stale part files when a download fails without creating final cache', async () => {

@@ -8,6 +8,7 @@ import { Button, Input, Modal, Empty, App, Popconfirm, Select, Typography, Tag, 
 import { PlusOutlined, DeleteOutlined, SearchOutlined, EditOutlined, PlayCircleOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
 import { colors, spacing, fontSize, radius, shadows } from '../styles/tokens';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Text } = Typography;
 const ALL_SITES_VALUE = '__all_sites__';
@@ -41,18 +42,19 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
   const [saving, setSaving] = useState(false);
 
   // 加载站点列表
-  useEffect(() => {
-    const loadSites = async () => {
-      if (!window.electronAPI) return;
-      try {
-        const result = await window.electronAPI.booru.getSites();
-        if (result.success && result.data) setSites(result.data);
-      } catch (error) {
-        console.error('[BooruSavedSearchesPage] 加载站点失败:', error);
-      }
-    };
-    loadSites();
+  const loadSites = useCallback(async () => {
+    if (!window.electronAPI) return;
+    try {
+      const result = await window.electronAPI.booru.getSites();
+      if (result.success && result.data) setSites(result.data);
+    } catch (error) {
+      console.error('[BooruSavedSearchesPage] 加载站点失败:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    loadSites();
+  }, [loadSites]);
 
   // 加载保存的搜索
   const loadSearches = useCallback(async () => {
@@ -72,6 +74,16 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
   }, [selectedSiteId]);
 
   useEffect(() => { loadSearches(); }, [loadSearches]);
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    onSavedSearchesChanged: () => {
+      loadSearches();
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   // 打开新建弹窗
   const handleAdd = () => {
@@ -107,7 +119,6 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
         if (result.success) {
           message.success('已更新');
           setModalVisible(false);
-          loadSearches();
         } else {
           message.error('更新失败: ' + result.error);
         }
@@ -116,7 +127,6 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
         if (result.success) {
           message.success('已保存');
           setModalVisible(false);
-          loadSearches();
         } else {
           message.error('保存失败: ' + result.error);
         }
@@ -134,7 +144,6 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
       const result = await window.electronAPI.booru.deleteSavedSearch(id);
       if (result.success) {
         message.success('已删除');
-        loadSearches();
       } else {
         message.error('删除失败: ' + result.error);
       }

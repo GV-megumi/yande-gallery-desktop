@@ -1,7 +1,8 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import { randomUUID } from 'crypto';
+import type { ApiEventChannel } from '../../../shared/types.js';
 
-export type ApiEventChannel = 'downloads' | 'favorite-tags' | 'booru' | 'api-logs' | 'system';
+export type { ApiEventChannel };
 
 export interface ApiEventPayload {
   eventId?: string;

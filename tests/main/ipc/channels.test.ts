@@ -28,6 +28,7 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.BOORU_UPDATE_SITE).toBe('booru:update-site');
     expect(IPC_CHANNELS.BOORU_DELETE_SITE).toBe('booru:delete-site');
     expect(IPC_CHANNELS.BOORU_GET_ACTIVE_SITE).toBe('booru:get-active-site');
+    expect(IPC_CHANNELS.BOORU_SET_ACTIVE_SITE).toBe('booru:set-active-site');
   });
 
   it('应包含 Booru 图片获取通道', () => {
@@ -173,7 +174,7 @@ describe('IPC_CHANNELS', () => {
     // bug9 新增 5：SYSTEM_NAVIGATE、CONFIG_GET/SET_NOTIFICATIONS、CONFIG_GET/SET_DESKTOP
     // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
     // Phase 1 API service adds 7 API_SERVICE_* channels.
-    expect(keys.length).toBe(195);
+    expect(keys.length).toBe(196);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {

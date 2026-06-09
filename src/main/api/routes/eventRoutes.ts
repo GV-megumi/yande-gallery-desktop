@@ -1,13 +1,8 @@
 import type { ApiEventChannel, ApiEventHub } from '../events/eventHub.js';
 import { ApiHttpError, type ApiRoute } from '../types.js';
+import { API_EVENT_CHANNELS } from '../../../shared/types.js';
 
-const ALLOWED_CHANNELS = new Set<ApiEventChannel>([
-  'downloads',
-  'favorite-tags',
-  'booru',
-  'api-logs',
-  'system',
-]);
+const ALLOWED_CHANNELS = new Set<ApiEventChannel>(API_EVENT_CHANNELS);
 
 function eventChannel(value: string | undefined): ApiEventChannel {
   if (value && ALLOWED_CHANNELS.has(value as ApiEventChannel)) {

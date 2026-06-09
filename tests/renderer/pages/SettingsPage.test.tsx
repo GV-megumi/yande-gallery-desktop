@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, render, screen, waitFor, cleanup } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
 import { SettingsPage } from '../../../src/renderer/pages/SettingsPage';
@@ -42,6 +42,7 @@ const setThemeMode = vi.fn();
 const setLocale = vi.fn();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 let consoleLogSpy: ReturnType<typeof vi.spyOn>;
+let appEventCallback: ((event: any) => void) | undefined;
 
 vi.mock('../../../src/renderer/hooks/useTheme', () => ({
   useTheme: () => ({
@@ -134,6 +135,7 @@ vi.mock('../../../src/renderer/locales', () => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  appEventCallback = undefined;
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   consoleLogSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
 
@@ -332,6 +334,10 @@ beforeEach(() => {
       openExternal,
       testBaidu,
       testGoogle,
+      onAppEvent: vi.fn((callback) => {
+        appEventCallback = callback;
+        return vi.fn();
+      }),
     },
     gallery: {
       scanSubfolders,
@@ -353,6 +359,58 @@ afterEach(() => {
 });
 
 describe('SettingsPage general tab behavior', () => {
+  it('接收 config:changed 后应按受影响 section 重新加载配置', async () => {
+    render(<SettingsPage />);
+
+    await screen.findByText('缓存管理');
+    await waitFor(() => {
+      expect(getConfig).toHaveBeenCalledTimes(1);
+    });
+
+    await act(async () => {
+      appEventCallback?.({
+        type: 'config:changed',
+        version: 1,
+        occurredAt: '2026-06-09T00:00:00.000Z',
+        source: 'configService',
+        payload: { version: 2, sections: ['downloads'] },
+      });
+    });
+
+    await waitFor(() => {
+      expect(getConfig).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('接收 api-service:status-changed 后应直接刷新 API 服务状态展示', async () => {
+    render(<SettingsPage />);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+    await screen.findByText('启用 API 服务');
+
+    await act(async () => {
+      appEventCallback?.({
+        type: 'api-service:status-changed',
+        version: 1,
+        occurredAt: '2026-06-09T00:00:00.000Z',
+        source: 'apiService',
+        payload: {
+          running: true,
+          enabled: true,
+          mode: 'localhost',
+          port: 38947,
+          bindAddress: '127.0.0.1',
+          baseUrl: 'http://127.0.0.1:38947',
+          startedAt: '2026-06-09T00:00:00.000Z',
+          lastError: null,
+        },
+      });
+    });
+
+    await screen.findByText('运行中 http://127.0.0.1:38947');
+  });
+
   it('API 服务页应加载配置并保存启用状态的精确 patch', async () => {
     render(<SettingsPage />);
 

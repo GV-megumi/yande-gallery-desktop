@@ -311,6 +311,13 @@ describe('bulkDownloadService TP-03', () => {
     });
 
     const runWithChanges = vi.fn().mockImplementation(async (_db, sql: string, params: any[] = []) => {
+      if (sql.includes('INSERT OR IGNORE INTO bulk_download_records')) {
+        const [url, sessionIdParam] = params;
+        const exists = state.records.some(record => record.url === url && record.sessionId === sessionIdParam);
+        await run(_db, sql, params);
+        return { changes: exists ? 0 : 1 };
+      }
+
       if (!sql.includes('UPDATE bulk_download_records')) {
         return { changes: 0 };
       }

@@ -11,6 +11,7 @@ import { getBooruPreviewUrl } from '../utils/url';
 import { spacing } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Title } = Typography;
 
@@ -124,6 +125,13 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         
         if (result.data.length > 0) {
           setSelectedSiteId(result.data[0].id);
+        } else {
+          setSelectedSiteId(null);
+          setPosts([]);
+          setGroups([]);
+          setFavorites(new Set());
+          setCurrentPage(1);
+          setHasMore(true);
         }
       } else {
         console.error('[BooruFavoritesPage] 加载站点列表失败:', result.error);
@@ -160,7 +168,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       setGroupModalVisible(false);
       setEditingGroup(null);
       setNewGroupName('');
-      loadGroups();
     } catch (error) {
       message.error('操作失败');
     }
@@ -172,8 +179,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       await window.electronAPI.booru.deleteFavoriteGroup(groupId);
       message.success('分组已删除');
       if (selectedGroupId === groupId) setSelectedGroupId('all');
-      loadGroups();
-      loadFavorites(1);
     } catch (error) {
       message.error('删除失败');
     }
@@ -224,6 +229,21 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       setLoading(false);
     }
   };
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: !suspended,
+    onPostFavoriteChanged: () => {
+      loadFavorites(currentPage);
+    },
+    onFavoriteGroupsChanged: () => {
+      loadGroups();
+      loadFavorites(currentPage);
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   // 处理站点切换
   const handleSiteChange = (siteId: number) => {
