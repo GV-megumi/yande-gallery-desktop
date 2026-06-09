@@ -45,6 +45,12 @@ let trackedCacheSize = -1; // -1 表示未初始化
 // 内存中追踪缓存大小，避免每次都遍历文件系统
 let memoryCacheSizeMB = -1; // -1 表示尚未初始化
 let lastCacheSizeCheckTime = 0;
+
+function resetCacheSizeTracking(): void {
+  trackedCacheSize = -1;
+  memoryCacheSizeMB = -1;
+  lastCacheSizeCheckTime = 0;
+}
 const CACHE_SIZE_CHECK_INTERVAL = 5 * 60 * 1000; // 每 5 分钟最多重新扫描一次
 
 /**
@@ -55,6 +61,23 @@ function getCacheFilePath(md5: string, extension: string): string {
   // 使用 MD5 的前两位作为子目录，避免单个目录文件过多
   const subDir = md5.substring(0, 2);
   return path.join(cacheDir, subDir, `${md5}.${extension}`);
+}
+
+function getTempCacheFilePath(cachePath: string): string {
+  return `${cachePath}.part`;
+}
+
+function isTempCacheFile(filePath: string): boolean {
+  return filePath.endsWith('.part');
+}
+
+async function removeTempCacheFile(tempCachePath: string): Promise<void> {
+  try {
+    await fs.unlink(tempCachePath);
+    resetCacheSizeTracking();
+  } catch {
+    // 忽略删除错误
+  }
 }
 
 /**
@@ -77,6 +100,8 @@ async function calculateFullCacheSize(): Promise<number> {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await calculateSize(fullPath);
+      } else if (isTempCacheFile(fullPath)) {
+        return;
       } else {
         const stats = await fs.stat(fullPath);
         totalSize += stats.size;
@@ -157,6 +182,8 @@ async function cleanCache(targetSizeMB?: number): Promise<void> {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await collectFiles(fullPath);
+      } else if (isTempCacheFile(fullPath)) {
+        return;
       } else {
         const stats = await fs.stat(fullPath);
         files.push({ path: fullPath, mtime: stats.mtimeMs, size: stats.size });
@@ -254,13 +281,7 @@ export async function getCachedImagePath(md5: string, extension: string): Promis
  * @returns 缓存文件路径
  */
 export async function cacheImage(url: string, md5: string, extension: string): Promise<string> {
-  // 检查缓存是否已存在
-  const existingPath = await getCachedImagePath(md5, extension);
-  if (existingPath) {
-    return existingPath;
-  }
-
-  // 防止同一图片并发下载：如果已有进行中的请求，直接复用
+  // 防止同一图片并发下载：同步注册 promise，避免等待 slot 时同 key 重复下载
   const cacheKey = `${md5}.${extension}`;
   const existing = inFlightRequests.get(cacheKey);
   if (existing) {
@@ -268,24 +289,31 @@ export async function cacheImage(url: string, md5: string, extension: string): P
     return existing;
   }
 
-  // 获取并发许可
-  await acquireCacheSlot();
+  const downloadPromise = (async () => {
+    const existingPath = await getCachedImagePath(md5, extension);
+    if (existingPath) {
+      return existingPath;
+    }
 
-  // 通知网络调度器：浏览请求开始
-  networkScheduler.incrementBrowsing();
+    await acquireCacheSlot();
+    networkScheduler.incrementBrowsing();
+    try {
+      return await doCacheImage(url, md5, extension);
+    } finally {
+      networkScheduler.decrementBrowsing();
+      releaseCacheSlot();
+    }
+  })();
 
   // 创建下载 Promise 并注册到 in-flight map
-  const downloadPromise = doCacheImage(url, md5, extension);
   inFlightRequests.set(cacheKey, downloadPromise);
 
   try {
     return await downloadPromise;
   } finally {
-    inFlightRequests.delete(cacheKey);
-    // 通知网络调度器：浏览请求结束
-    networkScheduler.decrementBrowsing();
-    // 释放并发许可
-    releaseCacheSlot();
+    if (inFlightRequests.get(cacheKey) === downloadPromise) {
+      inFlightRequests.delete(cacheKey);
+    }
   }
 }
 
@@ -293,15 +321,17 @@ export async function cacheImage(url: string, md5: string, extension: string): P
  * 实际执行图片缓存下载（内部方法）
  */
 async function doCacheImage(url: string, md5: string, extension: string): Promise<string> {
-  // 检查并清理缓存
-  await checkAndCleanCache();
-
   // 下载图片
   const cachePath = getCacheFilePath(md5, extension);
+  const tempCachePath = getTempCacheFilePath(cachePath);
   const cacheDir = path.dirname(cachePath);
 
   // 确保缓存目录存在
   await fs.mkdir(cacheDir, { recursive: true });
+  await removeTempCacheFile(tempCachePath);
+
+  // 检查并清理缓存
+  await checkAndCleanCache();
 
   console.log(`[imageCacheService] 开始缓存图片: ${url.substring(0, 100)}...`);
 
@@ -340,10 +370,17 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
       }
     });
 
-    const writer = fsSync.createWriteStream(cachePath);
+    const writer = fsSync.createWriteStream(tempCachePath);
 
     // 使用 pipeline 自动处理背压和错误传播（替代 .pipe()）
     await pipeline(response.data, writer);
+    const publishedPath = await getCachedImagePath(md5, extension);
+    if (publishedPath) {
+      await removeTempCacheFile(tempCachePath);
+      return publishedPath;
+    }
+
+    await fs.rename(tempCachePath, cachePath);
     console.log(`[imageCacheService] 图片缓存成功: ${cachePath}`);
 
     // 增量更新两个缓存大小追踪器（避免下次检查时重新遍历目录）
@@ -360,12 +397,8 @@ async function doCacheImage(url: string, md5: string, extension: string): Promis
 
     return cachePath;
   } catch (error) {
-    // 如果下载失败，尝试删除可能的部分文件
-    try {
-      await fs.unlink(cachePath);
-    } catch {
-      // 忽略删除错误
-    }
+    // 如果下载失败，只清理写入中的临时文件，不删除已完成的缓存
+    await removeTempCacheFile(tempCachePath);
     throw error;
   }
 }
@@ -416,6 +449,8 @@ export async function getCacheStats(): Promise<{ sizeMB: number; fileCount: numb
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
         await countFiles(fullPath);
+      } else if (isTempCacheFile(fullPath)) {
+        return;
       } else {
         const stats = await fs.stat(fullPath);
         totalSize += stats.size;
