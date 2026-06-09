@@ -18,6 +18,7 @@ interface PaginationControlProps {
   onNext: () => void;
   /** 跳转到指定页码（可选，不提供时仅支持上下页） */
   onPageChange?: (page: number) => void;
+  disabled?: boolean;
 }
 
 const shouldRender = (config: string, position: string): boolean => {
@@ -87,7 +88,8 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
   position,
   onPrevious,
   onNext,
-  onPageChange
+  onPageChange,
+  disabled = false
 }) => {
   if (!shouldRender(paginationPosition, position)) return null;
 
@@ -107,6 +109,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
   }, [jumpInputVisible]);
 
   const handleJump = () => {
+    if (disabled) return;
     if (jumpValue && jumpValue >= 1 && jumpValue !== currentPage && onPageChange) {
       onPageChange(jumpValue);
     }
@@ -115,6 +118,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
   };
 
   const handlePageClick = (page: number) => {
+    if (disabled) return;
     if (page === currentPage) return;
     if (onPageChange) {
       onPageChange(page);
@@ -144,7 +148,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
       {/* 上一页 */}
       <Button
         icon={<LeftOutlined />}
-        disabled={!hasPrev}
+        disabled={disabled || !hasPrev}
         onClick={onPrevious}
         size="small"
         type="text"
@@ -165,6 +169,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
               onChange={(v) => setJumpValue(v)}
               onPressEnter={handleJump}
               onBlur={handleJump}
+              disabled={disabled}
               placeholder="页码"
               style={{
                 width: 64, height: 32,
@@ -178,11 +183,12 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
             <button
               key={`ellipsis-${idx}`}
               onClick={() => {
-                if (onPageChange) {
+                if (!disabled && onPageChange) {
                   setJumpInputVisible(true);
                   setJumpValue(null);
                 }
               }}
+              disabled={disabled}
               style={{
                 width: 32, height: 32,
                 minWidth: 32,
@@ -193,13 +199,13 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
                 color: colors.textTertiary,
                 fontSize: fontSize.sm,
                 fontFamily: 'var(--font-mono, monospace)',
-                cursor: onPageChange ? 'pointer' : 'default',
+                cursor: disabled ? 'not-allowed' : onPageChange ? 'pointer' : 'default',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
                 transition: 'color 0.15s ease',
                 letterSpacing: 2,
               }}
-              title={onPageChange ? '点击输入页码跳转' : undefined}
-              onMouseEnter={(e) => { if (onPageChange) e.currentTarget.style.color = colors.primary; }}
+              title={!disabled && onPageChange ? '点击输入页码跳转' : undefined}
+              onMouseEnter={(e) => { if (!disabled && onPageChange) e.currentTarget.style.color = colors.primary; }}
               onMouseLeave={(e) => { e.currentTarget.style.color = colors.textTertiary; }}
             >
               ...
@@ -211,14 +217,18 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
           <button
             key={page}
             onClick={() => handlePageClick(page)}
-            style={pageButtonStyle(page === currentPage)}
+            disabled={disabled}
+            style={{
+              ...pageButtonStyle(page === currentPage),
+              cursor: disabled ? 'not-allowed' : page === currentPage ? 'default' : 'pointer',
+            }}
             onMouseEnter={(e) => {
-              if (page !== currentPage) {
+              if (!disabled && page !== currentPage) {
                 e.currentTarget.style.background = colors.bgGray;
               }
             }}
             onMouseLeave={(e) => {
-              if (page !== currentPage) {
+              if (!disabled && page !== currentPage) {
                 e.currentTarget.style.background = 'transparent';
               }
             }}
@@ -231,7 +241,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
       {/* 下一页 */}
       <Button
         icon={<RightOutlined />}
-        disabled={!hasNext}
+        disabled={disabled || !hasNext}
         onClick={onNext}
         size="small"
         type="text"

@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, useLayoutEffect } from 'react';
 import { Collapse, Tag, Space, Typography, Tooltip, App } from 'antd';
 import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons';
-import { BooruPost, BooruSite } from '../../../shared/types';
+import { BlacklistedTag, BooruPost, BooruSite } from '../../../shared/types';
 import { ContextMenu } from '../ContextMenu';
 
 const { Text } = Typography;
@@ -12,6 +12,11 @@ interface TagsSectionProps {
   onTagClick?: (tag: string) => void;
   onArtistClick?: (artistName: string) => void;
   onCharacterClick?: (characterName: string) => void;
+}
+
+interface SiteToken {
+  siteId: number | null;
+  version: number;
 }
 
 // 纯函数提取到组件外，避免每次渲染重建
@@ -64,6 +69,18 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
   const [expanded, setExpanded] = useState(false);
   const [tagCategories, setTagCategories] = useState<Record<string, string>>({});
   const [favoritedTags, setFavoritedTags] = useState<Set<string>>(new Set());
+  const [blacklistedTagsByName, setBlacklistedTagsByName] = useState<Map<string, BlacklistedTag>>(() => new Map());
+  const currentSiteId = site?.id ?? null;
+  const committedSiteTokenRef = useRef<SiteToken>({ siteId: currentSiteId, version: 0 });
+
+  useLayoutEffect(() => {
+    const token = committedSiteTokenRef.current;
+    if (token.siteId === currentSiteId) return;
+    committedSiteTokenRef.current = {
+      siteId: currentSiteId,
+      version: token.version + 1,
+    };
+  }, [currentSiteId]);
 
   // 从数据库获取标签分类
   useEffect(() => {
@@ -110,6 +127,57 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
     loadFavoriteStatus();
   }, [site]);
 
+  const fetchBlacklistedTagMap = useCallback(async (siteId: number): Promise<Map<string, BlacklistedTag>> => {
+    const result = await window.electronAPI.booru.getBlacklistedTags({ siteId, limit: 0 });
+    if (!result.success || !result.data) return new Map();
+
+    return result.data.items.reduce<Map<string, BlacklistedTag>>((map, tag) => {
+      map.set(tag.tagName, tag);
+      return map;
+    }, new Map());
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (currentSiteId === null) {
+      setBlacklistedTagsByName(new Map());
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const siteId = currentSiteId;
+    setBlacklistedTagsByName(new Map());
+
+    const loadBlacklistedStatus = async () => {
+      try {
+        const tagMap = await fetchBlacklistedTagMap(siteId);
+        if (!cancelled) {
+          setBlacklistedTagsByName(tagMap);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          console.error('[TagsSection] 加载黑名单标签状态失败:', error);
+          setBlacklistedTagsByName(new Map());
+        }
+      }
+    };
+
+    loadBlacklistedStatus();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [currentSiteId, fetchBlacklistedTagMap]);
+
+  const getCurrentSiteToken = useCallback(() => committedSiteTokenRef.current, []);
+
+  const isCurrentSiteRequest = useCallback((requestToken: SiteToken) => {
+    const currentToken = committedSiteTokenRef.current;
+    return currentToken.siteId === requestToken.siteId && currentToken.version === requestToken.version;
+  }, []);
+
   const toggleFavoriteTag = useCallback(async (tagName: string) => {
     if (!site) return;
     const isFav = favoritedTags.has(tagName);
@@ -133,24 +201,68 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
     }
   }, [site, favoritedTags, message]);
 
-  const addToBlacklist = useCallback(async (tagName: string) => {
+  const toggleBlacklistTag = useCallback(async (tagName: string) => {
     if (!site) return;
+    const requestToken = getCurrentSiteToken();
+    const siteId = site.id;
+    if (requestToken.siteId !== siteId) return;
+    const existing = blacklistedTagsByName.get(tagName);
+
     try {
-      const result = await window.electronAPI.booru.addBlacklistedTag(tagName, site.id);
-      if (result.success) {
-        message.success(`已加入黑名单: ${tagName.replace(/_/g, ' ')}`);
-      } else {
-        if (result.error?.includes('UNIQUE constraint')) {
-          message.warning(`标签已在黑名单中: ${tagName.replace(/_/g, ' ')}`);
+      if (existing) {
+        const result = await window.electronAPI.booru.removeBlacklistedTag(existing.id);
+        if (!isCurrentSiteRequest(requestToken)) return;
+
+        if (result.success) {
+          setBlacklistedTagsByName(prev => {
+            const next = new Map(prev);
+            next.delete(tagName);
+            return next;
+          });
+          message.success(`已移除黑名单: ${tagName.replace(/_/g, ' ')}`);
         } else {
           message.error('操作失败: ' + result.error);
         }
+      } else {
+        const result = await window.electronAPI.booru.addBlacklistedTag(tagName, siteId);
+        if (!isCurrentSiteRequest(requestToken)) return;
+
+        if (result.success) {
+          if (result.data) {
+            setBlacklistedTagsByName(prev => {
+              const next = new Map(prev);
+              next.set(tagName, result.data as BlacklistedTag);
+              return next;
+            });
+          } else {
+            const tagMap = await fetchBlacklistedTagMap(siteId);
+            if (!isCurrentSiteRequest(requestToken)) return;
+            setBlacklistedTagsByName(tagMap);
+          }
+          message.success(`已加入黑名单: ${tagName.replace(/_/g, ' ')}`);
+        } else {
+          if (result.error?.includes('UNIQUE constraint')) {
+            try {
+              const tagMap = await fetchBlacklistedTagMap(siteId);
+              if (isCurrentSiteRequest(requestToken)) {
+                setBlacklistedTagsByName(tagMap);
+              }
+            } catch (reloadError) {
+              console.error('[TagsSection] 重新加载黑名单标签状态失败:', reloadError);
+            }
+            if (!isCurrentSiteRequest(requestToken)) return;
+            message.warning(`标签已在黑名单中: ${tagName.replace(/_/g, ' ')}`);
+          } else {
+            message.error('操作失败: ' + result.error);
+          }
+        }
       }
     } catch (error) {
-      console.error('[TagsSection] 添加黑名单标签失败:', error);
+      if (!isCurrentSiteRequest(requestToken)) return;
+      console.error('[TagsSection] 切换黑名单标签失败:', error);
       message.error('操作失败');
     }
-  }, [site, message]);
+  }, [site, blacklistedTagsByName, fetchBlacklistedTagMap, getCurrentSiteToken, isCurrentSiteRequest, message]);
 
   // 使用 useMemo 缓存标签解析和分类结果
   const allTags = useMemo(() => parseTags(post.tags), [post.tags]);
@@ -167,6 +279,7 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
 
   const renderTag = useCallback((tag: string, category: string, index: number) => {
     const isFav = favoritedTags.has(tag);
+    const isBlacklisted = blacklistedTagsByName.has(tag);
     const tagContextItems = [
       { key: 'copy', label: '复制标签', icon: <CopyOutlined />, onClick: () => {
         navigator.clipboard.writeText(tag);
@@ -174,7 +287,7 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
       }},
       ...(onTagClick ? [{ key: 'search', label: '按该标签搜索', icon: <SearchOutlined />, onClick: () => onTagClick(tag) }] : []),
       { key: 'favorite', label: isFav ? '取消收藏标签' : '收藏标签', icon: isFav ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />, onClick: () => toggleFavoriteTag(tag) },
-      { key: 'blacklist', label: '加入黑名单', icon: <StopOutlined style={{ color: '#FF3B30' }} />, onClick: () => addToBlacklist(tag) },
+      { key: 'blacklist', label: isBlacklisted ? '移除黑名单' : '加入黑名单', icon: <StopOutlined style={{ color: '#FF3B30' }} />, onClick: () => toggleBlacklistTag(tag) },
     ];
     return (
       <ContextMenu key={`${category}-${index}`} items={tagContextItems}>
@@ -197,7 +310,7 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
         </Tooltip>
       </ContextMenu>
     );
-  }, [favoritedTags, onTagClick, toggleFavoriteTag, addToBlacklist, handleTagClick, message]);
+  }, [favoritedTags, blacklistedTagsByName, onTagClick, toggleFavoriteTag, toggleBlacklistTag, handleTagClick, message]);
 
   return (
     <div style={{ marginBottom: '24px' }}>

@@ -81,7 +81,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [previewQuality, setPreviewQuality] = useState<'auto' | 'low' | 'medium' | 'high' | 'original'>('auto');
   const [imageUrl, setImageUrl] = useState<string>('');
+  const [imageVersion, setImageVersion] = useState(0);
   const [isCaching, setIsCaching] = useState(false);
+  const [activeImageRequestId, setActiveImageRequestId] = useState(0);
+  const [activeImagePostId, setActiveImagePostId] = useState<number | null>(null);
+  const imageRequestIdRef = useRef(0);
   const [imageMetadata, setImageMetadata] = useState<{
     format?: string;
     width?: number;
@@ -138,6 +142,30 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     return post;
   }, [post, posts, currentIndex, syncedPostId]);
 
+  const imageLoadKey = useMemo(() => {
+    if (!open || !currentPost) return 'closed';
+    return JSON.stringify([
+      currentPost.postId,
+      currentPost.siteId,
+      currentPost.localPath || '',
+      currentPost.fileUrl || '',
+      currentPost.sampleUrl || '',
+      currentPost.previewUrl || '',
+      currentPost.md5 || '',
+      currentPost.fileExt || '',
+    ]);
+  }, [
+    open,
+    currentPost?.postId,
+    currentPost?.siteId,
+    currentPost?.localPath,
+    currentPost?.fileUrl,
+    currentPost?.sampleUrl,
+    currentPost?.previewUrl,
+    currentPost?.md5,
+    currentPost?.fileExt,
+  ]);
+
   // 重置图片缩放和位置
   useEffect(() => {
     if (open && currentPost) {
@@ -189,9 +217,38 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
 
   // 加载并缓存原图
   useEffect(() => {
-    if (!open || !currentPost) {
+    const requestId = imageRequestIdRef.current + 1;
+    imageRequestIdRef.current = requestId;
+    let cancelled = false;
+
+    const isCurrentRequest = () => !cancelled && imageRequestIdRef.current === requestId;
+    const clearImageForRequest = () => {
+      if (!isCurrentRequest()) return;
       setImageUrl('');
-      return;
+      setActiveImageRequestId(requestId);
+      setActiveImagePostId(currentPost?.postId ?? null);
+    };
+    const setCachingForRequest = (value: boolean) => {
+      if (isCurrentRequest()) {
+        setIsCaching(value);
+      }
+    };
+    const commitImageUrl = (url: string) => {
+      if (!isCurrentRequest()) return false;
+      setImageUrl(url);
+      setImageVersion((value) => value + 1);
+      setActiveImageRequestId(requestId);
+      setActiveImagePostId(currentPost?.postId ?? null);
+      return true;
+    };
+
+    clearImageForRequest();
+    setCachingForRequest(false);
+
+    if (!open || !currentPost) {
+      return () => {
+        cancelled = true;
+      };
     }
 
     const loadOriginalImage = async () => {
@@ -207,7 +264,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
             appUrl = `app://${appUrl}`;
           }
           console.log('[BooruPostDetailsPage] 使用本地图片路径:', appUrl);
-          setImageUrl(appUrl);
+          commitImageUrl(appUrl);
           return;
         } catch (e) {
           console.warn('[BooruPostDetailsPage] 本地路径转换失败:', e);
@@ -218,32 +275,32 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       if (!currentPost.fileUrl) {
         const url = currentPost.sampleUrl || currentPost.previewUrl || '';
         console.log('[BooruPostDetailsPage] 没有原图URL，使用:', url ? 'sampleUrl/previewUrl' : '无');
-        setImageUrl(url);
+        commitImageUrl(url);
         return;
       }
 
       // 视频帖子直接使用原图 URL，不走缓存（视频文件过大）
       if (isVideoPost(currentPost)) {
         console.log('[BooruPostDetailsPage] 视频帖子，直接使用原图URL');
-        setImageUrl(currentPost.fileUrl);
+        commitImageUrl(currentPost.fileUrl);
         return;
       }
 
       // 检查是否有 MD5 和扩展名
       if (!currentPost.md5 || !currentPost.fileExt) {
         console.warn('[BooruPostDetailsPage] 缺少 MD5 或扩展名，直接使用原图URL');
-        setImageUrl(currentPost.fileUrl);
+        commitImageUrl(currentPost.fileUrl);
         return;
       }
 
       // 先检查缓存
-      setIsCaching(true);
+      setCachingForRequest(true);
       try {
         const cachedUrlResult = await window.electronAPI.booru.getCachedImageUrl(currentPost.md5, currentPost.fileExt);
+        if (!isCurrentRequest()) return;
         if (cachedUrlResult.success && cachedUrlResult.data) {
           console.log('[BooruPostDetailsPage] 使用缓存图片:', cachedUrlResult.data);
-          setImageUrl(cachedUrlResult.data);
-          setIsCaching(false);
+          commitImageUrl(cachedUrlResult.data);
           return;
         }
 
@@ -255,23 +312,28 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
           currentPost.fileExt
         );
 
+        if (!isCurrentRequest()) return;
         if (cacheResult.success && cacheResult.data) {
           console.log('[BooruPostDetailsPage] 原图缓存成功:', cacheResult.data);
-          setImageUrl(cacheResult.data);
+          commitImageUrl(cacheResult.data);
         } else {
           console.warn('[BooruPostDetailsPage] 原图缓存失败，使用原图URL:', cacheResult.error);
-          setImageUrl(currentPost.fileUrl);
+          commitImageUrl(currentPost.fileUrl);
         }
       } catch (error) {
+        if (!isCurrentRequest()) return;
         console.error('[BooruPostDetailsPage] 加载原图失败:', error);
-        setImageUrl(currentPost.fileUrl);
+        commitImageUrl(currentPost.fileUrl);
       } finally {
-        setIsCaching(false);
+        setCachingForRequest(false);
       }
     };
 
-    loadOriginalImage();
-  }, [open, currentPost]);
+    void loadOriginalImage();
+    return () => {
+      cancelled = true;
+    };
+  }, [imageLoadKey]);
 
   // 预加载前后3张图片（带并发控制和取消机制）
   useEffect(() => {
@@ -666,7 +728,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
             {imageUrl && isVideoPost(currentPost) ? (
               /* 视频播放器 */
               <video
-                key={imageUrl}
+                key={`${activeImageRequestId}:${imageVersion}:${imageUrl}`}
                 src={imageUrl}
                 controls
                 autoPlay
@@ -691,6 +753,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                     <span style={{ color: '#fff', fontSize: 12, marginBottom: 8 }}>{item.label}</span>
                     <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 12, background: 'rgba(255,255,255,0.04)' }}>
                       <img
+                        key={`${item.label}:${item.src}:${item.src === imageUrl ? imageVersion : 0}`}
                         src={item.src}
                         alt={`${item.label}-${currentPost?.postId || ''}`}
                         style={{
@@ -710,6 +773,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
             ) : imageUrl ? (
               /* 图片查看器 */
               <img
+                key={`${activeImageRequestId}:${imageVersion}:${imageUrl}`}
                 src={imageUrl}
                 alt={`Post ${currentPost?.postId || ''}`}
                 style={{
@@ -729,17 +793,28 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                     attemptedUrl: img.src,
                     error: e
                   });
-                  // 如果缓存图片加载失败，尝试使用原图 URL
-                  if (currentPost && imageUrl.startsWith('app://') && currentPost.fileUrl) {
-                    console.log('[BooruPostDetailsPage] 缓存图片加载失败，尝试使用原图URL');
-                    setImageUrl(currentPost.fileUrl);
-                  } else if (currentPost && currentPost.sampleUrl) {
-                    console.log('[BooruPostDetailsPage] 图片加载失败，尝试使用 sampleUrl');
-                    setImageUrl(currentPost.sampleUrl);
-                  } else if (currentPost && currentPost.previewUrl) {
-                    console.log('[BooruPostDetailsPage] 图片加载失败，尝试使用 previewUrl');
-                    setImageUrl(currentPost.previewUrl);
-                  }
+                  const canCommitFallback =
+                    activeImageRequestId === imageRequestIdRef.current &&
+                    activeImagePostId === (currentPost?.postId ?? null);
+                  if (!canCommitFallback) return;
+                  const commitFallbackImageUrl = (url: string) => {
+                    setImageUrl(url);
+                    setImageVersion((value) => value + 1);
+                    setActiveImageRequestId(activeImageRequestId);
+                    setActiveImagePostId(currentPost?.postId ?? null);
+                  };
+                  const fallbackOptions = currentPost ? [
+                    ...(imageUrl.startsWith('app://') && currentPost.fileUrl
+                      ? [{ label: '原图URL', url: currentPost.fileUrl }]
+                      : []),
+                    ...(currentPost.sampleUrl ? [{ label: 'sampleUrl', url: currentPost.sampleUrl }] : []),
+                    ...(currentPost.previewUrl ? [{ label: 'previewUrl', url: currentPost.previewUrl }] : []),
+                  ] : [];
+                  const fallback = fallbackOptions.find(({ url }) => url !== imageUrl && url !== img.src);
+                  if (!fallback) return;
+
+                  console.log(`[BooruPostDetailsPage] 图片加载失败，尝试使用 ${fallback.label}`);
+                  commitFallbackImageUrl(fallback.url);
                 }}
                 onLoad={() => {
                   console.log('[BooruPostDetailsPage] 图片加载成功:', {
@@ -752,8 +827,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
             ) : null}
 
             {/* 注释叠加层（仅图片帖子显示） */}
-            {!isVideoPost(currentPost) && (
-              <NotesOverlay post={currentPost} site={site} />
+            {imageUrl && !compareMode && !isVideoPost(currentPost) && (
+              <NotesOverlay
+                key={`${currentPost.postId}:${activeImageRequestId}:${imageVersion}`}
+                post={currentPost}
+                site={site}
+              />
             )}
 
             {/* 幻灯片控制条 — 底部中央悬浮 */}

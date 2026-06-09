@@ -24,7 +24,7 @@ export const SkeletonGrid: React.FC<SkeletonGridProps> = ({
   gap = spacing.lg,
 }) => {
   return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap }}>
+    <div data-testid="skeleton-grid" style={{ display: 'flex', flexWrap: 'wrap', gap }}>
       {Array.from({ length: count }).map((_, i) => (
         <div
           key={i}

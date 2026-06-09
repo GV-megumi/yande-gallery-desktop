@@ -20,6 +20,8 @@ interface BooruPageProps {
   suspended?: boolean;
 }
 
+type BooruRequestSource = 'manual' | 'pagination';
+
 export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick, onCharacterClick, suspended = false }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -30,6 +32,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   const [selectedTags, setSelectedTags] = useState<string[]>([]);
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pendingPage, setPendingPage] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [isSearchMode, setIsSearchMode] = useState(false);
   // 高级过滤配置（转换为 meta-tags 追加到搜索查询）
@@ -42,6 +45,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   // 挂起时保存/恢复详情弹窗状态（导航栈机制）
   // 请求计数器：用于丢弃快速切换站点时的过期响应
   const loadRequestIdRef = useRef(0);
+  const paginationRequestInFlightRef = useRef(false);
   // 收藏状态管理
   const { favorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
     siteId: selectedSiteId,
@@ -172,22 +176,44 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     setDisabledBlacklistTags(new Set());
   }, [loadBlacklistTagNames]);
 
+  const beginBooruRequest = (page: number, source: BooruRequestSource) => {
+    const requestId = ++loadRequestIdRef.current;
+    paginationRequestInFlightRef.current = source === 'pagination';
+    setPendingPage(page);
+    setLoading(true);
+    return requestId;
+  };
+
+  const isActiveBooruRequest = (requestId: number) => requestId === loadRequestIdRef.current;
+
+  const finishBooruRequest = (requestId: number) => {
+    if (!isActiveBooruRequest(requestId)) return false;
+    paginationRequestInFlightRef.current = false;
+    setPendingPage(null);
+    setLoading(false);
+    return true;
+  };
+
+  const invalidateBooruRequests = () => {
+    loadRequestIdRef.current += 1;
+    paginationRequestInFlightRef.current = false;
+    setPendingPage(null);
+    setLoading(false);
+  };
+
   // 从Booru站点加载图片
-  const loadPosts = async (page: number = 1) => {
+  const loadPosts = async (page: number = 1, source: BooruRequestSource = 'manual') => {
     if (!selectedSiteId) return;
 
     const site = sites.find(s => s.id === selectedSiteId);
     if (!site) return;
 
-    // 递增请求 ID，丢弃快速切换站点时的过期响应
-    const requestId = ++loadRequestIdRef.current;
+    const requestId = beginBooruRequest(page, source);
 
     console.log(`[BooruPage] 加载Booru图片，站点: ${site.name}, 页码: ${page}`);
-    setLoading(true);
 
     try {
       if (!window.electronAPI) {
-        setLoading(false);
         return;
       }
 
@@ -199,7 +225,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       const result = await window.electronAPI.booru.getPosts(selectedSiteId, page, [], appearanceConfig.itemsPerPage);
 
       // 丢弃过期响应（用户可能已切换到其他站点）
-      if (requestId !== loadRequestIdRef.current) {
+      if (!isActiveBooruRequest(requestId)) {
         console.log('[BooruPage] 丢弃过期响应，requestId:', requestId, 'current:', loadRequestIdRef.current);
         return;
       }
@@ -219,16 +245,18 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         message.error('加载图片失败: ' + result.error);
       }
     } catch (error) {
+      if (!isActiveBooruRequest(requestId)) return;
       console.error('[BooruPage] 加载图片失败:', error);
       message.error('加载图片失败');
     } finally {
-      setLoading(false);
-      console.log('[BooruPage] 图片加载完成');
+      if (finishBooruRequest(requestId)) {
+        console.log('[BooruPage] 图片加载完成');
+      }
     }
   };
 
   // 搜索Booru图片
-  const searchPosts = async (query: string, page: number = 1, filterOverride?: FilterConfig) => {
+  const searchPosts = async (query: string, page: number = 1, filterOverride?: FilterConfig, source: BooruRequestSource = 'manual') => {
     if (!selectedSiteId) {
       message.warning('请先选择站点');
       return;
@@ -247,13 +275,13 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     const site = sites.find(s => s.id === selectedSiteId);
     if (!site) return;
 
+    const requestId = beginBooruRequest(page, source);
+
     console.log(`[BooruPage] 搜索Booru图片，站点: ${site.name}, 查询: "${query}", 页码: ${page}`);
-    setLoading(true);
     setIsSearchMode(true);
 
     try {
       if (!window.electronAPI) {
-        setLoading(false);
         return;
       }
 
@@ -262,6 +290,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       console.log('[BooruPage] 搜索标签（含过滤器 meta-tags）:', allTags);
       // 图片浏览界面需要标签分类，所以传递 fetchTagCategories: true
       const result = await window.electronAPI.booru.searchPosts(selectedSiteId, allTags, page, appearanceConfig.itemsPerPage, true);
+      if (!isActiveBooruRequest(requestId)) {
+        console.log('[BooruPage] 丢弃过期搜索响应，requestId:', requestId, 'current:', loadRequestIdRef.current);
+        return;
+      }
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruPage] 搜索成功:', data.length, '张图片');
@@ -283,16 +315,18 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         message.error('搜索失败: ' + result.error);
       }
     } catch (error) {
+      if (!isActiveBooruRequest(requestId)) return;
       console.error('[BooruPage] 搜索失败:', error);
       message.error('搜索失败');
     } finally {
-      setLoading(false);
+      finishBooruRequest(requestId);
     }
   };
 
   // 处理站点切换
   const handleSiteChange = (siteId: number) => {
     console.log('[BooruPage] 切换站点:', siteId);
+    invalidateBooruRequests();
     setSelectedSiteId(siteId);
     setPosts([]);
     setCurrentPage(1);
@@ -563,6 +597,26 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   }, [selectedSiteId]);
 
   const selectedSite = selectedSiteId ? sites.find(s => s.id === selectedSiteId) : null;
+  const displayPage = pendingPage ?? currentPage;
+  const paginationCount = loading ? appearanceConfig.itemsPerPage : posts.length;
+  const showPagination = posts.length > 0 || (loading && pendingPage !== null);
+
+  const handlePreviousPage = () => {
+    if (loading || paginationRequestInFlightRef.current) return;
+    const next = Math.max(1, currentPage - 1);
+    isSearchMode ? searchPosts(searchQuery, next, undefined, 'pagination') : loadPosts(next, 'pagination');
+  };
+
+  const handleNextPage = () => {
+    if (loading || paginationRequestInFlightRef.current) return;
+    const next = currentPage + 1;
+    isSearchMode ? searchPosts(searchQuery, next, undefined, 'pagination') : loadPosts(next, 'pagination');
+  };
+
+  const handlePageChange = (page: number) => {
+    if (loading || paginationRequestInFlightRef.current) return;
+    isSearchMode ? searchPosts(searchQuery, page, undefined, 'pagination') : loadPosts(page, 'pagination');
+  };
 
   // 根据预览质量获取图片URL（委托给统一的 url 工具函数）
   const getPreviewUrl = useCallback((post: BooruPost): string => {
@@ -773,8 +827,36 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
       {/* 图片列表 */}
       <div>
+        {loading && showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="top"
+            disabled
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
+        )}
+
         {loading && (
-          <SkeletonGrid count={12} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
+          <SkeletonGrid count={appearanceConfig.itemsPerPage} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
+        )}
+
+        {loading && showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="bottom"
+            disabled
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
         )}
 
         {!loading && posts.length === 0 && (
@@ -800,17 +882,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
               itemsPerPage={appearanceConfig.itemsPerPage}
               paginationPosition={appearanceConfig.paginationPosition}
               position="top"
-              onPrevious={() => {
-                const next = Math.max(1, currentPage - 1);
-                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
-              }}
-              onNext={() => {
-                const next = currentPage + 1;
-                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
-              }}
-              onPageChange={(page) => {
-                isSearchMode ? searchPosts(searchQuery, page) : loadPosts(page);
-              }}
+              onPrevious={handlePreviousPage}
+              onNext={handleNextPage}
+              onPageChange={handlePageChange}
             />
 
             <BooruGridLayout
@@ -838,17 +912,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
               itemsPerPage={appearanceConfig.itemsPerPage}
               paginationPosition={appearanceConfig.paginationPosition}
               position="bottom"
-              onPrevious={() => {
-                const next = Math.max(1, currentPage - 1);
-                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
-              }}
-              onNext={() => {
-                const next = currentPage + 1;
-                isSearchMode ? searchPosts(searchQuery, next) : loadPosts(next);
-              }}
-              onPageChange={(page) => {
-                isSearchMode ? searchPosts(searchQuery, page) : loadPosts(page);
-              }}
+              onPrevious={handlePreviousPage}
+              onNext={handleNextPage}
+              onPageChange={handlePageChange}
             />
           </>
         )}
