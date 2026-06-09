@@ -5,6 +5,7 @@ import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Switch, Select, message, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
 import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
+import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { ApiLogEntry, ApiServiceConfig, ApiServicePermissionKey, ApiServiceStatus, UpdateCheckResult } from '../../shared/types';
@@ -481,6 +482,36 @@ export const SettingsPage: React.FC = () => {
       setLoading(false);
     }
   };
+
+  useRendererAppEvent(['config:changed', 'api-service:status-changed', 'app:data-restored'], (event) => {
+    if (event.type === 'api-service:status-changed') {
+      setApiStatus(event.payload);
+      return;
+    }
+
+    if (event.type === 'app:data-restored') {
+      void loadConfig();
+      void loadNotificationsAndDesktop();
+      if (activeTab === 'api') void loadApiService();
+      return;
+    }
+
+    const sections = event.payload.sections;
+    const hasSection = (name: string) =>
+      sections.some(section => section === name || section.startsWith(`${name}.`));
+
+    if (hasSection('downloads') || hasSection('thumbnails') || hasSection('network') || hasSection('galleries')) {
+      void loadConfig();
+    }
+
+    if (hasSection('notifications') || hasSection('desktop')) {
+      void loadNotificationsAndDesktop();
+    }
+
+    if (hasSection('apiService') && activeTab === 'api') {
+      void loadApiService();
+    }
+  });
 
   const handleAddFolder = async () => {
     if (!window.electronAPI) { message.error('系统功能不可用'); return; }

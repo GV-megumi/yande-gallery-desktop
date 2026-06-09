@@ -28,20 +28,24 @@ describe('rendererEventBus API event bridge', () => {
   });
 
   it('bridges favorite tag and bulk download events to API SSE channels', async () => {
+    const live = {
+      destroyed: false,
+      webContents: { send: vi.fn() },
+      isDestroyed() { return this.destroyed; },
+    };
+    state.windows = [live];
     const { emitBuiltRendererAppEvent } = await import('../../../src/main/services/rendererEventBus.js');
 
     emitBuiltRendererAppEvent({
       type: 'favorite-tags:changed',
-      source: 'test',
+      source: 'booruService',
       payload: { action: 'updated', favoriteTagId: 1 },
-    } as any);
+    });
     emitBuiltRendererAppEvent({
       type: 'bulk-download:sessions-changed',
-      source: 'test',
-      payload: { sessionId: 's1' },
-    } as any);
-
-    await new Promise(resolve => setTimeout(resolve, 0));
+      source: 'bulkDownloadService',
+      payload: { sessionId: 's1', reason: 'created' },
+    });
 
     expect(state.publish).toHaveBeenCalledWith(
       'favorite-tags',
@@ -51,6 +55,51 @@ describe('rendererEventBus API event bridge', () => {
       'downloads',
       expect.objectContaining({ type: 'bulk-download:sessions-changed' }),
     );
+    await vi.waitFor(() => {
+      expect(live.webContents.send).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('bridges new domain events through the shared API channel mapping', async () => {
+    const live = {
+      destroyed: false,
+      webContents: { send: vi.fn() },
+      isDestroyed() { return this.destroyed; },
+    };
+    state.windows = [live];
+    const { emitBuiltRendererAppEvent } = await import('../../../src/main/services/rendererEventBus.js');
+
+    emitBuiltRendererAppEvent({
+      type: 'booru:post-favorite-changed',
+      source: 'booruService',
+      payload: { action: 'added', siteId: 1, postId: 101, isFavorited: true },
+    });
+    emitBuiltRendererAppEvent({
+      type: 'bulk-download:records-changed',
+      source: 'bulkDownloadService',
+      payload: { action: 'statusChanged', sessionId: 's1', recordId: 1, status: 'completed' },
+    });
+    emitBuiltRendererAppEvent({
+      type: 'config:changed',
+      source: 'configService',
+      payload: { version: 2, sections: ['apiService'] },
+    });
+
+    expect(state.publish).toHaveBeenCalledWith(
+      'booru',
+      expect.objectContaining({ type: 'booru:post-favorite-changed' }),
+    );
+    expect(state.publish).toHaveBeenCalledWith(
+      'downloads',
+      expect.objectContaining({ type: 'bulk-download:records-changed' }),
+    );
+    expect(state.publish).toHaveBeenCalledWith(
+      'system',
+      expect.objectContaining({ type: 'config:changed' }),
+    );
+    await vi.waitFor(() => {
+      expect(live.webContents.send).toHaveBeenCalledTimes(3);
+    });
   });
 
   it('redacts local path fields from gallery and thumbnail events before publishing to API SSE', async () => {
@@ -112,8 +161,10 @@ describe('rendererEventBus API event bridge', () => {
     }));
     const publishedPayloads = state.publish.mock.calls.map(call => JSON.stringify(call[1]));
     expect(publishedPayloads.join('\n')).not.toContain('M:/private');
-    expect(live.webContents.send).toHaveBeenCalledWith('system:app-event', galleryEvent);
-    expect(live.webContents.send).toHaveBeenCalledWith('system:app-event', thumbnailEvent);
+    await vi.waitFor(() => {
+      expect(live.webContents.send).toHaveBeenCalledWith('system:app-event', galleryEvent);
+      expect(live.webContents.send).toHaveBeenCalledWith('system:app-event', thumbnailEvent);
+    });
   });
 
   it('continues renderer window broadcast when API event publishing fails', async () => {
@@ -131,8 +182,8 @@ describe('rendererEventBus API event bridge', () => {
       type: 'bulk-download:sessions-changed',
       version: 1,
       occurredAt: '2026-05-24T00:00:00.000Z',
-      source: 'test',
-      payload: { sessionId: 's1' },
+      source: 'bulkDownloadService',
+      payload: { sessionId: 's1', reason: 'created' },
     };
 
     const { emitRendererAppEvent } = await import('../../../src/main/services/rendererEventBus.js');

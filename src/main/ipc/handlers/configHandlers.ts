@@ -23,6 +23,7 @@ import {
   type FavoriteTagsPagePreference,
   type GalleryPagePreferencesBySubTab,
 } from '../../services/config.js';
+import { emitConfigChanged } from '../../services/appEventPublisher.js';
 
 export function setupConfigHandlers() {
   // ===== 配置管理 =====
@@ -52,6 +53,7 @@ export function setupConfigHandlers() {
       version: Date.now(),
       sections: Array.from(new Set(sections.filter(section => section.length > 0))),
     };
+    emitConfigChanged(summary);
     for (const win of windows) {
       win.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, summary);
     }
@@ -385,7 +387,11 @@ export function setupConfigHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.CONFIG_UPDATE_GALLERY_FOLDERS, async (_event: IpcMainInvokeEvent, folders: any[]) => {
     try {
-      return await updateGalleryFolders(folders);
+      const result = await updateGalleryFolders(folders);
+      if (result.success) {
+        broadcastConfigChanged(['galleries']);
+      }
+      return result;
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

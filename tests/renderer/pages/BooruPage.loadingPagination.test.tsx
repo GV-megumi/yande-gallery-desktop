@@ -6,7 +6,7 @@ import path from 'node:path';
 import { App as AntApp } from 'antd';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { BooruPost } from '../../../src/shared/types';
+import type { BooruPost, RendererAppEvent } from '../../../src/shared/types';
 import { BooruPage } from '../../../src/renderer/pages/BooruPage';
 
 const getSites = vi.fn();
@@ -17,10 +17,13 @@ const addToDownload = vi.fn();
 const serverFavorite = vi.fn();
 const serverUnfavorite = vi.fn();
 const getAppearancePreference = vi.fn();
+const onAppEvent = vi.fn();
 const toolbarHooks = vi.hoisted(() => ({
   afterSiteChange: null as null | (() => void),
 }));
 const loadFavoritesFromPosts = vi.hoisted(() => vi.fn());
+const setFavorites = vi.hoisted(() => vi.fn());
+let appEventCallback: ((event: RendererAppEvent) => void) | undefined;
 
 vi.mock('../../../src/renderer/components/BooruPageToolbar', () => ({
   BooruPageToolbar: (props: any) => (
@@ -44,10 +47,15 @@ vi.mock('../../../src/renderer/components/BooruPageToolbar', () => ({
 }));
 
 vi.mock('../../../src/renderer/components/BooruGridLayout', () => ({
-  BooruGridLayout: ({ posts }: { posts: BooruPost[] }) => (
+  BooruGridLayout: ({ posts, serverFavorites }: { posts: BooruPost[]; serverFavorites?: Set<number> }) => (
     <div data-testid="booru-grid">
       {posts.map((post) => (
-        <div data-testid={`booru-card-${post.postId}`} key={post.postId}>
+        <div
+          data-favorited={String(Boolean(post.isFavorited))}
+          data-server-favorited={String(Boolean(serverFavorites?.has(post.postId)))}
+          data-testid={`booru-card-${post.postId}`}
+          key={post.postId}
+        >
           {post.postId}
         </div>
       ))}
@@ -98,6 +106,7 @@ vi.mock('../../../src/renderer/pages/BooruPostDetailsPage', () => ({
 vi.mock('../../../src/renderer/hooks/useFavorite', () => ({
   useFavorite: () => ({
     favorites: new Set<number>(),
+    setFavorites,
     loadFavoritesFromPosts,
     toggleFavorite: vi.fn().mockResolvedValue({ success: true }),
   }),
@@ -135,6 +144,19 @@ function makePost(overrides: Partial<BooruPost> = {}): BooruPost {
   } as BooruPost;
 }
 
+function appEvent<TType extends RendererAppEvent['type']>(
+  type: TType,
+  payload: Extract<RendererAppEvent, { type: TType }>['payload'],
+): Extract<RendererAppEvent, { type: TType }> {
+  return {
+    type,
+    version: 1,
+    occurredAt: '2026-06-09T00:00:00.000Z',
+    source: 'booruService',
+    payload,
+  } as Extract<RendererAppEvent, { type: TType }>;
+}
+
 function setupElectronApi() {
   getSites.mockResolvedValue({
     success: true,
@@ -158,6 +180,10 @@ function setupElectronApi() {
       margin: 24,
     },
   });
+  onAppEvent.mockImplementation((callback: (event: RendererAppEvent) => void) => {
+    appEventCallback = callback;
+    return vi.fn();
+  });
 
   (window as any).electronAPI = {
     booru: {
@@ -180,6 +206,10 @@ function setupElectronApi() {
       openArtist: vi.fn(),
       openCharacter: vi.fn(),
     },
+    system: {
+      onAppEvent,
+      openExternal: vi.fn(),
+    },
   };
 }
 
@@ -188,6 +218,7 @@ describe('BooruPage loading pagination', () => {
     cleanup();
     vi.clearAllMocks();
     toolbarHooks.afterSiteChange = null;
+    appEventCallback = undefined;
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -210,6 +241,72 @@ describe('BooruPage loading pagination', () => {
     };
 
     setupElectronApi();
+  });
+
+  it('patches favorite and server favorite state and reloads blacklist names from Booru app events', async () => {
+    getPosts.mockResolvedValueOnce({
+      success: true,
+      data: [
+        makePost({
+          postId: 1001,
+          tags: 'blocked_tag keep_tag',
+          isFavorited: false,
+          isLiked: false,
+        }),
+      ],
+    });
+
+    render(
+      <AntApp>
+        <BooruPage />
+      </AntApp>
+    );
+
+    const card = await screen.findByTestId('booru-card-1001');
+    expect(card.dataset.favorited).toBe('false');
+    expect(card.dataset.serverFavorited).toBe('false');
+    expect(onAppEvent).toHaveBeenCalledTimes(1);
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:post-favorite-changed', {
+        action: 'added',
+        siteId: 1,
+        postId: 1001,
+        isFavorited: true,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('booru-card-1001').dataset.favorited).toBe('true');
+    });
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:post-server-favorite-changed', {
+        action: 'liked',
+        siteId: 1,
+        postId: 1001,
+        isLiked: true,
+      }));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('booru-card-1001').dataset.serverFavorited).toBe('true');
+    });
+
+    getActiveBlacklistTagNames.mockResolvedValueOnce({ success: true, data: ['blocked_tag'] });
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'blocked_tag',
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getActiveBlacklistTagNames).toHaveBeenLastCalledWith(1);
+      expect(screen.queryByTestId('booru-card-1001')).toBeNull();
+    });
   });
 
   it('keeps pagination and skeleton visible while getPosts is pending, then swaps to the grid after posts resolve', async () => {
@@ -354,6 +451,54 @@ describe('BooruPage loading pagination', () => {
 
     expect(await screen.findByTestId('booru-card-2002')).toBeTruthy();
     expect(screen.queryByTestId('booru-card-9001')).toBeNull();
+  });
+
+  it('does not let a stale blacklist response from the previous site hide current-site cards', async () => {
+    const oldBlacklist = deferred<{ success: true; data: string[] }>();
+
+    getSites.mockResolvedValueOnce({
+      success: true,
+      data: [
+        { id: 1, name: 'Yande', url: 'https://yande.re', active: true },
+        { id: 2, name: 'Konachan', url: 'https://konachan.com', active: false },
+      ],
+    });
+    getPosts
+      .mockResolvedValueOnce({
+        success: true,
+        data: [makePost({ postId: 1001, siteId: 1, tags: 'old_tag' })],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [makePost({ postId: 2002, siteId: 2, tags: 'blocked_tag keep_tag' })],
+      });
+    getActiveBlacklistTagNames
+      .mockReturnValueOnce(oldBlacklist.promise)
+      .mockResolvedValueOnce({ success: true, data: [] });
+
+    render(
+      <AntApp>
+        <BooruPage />
+      </AntApp>
+    );
+
+    await waitFor(() => {
+      expect(getActiveBlacklistTagNames).toHaveBeenCalledWith(1);
+    });
+
+    fireEvent.click(await screen.findByTestId('toolbar-site-2'));
+
+    await waitFor(() => {
+      expect(getActiveBlacklistTagNames).toHaveBeenCalledWith(2);
+    });
+    expect(await screen.findByTestId('booru-card-2002')).toBeTruthy();
+
+    await act(async () => {
+      oldBlacklist.resolve({ success: true, data: ['blocked_tag'] });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('booru-card-2002')).toBeTruthy();
   });
 
   it('calls request invalidation before changing the selected site', () => {

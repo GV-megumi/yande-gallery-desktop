@@ -2,6 +2,11 @@ import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import { getThumbnailIfExists, deleteThumbnail } from './thumbnailService.js';
 import { InvalidImage } from '../../shared/types.js';
 import fs from 'fs/promises';
+import {
+  emitGalleryGalleriesChanged,
+  emitGalleryImagesChanged,
+  emitGalleryInvalidImagesChanged,
+} from './appEventPublisher.js';
 
 /**
  * 上报无效图片：从 images 表迁移到 invalid_images 表
@@ -80,6 +85,26 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
     });
 
     console.log(`[invalidImageService] 已迁移无效图片: ${image.filename} (ID: ${imageId})`);
+    emitGalleryInvalidImagesChanged({
+      action: 'reported',
+      originalImageId: image.id,
+      galleryId: gallery?.id ?? null,
+      affectedCount: 1,
+      filepath: image.filepath,
+    });
+    emitGalleryImagesChanged({
+      action: 'invalidated',
+      imageId: image.id,
+      galleryId: gallery?.id ?? null,
+      affectedGalleryIds: gallery ? [gallery.id] : undefined,
+      affectedImageIds: [image.id],
+      affectedCount: 1,
+      reason: 'invalidReported',
+      filepath: image.filepath,
+    }, 'invalidImageService');
+    if (gallery) {
+      emitGalleryGalleriesChanged({ action: 'statsUpdated', galleryId: gallery.id, affectedCount: 1 });
+    }
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -154,6 +179,12 @@ export async function deleteInvalidImage(id: number): Promise<{ success: boolean
 
     // 删除数据库记录
     await run(db, 'DELETE FROM invalid_images WHERE id = ?', [id]);
+    emitGalleryInvalidImagesChanged({
+      action: 'deleted',
+      invalidImageId: id,
+      filepath: row.filepath,
+      affectedCount: 1,
+    });
 
     console.log(`[invalidImageService] 已删除无效项: ID ${id}`);
     return { success: true };
@@ -186,6 +217,7 @@ export async function clearInvalidImages(): Promise<{ success: boolean; data?: {
 
     // 清空表
     await run(db, 'DELETE FROM invalid_images');
+    emitGalleryInvalidImagesChanged({ action: 'cleared', affectedCount: rows.length });
 
     console.log(`[invalidImageService] 已清空所有无效项，共 ${rows.length} 个`);
     return { success: true, data: { deleted: rows.length } };

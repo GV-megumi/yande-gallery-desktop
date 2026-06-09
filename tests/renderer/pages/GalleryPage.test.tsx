@@ -1284,13 +1284,217 @@ describe('GalleryPage app event refresh', () => {
     expect(await screen.findByText('event-new-image')).toBeTruthy();
   });
 
+  it('recent page removes visible images after gallery:images-changed deleted event', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    getRecentImages.mockResolvedValueOnce({
+      success: true,
+      data: [{
+        id: 21,
+        name: 'delete-event-image',
+        updatedAt: '2026-04-22T00:00:00.000Z',
+      }],
+    });
+
+    render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('delete-event-image')).toBeTruthy();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:images-changed',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'imageService',
+        payload: {
+          action: 'deleted',
+          imageId: 21,
+          affectedImageIds: [21],
+          affectedCount: 1,
+          reason: 'userDelete',
+        },
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByText('delete-event-image')).toBeNull();
+    });
+  });
+
   it('suspended 的 recent 页不应订阅 gallery:images-imported 事件', () => {
-    const onAppEvent = vi.fn(() => vi.fn());
+    let appEventCallback: ((event: any) => void) | undefined;
+    const onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
     (window as any).electronAPI.system.onAppEvent = onAppEvent;
 
     render(<GalleryPage subTab="recent" suspended />);
 
-    expect(onAppEvent).not.toHaveBeenCalled();
+    expect(onAppEvent).toHaveBeenCalledTimes(1);
+    getRecentImagesAfter.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:images-imported',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'galleryService',
+        payload: {
+          folderPath: 'D:/gallery',
+          imported: 1,
+          skipped: 0,
+          reason: 'scanAndImportFolder',
+        },
+      });
+    });
+
+    return new Promise<void>((resolve) => {
+      setTimeout(() => {
+        expect(getRecentImagesAfter).not.toHaveBeenCalled();
+        resolve();
+      }, 250);
+    });
+  });
+
+  it('does not replay gallery events received while recent page is suspended', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    const baseImages = [{
+      id: 31,
+      name: 'cached-recent-image',
+      updatedAt: '2026-04-20T00:00:00.000Z',
+    }];
+    getRecentImages.mockResolvedValueOnce({ success: true, data: baseImages });
+    getRecentImagesAfter.mockResolvedValue({ success: true, data: [] });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('cached-recent-image')).toBeTruthy();
+    getRecentImagesAfter.mockClear();
+
+    view.rerender(<GalleryPage subTab="recent" suspended />);
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:images-imported',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'galleryService',
+        payload: {
+          folderPath: 'D:/gallery',
+          imported: 1,
+          skipped: 0,
+          reason: 'scanAndImportFolder',
+        },
+      });
+    });
+
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    await waitFor(() => {
+      expect(getRecentImagesAfter).toHaveBeenCalledTimes(1);
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(getRecentImagesAfter).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears pending recent refresh timer when leaving recent page', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    const baseImages = [{
+      id: 41,
+      name: 'recent-before-tab-change',
+      updatedAt: '2026-04-20T00:00:00.000Z',
+    }];
+    getRecentImages.mockResolvedValueOnce({ success: true, data: baseImages });
+    getRecentImagesAfter.mockResolvedValue({ success: true, data: [] });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('recent-before-tab-change')).toBeTruthy();
+    getRecentImagesAfter.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:images-imported',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'galleryService',
+        payload: {
+          folderPath: 'D:/gallery',
+          imported: 1,
+          skipped: 0,
+          reason: 'scanAndImportFolder',
+        },
+      });
+    });
+
+    view.rerender(<GalleryPage subTab="all" suspended={false} />);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(getRecentImagesAfter).not.toHaveBeenCalled();
+  });
+
+  it('clears pending galleries refresh timer when leaving galleries page', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
+
+    getGalleries.mockResolvedValueOnce({
+      success: true,
+      data: [{
+        id: 51,
+        name: 'gallery-before-tab-change',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        isWatching: false,
+      }],
+    });
+
+    const view = render(<GalleryPage subTab="galleries" suspended={false} />);
+
+    expect(await screen.findByText('gallery-before-tab-change')).toBeTruthy();
+    getGalleries.mockClear();
+
+    act(() => {
+      appEventCallback?.({
+        type: 'gallery:galleries-changed',
+        version: 1,
+        occurredAt: '2026-04-24T00:00:00.000Z',
+        source: 'galleryService',
+        payload: {
+          action: 'statsUpdated',
+          galleryId: 51,
+          affectedCount: 1,
+        },
+      });
+    });
+
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+
+    expect(getGalleries).not.toHaveBeenCalled();
   });
 
   it('galleries 子页应在 thumbnail:generated 事件后补上封面缩略图', async () => {

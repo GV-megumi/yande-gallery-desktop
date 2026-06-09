@@ -11,6 +11,7 @@ import axios from 'axios';
 import { getConfig, getProxyConfig, getCachePath as getConfigCachePath } from './config.js';
 import crypto from 'crypto';
 import { networkScheduler } from './networkScheduler.js';
+import { emitBooruImageCacheCleared } from './appEventPublisher.js';
 
 // 正在进行中的缓存请求映射（防止同一图片并发下载）
 const inFlightRequests = new Map<string, Promise<string>>();
@@ -510,6 +511,13 @@ export async function clearAllCache(): Promise<{ deletedCount: number; freedMB: 
   // 清除后重置内存追踪值，强制下次重新扫描
   memoryCacheSizeMB = -1;
   lastCacheSizeCheckTime = 0;
+
+  if (deletedCount > 0) {
+    emitBooruImageCacheCleared({
+      action: 'cleared',
+      affectedCount: deletedCount,
+    });
+  }
 
   return { deletedCount, freedMB: freedBytes / (1024 * 1024) };
 }

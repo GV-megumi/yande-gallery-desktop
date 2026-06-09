@@ -18,6 +18,7 @@ import {
 } from '@ant-design/icons';
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Option } = Select;
 
@@ -138,6 +139,31 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
       setLoading(false);
     }
   }, [message]);
+
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleQueueReload = useCallback(() => {
+    if (!active) return;
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+    }
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      loadQueue();
+    }, 50);
+  }, [active, loadQueue]);
+
+  useEffect(() => () => {
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+  }, []);
+
+  useBooruDomainEvents({
+    siteId: null,
+    active,
+    onPostDownloadStateChanged: scheduleQueueReload,
+  });
 
   // 恢复未完成的下载任务（首次进入时调用）
   const resumePendingDownloads = async () => {

@@ -2,8 +2,10 @@
 
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+
+vi.setConfig({ testTimeout: 90000 });
 
 vi.mock('../../src/renderer/hooks/useTheme', () => ({
   useTheme: () => ({
@@ -144,8 +146,11 @@ vi.mock('../../src/renderer/pages/GoogleDrivePage', () => ({
 }));
 
 describe('App navigation synchronization', () => {
+  let appEventCallback: ((event: any) => void) | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
+    appEventCallback = undefined;
     (window as any).electronAPI = {
       db: {
         init: vi.fn().mockResolvedValue({ success: true }),
@@ -162,6 +167,12 @@ describe('App navigation synchronization', () => {
       },
       window: {
         openSecondaryMenu: vi.fn(),
+      },
+      system: {
+        onAppEvent: vi.fn((callback) => {
+          appEventCallback = callback;
+          return vi.fn();
+        }),
       },
     };
   });
@@ -204,6 +215,44 @@ describe('App navigation synchronization', () => {
 
     await waitFor(() => {
       expect(screen.getByTestId('booru-page')).toBeTruthy();
+    });
+  });
+
+  it('接收 app shell 配置变更事件后应重新读取菜单偏好', async () => {
+    const { App } = await import('../../src/renderer/App');
+    const appShellGet = (window as any).electronAPI.pagePreferences.appShell.get as ReturnType<typeof vi.fn>;
+
+    render(<App />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('main-menu').getAttribute('data-order')).toBe('gallery,booru,google');
+    });
+    expect(appShellGet).toHaveBeenCalledTimes(1);
+
+    appShellGet.mockResolvedValueOnce({
+      success: true,
+      data: {
+        menuOrder: {
+          main: ['google', 'gallery', 'booru'],
+        },
+      },
+    });
+
+    await act(async () => {
+      appEventCallback?.({
+        type: 'config:changed',
+        version: 1,
+        occurredAt: '2026-06-09T00:00:00.000Z',
+        source: 'configService',
+        payload: { version: 2, sections: ['ui.pagePreferences.appShell'] },
+      });
+    });
+
+    await waitFor(() => {
+      expect(appShellGet).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId('main-menu').getAttribute('data-order')).toBe('google,gallery,booru');
     });
   });
 

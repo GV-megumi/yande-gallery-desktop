@@ -121,6 +121,7 @@ describe('bulkDownloadService abort semantics', () => {
     const db = {};
     const send = vi.fn();
     const restartRaceResolveRef: { current?: () => void } = {};
+    const restartRaceRejects: Array<() => void> = [];
     const inFlightGetCountRef = { current: 0 };
     const createStreamResponse = () => ({
       headers: { 'content-length': '4' },
@@ -181,15 +182,18 @@ describe('bulkDownloadService abort semantics', () => {
 
       if (config.method === 'GET' && mode === 'pause-restart-overlap') {
         pauseRestartOverlapGetCount += 1;
-        if (pauseRestartOverlapGetCount === 1) {
+        if (pauseRestartOverlapGetCount <= 2) {
           return createAbortableGetPromise(config, {
             onAbort: reject => {
-              restartRaceResolveRef.current = () => reject(new Error('aborted by user'));
+              restartRaceRejects.push(() => reject(new Error('aborted by user')));
+              restartRaceResolveRef.current = () => {
+                const pendingRejects = restartRaceRejects.splice(0);
+                for (const rejectPending of pendingRejects) {
+                  rejectPending();
+                }
+              };
             },
           });
-        }
-        if (pauseRestartOverlapGetCount === 2) {
-          return createAbortableGetPromise(config);
         }
         return Promise.resolve(createStreamResponse());
       }
@@ -427,6 +431,13 @@ describe('bulkDownloadService abort semantics', () => {
     });
 
     const runWithChanges = vi.fn().mockImplementation(async (_db, sql: string, params: any[] = []) => {
+      if (sql.includes('INSERT OR IGNORE INTO bulk_download_records')) {
+        const [url, sessionIdParam] = params;
+        const exists = state.records.some(record => record.url === url && record.sessionId === sessionIdParam);
+        await run(_db, sql, params);
+        return { changes: exists ? 0 : 1 };
+      }
+
       if (!sql.includes('UPDATE bulk_download_records')) {
         return { changes: 0 };
       }

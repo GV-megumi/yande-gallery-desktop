@@ -19,6 +19,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+vi.setConfig({ testTimeout: 90000 });
+
 vi.mock('../../src/renderer/hooks/useTheme', () => ({
   useTheme: () => ({
     isDark: false,

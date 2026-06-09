@@ -256,7 +256,7 @@ describe('收藏夹分组 handler - 各 handler 的参数类型验证逻辑', ()
   /**
    * 模拟 handler 对 moveFavoriteToGroup 参数的处理
    */
-  function validateMoveParams(postId: any, groupId: any): {
+  function validateMoveParams(postId: any, siteId: any, groupId: any): {
     valid: boolean;
     reason?: string;
   } {
@@ -264,6 +264,9 @@ describe('收藏夹分组 handler - 各 handler 的参数类型验证逻辑', ()
       return { valid: false, reason: 'postId 必须是数字' };
     }
     // groupId 可以是 number 或 null（移出分组）
+    if (typeof siteId !== 'number' || !Number.isFinite(siteId)) {
+      return { valid: false, reason: 'siteId must be a number' };
+    }
     if (groupId !== null && typeof groupId !== 'number') {
       return { valid: false, reason: 'groupId 必须是数字或 null' };
     }
@@ -271,22 +274,22 @@ describe('收藏夹分组 handler - 各 handler 的参数类型验证逻辑', ()
   }
 
   it('移入分组应通过（postId + groupId）', () => {
-    expect(validateMoveParams(100, 5).valid).toBe(true);
+    expect(validateMoveParams(100, 2, 5).valid).toBe(true);
   });
 
   it('移出分组应通过（postId + null）', () => {
-    expect(validateMoveParams(100, null).valid).toBe(true);
+    expect(validateMoveParams(100, 2, null).valid).toBe(true);
   });
 
   it('postId 非数字应失败', () => {
-    expect(validateMoveParams('100', 5).valid).toBe(false);
+    expect(validateMoveParams('100', 2, 5).valid).toBe(false);
   });
 
   it('groupId 为字符串应失败', () => {
-    expect(validateMoveParams(100, '5').valid).toBe(false);
+    expect(validateMoveParams(100, 2, '5').valid).toBe(false);
   });
 
   it('groupId 为 undefined 应失败（必须显式传 null）', () => {
-    expect(validateMoveParams(100, undefined).valid).toBe(false);
+    expect(validateMoveParams(100, 2, undefined).valid).toBe(false);
   });
 });

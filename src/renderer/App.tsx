@@ -7,6 +7,7 @@ export const useHeaderExtra = () => useContext(HeaderExtraContext);
 import { Layout, Menu, message, App as AntApp, Tooltip, Dropdown } from 'antd';
 import appIconUrl from './assets/icon.png';
 import { useTheme } from './hooks/useTheme';
+import { useRendererAppEvent } from './hooks/useRendererAppEvent';
 import { useLocale } from './locales';
 import { useKeyboardShortcuts, SHORTCUT_KEYS } from './hooks/useKeyboardShortcuts';
 import { ShortcutsModal } from './components/ShortcutsModal';
@@ -398,6 +399,80 @@ export const AppContent: React.FC = () => {
     { key: SHORTCUT_KEYS.SHOW_SHORTCUTS, handler: () => setShortcutsModalOpen(true), description: t('shortcuts.showShortcuts') },
     { key: SHORTCUT_KEYS.GO_BACK, handler: () => { if (navigationStack.length > 0) popNavigation(); }, description: t('shortcuts.goBack') },
   ]);
+
+  const loadAppShellPreferences = useCallback(async () => {
+    if (!window.electronAPI?.pagePreferences?.appShell) return;
+
+    const appShellResult = await window.electronAPI.pagePreferences.appShell.get();
+    if (!appShellResult.success) return;
+
+    const order = appShellResult.data?.menuOrder;
+    if (order?.main?.length) setMainOrder(order.main);
+    else setMainOrder([]);
+    if (order?.gallery?.length) setGalleryOrder(order.gallery);
+    else setGalleryOrder([]);
+    if (order?.booru?.length) {
+      const BOORU_ORDER_MIGRATION: Record<string, string> = {
+        'favorite-tags': 'tag-management',
+        'blacklisted-tags': 'tag-management',
+        'downloads': 'download',
+        'bulk-download': 'download',
+      };
+      const seen = new Set<string>();
+      const migratedBooruOrder = (order.booru as string[])
+        .map(k => BOORU_ORDER_MIGRATION[k] ?? k)
+        .filter(k => { if (seen.has(k)) return false; seen.add(k); return true; });
+      setBooruOrder(migratedBooruOrder);
+      if (migratedBooruOrder.length !== order.booru.length || migratedBooruOrder.some((key, index) => key !== order.booru?.[index])) {
+        saveMenuOrder('booru', migratedBooruOrder);
+      }
+    } else {
+      setBooruOrder([]);
+    }
+    if (order?.google?.length) setGoogleOrder(order.google);
+    else setGoogleOrder([]);
+
+    if (appShellResult.data?.pinnedItems?.length) {
+      const PINNED_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
+        'favorite-tags': { key: 'tag-management', defaultTab: 'favorite' },
+        'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
+        'downloads': { key: 'download', defaultTab: 'downloads' },
+        'bulk-download': { key: 'download', defaultTab: 'bulk' },
+      };
+      let migrated = false;
+      const raw = appShellResult.data.pinnedItems as PinnedItem[];
+      const migratedPins: PinnedItem[] = [];
+      const seen = new Set<string>();
+      for (const pin of raw) {
+        const mapping = PINNED_MIGRATION[pin.key];
+        const newPin = mapping
+          ? { ...pin, key: mapping.key, defaultTab: pin.defaultTab ?? mapping.defaultTab }
+          : pin;
+        if (mapping) migrated = true;
+        const dedupKey = `${newPin.section}:${newPin.key}`;
+        if (!seen.has(dedupKey)) {
+          seen.add(dedupKey);
+          migratedPins.push(newPin);
+        }
+        if (migratedPins.length >= 5) break;
+      }
+      setPinnedItems(migratedPins);
+      if (migrated) savePinnedItems(migratedPins);
+    } else {
+      setPinnedItems([]);
+    }
+  }, [saveMenuOrder, savePinnedItems]);
+
+  useRendererAppEvent(['config:changed', 'app:data-restored'], (event) => {
+    if (event.type === 'app:data-restored') {
+      void loadAppShellPreferences();
+      return;
+    }
+
+    if (event.payload.sections.some(section => section === 'ui' || section === 'ui.pagePreferences.appShell')) {
+      void loadAppShellPreferences();
+    }
+  });
 
   useEffect(() => {
     console.log('[App] 应用启动，初始化数据库');

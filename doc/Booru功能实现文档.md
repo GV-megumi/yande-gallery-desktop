@@ -103,10 +103,32 @@ Hub 页面同时挂载两个子页面，用 `display:none` 隐藏非活跃页，
 - 批量下载会话去重与重试合并：同 taskId 同时只允许一个存活会话，历史会话重试遇到存活会话时返回 `merged` 语义，避免重复运行同一任务。
 - 收藏标签下载绑定：为收藏标签配置下载路径和参数，一键创建批量下载任务；任务 / 会话创建成功后即提示并广播 `favorite-tag-download:created`，扫描和 dryRun 不阻塞按钮反馈
 - 批量下载任务去重：按下载路径 + 标签集合去重，避免创建重复任务；复用任务模板时仍会创建新会话，不会被"模板已存在"阻止
-- 下载中心监听 `bulk-download:sessions-changed` 和 `favorite-tag-download:created`，收藏标签页触发下载后下载中心会主动刷新。
+- 下载中心通过 `useRendererAppEvent` 监听 `bulk-download:sessions-changed`、`bulk-download:tasks-changed`、`bulk-download:records-changed` 和 `favorite-tag-download:created`；收藏标签页触发下载后下载中心会主动刷新。
 - 图片缓存统计与清理
 - 文件名模板系统
 - 数据备份恢复
+
+### Booru 领域事件
+
+主进程 Booru 写入统一通过 service 层发布 `RendererAppEvent`，供多窗口、固定页、轻量子窗口和 API SSE 订阅者同步状态。当前 Booru 相关事件包括：
+
+- `booru:post-favorite-changed`
+- `booru:post-server-favorite-changed`
+- `booru:blacklist-tags-changed`
+- `booru:sites-changed`
+- `booru:favorite-groups-changed`
+- `booru:saved-searches-changed`
+- `booru:search-history-changed`
+- `booru:post-download-state-changed`
+- `booru:post-vote-changed`
+- `booru:image-cache-cleared`
+- `favorite-tags:changed`
+- `favorite-tag-download:created`
+- `bulk-download:sessions-changed`
+- `bulk-download:tasks-changed`
+- `bulk-download:records-changed`
+
+Renderer 页面优先通过 `useBooruDomainEvents` 或 `useRendererAppEvent` 消费这些事件；高频下载字节进度仍保留在专用 progress/status IPC 通道。
 
 ### 站点能力差异
 

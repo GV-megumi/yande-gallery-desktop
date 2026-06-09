@@ -34,7 +34,8 @@ describe('FavoriteTagsPage component contract', () => {
   it('应在真实页面中监听 bulk download 进度与状态事件', () => {
     expect(source).toContain('window.electronAPI?.system?.onBulkDownloadRecordProgress');
     expect(source).toContain('window.electronAPI?.system?.onBulkDownloadRecordStatus');
-    expect(source).toContain('window.electronAPI?.system?.onAppEvent');
+    expect(source).toContain('useRendererAppEvent([');
+    expect(source).not.toContain('window.electronAPI?.system?.onAppEvent');
     expect(source).toContain("event.type === 'favorite-tag-download:created'");
     expect(source).toContain("event.type === 'favorite-tags:changed'");
   });

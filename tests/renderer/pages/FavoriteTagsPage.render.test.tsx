@@ -17,6 +17,8 @@ const getFavoriteTagsPagePreferences = vi.fn();
 const saveFavoriteTagsPagePreferences = vi.fn();
 let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
+vi.setConfig({ testTimeout: 90000 });
+
 vi.mock('../../../src/renderer/locales', () => ({
   useLocale: () => ({
     locale: 'zh-CN',

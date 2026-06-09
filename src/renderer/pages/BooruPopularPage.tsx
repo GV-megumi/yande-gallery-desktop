@@ -7,6 +7,7 @@ import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { colors, spacing, fontSize } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 import dayjs from 'dayjs';
 
 const { Option } = Select;
@@ -49,19 +50,31 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
   });
 
   // 加载活跃站点
-  useEffect(() => {
-    const loadActiveSite = async () => {
-      try {
-        const result = await window.electronAPI.booru.getActiveSite();
-        if (result.success && result.data) {
-          setActiveSite(result.data);
-        }
-      } catch (error) {
-        console.error('[BooruPopularPage] 加载活跃站点失败:', error);
+  const loadActiveSite = useCallback(async () => {
+    try {
+      const result = await window.electronAPI.booru.getActiveSite();
+      if (result.success && result.data) {
+        setActiveSite(result.data);
+      } else {
+        setActiveSite(null);
+        setPosts([]);
       }
-    };
-    loadActiveSite();
+    } catch (error) {
+      console.error('[BooruPopularPage] 加载活跃站点失败:', error);
+    }
   }, []);
+
+  useEffect(() => {
+    loadActiveSite();
+  }, [loadActiveSite]);
+
+  useBooruDomainEvents({
+    siteId: activeSite?.id ?? null,
+    active: !suspended,
+    onSitesChanged: () => {
+      loadActiveSite();
+    },
+  });
 
   // 加载热门图片
   const loadPopular = useCallback(async () => {

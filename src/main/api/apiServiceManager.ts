@@ -10,6 +10,7 @@ import { createGalleryRoutes } from './routes/galleryRoutes.js';
 import { createServiceRoutes } from './routes/serviceRoutes.js';
 import { generateApiKey } from './security.js';
 import { createApiHttpServer } from './server.js';
+import { emitApiServiceStatusChanged } from '../services/appEventPublisher.js';
 
 let server: Server | null = null;
 let status: ApiServiceStatus = {
@@ -66,6 +67,12 @@ export function getApiServiceStatus(): ApiServiceStatus {
     mode: config.mode,
     port: config.port,
   };
+}
+
+function setApiServiceStatus(nextStatus: ApiServiceStatus): ApiServiceStatus {
+  status = nextStatus;
+  emitApiServiceStatusChanged(status);
+  return status;
 }
 
 function enqueueLifecycle<T>(operation: () => Promise<T>): Promise<T> {
@@ -184,14 +191,14 @@ function attachRuntimeErrorHandler(activeServer: Server): void {
     preserveActiveRuntimeStatus = false;
     detachRuntimeErrorHandler(activeServer);
     detachConnectionTracker(activeServer);
-    status = {
+    setApiServiceStatus({
       ...getApiServiceStatus(),
       running: false,
       bindAddress: null,
       baseUrl: null,
       startedAt: null,
       lastError: error instanceof Error ? error.message : String(error),
-    };
+    });
   };
 
   runtimeErrorHandlers.set(activeServer, handler);
@@ -201,7 +208,7 @@ function attachRuntimeErrorHandler(activeServer: Server): void {
 async function stopNow(): Promise<void> {
   if (!server) {
     preserveActiveRuntimeStatus = false;
-    status = { ...getApiServiceStatus(), running: false, bindAddress: null, baseUrl: null, startedAt: null };
+    setApiServiceStatus({ ...getApiServiceStatus(), running: false, bindAddress: null, baseUrl: null, startedAt: null });
     return;
   }
 
@@ -213,23 +220,23 @@ async function stopNow(): Promise<void> {
   } catch (error) {
     if (server !== closing) {
       preserveActiveRuntimeStatus = false;
-      status = {
+      setApiServiceStatus({
         ...getApiServiceStatus(),
         running: false,
         bindAddress: null,
         baseUrl: null,
         startedAt: null,
         lastError: error instanceof Error ? error.message : String(error),
-      };
+      });
       throw error;
     }
 
     preserveActiveRuntimeStatus = true;
-    status = {
+    setApiServiceStatus({
       ...activeStatus,
       running: true,
       lastError: error instanceof Error ? error.message : String(error),
-    };
+    });
     throw error;
   }
 
@@ -239,7 +246,7 @@ async function stopNow(): Promise<void> {
   detachRuntimeErrorHandler(closing);
   detachConnectionTracker(closing);
   preserveActiveRuntimeStatus = false;
-  status = { ...getApiServiceStatus(), running: false, bindAddress: null, baseUrl: null, startedAt: null };
+  setApiServiceStatus({ ...getApiServiceStatus(), running: false, bindAddress: null, baseUrl: null, startedAt: null });
 }
 
 export async function stopApiService(): Promise<void> {
@@ -294,7 +301,7 @@ async function syncNow(): Promise<ApiServiceStatus> {
   if (!config.apiKey.trim()) {
     const apiKeyResult = await generateAndPersistMissingApiKey(config);
     if (!apiKeyResult.success) {
-      status = {
+      setApiServiceStatus({
         running: false,
         enabled: true,
         mode: config.mode,
@@ -303,7 +310,7 @@ async function syncNow(): Promise<ApiServiceStatus> {
         baseUrl: null,
         startedAt: null,
         lastError: apiKeyResult.error,
-      };
+      });
       return status;
     }
     serverConfig = apiKeyResult.config;
@@ -318,7 +325,7 @@ async function syncNow(): Promise<ApiServiceStatus> {
     server = nextServer;
     attachRuntimeErrorHandler(nextServer);
     preserveActiveRuntimeStatus = false;
-    status = {
+    setApiServiceStatus({
       running: true,
       enabled: true,
       mode: serverConfig.mode,
@@ -327,10 +334,10 @@ async function syncNow(): Promise<ApiServiceStatus> {
       baseUrl: `http://${bindAddress === '0.0.0.0' ? '127.0.0.1' : bindAddress}:${serverConfig.port}`,
       startedAt: new Date().toISOString(),
       lastError: null,
-    };
+    });
   } catch (error) {
     detachConnectionTracker(nextServer);
-    status = {
+    setApiServiceStatus({
       running: false,
       enabled: true,
       mode: serverConfig.mode,
@@ -339,7 +346,7 @@ async function syncNow(): Promise<ApiServiceStatus> {
       baseUrl: null,
       startedAt: null,
       lastError: error instanceof Error ? error.message : String(error),
-    };
+    });
   }
 
   return status;

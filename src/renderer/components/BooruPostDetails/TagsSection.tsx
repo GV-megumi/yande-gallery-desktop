@@ -3,6 +3,7 @@ import { Collapse, Tag, Space, Typography, Tooltip, App } from 'antd';
 import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined, StopOutlined } from '@ant-design/icons';
 import { BlacklistedTag, BooruPost, BooruSite } from '../../../shared/types';
 import { ContextMenu } from '../ContextMenu';
+import { useBooruDomainEvents } from '../../hooks/useBooruDomainEvents';
 
 const { Text } = Typography;
 
@@ -112,20 +113,32 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
   }, [site, post.tags]);
 
   // 加载收藏标签状态
-  useEffect(() => {
-    if (!site) return;
-    const loadFavoriteStatus = async () => {
-      try {
-        const result = await window.electronAPI.booru.getFavoriteTags({ siteId: site.id, limit: 0 });
-        if (result.success && result.data) {
-          setFavoritedTags(new Set(result.data.items.map((t) => t.tagName)));
-        }
-      } catch (error) {
-        console.error('[TagsSection] 加载收藏标签状态失败:', error);
+  const loadFavoriteStatus = useCallback(async () => {
+    if (!site) {
+      setFavoritedTags(new Set());
+      return;
+    }
+    const requestToken = committedSiteTokenRef.current;
+    const siteId = site.id;
+    if (requestToken.siteId !== siteId) return;
+
+    try {
+      const result = await window.electronAPI.booru.getFavoriteTags({ siteId, limit: 0 });
+      const currentToken = committedSiteTokenRef.current;
+      if (currentToken.siteId !== requestToken.siteId || currentToken.version !== requestToken.version) return;
+      if (result.success && result.data) {
+        setFavoritedTags(new Set(result.data.items.map((t) => t.tagName)));
       }
-    };
-    loadFavoriteStatus();
+    } catch (error) {
+      const currentToken = committedSiteTokenRef.current;
+      if (currentToken.siteId !== requestToken.siteId || currentToken.version !== requestToken.version) return;
+      console.error('[TagsSection] 加载收藏标签状态失败:', error);
+    }
   }, [site]);
+
+  useEffect(() => {
+    loadFavoriteStatus();
+  }, [loadFavoriteStatus]);
 
   const fetchBlacklistedTagMap = useCallback(async (siteId: number): Promise<Map<string, BlacklistedTag>> => {
     const result = await window.electronAPI.booru.getBlacklistedTags({ siteId, limit: 0 });
@@ -177,6 +190,35 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
     const currentToken = committedSiteTokenRef.current;
     return currentToken.siteId === requestToken.siteId && currentToken.version === requestToken.version;
   }, []);
+
+  useBooruDomainEvents({
+    siteId: currentSiteId,
+    onFavoriteTagsChanged: () => {
+      loadFavoriteStatus();
+    },
+    onBlacklistTagsChanged: async () => {
+      if (currentSiteId === null) {
+        setBlacklistedTagsByName(new Map());
+        return;
+      }
+
+      const requestToken = getCurrentSiteToken();
+      const siteId = currentSiteId;
+      if (requestToken.siteId !== siteId) return;
+
+      try {
+        const tagMap = await fetchBlacklistedTagMap(siteId);
+        if (isCurrentSiteRequest(requestToken)) {
+          setBlacklistedTagsByName(tagMap);
+        }
+      } catch (error) {
+        if (isCurrentSiteRequest(requestToken)) {
+          console.error('[TagsSection] 重新加载黑名单标签状态失败:', error);
+          setBlacklistedTagsByName(new Map());
+        }
+      }
+    },
+  });
 
   const toggleFavoriteTag = useCallback(async (tagName: string) => {
     if (!site) return;

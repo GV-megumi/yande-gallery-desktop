@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { BooruPost } from '../../shared/types';
+import { useBooruDomainEvents } from './useBooruDomainEvents';
 
 type ToggleFavoriteResult = {
   success: boolean;
@@ -145,6 +146,57 @@ export function useBooruPostActions(options: CreateBooruPostActionsOptions): Boo
   useEffect(() => {
     setServerFavorites(new Set());
   }, [options.siteId]);
+
+  const patchPostFavorite = useCallback((postId: number, isFavorited: boolean) => {
+    options.updatePosts(posts => posts.map(item => (
+      item.postId === postId ? { ...item, isFavorited } : item
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isFavorited } : post
+    ));
+  }, [options]);
+
+  const patchServerFavorite = useCallback((postId: number, isLiked: boolean) => {
+    setServerFavorites(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    options.updatePosts(posts => posts.map(item => (
+      item.postId === postId ? { ...item, isLiked } : item
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isLiked } : post
+    ));
+  }, [options]);
+
+  const patchDownloadState = useCallback((postId: number, downloaded: boolean, localImageId?: number) => {
+    const patch = localImageId === undefined ? { downloaded } : { downloaded, localImageId };
+    options.updatePosts(posts => posts.map(item => (
+      item.postId === postId ? { ...item, ...patch } : item
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, ...patch } : post
+    ));
+  }, [options]);
+
+  useBooruDomainEvents({
+    siteId: options.siteId,
+    onPostFavoriteChanged: (payload) => {
+      patchPostFavorite(payload.postId, payload.isFavorited);
+    },
+    onServerFavoriteChanged: (payload) => {
+      const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
+      postIds.forEach((postId) => patchServerFavorite(postId, payload.isLiked));
+    },
+    onPostDownloadStateChanged: (payload) => {
+      if (payload.postId == null) return;
+      if (payload.action === 'markedDownloaded' || payload.downloaded) {
+        patchDownloadState(payload.postId, true, payload.localImageId);
+      }
+    },
+  });
 
   return useMemo(() => ({
     selectedPost,

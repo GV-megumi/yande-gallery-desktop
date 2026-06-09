@@ -5,6 +5,7 @@ import type { BlacklistedTag } from '../../shared/types';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
 import { ImportTagsDialog } from '../components/ImportTagsDialog';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 /**
  * 黑名单标签管理页面
@@ -33,6 +34,8 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
   const skipNextKeywordResetRef = useRef(false);
   const preferencesHydrationRunIdRef = useRef(0);
   const preferencesHydratingRef = useRef(false);
+  const loadRequestIdRef = useRef(0);
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [form] = Form.useForm();
 
   // 搜索关键字防抖，避免每次按键都打服务端
@@ -43,6 +46,8 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
 
   // 加载黑名单标签列表（服务端分页 + 关键字搜索）
   const loadBlacklistedTags = useCallback(async () => {
+    const requestId = loadRequestIdRef.current + 1;
+    loadRequestIdRef.current = requestId;
     setLoading(true);
     try {
       const offset = (page - 1) * pageSize;
@@ -52,6 +57,7 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
         offset,
         limit: pageSize,
       });
+      if (loadRequestIdRef.current !== requestId) return;
       if (result.success && result.data) {
         setBlacklistedTags(result.data.items);
         setTotal(result.data.total);
@@ -60,12 +66,33 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
         console.error('[BlacklistedTagsPage] 加载黑名单标签失败:', result.error);
       }
     } catch (error) {
+      if (loadRequestIdRef.current !== requestId) return;
       console.error('[BlacklistedTagsPage] 加载黑名单标签失败:', error);
       message.error('加载黑名单标签失败');
     } finally {
-      setLoading(false);
+      if (loadRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   }, [filterSiteId, debouncedKeyword, page, pageSize, message]);
+
+  const scheduleBlacklistedTagsReload = useCallback(() => {
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+    }
+
+    reloadTimerRef.current = setTimeout(() => {
+      reloadTimerRef.current = null;
+      loadBlacklistedTags();
+    }, 50);
+  }, [loadBlacklistedTags]);
+
+  useEffect(() => () => {
+    if (reloadTimerRef.current) {
+      clearTimeout(reloadTimerRef.current);
+      reloadTimerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (skipNextKeywordResetRef.current) {
@@ -86,6 +113,20 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
       console.error('[BlacklistedTagsPage] 加载站点列表失败:', error);
     }
   }, []);
+
+  useBooruDomainEvents({
+    siteId: filterSiteId ?? null,
+    active,
+    onBlacklistTagsChanged: () => {
+      if (!preferencesHydrated || preferencesHydratingRef.current) return;
+      scheduleBlacklistedTagsReload();
+    },
+    onSitesChanged: () => {
+      loadSites();
+      if (!preferencesHydrated || preferencesHydratingRef.current) return;
+      scheduleBlacklistedTagsReload();
+    },
+  });
 
   useEffect(() => {
     if (!active) {
@@ -189,7 +230,6 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
         message.success(`已添加黑名单: ${values.tagName}`);
         setAddModalVisible(false);
         form.resetFields();
-        loadBlacklistedTags();
       } else {
         message.error('添加失败: ' + result.error);
       }
@@ -205,7 +245,6 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
       const result = await window.electronAPI.booru.removeBlacklistedTag(id);
       if (result.success) {
         message.success('已移除黑名单标签');
-        loadBlacklistedTags();
       } else {
         message.error('移除失败: ' + result.error);
       }
@@ -219,9 +258,7 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
   const handleToggle = async (id: number) => {
     try {
       const result = await window.electronAPI.booru.toggleBlacklistedTag(id);
-      if (result.success) {
-        loadBlacklistedTags();
-      } else {
+      if (!result.success) {
         message.error('切换状态失败: ' + result.error);
       }
     } catch (error) {
@@ -502,7 +539,6 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
           if (result.success && result.data) {
             message.success(`已添加 ${result.data.added} 个标签，跳过 ${result.data.skipped} 个`);
             setBatchAddModalOpen(false);
-            loadBlacklistedTags();
           } else {
             message.error('添加失败: ' + result.error);
             throw new Error(result.error || 'failed');
@@ -521,7 +557,6 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
         onImported={(result) => {
           message.success(`已导入 ${result.imported} 个标签，跳过 ${result.skipped} 个`);
           setImportDialogOpen(false);
-          loadBlacklistedTags();
         }}
       />
     </div>

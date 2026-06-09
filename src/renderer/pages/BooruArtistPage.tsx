@@ -17,6 +17,7 @@ import { getBooruPreviewUrl } from '../utils/url';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Text } = Typography;
 
@@ -258,6 +259,19 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
       console.error('[BooruArtistPage] 加载收藏状态失败:', error);
     }
   };
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: !suspended,
+    onFavoriteTagsChanged: (payload) => {
+      if (!payload.tagName || payload.tagName === artistName) {
+        checkTagFavoriteStatus();
+      }
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   // 处理收藏切换
   const handleToggleFavorite = async (post: BooruPost) => {

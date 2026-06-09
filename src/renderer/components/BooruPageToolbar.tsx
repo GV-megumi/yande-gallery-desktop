@@ -9,6 +9,7 @@ import { ReloadOutlined, SearchOutlined, CloseOutlined, HistoryOutlined, FilterO
 import { BooruSite } from '../../shared/types';
 import { colors, spacing, radius, shadows, fontSize, zIndex } from '../styles/tokens';
 import { SearchSyntaxHelp } from './SearchSyntaxHelp';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Option } = Select;
 
@@ -105,6 +106,14 @@ export const BooruPageToolbar: React.FC<BooruPageToolbarProps> = React.memo(({
   }, [hasSearch, selectedSiteId]);
 
   useEffect(() => { loadSearchHistory(); }, [loadSearchHistory]);
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: Boolean(hasSearch),
+    onSearchHistoryChanged: () => {
+      loadSearchHistory();
+    },
+  });
 
   const extractLastWord = (query: string): { prefix: string; operator: string; word: string } => {
     const parts = query.split(' ');

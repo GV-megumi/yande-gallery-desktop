@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
-import type { RendererAppEvent } from '../../shared/types';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
@@ -11,6 +10,7 @@ import { GalleryCoverImage } from '../components/GalleryCoverImage';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
+import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 const areGalleryPreferencesEqual = (
   left?: GalleryPagePreferencesBySubTab,
@@ -139,6 +139,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [modalSourceFavoriteTags, setModalSourceFavoriteTags] = useState<any[]>([]);
   // 内容容器 ref，用于监听滚动和判断缓存恢复时是否可直接插入新增块
   const contentRef = useRef<HTMLDivElement>(null);
+  const recentRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 搜索模式状态
   const [isSearchMode, setIsSearchMode] = useState(false);
   const [searchPage, setSearchPage] = useState(1);
@@ -425,76 +427,96 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     }
   };
 
-  useEffect(() => {
-    if (suspended || (subTab !== 'recent' && subTab !== 'galleries')) {
-      return;
-    }
+  const removeVisibleImages = (ids: number[]) => {
+    if (ids.length === 0) return;
+    const idSet = new Set(ids);
+    setRecentImages(prev => prev.filter(image => !idSet.has(image.id)));
+    setAllImages(prev => prev.filter(image => !idSet.has(image.id)));
+    setGalleryImages(prev => prev.filter(image => !idSet.has(image.id)));
+    setPendingRecentImages(prev => prev.filter(image => !idSet.has(image.id)));
+    setRecentNewSegments(prev => prev
+      .map(segment => ({ ...segment, images: segment.images.filter(image => !idSet.has(image.id)) }))
+      .filter(segment => segment.images.length > 0));
+  };
 
-    let recentRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-    let galleriesRefreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
-      if (event.type === 'gallery:images-imported' && subTab === 'recent') {
-        if (recentRefreshTimer) {
-          clearTimeout(recentRefreshTimer);
+  useGalleryDomainEvents({
+    active: !suspended,
+    replayDirtyOnActive: false,
+    onImagesImported: () => {
+      if (subTab !== 'recent') return;
+      if (recentRefreshTimerRef.current) {
+        clearTimeout(recentRefreshTimerRef.current);
+      }
+      recentRefreshTimerRef.current = setTimeout(() => {
+        checkRecentImagesAfterCacheResume();
+      }, 200);
+    },
+    onImagesChanged: (payload) => {
+      if (payload.action === 'deleted' || payload.action === 'invalidated') {
+        const ids = payload.affectedImageIds ?? (payload.imageId ? [payload.imageId] : []);
+        removeVisibleImages(ids);
+      }
+      if ((payload.action === 'created' || payload.action === 'batchImported') && subTab === 'recent') {
+        if (recentRefreshTimerRef.current) {
+          clearTimeout(recentRefreshTimerRef.current);
         }
-        recentRefreshTimer = setTimeout(() => {
+        recentRefreshTimerRef.current = setTimeout(() => {
           checkRecentImagesAfterCacheResume();
         }, 200);
       }
-
-      if (event.type === 'thumbnail:generated' && subTab === 'galleries') {
-        const thumbnailPath = event.payload.success && event.payload.thumbnailPath
-          ? event.payload.thumbnailPath
-          : null;
-        updateCoverThumbnailByImagePath(event.payload.imagePath, thumbnailPath);
+    },
+    onThumbnailGenerated: (payload) => {
+      if (subTab !== 'galleries') return;
+      const thumbnailPath = payload.success && payload.thumbnailPath ? payload.thumbnailPath : null;
+      updateCoverThumbnailByImagePath(payload.imagePath, thumbnailPath);
+    },
+    onGalleriesChanged: (payload) => {
+      if (subTab !== 'galleries') return;
+      if (galleriesRefreshTimerRef.current) {
+        clearTimeout(galleriesRefreshTimerRef.current);
       }
-
-      if (event.type === 'gallery:galleries-changed' && subTab === 'galleries') {
-        if (galleriesRefreshTimer) {
-          clearTimeout(galleriesRefreshTimer);
+      galleriesRefreshTimerRef.current = setTimeout(async () => {
+        await loadGalleries();
+        const changedGalleryId = payload.galleryId;
+        if (changedGalleryId && selectedGallery?.id === changedGalleryId) {
+          if (payload.action === 'deleted') {
+            galleryDetailRequestRunIdRef.current += 1;
+            setSelectedGallery(null);
+            setGalleryImages([]);
+            setDetailSourceFavoriteTags([]);
+          } else {
+            const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
+            if (result.success && result.data) {
+              setSelectedGallery(result.data);
+            }
+          }
         }
-        galleriesRefreshTimer = setTimeout(async () => {
-          await loadGalleries();
-          const changedGalleryId = event.payload.galleryId;
-          if (changedGalleryId && selectedGallery?.id === changedGalleryId) {
-            if (event.payload.action === 'deleted') {
-              galleryDetailRequestRunIdRef.current += 1;
-              setSelectedGallery(null);
-              setGalleryImages([]);
-              setDetailSourceFavoriteTags([]);
-            } else {
-              const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
-              if (result.success && result.data) {
-                setSelectedGallery(result.data);
-              }
+        if (changedGalleryId && selectedGalleryInfo?.id === changedGalleryId) {
+          if (payload.action === 'deleted') {
+            galleryInfoRequestRunIdRef.current += 1;
+            setSelectedGalleryInfo(null);
+            setModalSourceFavoriteTags([]);
+          } else {
+            const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
+            if (result.success && result.data) {
+              setSelectedGalleryInfo(result.data);
             }
           }
-          if (changedGalleryId && selectedGalleryInfo?.id === changedGalleryId) {
-            if (event.payload.action === 'deleted') {
-              galleryInfoRequestRunIdRef.current += 1;
-              setSelectedGalleryInfo(null);
-              setModalSourceFavoriteTags([]);
-            } else {
-              const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
-              if (result.success && result.data) {
-                setSelectedGalleryInfo(result.data);
-              }
-            }
-          }
-        }, 200);
-      }
-    });
+        }
+      }, 200);
+    },
+  });
 
-    return () => {
-      if (recentRefreshTimer) {
-        clearTimeout(recentRefreshTimer);
-      }
-      if (galleriesRefreshTimer) {
-        clearTimeout(galleriesRefreshTimer);
-      }
-      removeAppEventListener?.();
-    };
-  }, [subTab, suspended, recentImages, recentNewSegments, pendingRecentImages, galleries, allGalleries, selectedGallery, selectedGalleryInfo]);
+  useEffect(() => () => {
+    if (recentRefreshTimerRef.current) {
+      clearTimeout(recentRefreshTimerRef.current);
+      recentRefreshTimerRef.current = null;
+    }
+    if (galleriesRefreshTimerRef.current) {
+      clearTimeout(galleriesRefreshTimerRef.current);
+      galleriesRefreshTimerRef.current = null;
+    }
+  }, [subTab, suspended]);
 
   // 加载最近图片
   const loadRecentImages = async (count: number = RECENT_INITIAL_LOAD_COUNT) => {
@@ -1324,6 +1346,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               key="recent-loading"
               images={visibleRecentImages}
               loading={loading}
+              active={!suspended}
               emptyDescription="暂无最近图片"
               onReload={loadRecentImages}
               groupBy="day"
@@ -1346,6 +1369,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   <ImageListWrapper
                     images={segment.images}
                     loading={false}
+                    active={!suspended}
                     emptyDescription="暂无新增图片"
                     onReload={loadRecentImages}
                     groupBy="day"
@@ -1361,6 +1385,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   key="recent-base"
                   images={visibleRecentImages}
                   loading={false}
+                  active={!suspended}
                   emptyDescription="暂无最近图片"
                   onReload={loadRecentImages}
                   groupBy="day"
@@ -1385,6 +1410,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               key="recent-empty"
               images={[]}
               loading={false}
+              active={!suspended}
               emptyDescription="暂无最近图片"
               onReload={loadRecentImages}
               groupBy="day"
@@ -1410,6 +1436,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           <ImageListWrapper
             images={allImages}
             loading={loading}
+            active={!suspended}
             emptyDescription={isSearchMode ? `未找到匹配"${searchQuery}"的图片` : '暂无图片'}
             onReload={() => isSearchMode ? handleSearch(searchQuery, searchPage, 20) : loadImages(allPage, 20)}
             sortBy="time"
@@ -1685,6 +1712,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               <ImageListWrapper
                 images={visibleGalleryImages}
                 loading={loading}
+                active={!suspended}
                 emptyDescription="该图集暂无图片"
                 onReload={() => loadGalleryImages(selectedGallery.id)}
                 groupBy={gallerySort === 'time' ? 'day' : 'none'}

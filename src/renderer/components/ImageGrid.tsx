@@ -5,7 +5,7 @@ import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows, transitions, layout as layoutTokens } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
-import type { RendererAppEvent } from '../../shared/types';
+import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 // --- 静态样式常量（避免每次渲染创建新对象） ---
 const cardWrapperStyle: React.CSSProperties = {
@@ -32,6 +32,7 @@ const batchGroupSeparator = '__';
 export interface ImageGridProps {
   images: any[];
   onReload: () => void;
+  active?: boolean;
   groupBy?: 'none' | 'day' | 'month' | 'year';
   // 排序方式：按时间（修改时间优先）或按文件名
   sortBy?: 'time' | 'name';
@@ -305,6 +306,7 @@ ImageCard.displayName = 'ImageCard';
 export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   images,
   onReload,
+  active = true,
   groupBy = 'none',
   sortBy = 'time',
   showTimeline = false,
@@ -315,29 +317,117 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   groupKeyPrefix
 }) => {
   const [selectedImage, setSelectedImage] = useState<any>(null);
+  const [hiddenImageIds, setHiddenImageIds] = useState<Set<number>>(() => new Set());
   // 存储每个图片的缩略图路径，key 是 image.id
   const [thumbnailPaths, setThumbnailPaths] = useState<Record<number, string | null>>({});
   const thumbnailPathsRef = useRef<Record<number, string | null>>({});
   // 单图预览状态（替代 Image.PreviewGroup，避免 2000+ 图片创建隐藏预览节点）
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
-  const thumbnailLoadKey = useMemo(
-    () => images.map((image) => `${image.id}:${image.filepath || ''}`).join('|'),
+  const imageIdsKey = useMemo(
+    () => images.map((image) => `${typeof image.id === 'number' ? image.id : ''}`).join('|'),
     [images]
+  );
+  const visibleImages = useMemo(
+    () => hiddenImageIds.size === 0
+      ? images
+      : images.filter((image) => typeof image.id !== 'number' || !hiddenImageIds.has(image.id)),
+    [images, hiddenImageIds]
+  );
+  const visibleImageIdSet = useMemo(
+    () => new Set(
+      visibleImages
+        .map((image) => image.id)
+        .filter((id): id is number => typeof id === 'number')
+    ),
+    [visibleImages]
+  );
+  const thumbnailLoadKey = useMemo(
+    () => visibleImages.map((image) => `${image.id}:${image.filepath || ''}`).join('|'),
+    [visibleImages]
   );
 
   useEffect(() => {
-    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
-      if (event.type !== 'thumbnail:generated') return;
+    const currentImageIds = new Set(
+      images
+        .map((image) => image.id)
+        .filter((id): id is number => typeof id === 'number')
+    );
 
-      const matchedImage = images.find((image) => (
-        image.filepath === event.payload.imagePath &&
+    setHiddenImageIds((current) => {
+      let changed = false;
+      const next = new Set<number>();
+      current.forEach((id) => {
+        if (currentImageIds.has(id)) {
+          next.add(id);
+        } else {
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+  }, [imageIdsKey, images]);
+
+  const hideImagesById = useCallback((ids: Array<number | undefined>) => {
+    const uniqueIds = Array.from(new Set(ids.filter((id): id is number => typeof id === 'number')));
+    if (uniqueIds.length === 0) return;
+
+    const affectsVisibleImages = uniqueIds.some((id) => visibleImageIdSet.has(id));
+    setHiddenImageIds((current) => {
+      let changed = false;
+      const next = new Set(current);
+      uniqueIds.forEach((id) => {
+        if (!next.has(id)) {
+          next.add(id);
+          changed = true;
+        }
+      });
+      return changed ? next : current;
+    });
+
+    setThumbnailPaths((current) => {
+      let changed = false;
+      const next = { ...current };
+      uniqueIds.forEach((id) => {
+        if (id in next) {
+          delete next[id];
+          changed = true;
+        }
+      });
+      if (changed) {
+        thumbnailPathsRef.current = next;
+      }
+      return changed ? next : current;
+    });
+
+    if (!affectsVisibleImages) return;
+
+    setSelectedImage((current: any) => (
+      current && uniqueIds.includes(current.id) ? null : current
+    ));
+    onReload();
+  }, [onReload, visibleImageIdSet]);
+
+  useGalleryDomainEvents({
+    active,
+    replayDirtyOnActive: false,
+    onImagesChanged: (payload) => {
+      if (payload.action !== 'deleted' && payload.action !== 'invalidated') return;
+      hideImagesById([payload.imageId, ...(payload.affectedImageIds ?? [])]);
+    },
+    onInvalidImagesChanged: (payload) => {
+      if (payload.action !== 'reported') return;
+      hideImagesById([payload.originalImageId]);
+    },
+    onThumbnailGenerated: (payload) => {
+      const matchedImage = visibleImages.find((image) => (
+        image.filepath === payload.imagePath &&
         typeof image.id === 'number'
       ));
       if (!matchedImage || typeof matchedImage.id !== 'number') return;
 
-      const nextValue = event.payload.success && event.payload.thumbnailPath
-        ? event.payload.thumbnailPath
+      const nextValue = payload.success && payload.thumbnailPath
+        ? payload.thumbnailPath
         : null;
 
       setThumbnailPaths((current) => {
@@ -346,19 +436,15 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
         return nextPaths;
       });
 
-      if (!event.payload.success && event.payload.missing) {
-        window.electronAPI.gallery.reportInvalidImage(matchedImage.id).catch(() => {});
+      if (!payload.success && payload.missing) {
+        window.electronAPI?.gallery?.reportInvalidImage?.(matchedImage.id).catch(() => {});
       }
-    });
-
-    return () => {
-      removeAppEventListener?.();
-    };
-  }, [thumbnailLoadKey, images]);
+    },
+  });
 
   // 加载所有图片的缩略图（异步批量加载）
   useEffect(() => {
-    if (!window.electronAPI || images.length === 0) {
+    if (!window.electronAPI || visibleImages.length === 0) {
       // 图片列表为空时清空缩略图缓存，释放内存
       thumbnailPathsRef.current = {};
       setThumbnailPaths({});
@@ -367,7 +453,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
     // 用于取消已过时的加载任务
     const visibleImageIds = new Set(
-      images
+      visibleImages
         .map((image) => image.id)
         .filter((id): id is number => typeof id === 'number')
     );
@@ -390,7 +476,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
       setThumbnailPaths(prunedPaths);
     }
 
-    const imagesToLoad = images.filter((image) => (
+    const imagesToLoad = visibleImages.filter((image) => (
       typeof image.id === 'number' &&
       !!image.filepath &&
       !(image.id in currentPaths)
@@ -491,8 +577,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {
-    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${images.length}, 分组: ${groupBy}, 排序: ${sortBy}, 批次大小: ${batchSize}`);
-    const sorted = [...images].sort((a, b) => {
+    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${visibleImages.length}, 分组: ${groupBy}, 排序: ${sortBy}, 批次大小: ${batchSize}`);
+    const sorted = [...visibleImages].sort((a, b) => {
       if (sortBy === 'name') {
         return (a.filename || '').localeCompare(b.filename || '');
       }
@@ -535,7 +621,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     const groupKeys = Object.keys(finalGroups);
     console.log(`[ImageGrid] 分组完成，分组数量: ${groupKeys.length}, 分组键: ${groupKeys.join(', ')}`);
     return finalGroups;
-  }, [images, groupBy, sortBy, batchSize]);
+  }, [visibleImages, groupBy, sortBy, batchSize]);
 
 
 

@@ -5,13 +5,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { App as AntdApp } from 'antd';
 import { TagsSection } from '../../../src/renderer/components/BooruPostDetails/TagsSection';
-import type { BlacklistedTag, BooruPost, BooruSite } from '../../../src/shared/types';
+import type { BlacklistedTag, BooruPost, BooruSite, RendererAppEvent } from '../../../src/shared/types';
 
 const getTagsCategories = vi.fn();
 const getFavoriteTags = vi.fn();
 const getBlacklistedTags = vi.fn();
 const addBlacklistedTag = vi.fn();
 const removeBlacklistedTag = vi.fn();
+const onAppEvent = vi.fn();
+let appEventCallback: ((event: RendererAppEvent) => void) | undefined;
 
 const site: BooruSite = {
   id: 1,
@@ -47,6 +49,16 @@ function blacklistedTag(overrides: Partial<BlacklistedTag>): BlacklistedTag {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function renderTagsSection(
   props: Partial<React.ComponentProps<typeof TagsSection>> = {}
 ) {
@@ -65,6 +77,19 @@ function renderTagsSection(
   return view;
 }
 
+function appEvent<TType extends RendererAppEvent['type']>(
+  type: TType,
+  payload: Extract<RendererAppEvent, { type: TType }>['payload'],
+): Extract<RendererAppEvent, { type: TType }> {
+  return {
+    type,
+    version: 1,
+    occurredAt: '2026-06-09T00:00:00.000Z',
+    source: 'booruService',
+    payload,
+  } as Extract<RendererAppEvent, { type: TType }>;
+}
+
 async function openTagMenu(tagName: string) {
   const tag = await screen.findByText(tagName);
   fireEvent.contextMenu(tag);
@@ -73,6 +98,7 @@ async function openTagMenu(tagName: string) {
 describe('TagsSection blacklist context menu', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    appEventCallback = undefined;
 
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
@@ -120,6 +146,10 @@ describe('TagsSection blacklist context menu', () => {
       data: blacklistedTag({ id: 9, tagName: 'ass' }),
     });
     removeBlacklistedTag.mockResolvedValue({ success: true });
+    onAppEvent.mockImplementation((callback: (event: RendererAppEvent) => void) => {
+      appEventCallback = callback;
+      return vi.fn();
+    });
 
     (window as any).electronAPI = {
       booru: {
@@ -130,6 +160,9 @@ describe('TagsSection blacklist context menu', () => {
         removeBlacklistedTag,
         addFavoriteTag: vi.fn(),
         removeFavoriteTagByName: vi.fn(),
+      },
+      system: {
+        onAppEvent,
       },
     };
   });
@@ -249,6 +282,62 @@ describe('TagsSection blacklist context menu', () => {
     expect(screen.queryByText('移除黑名单')).toBeNull();
   });
 
+  it('does not apply stale favorite tag status after switching to another site', async () => {
+    const oldFavoriteTags = deferred<{ success: true; data: { items: Array<{ tagName: string }>; total: number } }>();
+    const site2: BooruSite = {
+      ...site,
+      id: 2,
+      name: 'danbooru',
+      url: 'https://danbooru.donmai.us',
+      type: 'danbooru',
+    };
+    const post2: BooruPost = {
+      ...post,
+      siteId: 2,
+    };
+
+    getFavoriteTags
+      .mockReturnValueOnce(oldFavoriteTags.promise)
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          items: [],
+          total: 0,
+        },
+      });
+
+    const view = renderTagsSection();
+
+    await waitFor(() => {
+      expect(getFavoriteTags).toHaveBeenCalledWith({ siteId: 1, limit: 0 });
+    });
+
+    view.rerender(
+      <AntdApp>
+        <TagsSection post={post2} site={site2} />
+      </AntdApp>
+    );
+
+    await waitFor(() => {
+      expect(getFavoriteTags).toHaveBeenCalledWith({ siteId: 2, limit: 0 });
+    });
+
+    await act(async () => {
+      oldFavoriteTags.resolve({
+        success: true,
+        data: {
+          items: [{ tagName: 'sunpe' }],
+          total: 1,
+        },
+      });
+      await Promise.resolve();
+    });
+
+    await openTagMenu('sunpe');
+    expect(await screen.findByText('收藏标签')).toBeTruthy();
+    expect(screen.queryByText('取消收藏标签')).toBeNull();
+  });
+
   it('reloads blacklist state after duplicate add and shows remove action from the reloaded record', async () => {
     getBlacklistedTags
       .mockResolvedValueOnce({
@@ -285,5 +374,71 @@ describe('TagsSection blacklist context menu', () => {
 
     await openTagMenu('ass');
     expect(await screen.findByText('移除黑名单')).toBeTruthy();
+  });
+
+  it('reloads favorite tag and blacklist maps when matching domain events arrive', async () => {
+    getFavoriteTags
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          items: [],
+          total: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          items: [{ tagName: 'ass' }],
+          total: 1,
+        },
+      });
+    getBlacklistedTags
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          items: [],
+          total: 0,
+        },
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: {
+          items: [blacklistedTag({ id: 11, tagName: 'ass' })],
+          total: 1,
+        },
+      });
+
+    renderTagsSection();
+
+    await waitFor(() => {
+      expect(getFavoriteTags).toHaveBeenCalledTimes(1);
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      appEventCallback?.(appEvent('favorite-tags:changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'ass',
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getFavoriteTags).toHaveBeenCalledTimes(2);
+    });
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'ass',
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getBlacklistedTags).toHaveBeenCalledTimes(2);
+    });
+
+    expect(getBlacklistedTags.mock.calls[1][0]).toEqual({ siteId: 1, limit: 0 });
   });
 });

@@ -4,6 +4,10 @@ import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
+import {
+  emitGalleryGalleriesChanged,
+  emitGalleryIgnoredFoldersChanged,
+} from './appEventPublisher.js';
 
 // 图库类型
 export interface Gallery {
@@ -193,11 +197,7 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
 
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
 
-    emitBuiltRendererAppEvent({
-      type: 'gallery:galleries-changed',
-      source: 'galleryService',
-      payload: { galleryId: result?.id, action: 'created', folderPath },
-    });
+    emitGalleryGalleriesChanged({ galleryId: result?.id, action: 'created', folderPath });
 
     return { success: true, data: result?.id };
   } catch (error) {
@@ -246,11 +246,7 @@ export async function updateGallery(
     const sql = `UPDATE galleries SET ${setClauses.join(', ')} WHERE id = ?`;
     await run(db, sql, values);
 
-    emitBuiltRendererAppEvent({
-      type: 'gallery:galleries-changed',
-      source: 'galleryService',
-      payload: { galleryId: id, action: 'updated' },
-    });
+    emitGalleryGalleriesChanged({ galleryId: id, action: 'updated' });
 
     return { success: true };
   } catch (error) {
@@ -400,11 +396,8 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       );
     });
 
-    emitBuiltRendererAppEvent({
-      type: 'gallery:galleries-changed',
-      source: 'galleryService',
-      payload: { galleryId: id, action: 'deleted', folderPath: normalized },
-    });
+    emitGalleryGalleriesChanged({ galleryId: id, action: 'deleted', folderPath: normalized });
+    emitGalleryIgnoredFoldersChanged({ action: 'created', folderPath: normalized, affectedCount: 1 });
 
     return { success: true };
   } catch (error) {
@@ -434,11 +427,7 @@ export async function updateGalleryStats(
       WHERE id = ?
     `, [imageCount, lastScannedAt, new Date().toISOString(), id]);
 
-    emitBuiltRendererAppEvent({
-      type: 'gallery:galleries-changed',
-      source: 'galleryService',
-      payload: { galleryId: id, action: 'statsUpdated' },
-    });
+    emitGalleryGalleriesChanged({ galleryId: id, action: 'statsUpdated' });
 
     return { success: true };
   } catch (error) {
@@ -474,6 +463,8 @@ export async function setGalleryCover(
       SET coverImageId = ?, updatedAt = ?
       WHERE id = ?
     `, [coverImageId, new Date().toISOString(), id]);
+
+    emitGalleryGalleriesChanged({ galleryId: id, action: 'coverChanged', affectedCount: 1 });
 
     return { success: true };
   } catch (error) {
@@ -814,6 +805,17 @@ export async function addIgnoredFolder(
        )`,
       [normalized, note ?? null, normalized, now, now]
     );
+    const row = await get<{ id: number }>(
+      db,
+      'SELECT id FROM gallery_ignored_folders WHERE folderPath = ?',
+      [normalized]
+    );
+    emitGalleryIgnoredFoldersChanged({
+      action: 'created',
+      ignoredFolderId: row?.id,
+      folderPath: normalized,
+      affectedCount: 1,
+    });
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -839,6 +841,7 @@ export async function updateIgnoredFolder(
           WHERE id = ?`,
       [patch.note ?? null, now, id]
     );
+    emitGalleryIgnoredFoldersChanged({ action: 'updated', ignoredFolderId: id, affectedCount: 1 });
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -855,7 +858,18 @@ export async function removeIgnoredFolder(
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
+    const row = await get<{ folderPath: string }>(
+      db,
+      'SELECT folderPath FROM gallery_ignored_folders WHERE id = ?',
+      [id]
+    );
     await run(db, `DELETE FROM gallery_ignored_folders WHERE id = ?`, [id]);
+    emitGalleryIgnoredFoldersChanged({
+      action: 'deleted',
+      ignoredFolderId: id,
+      folderPath: row?.folderPath,
+      affectedCount: 1,
+    });
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

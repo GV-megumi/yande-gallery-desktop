@@ -96,6 +96,7 @@ export const IPC_CHANNELS = {
   BOORU_UPDATE_SITE: 'booru:update-site',
   BOORU_DELETE_SITE: 'booru:delete-site',
   BOORU_GET_ACTIVE_SITE: 'booru:get-active-site',
+  BOORU_SET_ACTIVE_SITE: 'booru:set-active-site',
 
   // Booru 图片获取
   BOORU_GET_POSTS: 'booru:get-posts',

@@ -2,11 +2,12 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
-import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState, RendererAppEvent } from '../../shared/types';
+import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
 import { useLocale } from '../locales';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
 import { ImportTagsDialog } from '../components/ImportTagsDialog';
+import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 
 interface FavoriteTagsPageProps {
   onTagClick?: (tag: string, siteId?: number | null) => void | Promise<void>;
@@ -115,6 +116,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const preferencesHydratingRef = useRef(false);
   const favoriteTagsRequestSeqRef = useRef(0);
   const latestFavoriteTagsQueryKeyRef = useRef('');
+  const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const buildFavoriteTagsQueryKey = useCallback((
     nextFilterSiteId: number | undefined,
@@ -180,6 +182,23 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       }
     }
   }, [buildFavoriteTagsQueryKey, filterSiteId, debouncedKeyword, page, pageSize, sortKey, sortOrder, t]);
+
+  const scheduleFavoriteTagsRefresh = useCallback(() => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(() => {
+      refreshTimerRef.current = null;
+      loadFavoriteTags();
+    }, 250);
+  }, [loadFavoriteTags]);
+
+  useEffect(() => () => {
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+    }
+  }, [scheduleFavoriteTagsRefresh]);
 
   const loadSites = useCallback(async () => {
     try {
@@ -279,16 +298,6 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       return;
     }
 
-    let refreshTimer: ReturnType<typeof setTimeout> | null = null;
-    const scheduleRefresh = () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
-      refreshTimer = setTimeout(() => {
-        loadFavoriteTags();
-      }, 250);
-    };
-
     const removeProgressListener = window.electronAPI?.system?.onBulkDownloadRecordProgress?.((data: {
       sessionId: string;
       progress: number;
@@ -327,54 +336,54 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       }));
 
       if (needsRefresh) {
-        scheduleRefresh();
-      }
-    });
-
-    const removeAppEventListener = window.electronAPI?.system?.onAppEvent?.((event: RendererAppEvent) => {
-      if (event.type === 'favorite-tags:changed') {
-        scheduleRefresh();
-        return;
-      }
-
-      if (event.type === 'favorite-tag-download:created') {
-        const { favoriteTagId, taskId, sessionId, status } = event.payload;
-        setFavoriteTags(prev => prev.map(tag => {
-          if (tag.id !== favoriteTagId) {
-            return tag;
-          }
-          return {
-            ...tag,
-            downloadBinding: tag.downloadBinding
-              ? {
-                  ...tag.downloadBinding,
-                  lastTaskId: taskId,
-                  lastSessionId: sessionId || tag.downloadBinding.lastSessionId,
-                  lastStartedAt: new Date().toISOString(),
-                  lastCompletedAt: null,
-                  lastStatus: status,
-                }
-              : tag.downloadBinding,
-          };
-        }));
-        scheduleRefresh();
-        return;
-      }
-
-      if (event.type === 'bulk-download:sessions-changed' && event.payload.originType === 'favoriteTag') {
-        scheduleRefresh();
+        scheduleFavoriteTagsRefresh();
       }
     });
 
     return () => {
-      if (refreshTimer) {
-        clearTimeout(refreshTimer);
-      }
       removeProgressListener?.();
       removeStatusListener?.();
-      removeAppEventListener?.();
     };
-  }, [active, loadFavoriteTags]);
+  }, [active, scheduleFavoriteTagsRefresh]);
+
+  useRendererAppEvent([
+    'favorite-tags:changed',
+    'favorite-tag-download:created',
+    'bulk-download:sessions-changed',
+  ] as const, (event) => {
+    if (event.type === 'favorite-tags:changed') {
+      scheduleFavoriteTagsRefresh();
+      return;
+    }
+
+    if (event.type === 'favorite-tag-download:created') {
+      const { favoriteTagId, taskId, sessionId, status } = event.payload;
+      setFavoriteTags(prev => prev.map(tag => {
+        if (tag.id !== favoriteTagId) {
+          return tag;
+        }
+        return {
+          ...tag,
+          downloadBinding: tag.downloadBinding
+            ? {
+                ...tag.downloadBinding,
+                lastTaskId: taskId,
+                lastSessionId: sessionId || tag.downloadBinding.lastSessionId,
+                lastStartedAt: new Date().toISOString(),
+                lastCompletedAt: null,
+                lastStatus: status,
+              }
+            : tag.downloadBinding,
+        };
+      }));
+      scheduleFavoriteTagsRefresh();
+      return;
+    }
+
+    if (event.type === 'bulk-download:sessions-changed' && event.payload.originType === 'favoriteTag') {
+      scheduleFavoriteTagsRefresh();
+    }
+  }, { active, replayDirtyOnActive: false });
 
   const handleAdd = async (values: any) => {
     try {

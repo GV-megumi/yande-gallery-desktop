@@ -22,6 +22,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined, UserOutlined, LockOutlined, LoginOutlined, LogoutOutlined, CheckCircleOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
@@ -175,6 +176,13 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       setLoading(false);
     }
   };
+
+  useBooruDomainEvents({
+    siteId: null,
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   // 加载外观配置
   const loadAppearanceConfig = async () => {
@@ -423,7 +431,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       if (result.success) {
         console.log('[BooruSettingsPage] 删除站点成功:', site.name);
         message.success('删除站点成功');
-        loadSites();
       } else {
         console.error('[BooruSettingsPage] 删除站点失败:', result.error);
         message.error('删除站点失败: ' + result.error);
@@ -440,17 +447,10 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     try {
       if (!window.electronAPI) return;
 
-      const result = await window.electronAPI.booru.updateSite(site.id, { active: true });
+      const result = await window.electronAPI.booru.setActiveSite(site.id);
       if (result.success) {
-        // 将所有其他站点设置为非激活
-        for (const s of sites) {
-          if (s.id !== site.id && s.active) {
-            await window.electronAPI!.booru.updateSite(s.id, { active: false });
-          }
-        }
         console.log('[BooruSettingsPage] 设置激活站点成功:', site.name);
         message.success(`已设置 ${site.name} 为默认站点`);
-        loadSites();
       } else {
         console.error('[BooruSettingsPage] 设置激活站点失败:', result.error);
         message.error('设置激活站点失败: ' + result.error);
@@ -489,7 +489,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
           console.log('[BooruSettingsPage] 更新站点成功:', editingSite.name);
           message.success('更新站点成功');
           setModalVisible(false);
-          loadSites();
         } else {
           console.error('[BooruSettingsPage] 更新站点失败:', result.error);
           message.error('更新站点失败: ' + result.error);
@@ -501,7 +500,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
           console.log('[BooruSettingsPage] 添加站点成功:', values.name);
           message.success('添加站点成功');
           setModalVisible(false);
-          loadSites();
         } else {
           console.error('[BooruSettingsPage] 添加站点失败:', result.error);
           message.error('添加站点失败: ' + result.error);
@@ -658,7 +656,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         message.success(`登录成功: ${values.username}`);
         setLoginModalVisible(false);
         setLoginError(null);
-        loadSites();
       } else {
         const errorMsg = result.error || '登录失败，请检查用户名和密码';
         setLoginError(errorMsg);
@@ -679,7 +676,6 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       const result = await window.electronAPI.booru.logout(site.id);
       if (result.success) {
         message.success('已登出');
-        loadSites();
       } else {
         message.error('登出失败: ' + result.error);
       }

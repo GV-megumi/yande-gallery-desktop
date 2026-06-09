@@ -37,6 +37,10 @@ import {
 } from './downloadFileProtocol.js';
 import { notifyBulkSession } from './notificationService.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
+import {
+  emitBulkDownloadRecordsChanged,
+  emitBulkDownloadTasksChanged,
+} from './appEventPublisher.js';
 
 function broadcastToRendererWindows(channel: string, payload: unknown): void {
   void (async () => {
@@ -163,6 +167,12 @@ export async function createBulkDownloadTask(
         updatedAt: existing.updatedAt,
         deduplicated: true
       };
+      emitBulkDownloadTasksChanged({
+        action: 'deduplicated',
+        taskId: deduplicatedTask.id,
+        siteId: deduplicatedTask.siteId,
+        affectedCount: 0,
+      });
       return { success: true, data: deduplicatedTask };
     }
 
@@ -205,6 +215,12 @@ export async function createBulkDownloadTask(
     ]);
 
     console.log('[bulkDownloadService] 任务创建成功:', taskId);
+    emitBulkDownloadTasksChanged({
+      action: 'created',
+      taskId: task.id,
+      siteId: task.siteId,
+      affectedCount: 1,
+    });
     return { success: true, data: task };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -341,6 +357,12 @@ export async function updateBulkDownloadTask(
     ]);
 
     console.log('[bulkDownloadService] 任务更新成功:', taskId);
+    emitBulkDownloadTasksChanged({
+      action: 'updated',
+      taskId,
+      siteId: updatedTask.siteId,
+      affectedCount: 1,
+    });
     return { success: true, data: updatedTask };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -372,7 +394,16 @@ export async function deleteBulkDownloadTask(
       };
     }
 
+    const task = await get<{ siteId: number | null }>(db, 'SELECT siteId FROM bulk_download_tasks WHERE id = ?', [taskId]);
     await run(db, `DELETE FROM bulk_download_tasks WHERE id = ?`, [taskId]);
+    if (task) {
+      emitBulkDownloadTasksChanged({
+        action: 'deleted',
+        taskId,
+        siteId: task.siteId,
+        affectedCount: 1,
+      });
+    }
 
     console.log('[bulkDownloadService] 任务删除成功:', taskId);
     return { success: true };
@@ -851,7 +882,7 @@ export async function createBulkDownloadRecord(
     const db = await getDatabase();
     const now = new Date().toISOString();
 
-    await run(db, `
+    const result = await runWithChanges(db, `
       INSERT OR IGNORE INTO bulk_download_records (
         url, sessionId, status, page, pageIndex, createdAt,
         fileName, extension, thumbnailUrl, sourceUrl
@@ -868,6 +899,14 @@ export async function createBulkDownloadRecord(
       record.thumbnailUrl || null,
       record.sourceUrl || null
     ]);
+    if (result.changes > 0) {
+      emitBulkDownloadRecordsChanged({
+        action: 'created',
+        sessionId: record.sessionId,
+        status: record.status,
+        affectedCount: result.changes,
+      });
+    }
   } catch (error) {
     console.error('[bulkDownloadService] 创建记录失败:', error);
     throw error;
@@ -887,9 +926,10 @@ export async function createBulkDownloadRecords(
     const db = await getDatabase();
     const now = new Date().toISOString();
 
+    let insertedCount = 0;
     await runInTransaction(db, async () => {
       for (const record of records) {
-        await run(db, `
+        const result = await runWithChanges(db, `
           INSERT OR IGNORE INTO bulk_download_records (
             url, sessionId, status, page, pageIndex, createdAt,
             fileName, extension, thumbnailUrl, sourceUrl
@@ -906,8 +946,19 @@ export async function createBulkDownloadRecords(
           record.thumbnailUrl || null,
           record.sourceUrl || null
         ]);
+        insertedCount += result.changes;
       }
     });
+    if (insertedCount > 0) {
+      const sessionRow = await get<any>(db, 'SELECT taskId FROM bulk_download_sessions WHERE id = ?', [records[0].sessionId]);
+      emitBulkDownloadRecordsChanged({
+        action: 'created',
+        sessionId: records[0].sessionId,
+        taskId: sessionRow?.taskId,
+        status: records[0].status,
+        affectedCount: insertedCount,
+      });
+    }
   } catch (error) {
     console.error('[bulkDownloadService] 批量创建记录失败:', error);
     throw error;
@@ -1940,6 +1991,13 @@ async function downloadRecord(
               downloadedBytes: existingSize,
               totalBytes: existingSize
             });
+            emitBulkDownloadRecordsChanged({
+              action: 'statusChanged',
+              sessionId,
+              status: 'completed',
+              previousStatus: 'downloading',
+              affectedCount: 1,
+            });
             
             return;
           }
@@ -2207,9 +2265,10 @@ async function downloadRecord(
           // 即使状态更新失败，也继续广播状态，让前端知道下载完成
         }
         
-        // 广播状态变化到前端（通知下载完成）- 确保即使数据库更新失败也发送
-        try {
-          broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
+        // 广播状态变化到前端（通知下载完成）- 仅在数据库状态确认成功后发送
+        if (statusUpdateSuccess) {
+          try {
+            broadcastToRendererWindows(IPC_CHANNELS.BULK_DOWNLOAD_RECORD_STATUS, {
             sessionId: sessionId,
             url: record.url,
             status: 'completed',
@@ -2218,9 +2277,17 @@ async function downloadRecord(
             downloadedBytes: actualSize,
             totalBytes: expectedSize || actualSize
           });
+          emitBulkDownloadRecordsChanged({
+            action: 'statusChanged',
+            sessionId,
+            status: 'completed',
+            previousStatus: 'downloading',
+            affectedCount: 1,
+          });
           console.log(`[bulkDownloadService] 已广播状态更新: ${record.fileName}`);
-        } catch (broadcastError) {
+          } catch (broadcastError) {
           console.error(`[bulkDownloadService] 广播状态更新失败: ${record.fileName}`, broadcastError);
+        }
         }
         
         break; // 成功，跳出重试循环
@@ -2308,6 +2375,13 @@ async function downloadRecord(
       url: record.url,
       status: 'failed',
       error: errorMessage
+    });
+    emitBulkDownloadRecordsChanged({
+      action: 'statusChanged',
+      sessionId,
+      status: 'failed',
+      previousStatus: 'downloading',
+      affectedCount: 1,
     });
   }
 }
@@ -2647,6 +2721,14 @@ export async function retryAllFailedRecords(
       SET status = ?, error = NULL
       WHERE sessionId = ? AND status = ?
     `, ['pending', sessionId, 'failed']);
+    emitBulkDownloadRecordsChanged({
+      action: 'pendingReset',
+      sessionId,
+      taskId: sessionRow.taskId,
+      status: 'pending',
+      previousStatus: 'failed',
+      affectedCount: failedRecords.length,
+    });
 
     // ── 进入 running 前的看门（复用与 startBulkDownloadSession 相同的不变量） ──
     // 与 startBulkDownloadSession 不同，retryAllFailedRecords 并未在 withScheduler
@@ -2733,13 +2815,76 @@ export async function retryFailedRecord(
   console.log('[bulkDownloadService] 重试失败的记录:', sessionId, recordUrl);
   try {
     const db = await getDatabase();
+    const activeSessionRow = await get<any>(db, `
+      SELECT s.*, t.*
+      FROM bulk_download_sessions s
+      INNER JOIN bulk_download_tasks t ON s.taskId = t.id
+      WHERE s.id = ? AND s.deletedAt IS NULL
+    `, [sessionId]);
+
+    if (!activeSessionRow) {
+      return { success: false, error: 'Session not found' };
+    }
+
+    const targetRecord = await get<any>(db, `
+      SELECT * FROM bulk_download_records
+      WHERE sessionId = ? AND url = ?
+    `, [sessionId, recordUrl]);
+
+    if (!targetRecord) {
+      return { success: false, error: 'Record not found' };
+    }
+
+    const activeSessionIsHistory =
+      activeSessionRow.status === 'completed' ||
+      activeSessionRow.status === 'failed' ||
+      activeSessionRow.status === 'cancelled' ||
+      activeSessionRow.status === 'allSkipped';
+    let canEnterRunningAlreadyChecked = false;
+
+    if (activeSessionIsHistory) {
+      const gate = await withScheduler(() =>
+        ensureCanEnterRunning(db, sessionId, activeSessionRow.taskId, { selfIsHistory: true })
+      );
+
+      if (!gate.ok) {
+        if (gate.selfSoftDeleted) {
+          console.log(
+            '[bulkDownloadService] retryFailedRecord：同 taskId 已有活跃会话，已软删 history session:',
+            sessionId,
+            '→',
+            gate.activeSessionId
+          );
+          return {
+            success: true,
+            merged: true,
+            message: '该任务已有进行中的下载，历史记录已合并',
+          };
+        }
+        return { success: false, error: '该任务已有进行中的下载会话' };
+      }
+
+      canEnterRunningAlreadyChecked = true;
+    }
+
+    if (targetRecord.status !== 'failed') {
+      return { success: false, error: 'Failed record not found' };
+    }
     
     // 重置记录状态为 pending
-    await run(db, `
+    const resetResult = await runWithChanges(db, `
       UPDATE bulk_download_records 
       SET status = ?, error = NULL 
       WHERE sessionId = ? AND url = ? AND status = ?
-    `, ['pending', sessionId, recordUrl, 'failed']);
+        AND EXISTS (
+          SELECT 1 FROM bulk_download_sessions
+          WHERE id = ? AND deletedAt IS NULL
+        )
+    `, ['pending', sessionId, recordUrl, 'failed', sessionId]);
+
+    if (resetResult.changes === 0) {
+      return { success: false, error: 'Record status was not updated' };
+    }
 
     // 获取会话和任务信息
     const sessionRow = await get<any>(db, `
@@ -2778,6 +2923,15 @@ export async function retryFailedRecord(
       return { success: false, error: '记录不存在' };
     }
 
+    emitBulkDownloadRecordsChanged({
+      action: 'pendingReset',
+      sessionId,
+      taskId: sessionRow.taskId,
+      status: 'pending',
+      previousStatus: 'failed',
+      affectedCount: resetResult.changes,
+    });
+
     const recordToDownload: BulkDownloadRecord = {
       url: record.url,
       sessionId: record.sessionId,
@@ -2810,31 +2964,33 @@ export async function retryFailedRecord(
 
     // 如果会话未运行，需要翻 running → 先过看门
     if (sessionRow.status !== 'running') {
-      const selfIsHistory =
-        sessionRow.status === 'completed' ||
-        sessionRow.status === 'failed' ||
-        sessionRow.status === 'cancelled' ||
-        sessionRow.status === 'allSkipped';
+      if (!canEnterRunningAlreadyChecked) {
+        const selfIsHistory =
+          sessionRow.status === 'completed' ||
+          sessionRow.status === 'failed' ||
+          sessionRow.status === 'cancelled' ||
+          sessionRow.status === 'allSkipped';
 
-      const gate = await withScheduler(() =>
-        ensureCanEnterRunning(db, sessionId, sessionRow.taskId, { selfIsHistory })
-      );
+        const gate = await withScheduler(() =>
+          ensureCanEnterRunning(db, sessionId, sessionRow.taskId, { selfIsHistory })
+        );
 
-      if (!gate.ok) {
-        if (gate.selfSoftDeleted) {
-          console.log(
-            '[bulkDownloadService] retryFailedRecord：同 taskId 已有活跃会话，已软删 history session:',
-            sessionId,
-            '→',
-            gate.activeSessionId
-          );
-          return {
-            success: true,
-            merged: true,
-            message: '该任务已有进行中的下载，历史记录已合并',
-          };
+        if (!gate.ok) {
+          if (gate.selfSoftDeleted) {
+            console.log(
+              '[bulkDownloadService] retryFailedRecord：同 taskId 已有活跃会话，已软删 history session:',
+              sessionId,
+              '→',
+              gate.activeSessionId
+            );
+            return {
+              success: true,
+              merged: true,
+              message: '该任务已有进行中的下载，历史记录已合并',
+            };
+          }
+          return { success: false, error: '该任务已有进行中的下载会话' };
         }
-        return { success: false, error: '该任务已有进行中的下载会话' };
       }
 
       await waitForDownloadSessionToStop(sessionId);

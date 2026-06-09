@@ -7,9 +7,15 @@ import { PaginationControl } from '../components/PaginationControl';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { AdvancedFilterPanel, FilterConfig, filterConfigToMetaTags } from '../components/AdvancedFilterPanel';
-import { BooruPost, BooruSite } from '../../shared/types';
+import {
+  BooruPost,
+  BooruSite,
+  RendererBooruPostFavoriteChangedPayload,
+  RendererBooruPostServerFavoriteChangedPayload,
+} from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
 import { useFavorite } from '../hooks/useFavorite';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 import { getCommonPostTags, toggleSelectedPost } from '../utils/multiSelect';
 
 interface BooruPageProps {
@@ -26,6 +32,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
+  const selectedSiteIdRef = useRef<number | null>(null);
   const [posts, setPosts] = useState<BooruPost[]>([]);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,8 +53,14 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   // 请求计数器：用于丢弃快速切换站点时的过期响应
   const loadRequestIdRef = useRef(0);
   const paginationRequestInFlightRef = useRef(false);
+  const blacklistRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    selectedSiteIdRef.current = selectedSiteId;
+    blacklistRequestIdRef.current += 1;
+  }, [selectedSiteId]);
   // 收藏状态管理
-  const { favorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
+  const { favorites, setFavorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
     siteId: selectedSiteId,
     onSuccess: (postId, isFavorited) => {
       // 更新图片数据中的收藏状态
@@ -144,6 +157,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         } else if (siteList.length > 0) {
           console.log('[BooruPage] 没有激活站点，默认选中第一个:', siteList[0].name);
           setSelectedSiteId(siteList[0].id);
+        } else {
+          setSelectedSiteId(null);
+          setPosts([]);
+          setFavorites(new Set());
+          setServerFavorites(new Set());
+          setBlacklistTagNames([]);
         }
       } else {
         console.error('[BooruPage] 加载站点列表失败:', result.error);
@@ -159,13 +178,18 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   // 加载黑名单标签名列表
   const loadBlacklistTagNames = useCallback(async () => {
     if (!selectedSiteId) return;
+    const siteId = selectedSiteId;
+    const requestId = blacklistRequestIdRef.current + 1;
+    blacklistRequestIdRef.current = requestId;
     try {
-      const result = await window.electronAPI.booru.getActiveBlacklistTagNames(selectedSiteId);
+      const result = await window.electronAPI.booru.getActiveBlacklistTagNames(siteId);
+      if (blacklistRequestIdRef.current !== requestId || selectedSiteIdRef.current !== siteId) return;
       if (result.success && result.data) {
         setBlacklistTagNames(result.data);
         console.log('[BooruPage] 加载黑名单标签:', result.data.length, '个');
       }
     } catch (error) {
+      if (blacklistRequestIdRef.current !== requestId || selectedSiteIdRef.current !== siteId) return;
       console.error('[BooruPage] 加载黑名单标签失败:', error);
     }
   }, [selectedSiteId]);
@@ -175,6 +199,58 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     loadBlacklistTagNames();
     setDisabledBlacklistTags(new Set());
   }, [loadBlacklistTagNames]);
+
+  const applyPostFavoriteEvent = useCallback((payload: RendererBooruPostFavoriteChangedPayload) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (payload.isFavorited) next.add(payload.postId);
+      else next.delete(payload.postId);
+      return next;
+    });
+    setPosts(prevPosts =>
+      prevPosts.map(post =>
+        post.postId === payload.postId
+          ? { ...post, isFavorited: payload.isFavorited }
+          : post
+      )
+    );
+  }, [setFavorites]);
+
+  const applyServerFavoriteEvent = useCallback((payload: RendererBooruPostServerFavoriteChangedPayload) => {
+    const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
+    if (postIds.length === 0) return;
+    const postIdSet = new Set(postIds);
+
+    setServerFavorites(prev => {
+      const next = new Set(prev);
+      for (const postId of postIdSet) {
+        if (payload.isLiked) next.add(postId);
+        else next.delete(postId);
+      }
+      return next;
+    });
+    setPosts(prevPosts =>
+      prevPosts.map(post =>
+        postIdSet.has(post.postId)
+          ? { ...post, isLiked: payload.isLiked }
+          : post
+      )
+    );
+  }, []);
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: !suspended,
+    onPostFavoriteChanged: applyPostFavoriteEvent,
+    onServerFavoriteChanged: applyServerFavoriteEvent,
+    onBlacklistTagsChanged: () => {
+      loadBlacklistTagNames();
+      setDisabledBlacklistTags(new Set());
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   const beginBooruRequest = (page: number, source: BooruRequestSource) => {
     const requestId = ++loadRequestIdRef.current;

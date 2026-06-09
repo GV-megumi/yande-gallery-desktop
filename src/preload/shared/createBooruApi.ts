@@ -17,6 +17,7 @@ export function createBooruApi() {
     updateSite: (id: number, updates: Partial<Omit<BooruSiteRecord, 'id' | 'createdAt' | 'updatedAt' | 'authenticated'>>) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_SITE, id, updates),
     deleteSite: (id: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_SITE, id),
     getActiveSite: () => ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_ACTIVE_SITE) as Promise<{ success: boolean; data?: BooruSite | null; error?: string }>,
+    setActiveSite: (siteId: number) => ipcRenderer.invoke(IPC_CHANNELS.BOORU_SET_ACTIVE_SITE, siteId) as Promise<{ success: boolean; error?: string }>,
 
     // 图片
     getPosts: (siteId: number, page: number = 1, tags?: string[], limit?: number) =>
@@ -31,8 +32,8 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit, groupId),
     addFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
-    removeFavorite: (postId: number, syncToServer: boolean = false) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, postId, syncToServer),
+    removeFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, postId, siteId, syncToServer),
     // 监听收藏后台修复完成事件
     onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => {
       const subscription = (_event: any, data: any) => callback(data);
@@ -253,8 +254,8 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_UPDATE_FAVORITE_GROUP, id, updates),
     deleteFavoriteGroup: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_DELETE_FAVORITE_GROUP, id),
-    moveFavoriteToGroup: (postId: number, groupId: number | null) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, postId, groupId),
+    moveFavoriteToGroup: (postId: number, siteId: number, groupId: number | null) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, postId, siteId, groupId),
 
     // 保存的搜索
     getSavedSearches: (siteId?: number) =>

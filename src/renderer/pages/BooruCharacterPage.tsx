@@ -14,6 +14,7 @@ import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { colors, spacing, fontSize } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
+import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 import { getBooruPreviewUrl } from '../utils/url';
 
 interface BooruCharacterPageProps {
@@ -73,6 +74,46 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
     },
     logPrefix: '[BooruCharacterPage]'
   });
+
+  const patchPostFavorite = useCallback((postId: number, isFavorited: boolean) => {
+    setFavorites(prev => {
+      const next = new Set(prev);
+      if (isFavorited) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    setPosts(prev => prev.map(p => (
+      p.postId === postId ? { ...p, isFavorited } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isFavorited } : post
+    ));
+  }, [setFavorites]);
+
+  const patchServerFavorite = useCallback((postId: number, isLiked: boolean) => {
+    setServerFavorites(prev => {
+      const next = new Set(prev);
+      if (isLiked) next.add(postId);
+      else next.delete(postId);
+      return next;
+    });
+    setPosts(prev => prev.map(p => (
+      p.postId === postId ? { ...p, isLiked } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, isLiked } : post
+    ));
+  }, []);
+
+  const patchDownloadState = useCallback((postId: number, downloaded: boolean, localImageId?: number) => {
+    const patch = localImageId === undefined ? { downloaded } : { downloaded, localImageId };
+    setPosts(prev => prev.map(p => (
+      p.postId === postId ? { ...p, ...patch } : p
+    )));
+    setSelectedPost(post => (
+      post?.postId === postId ? { ...post, ...patch } : post
+    ));
+  }, []);
 
   const selectedSite = useMemo(() => sites.find(s => s.id === selectedSiteId) || null, [sites, selectedSiteId]);
 
@@ -167,6 +208,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
         const data = result.data || [];
         console.log('[BooruCharacterPage] 搜索成功:', data.length, '张图片');
         setPosts(data);
+        setServerFavorites(new Set(data.filter((p: any) => p.isLiked).map((p: any) => p.postId)));
         setCurrentPage(page);
         await loadFavoritesFromServer();
       } else {
@@ -194,6 +236,32 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
       console.error('[BooruCharacterPage] 加载收藏状态失败:', error);
     }
   };
+
+  useBooruDomainEvents({
+    siteId: selectedSiteId,
+    active: !suspended,
+    onPostFavoriteChanged: (payload) => {
+      patchPostFavorite(payload.postId, payload.isFavorited);
+    },
+    onServerFavoriteChanged: (payload) => {
+      const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
+      postIds.forEach((postId) => patchServerFavorite(postId, payload.isLiked));
+    },
+    onPostDownloadStateChanged: (payload) => {
+      if (payload.postId == null) return;
+      if (payload.action === 'markedDownloaded' || payload.downloaded) {
+        patchDownloadState(payload.postId, true, payload.localImageId);
+      }
+    },
+    onFavoriteTagsChanged: (payload) => {
+      if (!payload.tagName || payload.tagName === characterName) {
+        checkTagFavoriteStatus();
+      }
+    },
+    onSitesChanged: () => {
+      loadSites();
+    },
+  });
 
   const handleToggleFavorite = async (post: BooruPost) => {
     const result = await toggleFavorite(post);

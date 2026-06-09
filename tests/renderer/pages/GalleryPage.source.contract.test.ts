@@ -8,19 +8,23 @@ describe('GalleryPage recent images contract', () => {
     'utf-8',
   );
 
-  it('最近图片页消费 gallery:images-imported 事件并走增量刷新', () => {
-    expect(source).toContain('window.electronAPI?.system?.onAppEvent');
-    expect(source).toContain("event.type === 'gallery:images-imported'");
+  it('uses gallery domain events for recent incremental refresh', () => {
+    expect(source).toContain('useGalleryDomainEvents({');
+    expect(source).toContain('onImagesImported: () => {');
     expect(source).toContain('checkRecentImagesAfterCacheResume()');
   });
 
-  it('图集页消费 gallery:galleries-changed 事件并刷新图集列表', () => {
-    expect(source).toContain("event.type === 'gallery:galleries-changed'");
+  it('uses gallery domain events for galleries list invalidation', () => {
+    expect(source).toContain('onGalleriesChanged: (payload) => {');
     expect(source).toContain("subTab === 'galleries'");
     expect(source).toContain('await loadGalleries()');
   });
 
-  it('最近图片分支不再传 showTimeline，但保留 day 分组标题能力', () => {
+  it('does not hand-roll system.onAppEvent subscriptions in the page', () => {
+    expect(source).not.toContain('window.electronAPI?.system?.onAppEvent');
+  });
+
+  it('keeps day grouping for recent images without the old showTimeline prop', () => {
     expect(source.match(/groupBy="day"/g)?.length ?? 0).toBeGreaterThanOrEqual(1);
     expect(source).not.toContain('showTimeline');
   });

@@ -379,12 +379,33 @@
 - `onBulkDownloadRecordProgress(callback)`
 - `onBulkDownloadRecordStatus(callback)`
 - `onSystemNavigate(callback)`
-- `onAppEvent(callback)`：当前事件类型包括：
-  - `bulk-download:sessions-changed`：批量下载会话创建、删除或状态变化，下载中心据此刷新会话列表
-  - `favorite-tag-download:created`：收藏标签下载任务 / 会话创建完成，收藏标签页可立即更新当前行，下载中心可主动刷新
-  - `favorite-tags:changed`：收藏标签、标签分组或下载绑定变更，收藏标签页据此刷新
-  - `gallery:images-imported`：图库扫描 / 同步导入新图片，最近图片页据此做增量加载
-  - `gallery:galleries-changed`：图集创建、更新、删除或统计变化
+- `onAppEvent(callback)`：订阅统一 `RendererAppEvent`，事件结构以 `src/shared/appEvents.ts` 为准。当前事件类型包括：
+  - `bulk-download:sessions-changed`：批量下载会话创建、去重、状态变化、删除或重试合并
+  - `bulk-download:tasks-changed`：批量下载任务创建、去重、更新或删除
+  - `bulk-download:records-changed`：批量下载 record 创建、终态变化、pending reset、重试合并或删除
+  - `favorite-tag-download:created`：收藏标签下载任务 / 会话创建完成
+  - `favorite-tags:changed`：收藏标签、标签分组或下载绑定变更
+  - `booru:post-favorite-changed`：本地帖子收藏新增、移除、修复或移动分组
+  - `booru:post-server-favorite-changed`：服务端喜欢 / 取消喜欢 / 同步结果变化
+  - `booru:blacklist-tags-changed`：黑名单新增、批量新增、导入、编辑、启停或删除
+  - `booru:sites-changed`：站点新增、编辑、删除、active site 或认证状态变化
+  - `booru:favorite-groups-changed`：收藏分组创建、更新、删除或收藏移动分组
+  - `booru:saved-searches-changed`：保存搜索创建、更新或删除
+  - `booru:search-history-changed`：搜索历史新增或清空
+  - `booru:post-download-state-changed`：帖子下载状态入队、完成、失败、移除、清空或标记已下载
+  - `booru:post-vote-changed`：帖子投票状态 / 分数变化
+  - `booru:image-cache-cleared`：Booru 图片缓存清空
+  - `gallery:images-imported`：图库扫描 / 同步导入新图片
+  - `gallery:images-changed`：图库图片新增、删除、标签更新、无效化或批量导入
+  - `gallery:galleries-changed`：图集创建、更新、删除、统计或封面变化
+  - `gallery:invalid-images-changed`：无效图片上报、删除或清空
+  - `gallery:ignored-folders-changed`：忽略文件夹新增、编辑或删除
+  - `thumbnail:generated`：缩略图生成、缺失或失败状态变化
+  - `config:changed`：配置 section 变更，旧 `config.onConfigChanged` 兼容通道仍保留
+  - `app:data-restored`：备份导入恢复成功
+  - `api-service:status-changed`：本地 API 服务运行状态变化
+
+页面侧不要直接散写 `window.electronAPI.system.onAppEvent`，应通过 `useRendererAppEvent`、`useBooruDomainEvents` 或 `useGalleryDomainEvents` 消费；高频下载进度仍使用 `onBulkDownloadRecordProgress` / `onBulkDownloadRecordStatus` 专用通道。
 
 ## 返回值约定
 

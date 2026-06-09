@@ -305,6 +305,17 @@ export function setupBooruHandlers() {
     }
   });
 
+  ipcMain.handle(IPC_CHANNELS.BOORU_SET_ACTIVE_SITE, async (_event: IpcMainInvokeEvent, siteId: number) => {
+    console.log('[IPC] 设置激活Booru站点:', siteId);
+    try {
+      await booruService.setActiveBooruSite(siteId);
+      return { success: true };
+    } catch (error) {
+      console.error('[IPC] 设置激活Booru站点失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
   // ===== Booru 图片获取 =====
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_POSTS, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, tags?: string[], limit?: number) => {
     console.log('[IPC] 获取Booru图片列表，站点:', siteId, ', 页码:', page, ', 每页数量:', limit || 20);
@@ -746,7 +757,7 @@ export function setupBooruHandlers() {
                 } else {
                   // 帖子已被删除（API 返回空或无 file_url），从收藏中清理
                   console.warn('[IPC] 帖子已被删除，从收藏中移除:', postId);
-                  await booruService.removeFromFavorites(postId);
+                  await booruService.removeFromFavorites(postId, siteId);
                   deletedIds.push(postId);
                 }
               } catch (fetchErr) {
@@ -788,10 +799,10 @@ export function setupBooruHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, async (_event: IpcMainInvokeEvent, postId: number, syncToServer: boolean = false) => {
-    console.log('[IPC] 移除Booru收藏，图片:', postId, ', 同步到服务器:', syncToServer);
+  ipcMain.handle(IPC_CHANNELS.BOORU_REMOVE_FAVORITE, async (_event: IpcMainInvokeEvent, postId: number, siteId: number, syncToServer: boolean = false) => {
+    console.log('[IPC] 移除Booru收藏，图片:', postId, ', 站点:', siteId, ', 同步到服务器:', syncToServer);
     try {
-      await booruService.removeFromFavorites(postId);
+      await booruService.removeFromFavorites(postId, siteId);
       return { success: true };
     } catch (error) {
       console.error('[IPC] 移除Booru收藏失败:', error);
@@ -1655,18 +1666,7 @@ export function setupBooruHandlers() {
   ipcMain.handle(IPC_CHANNELS.BOORU_VOTE_POST, async (_event: IpcMainInvokeEvent, siteId: number, postId: number, score: 1 | 0 | -1) => {
     console.log('[IPC] 为图片投票:', siteId, postId, score);
     try {
-      const site = await booruService.getBooruSiteById(siteId);
-      if (!site) {
-        throw new Error('站点不存在');
-      }
-
-      if (!site.username || !site.passwordHash) {
-        throw new Error('需要登录才能投票');
-      }
-
-      const client = createBooruClient(site);
-
-      await client.votePost(postId, score);
+      await booruService.votePost(siteId, postId, score);
       return { success: true };
     } catch (error) {
       console.error('[IPC] 投票失败:', error);
@@ -1772,9 +1772,10 @@ export function setupBooruHandlers() {
       const dbPosts = await booruService.getBooruPostsByIds(savedPostIds);
 
       // 批量设置 isLiked = 1（这些帖子均为服务端喜欢列表中的帖子）
-      for (const post of dbPosts) {
-        await booruService.setPostLiked(siteId, post.postId, true);
-      }
+      await booruService.syncPostLikedStates(
+        siteId,
+        dbPosts.filter((post): post is BooruPost => post !== null).map((post) => post.postId),
+      );
 
       // 批量查询所有帖子中的 artist 标签
       const favArtistMap = await resolveArtistTags(siteId, dbPosts, client);
@@ -2471,9 +2472,9 @@ export function setupBooruHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, async (_event: IpcMainInvokeEvent, postId: number, groupId: number | null) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, async (_event: IpcMainInvokeEvent, postId: number, siteId: number, groupId: number | null) => {
     try {
-      await booruService.moveFavoriteToGroup(postId, groupId);
+      await booruService.moveFavoriteToGroup(siteId, postId, groupId);
       return { success: true };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };

@@ -8,6 +8,7 @@ import {
   type RendererSafeAppConfig,
 } from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
+import { emitAppDataRestored, emitConfigChanged } from './appEventPublisher.js';
 
 export const BACKUP_TABLES = [
   'booru_sites',
@@ -273,8 +274,14 @@ export async function restoreAppBackupData(
     await run(db, 'PRAGMA foreign_keys = ON');
   }
 
-  return {
+  const result: RestoreBackupResult = {
     mode,
     restoredTables: summarizeBackupTables(backupData),
   };
+  emitAppDataRestored(result);
+  emitConfigChanged({
+    version: Date.now(),
+    sections: ['database', 'galleries', 'booru', 'apiService', 'ui'],
+  });
+  return result;
 }

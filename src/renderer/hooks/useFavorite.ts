@@ -57,7 +57,7 @@ export function useFavorite({
     try {
       if (currentlyFavorited) {
         // 取消收藏
-        const result = await window.electronAPI.booru.removeFavorite(post.postId);
+        const result = await window.electronAPI.booru.removeFavorite(post.postId, siteId, false);
         if (result.success) {
           console.log(`${logPrefix} 取消收藏成功:`, post.postId);
           setFavorites(prev => {

@@ -1,10 +1,12 @@
-import type { ApiServicePermissionKey } from '../../shared/types.js';
+import { API_EVENT_CHANNELS, type ApiServicePermissionKey } from '../../shared/types.js';
 
 interface ApiPermissionRule {
   method: string;
   path: RegExp;
   permissionKey: ApiServicePermissionKey | null;
 }
+
+const eventChannelPattern = API_EVENT_CHANNELS.join('|');
 
 const apiPermissionRules: ApiPermissionRule[] = [
   { method: 'GET', path: /^\/api\/v1\/service\/info\/?$/, permissionKey: null },
@@ -34,7 +36,7 @@ const apiPermissionRules: ApiPermissionRule[] = [
   { method: 'GET', path: /^\/api\/v1\/downloads\/sessions(?:\/[^/]+)?\/?$/, permissionKey: 'downloadsRead' },
   { method: 'POST', path: /^\/api\/v1\/downloads\/sessions\/[^/]+\/(?:pause|resume|cancel)\/?$/, permissionKey: 'downloadsControl' },
 
-  { method: 'GET', path: /^\/api\/v1\/events\/(?:downloads|favorite-tags|booru|api-logs|system)\/?$/, permissionKey: 'eventsSubscribe' },
+  { method: 'GET', path: new RegExp(`^/api/v1/events/(?:${eventChannelPattern})/?$`), permissionKey: 'eventsSubscribe' },
   { method: 'GET', path: /^\/api\/v1\/api-logs\/?$/, permissionKey: 'apiLogsRead' },
 ];
 
