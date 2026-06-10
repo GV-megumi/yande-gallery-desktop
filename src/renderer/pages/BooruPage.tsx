@@ -149,14 +149,19 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         console.log('[BooruPage] 站点列表加载成功:', siteList.length, '个站点');
         setSites(siteList);
 
-        // 如果有激活站点，默认选中
-        const activeSite = siteList.find(s => s.active);
-        if (activeSite) {
-          console.log('[BooruPage] 默认选中激活站点:', activeSite.name);
-          setSelectedSiteId(activeSite.id);
-        } else if (siteList.length > 0) {
-          console.log('[BooruPage] 没有激活站点，默认选中第一个:', siteList[0].name);
-          setSelectedSiteId(siteList[0].id);
+        if (siteList.length > 0) {
+          // 已选站点仍然存在时保持选择不变：避免 booru:sites-changed 事件（重命名/登录/激活切换等）
+          // 重新触发 loadSites 时把用户手动选中的站点重置为激活站点，进而由 [selectedSiteId] effect
+          // 清空当前列表并跳回第 1 页，丢失浏览位置
+          setSelectedSiteId(prev => {
+            if (prev !== null && siteList.some(s => s.id === prev)) {
+              return prev;
+            }
+            // 首次加载或原选中站点已被删除：优先选激活站点，否则选第一个
+            const fallback = siteList.find(s => s.active) ?? siteList[0];
+            console.log('[BooruPage] 默认选中站点:', fallback.name);
+            return fallback.id;
+          });
         } else {
           setSelectedSiteId(null);
           setPosts([]);

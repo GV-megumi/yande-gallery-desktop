@@ -6,6 +6,7 @@ import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
+import { normalizePath } from '../utils/path.js';
 
 /**
  * 图片服务 - 数据库操作实现
@@ -259,6 +260,54 @@ export async function getImageById(id: number): Promise<{ success: boolean; data
 }
 
 /**
+ * 查找包含指定图片路径的图集（用于删除事件的 galleryId 归属）。
+ *
+ * 不用 SQL LIKE 做前缀匹配，原因：
+ * - 裸前缀（无尾部分隔符）会把兄弟目录误配：D:\pics\cats2 下的图片会被归到 D:\pics\cats
+ * - folderPath 中的 LIKE 元字符（'_'、'%'）在无 ESCAPE 子句时会产生假匹配
+ *
+ * 改为取出图集行后在 JS 侧做边界精确的路径前缀匹配：
+ * - 路径经 normalizePath 归一化（分隔符、末尾斜杠统一）
+ * - win32 文件系统大小写不敏感，比较前统一转小写；其余平台保持大小写敏感
+ * - 边界要求：与 folderPath 完全相等，或以 "folderPath + path.sep" 为前缀
+ * - 图集可嵌套时取 folderPath 最长（最深）的匹配，与原 SQL 的
+ *   ORDER BY LENGTH(folderPath) DESC 语义保持一致
+ */
+async function findGalleryIdForImagePath(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  filepath: string
+): Promise<{ id: number } | null> {
+  // 图集数量由用户配置决定，规模很小，全量取出在 JS 侧匹配开销可忽略
+  const galleries = await all<{ id: number; folderPath: string }>(
+    db,
+    'SELECT id, folderPath FROM galleries'
+  );
+
+  const caseInsensitive = process.platform === 'win32';
+  const normalizeForCompare = (p: string): string => {
+    const normalized = normalizePath(p);
+    return caseInsensitive ? normalized.toLowerCase() : normalized;
+  };
+
+  const target = normalizeForCompare(filepath);
+  let matched: { id: number } | null = null;
+  let matchedLength = -1;
+
+  for (const gallery of galleries) {
+    if (!gallery.folderPath) continue;
+    const folder = normalizeForCompare(gallery.folderPath);
+    // 边界精确：完全相等，或 folderPath 后紧跟路径分隔符（排除兄弟前缀目录）
+    const isMatch = target === folder || target.startsWith(folder + path.sep);
+    if (isMatch && folder.length > matchedLength) {
+      matched = { id: gallery.id };
+      matchedLength = folder.length;
+    }
+  }
+
+  return matched;
+}
+
+/**
  * 删除图片
  * 注意：普通 images 的缩略图路径不在 DB 里，由 thumbnailService 按图片路径反推，
  *      因此只查 filepath，并通过 deleteThumbnail(filepath) 清理缩略图文件。
@@ -271,15 +320,9 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     const row = await get<{ filepath: string }>(
       db, 'SELECT filepath FROM images WHERE id = ?', [id]
     );
+    // 图集归属：JS 侧做边界精确的路径前缀匹配，避免 SQL LIKE 的元字符与兄弟目录误配
     const gallery = row?.filepath
-      ? await get<{ id: number }>(
-          db,
-          `SELECT id FROM galleries
-             WHERE ? LIKE folderPath || '%'
-             ORDER BY LENGTH(folderPath) DESC
-             LIMIT 1`,
-          [row.filepath]
-        )
+      ? await findGalleryIdForImagePath(db, row.filepath)
       : null;
 
     // 删除数据库记录

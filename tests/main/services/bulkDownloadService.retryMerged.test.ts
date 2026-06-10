@@ -99,8 +99,8 @@ describe('bulkDownloadService.retry* - 冲突合并', () => {
 
   it('retryFailedRecord：同 taskId 已有活跃 session 时，软删 self 并返回 merged:true', async () => {
     // 第一次 get：JOIN 查 session → history 状态
-    // 第二次 get：ensureCanEnterRunning 活跃探测 → 返回活跃
-    // 第三次 get：读失败记录行（若改写后被提前 early return，此 get 可能不触发）
+    // 第二次 get：读目标记录行（必须是 failed，纯校验先于看门）
+    // 第三次 get：ensureCanEnterRunning 活跃探测 → 返回活跃
     getMock.mockImplementation(async (_db: any, sql: string) => {
       if (/FROM bulk_download_sessions s\s+INNER JOIN bulk_download_tasks/.test(sql)) {
         return HIST_SESSION_ROW;
@@ -110,7 +110,7 @@ describe('bulkDownloadService.retry* - 冲突合并', () => {
       }
       if (/FROM bulk_download_records/.test(sql)) {
         return {
-          url: 'u1', sessionId: 'session-hist', status: 'pending', page: 1, pageIndex: 0,
+          url: 'u1', sessionId: 'session-hist', status: 'failed', page: 1, pageIndex: 0,
           createdAt: '2024-01-01', fileName: 'a.jpg', extension: 'jpg',
           headers: null, thumbnailUrl: null, sourceUrl: null
         };
@@ -130,5 +130,42 @@ describe('bulkDownloadService.retry* - 冲突合并', () => {
       /SET status = \?/.test(args[1]) && args[2]?.includes('running')
     );
     expect(transitionToRunning).toBeUndefined();
+  });
+
+  it('retryFailedRecord：记录非 failed 时先返回校验错误，不触发看门软删', async () => {
+    // 回归守卫：旧实现先跑 ensureCanEnterRunning（可能软删 history session），
+    // 再校验记录状态 —— 重试一条非 failed 记录会先改动会话状态再返回错误。
+    getMock.mockImplementation(async (_db: any, sql: string) => {
+      if (/FROM bulk_download_sessions s\s+INNER JOIN bulk_download_tasks/.test(sql)) {
+        return HIST_SESSION_ROW;
+      }
+      if (/FROM bulk_download_sessions\s+WHERE taskId = \? AND id != \?/.test(sql)) {
+        return { id: 'session-active' };
+      }
+      if (/FROM bulk_download_records/.test(sql)) {
+        return {
+          url: 'u1', sessionId: 'session-hist', status: 'completed', page: 1, pageIndex: 0,
+          createdAt: '2024-01-01', fileName: 'a.jpg', extension: 'jpg',
+          headers: null, thumbnailUrl: null, sourceUrl: null
+        };
+      }
+      return undefined;
+    });
+
+    const { retryFailedRecord } = await import(
+      '../../../src/main/services/bulkDownloadService.js'
+    );
+    const result = await retryFailedRecord('session-hist', 'u1');
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBe('Failed record not found');
+    expect((result as any).merged).toBeUndefined();
+
+    // 校验失败必须发生在任何 mutation 之前：不允许出现软删（SET deletedAt）等写操作
+    const softDelete = runMock.mock.calls.find(args =>
+      /SET deletedAt = \?/.test(args[1])
+    );
+    expect(softDelete).toBeUndefined();
+    expect(runMock).not.toHaveBeenCalled();
   });
 });

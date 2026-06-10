@@ -72,6 +72,146 @@
 - 验证方式：补共享事件类型测试和 `rendererEventBus` 广播测试；补 `booruService` / IPC mutation 成功后发事件测试；补 `BooruPage` 回归测试，模拟黑名单新增事件后当前页命中图片立即从列表消失且命中统计出现新标签；补多组件挂载测试，模拟收藏 / 喜欢事件后列表卡片、详情工具栏和收藏页状态同步。
 - 实施记录：已新增 `src/shared/appEvents.ts`、`src/main/services/appEventPublisher.ts`、`useRendererAppEvent`、`useBooruDomainEvents`、`useGalleryDomainEvents`，并将 Booru 收藏 / 服务端喜欢 / 黑名单 / 站点 / 保存搜索 / 分组 / 下载状态 / 投票、Gallery 图片 / 图集 / 无效图 / 忽略文件夹、批量下载任务 / record、配置、备份恢复、API 服务状态纳入统一 `RendererAppEvent`。高频下载进度仍保留专用 IPC。详细设计、落地范围和验证记录见 `doc/superpowers/specs/2026-06-09-global-domain-events-sync-design.md`、`doc/superpowers/plans/2026-06-09-global-domain-events-sync-fix.md` 和 `doc/全局领域事件与跨窗口状态同步缺陷审查.md`。
 
+## 2026-06-10 全局领域事件批次 Code Review 修复记录
+
+- 来源：对全局领域事件批次 commit `101fca0` 与 `3795573` 的 code review，共确认 15 项缺陷，本批已全部修复完成。
+- 统一回归验证：`npx tsc -p tsconfig.main.json --noEmit` 与 `npx tsc -p tsconfig.preload.json --noEmit` 通过；`npm run test` 全量 2163 个测试（基线 2140 + 本批新增 23 个回归测试）全部通过。以下各条「回归验证」仅列出针对性的测试文件。
+
+### Bug6：setPostLiked 误发 synced 事件导致服务端喜欢页无限远程请求循环（严重）
+
+- 状态：已修复
+- 现象：打开服务端喜欢页后，每次拉取服务端收藏都会触发新一轮远程 API 请求，形成无限请求循环，且分页不断弹回第 1 页。
+- 原因：`setPostLiked` 的 isLiked UPDATE 没有值守卫，node-sqlite3 的 `this.changes` 按匹配行（而非实际修改行）计数，导致同步服务端喜欢状态时即使状态未变也误发 `booru:server-favorite-changed`（action='synced'）事件；`BooruServerFavoritesPage` 收到 isLiked=true 事件即调用 `loadServerFavorites(1)`，拉取→事件→再拉取叠加成循环并弹回第 1 页。
+- 涉及文件：`src/main/services/booruService.ts`、`src/renderer/pages/BooruServerFavoritesPage.tsx`。
+- 修复方案：UPDATE 增加 `AND COALESCE(isLiked, 0) != ?` 值守卫，仅真实状态翻转才计入 changes（NULL 视为 0），`syncPostLikedStates` 的 synced 聚合事件因此只在有真实变更时广播；页面侧防御纵深——忽略 action='synced' 事件（其来源是本页自身拉取触发的同步），真实 liked 事件改为刷新当前页而非固定回到第 1 页。
+- 回归验证：`tests/main/services/booruService.appEvents.test.ts`（全部 changes=0 时不广播 synced）、`tests/renderer/pages/BooruServerFavoritesPage.domainEvents.test.tsx`（synced 不触发重新拉取；liked 刷新当前页而非第 1 页）。
+
+### Bug7：removeFromFavorites 对未收藏帖子误发 removed 事件
+
+- 状态：已修复
+- 现象：对从未收藏过的帖子执行取消收藏，仍会广播 `booru:post-favorite-changed`（action='removed'）事件，订阅页面被无谓刷新。
+- 原因：与 Bug6 同根因——isFavorited=0 的 UPDATE 无值守卫，匹配行即计入 changes，事件发布未以真实变更为前提。
+- 涉及文件：`src/main/services/booruService.ts`。
+- 修复方案：UPDATE 增加 `AND isFavorited != 0` 守卫（NULL 行经 `NULL != 0` 求值为 NULL 同样被排除，语义上即未收藏），且仅当 `Math.max(deleteResult.changes, updateResult.changes) > 0` 时才发 removed 事件。
+- 回归验证：`tests/main/services/booruService.appEvents.test.ts`（changes=0 时不发事件 + 守卫 SQL 断言）。
+
+### Bug8：updateSavedSearch 跨站点移动后旧站点订阅者不刷新
+
+- 状态：已修复
+- 现象：保存的搜索从站点 A 移动到站点 B 后，按站点 A 过滤订阅的页面收不到 `booru:saved-searches-changed` 事件，旧站点列表残留已移走的条目。
+- 原因：事件 payload 只携带新 siteId，按旧站点过滤的订阅者匹配不到。
+- 涉及文件：`src/main/services/booruService.ts`、`src/shared/appEvents.ts`、`src/renderer/hooks/useBooruDomainEvents.ts`。
+- 修复方案：payload 增加可选 `previousSiteId`（仅跨站点移动时携带，非移动场景 payload 形状不变）；`useBooruDomainEvents` 派发时匹配 `siteId` 或已定义的 `previousSiteId` 任意一个即可命中订阅者。
+- 回归验证：`tests/main/services/booruService.appEvents.test.ts`（跨站点移动事件包含 previousSiteId）、`tests/renderer/hooks/useBooruDomainEvents.test.tsx`（旧站点订阅者收到事件、无关站点不收）。
+
+### Bug9：setActiveBooruSite 对不存在的站点 id 清空全部 active 标记
+
+- 状态：已修复
+- 现象：传入不存在的站点 id 时，会先清空所有站点的 active 标记再设置目标（无行受影响），应用失去激活站点，且照常广播 sites-changed 事件。
+- 原因：事务内先无条件清零全部 active 标记，未事先校验目标站点存在性。
+- 涉及文件：`src/main/services/booruService.ts`。
+- 修复方案：在既有事务内先 SELECT 校验目标站点存在，不存在则抛出「站点不存在: <id>」并回滚——不清标记、不发事件；IPC handler 已有 catch 兜底返回 `{ success: false, error }`，无需改动。
+- 回归验证：`tests/main/services/booruService.appEvents.test.ts`（不存在 id 时拒绝且不清标记、不发事件）。
+
+### Bug10：详情页主图 onError 回退在 sample/preview 间无限乒乓重试
+
+- 状态：已修复
+- 现象：帖子的 sample 与 preview 均不可达时（如已删除帖、离线），`BooruPostDetailsPage` 主图 onError 回退在 sample→preview→sample 间无限交替，每轮重挂 img 元素并发起新的网络请求。
+- 原因：回退候选筛选只排除「刚失败的 URL」（`url !== imageUrl && url !== img.src`），不记录历史失败 URL，两个候选互为对方的「未失败」选项。
+- 涉及文件：`src/renderer/pages/BooruPostDetailsPage.tsx`。
+- 修复方案：新增 `failedImageUrlsRef`（Set）累计本轮回退链中全部失败 URL（同时记录 imageUrl 与 img.src），候选改为查找未失败 URL；候选耗尽时输出 `[BooruPostDetailsPage]` 前缀警告并停止重试（不再 bump imageVersion、不再重挂 img、不再发请求），保留现有失败占位表现；切换帖子（imageLoadKey 变化）时重置 Set，新帖回退链可正常工作。
+- 回归验证：`tests/renderer/pages/BooruPostDetailsPage.imageLoading.test.tsx`（全部候选失败后停止乒乓；切换帖子后失败记录复位，2 个新用例）。
+
+### Bug11：BooruPage 站点事件触发 loadSites 后丢弃用户手动选择的站点
+
+- 状态：已修复
+- 现象：任何 `booru:sites-changed` 事件（包括与当前站点无关的更新）触发 `loadSites` 后，无条件 `setSelectedSiteId(activeSite.id)`，丢弃用户手动选择的非激活站点，清空帖子并重置回第 1 页，浏览位置丢失。
+- 原因：`loadSites` 重载站点列表后未判断原选中站点是否仍然有效，直接重置为 active/首个站点。
+- 涉及文件：`src/renderer/pages/BooruPage.tsx`。
+- 修复方案：改为函数式 setState——原选中站点仍在重载后的列表中则原样返回（React state bail-out，不触发依赖 `selectedSiteId` 的清空/重载 effect）；仅初次加载（prev 为 null）或选中站点已被删除时回退到 active 站点 ?? 首个站点，空列表分支行为不变。
+- 回归验证：`tests/renderer/pages/BooruPage.loadingPagination.test.tsx`（sites-changed 后保持手动选中的非激活站点，不重新拉取帖子）。
+
+### Bug12：BooruFavoritesPage 站点事件触发 loadSites 后重置站点选择
+
+- 状态：已修复
+- 现象：与 Bug11 同模式——任何站点事件重载站点列表后无条件 `setSelectedSiteId(siteList[0].id)`，丢弃用户在收藏页手动选择的站点。
+- 原因：同 Bug11，`loadSites` 未保留仍然有效的既有选择。
+- 涉及文件：`src/renderer/pages/BooruFavoritesPage.tsx`。
+- 修复方案：同款函数式 setState——`setSelectedSiteId(prev => siteList.some(s => s.id === prev) ? prev : siteList[0].id)`，并以 `prev !== null` 守卫保证初次挂载仍选中首个站点，空列表重置分支不变。
+- 回归验证：`tests/renderer/pages/BooruFavoritesPage.domainEvents.test.tsx`（sites-changed 后保持手动选中的下拉站点，无额外 getFavorites 调用）。
+
+### Bug13：BooruFavoritesPage 收藏事件刷新缺少防抖与请求序号守卫
+
+- 状态：已修复
+- 现象：批量取消收藏等场景下，每条 `booru:post-favorite-changed`（removed）事件都立即触发一次 `loadFavorites`，N 条事件产生 N 次请求，且乱序响应可能互相覆盖列表与 loading 状态。
+- 原因：事件处理直接调用 `loadFavorites(currentPage)`，没有像 `BlacklistedTagsPage` 那样的防抖合并与请求序号守卫。
+- 涉及文件：`src/renderer/pages/BooruFavoritesPage.tsx`。
+- 修复方案：按 BlacklistedTagsPage 同款模式补齐——新增 `scheduleFavoritesReload`（50ms 防抖，经 ref 取最新 loadFavorites 闭包与当前页码）合并事件风暴为一次刷新；`loadFavorites` 内加 `loadFavoritesRequestIdRef` 请求序号守卫，过期响应在数据、错误与 loading 路径上一律丢弃；卸载时清理待定定时器。
+- 回归验证：`tests/renderer/pages/BooruFavoritesPage.domainEvents.test.tsx`（3 条连发 removed 事件只触发 1 次 getFavorites，无尾部重复刷新）。
+
+### Bug14：useRendererAppEvent 挂起页面脏事件缓冲无上限
+
+- 状态：已修复
+- 现象：页面处于非激活（导航缓存挂起）状态时脏事件无限堆积；长时间挂起后内存持续增长，恢复激活时同步逐条重放全部事件，可能瞬间冻结 UI。
+- 原因：`dirtyEventsRef` 为无上限平铺数组，恢复时逐条重放，无溢出策略。
+- 涉及文件：`src/renderer/hooks/useRendererAppEvent.ts`。
+- 修复方案：改为 `DirtyEventBuffer`（有序数组 + 按类型计数 + 溢出最新事件 Map）：每事件类型缓冲上限 50 条；第 51 条到达时丢弃该类型全部已缓冲事件、仅保留最新一条（后续事件覆盖之）并按溢出输出一次 `[useRendererAppEvent]` 前缀 warn；恢复时未溢出类型按到达顺序重放，溢出类型只补发最新一条；typeKey 变化时整体重置。Hook 公开签名不变，7 处调用方无需改动。
+- 回归验证：`tests/renderer/hooks/useRendererAppEvent.test.tsx`（单类型 60 连发仅 1 次 warn、恢复时仅重放最新一条；混合类型下未溢出类型按序重放、溢出类型最后补发最新）。
+
+### Bug15：createSystemApi 的 onAppEvent 每个订阅者各注册一个 ipcRenderer 监听器
+
+- 状态：已修复
+- 现象：`system.onAppEvent` 每次订阅都执行一次 `ipcRenderer.on(SYSTEM_APP_EVENT, ...)`，订阅者增多时底层监听器线性增长，存在 MaxListeners 告警与重复派发开销风险。
+- 原因：未做单监听器多路分发，订阅与底层 IPC 监听一一对应。
+- 涉及文件：`src/preload/shared/createSystemApi.ts`。
+- 修复方案：闭包内改为多路分发——首次订阅时懒注册唯一一个 SYSTEM_APP_EVENT 监听器，内部 `Set` 维护回调并以快照遍历派发（派发期间增删订阅不影响本轮）；退订幂等（守卫标志防止重复退订误删他人状态），Set 清空时移除底层监听器并允许后续重新懒注册。对外 API 与回调 payload 完全不变。
+- 回归验证：`tests/preload/main-exposure.test.ts`（双订阅者共享单个 ipc 注册、均收到事件；移除一个保留监听器、重复退订为 no-op、移除最后一个才 removeListener、再订阅可重新注册）。
+
+### Bug16：备份恢复后未广播 legacy CONFIG_CHANGED 通道
+
+- 状态：已修复
+- 现象：备份恢复完成后只在新事件总线发出 `config:changed`，仍订阅 legacy `IPC_CHANNELS.CONFIG_CHANGED` 的 preload 订阅者（`config.onChanged`、`booruPreferences.onAppearanceChanged`）继续持有过期配置。
+- 原因：`restoreAppBackupData` 只调用了新总线的 `emitConfigChanged`，缺少与 configHandlers 配置保存路径一致的双通道广播。
+- 涉及文件：`src/main/services/backupService.ts`。
+- 修复方案：构建一份 `ConfigChangedSummary`，同时发往新总线与 legacy 通道——新增 `broadcastLegacyConfigChanged` 遍历 `BrowserWindow.getAllWindows()` 发送 CONFIG_CHANGED（payload 形状与 `configHandlers.broadcastConfigChanged` 保持一致，含 isDestroyed 守卫，动态 import electron 保证测试环境可运行），两通道携带相同 version。
+- 回归验证：`tests/main/services/backupService.test.ts`（恢复成功后存活窗口恰好收到一次 CONFIG_CHANGED 且 payload 符合 ConfigChangedSummary 形状，已销毁窗口不收）。
+
+### Bug17：deleteImage 用 SQL LIKE 前缀匹配归属图库导致兄弟目录误归属
+
+- 状态：已修复
+- 现象：删除图片时以 `? LIKE folderPath || '%'` 匹配归属图库：无尾部路径分隔符导致兄弟前缀目录误归属（如 `D:\pics\cats2` 中的图片被归到图库 `D:\pics\cats`）；无 ESCAPE 子句导致 folderPath 含 `_` / `%` 时误匹配，`gallery:images-changed` 事件携带错误 galleryId。
+- 原因：用 SQL LIKE 做文件路径前缀判断，既无路径边界约束也未转义 LIKE 元字符。
+- 涉及文件：`src/main/services/imageService.ts`。
+- 修复方案：改为 TS 内精确匹配——新增 `findGalleryIdForImagePath` 取全部图库行，以既有 `normalizePath` 规范化后比较（win32 下大小写不敏感），要求「完全相等或前缀 + path.sep 边界」，多个命中取最长 folderPath（保留原 ORDER BY LENGTH DESC 的嵌套语义）；图库数量小，全量取行开销可忽略。
+- 回归验证：`tests/main/services/imageService.deleteImage.test.ts`（正确归属、兄弟前缀目录不误归、LIKE 元字符不误匹配、嵌套图库取最长、win32 大小写不敏感，共 5 个新用例）。
+
+### Bug18：批量下载页纯 trailing 防抖在事件风暴下刷新饿死
+
+- 状态：已修复
+- 现象：下载风暴期间 records-changed 事件（每个文件完成/失败各一条）间隔持续小于 200ms，`BooruBulkDownloadPage.scheduleRefresh` 的纯 trailing 防抖定时器被不断重置，整个风暴期间列表永不刷新。
+- 原因：防抖只有 trailing 边沿，无最大等待兜底。
+- 涉及文件：`src/renderer/pages/BooruBulkDownloadPage.tsx`。
+- 修复方案：补 1000ms maxWait 兜底——`refreshFirstPendingAtRef` 记录本轮防抖窗口首次挂起时间戳，新事件到达时若距首次挂起已超 maxWait 则清掉 trailing 定时器立即强制刷新，否则维持原 200ms trailing 重计时（稀疏事件行为不变）；卸载清理时一并复位时间戳 ref。
+- 回归验证：`tests/renderer/pages/BooruBulkDownloadPage.test.tsx`（1.5s 持续事件风暴中 t=1000ms 处发生强制刷新，风暴结束后 trailing 再补刷恰好一次；并经 git stash 验证旧实现无法通过该用例）。
+
+### Bug19：retryFailedRecord 把有副作用的看门调用放在状态校验之前
+
+- 状态：已修复
+- 现象：对仍存活的 history 会话重试一条非 failed 记录时，先触发 `ensureCanEnterRunning` 的副作用（软删本 session 或同 taskId 的其他 history session）之后才校验失败并报错，造成无谓且不可逆的数据变更。
+- 原因：纯校验 `targetRecord.status !== 'failed'` 原位于看门调用之后，校验仅依赖看门前已查出的记录行，顺序排列错误。
+- 涉及文件：`src/main/services/bulkDownloadService.ts`。
+- 修复方案：将该纯校验前移到 targetRecord 存在性检查之后、`activeSessionIsHistory` 计算与首次 `ensureCanEnterRunning` 之前，非 failed 记录直接返回「Failed record not found」，不执行任何 mutation；删除原位置的重复检查，并补中文注释说明「纯校验必须先于带副作用的看门」。
+- 回归验证：`tests/main/services/bulkDownloadService.retryMerged.test.ts`（history 会话 + 同 taskId 活跃会话 + 非 failed 记录：返回校验错误、无 merged 字段、无任何软删 mutation；同时修正一个原本依赖此 bug 的既有用例 mock）。
+
+### Bug20：downloadRecord 中过期注释与实际广播行为矛盾
+
+- 状态：已修复
+- 现象：`bulkDownloadService.ts` 约 2265 行注释写「即使状态更新失败，也继续广播状态，让前端知道下载完成」，与 commit 3795573 之后的实际代码（仅 `statusUpdateSuccess` 为真时才广播）矛盾，误导后续维护。
+- 原因：行为在 3795573 中改为「仅成功才广播」，注释未同步更新。
+- 涉及文件：`src/main/services/bulkDownloadService.ts`。
+- 修复方案：注释更正为「状态更新失败时不广播：只有数据库 mutation 成功后才发布事件（下方以 statusUpdateSuccess 守卫）」，与实际行为一致。无任何代码行为变化。
+- 回归验证：纯注释修订，以全部 13 个 `bulkDownloadService.*.test.ts`（110 个测试，含基于源码文本断言的 eventIntegrity 套件）通过确认无行为回归。
+
 ## 条目模板
 
 ### BugX：标题

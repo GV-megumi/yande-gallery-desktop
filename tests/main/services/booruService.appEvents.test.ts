@@ -160,6 +160,12 @@ describe('booruService app events', () => {
       'SELECT id FROM booru_posts WHERE postId = ? AND siteId = ?',
       [101, 2],
     );
+    // isFavorited 更新必须带值守卫，避免 this.changes 把"本来就是 0"的行计为变更
+    expect(runWithChangesMock).toHaveBeenCalledWith(
+      db,
+      'UPDATE booru_posts SET isFavorited = 0 WHERE id = ? AND isFavorited != 0',
+      [10],
+    );
     expect(emitBooruPostFavoriteChanged).toHaveBeenCalledWith({
       action: 'removed',
       siteId: 2,
@@ -168,6 +174,20 @@ describe('booruService app events', () => {
       isFavorited: false,
       affectedCount: 1,
     });
+  });
+
+  it('does not emit removed when the post was never favorited', async () => {
+    getMock.mockResolvedValueOnce({ id: 10 });
+    // DELETE 与 UPDATE（含值守卫）都没有命中任何行
+    runWithChangesMock
+      .mockResolvedValueOnce({ changes: 0 })
+      .mockResolvedValueOnce({ changes: 0 });
+
+    const { removeFromFavorites } = await import('../../../src/main/services/booruService.js');
+
+    await removeFromFavorites(101, 2);
+
+    expect(emitBooruPostFavoriteChanged).not.toHaveBeenCalled();
   });
 
   it('emits server favorite changes after the database write succeeds', async () => {
@@ -179,8 +199,8 @@ describe('booruService app events', () => {
 
     expect(runWithChangesMock).toHaveBeenCalledWith(
       db,
-      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?',
-      [1, 2, 101],
+      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ? AND COALESCE(isLiked, 0) != ?',
+      [1, 2, 101, 1],
     );
     expect(emitBooruPostServerFavoriteChanged).toHaveBeenCalledWith({
       action: 'liked',
@@ -200,8 +220,8 @@ describe('booruService app events', () => {
 
     expect(runWithChangesMock).toHaveBeenCalledWith(
       db,
-      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?',
-      [1, 2, 101],
+      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ? AND COALESCE(isLiked, 0) != ?',
+      [1, 2, 101, 1],
     );
     expect(emitBooruPostServerFavoriteChanged).not.toHaveBeenCalled();
   });
@@ -225,6 +245,19 @@ describe('booruService app events', () => {
       isLiked: true,
       affectedCount: 2,
     });
+  });
+
+  it('does not broadcast a synced event when liked states are already up to date', async () => {
+    // 值守卫使重复同步的 UPDATE 不再命中任何行（changes = 0），
+    // 不应再次广播 synced 事件，否则会触发喜欢页 拉取→事件→拉取 死循环
+    runWithChangesMock.mockResolvedValue({ changes: 0 });
+
+    const { syncPostLikedStates } = await import('../../../src/main/services/booruService.js');
+
+    await expect(syncPostLikedStates(2, [101, 102])).resolves.toBe(0);
+
+    expect(runWithChangesMock).toHaveBeenCalledTimes(2);
+    expect(emitBooruPostServerFavoriteChanged).not.toHaveBeenCalled();
   });
 
   it('emits a vote event from the service after the remote vote succeeds', async () => {
@@ -381,7 +414,10 @@ describe('booruService app events', () => {
   });
 
   it('emits site lifecycle and active-site events', async () => {
-    getMock.mockResolvedValueOnce({ id: 12 });
+    getMock
+      .mockResolvedValueOnce({ id: 12 })
+      // setActiveBooruSite 在事务内先校验目标站点存在
+      .mockResolvedValueOnce({ id: 12 });
     runWithChangesMock
       .mockResolvedValueOnce({ changes: 1 })
       .mockResolvedValueOnce({ changes: 1 })
@@ -428,6 +464,37 @@ describe('booruService app events', () => {
       siteId: 12,
       activeSiteId: 12,
       affectedCount: 1,
+    });
+  });
+
+  it('rejects activating a nonexistent site without clearing active flags', async () => {
+    // 目标站点已不存在（如在其他窗口被删除）
+    getMock.mockResolvedValueOnce(undefined);
+
+    const { setActiveBooruSite } = await import('../../../src/main/services/booruService.js');
+
+    await expect(setActiveBooruSite(99)).rejects.toThrow('站点不存在: 99');
+
+    // 不应执行 active = 0 的全表清空，也不应广播站点变更事件
+    expect(runMock).not.toHaveBeenCalledWith(db, 'UPDATE booru_sites SET active = 0');
+    expect(runWithChangesMock).not.toHaveBeenCalled();
+    expect(emitBooruSitesChanged).not.toHaveBeenCalled();
+  });
+
+  it('includes previousSiteId when a saved search moves between sites', async () => {
+    getMock.mockResolvedValueOnce({ id: 31, siteId: 2 });
+    runWithChangesMock.mockResolvedValueOnce({ changes: 1 });
+
+    const { updateSavedSearch } = await import('../../../src/main/services/booruService.js');
+
+    await updateSavedSearch(31, { siteId: 5 });
+
+    expect(emitBooruSavedSearchesChanged).toHaveBeenCalledWith({
+      action: 'updated',
+      siteId: 5,
+      searchId: 31,
+      affectedCount: 1,
+      previousSiteId: 2,
     });
   });
 

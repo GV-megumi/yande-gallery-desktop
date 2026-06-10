@@ -176,6 +176,62 @@ describe('BooruBulkDownloadPage active gating', () => {
     expect(getActiveSessions).toHaveBeenCalledTimes(1);
   });
 
+  // FINDING 11 回归守卫：records-changed 每个文件完成都会触发，事件间隔持续 <200ms 时，
+  // 纯 trailing 防抖会被不断重置而饿死（风暴期间列表永不刷新）。
+  // 修复后 scheduleRefresh 带 1000ms maxWait：从第一次挂起刷新算起，超过 maxWait 立即 flush。
+  it('records-changed 事件风暴下应在 maxWait(1000ms) 内强制刷新，且风暴结束后 trailing 仍生效', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system = {
+      onAppEvent: vi.fn((callback) => {
+        appEventCallback = callback;
+        return vi.fn();
+      }),
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+    getActiveSessions.mockClear();
+
+    const emitRecordsChanged = () => {
+      appEventCallback?.({
+        type: 'bulk-download:records-changed',
+        version: 1,
+        occurredAt: '2026-06-10T00:00:00.000Z',
+        source: 'bulkDownloadService',
+        payload: { sessionId: 's1' },
+      });
+    };
+
+    // 模拟每 100ms 一个 records-changed 事件，持续 1.5s（事件间隔 < 200ms 防抖窗口）。
+    // 旧实现（无 maxWait）在风暴期间一次都不会刷新；
+    // 新实现在 t=1000ms（超过 maxWait）的事件到达时立即 flush 一次。
+    for (let i = 0; i < 15; i++) {
+      await act(async () => {
+        emitRecordsChanged();
+        vi.advanceTimersByTime(100);
+        await Promise.resolve();
+      });
+    }
+
+    // 风暴尚未结束（事件仍在持续），但已超过 maxWait，必须至少刷新过一次
+    expect(getActiveSessions.mock.calls.length).toBeGreaterThanOrEqual(1);
+    const callsDuringStorm = getActiveSessions.mock.calls.length;
+
+    // 风暴结束后，trailing 200ms 防抖仍应正常补一次刷新
+    await act(async () => {
+      vi.advanceTimersByTime(200);
+      await Promise.resolve();
+    });
+    expect(getActiveSessions.mock.calls.length).toBe(callsDuringStorm + 1);
+  });
+
   it('favorite-tag-download:created 后紧跟 session 事件时仍应刷新任务', async () => {
     let appEventCallback: ((event: any) => void) | undefined;
     (window as any).electronAPI.system = {

@@ -202,6 +202,8 @@ export interface RendererBooruSavedSearchesChangedPayload {
   action: 'created' | 'updated' | 'deleted';
   searchId?: number;
   siteId?: number | null;
+  /** 保存的搜索跨站点移动时的原站点 id（仅 action === 'updated' 且站点变更时存在） */
+  previousSiteId?: number | null;
   affectedCount?: number;
 }
 

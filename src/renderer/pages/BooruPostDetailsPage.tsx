@@ -86,6 +86,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [activeImageRequestId, setActiveImageRequestId] = useState(0);
   const [activeImagePostId, setActiveImagePostId] = useState<number | null>(null);
   const imageRequestIdRef = useRef(0);
+  // 记录当前回退链中已失败的图片 URL，避免 onError 在 sample/preview 之间无限往返重试
+  const failedImageUrlsRef = useRef<Set<string>>(new Set());
   const [imageMetadata, setImageMetadata] = useState<{
     format?: string;
     width?: number;
@@ -219,6 +221,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   useEffect(() => {
     const requestId = imageRequestIdRef.current + 1;
     imageRequestIdRef.current = requestId;
+    // 帖子或图片 URL 集合变化时重置失败记录，让新图片的回退链重新开始
+    failedImageUrlsRef.current = new Set();
     let cancelled = false;
 
     const isCurrentRequest = () => !cancelled && imageRequestIdRef.current === requestId;
@@ -797,6 +801,11 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                     activeImageRequestId === imageRequestIdRef.current &&
                     activeImagePostId === (currentPost?.postId ?? null);
                   if (!canCommitFallback) return;
+                  // 记录本次失败的 URL（imageUrl 与 img.src 可能因解析差异不同，两个都记录），
+                  // 后续回退时排除所有已失败 URL，避免 sample/preview 互相往返导致无限重试
+                  const failedUrls = failedImageUrlsRef.current;
+                  if (imageUrl) failedUrls.add(imageUrl);
+                  if (img.src) failedUrls.add(img.src);
                   const commitFallbackImageUrl = (url: string) => {
                     setImageUrl(url);
                     setImageVersion((value) => value + 1);
@@ -810,8 +819,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                     ...(currentPost.sampleUrl ? [{ label: 'sampleUrl', url: currentPost.sampleUrl }] : []),
                     ...(currentPost.previewUrl ? [{ label: 'previewUrl', url: currentPost.previewUrl }] : []),
                   ] : [];
-                  const fallback = fallbackOptions.find(({ url }) => url !== imageUrl && url !== img.src);
-                  if (!fallback) return;
+                  const fallback = fallbackOptions.find(({ url }) => !failedUrls.has(url));
+                  if (!fallback) {
+                    // 所有候选 URL 均已失败，停止重试，保留当前失败状态（不再触发网络请求）
+                    console.warn('[BooruPostDetailsPage] 所有候选图片 URL 均加载失败，停止重试:', currentPost?.postId);
+                    return;
+                  }
 
                   console.log(`[BooruPostDetailsPage] 图片加载失败，尝试使用 ${fallback.label}`);
                   commitFallbackImageUrl(fallback.url);

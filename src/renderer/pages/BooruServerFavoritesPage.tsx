@@ -152,6 +152,10 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
     siteId: activeSite?.id ?? null,
     active: !suspended,
     onServerFavoriteChanged: (payload) => {
+      // 忽略 synced 事件：它由获取喜欢列表时主进程同步 isLiked 状态触发，
+      // 本页面自身的拉取结果已是最新数据；若响应它再次拉取，
+      // 会形成 拉取 → synced 事件 → 拉取 的远端请求死循环
+      if (payload.action === 'synced') return;
       const postIds = payload.postIds ?? (payload.postId === undefined ? [] : [payload.postId]);
       if (postIds.length === 0) return;
       const postIdSet = new Set(postIds);
@@ -167,7 +171,9 @@ export const BooruServerFavoritesPage: React.FC<BooruServerFavoritesPageProps> =
       if (!payload.isLiked) {
         setPosts(prev => prev.filter(post => !postIdSet.has(post.postId)));
       } else {
-        loadServerFavorites(1);
+        // 远端真实新增喜欢时刷新当前页，避免把用户的分页位置弹回第 1 页
+        // （useRendererAppEvent 每次渲染都会更新 handler ref，这里的 currentPage 不会过期）
+        loadServerFavorites(currentPage);
       }
     },
     onPostFavoriteChanged: (payload) => {

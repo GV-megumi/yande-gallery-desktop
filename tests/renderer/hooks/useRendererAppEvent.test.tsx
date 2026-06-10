@@ -115,6 +115,77 @@ describe('useRendererAppEvent', () => {
     });
   });
 
+  it('caps buffered events per type while inactive and replays only the latest event after overflow', () => {
+    const onEvent = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const view = render(<Listener active={false} onEvent={onEvent} />);
+
+    act(() => {
+      // 超过 50 条上限：前 50 条进入缓冲，第 51 条触发溢出，之后只保留最新一条
+      for (let index = 1; index <= 60; index += 1) {
+        appEventCallback?.(appEvent('booru:post-favorite-changed', {
+          action: 'added',
+          siteId: 1,
+          postId: index,
+          isFavorited: true,
+        }));
+      }
+    });
+
+    expect(onEvent).not.toHaveBeenCalled();
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy.mock.calls[0][0]).toContain('[useRendererAppEvent]');
+
+    view.rerender(<Listener active onEvent={onEvent} />);
+
+    // 溢出后只回放最新一条事件，而不是逐条回放 60 次
+    expect(onEvent).toHaveBeenCalledTimes(1);
+    expect(onEvent.mock.calls[0][0].payload).toMatchObject({ postId: 60 });
+
+    warnSpy.mockRestore();
+  });
+
+  it('replays non-overflowed types in order alongside an overflowed type latest event', () => {
+    const onEvent = vi.fn();
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const types = ['booru:post-favorite-changed', 'booru:blacklist-tags-changed'] as const;
+
+    const view = render(<Listener active={false} onEvent={onEvent} type={types} />);
+
+    act(() => {
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'created',
+        siteId: 1,
+        tagName: 'tag_a',
+      }));
+      for (let index = 1; index <= 55; index += 1) {
+        appEventCallback?.(appEvent('booru:post-favorite-changed', {
+          action: 'added',
+          siteId: 1,
+          postId: index,
+          isFavorited: true,
+        }));
+      }
+      appEventCallback?.(appEvent('booru:blacklist-tags-changed', {
+        action: 'deleted',
+        siteId: 1,
+        tagName: 'tag_b',
+      }));
+    });
+
+    view.rerender(<Listener active onEvent={onEvent} type={types} />);
+
+    // 未溢出类型（blacklist，共 2 条）全部按序回放；溢出类型只回放最新一条
+    expect(onEvent).toHaveBeenCalledTimes(3);
+    const replayedPayloads = onEvent.mock.calls.map((call) => call[0].payload);
+    expect(replayedPayloads[0]).toMatchObject({ tagName: 'tag_a' });
+    expect(replayedPayloads[1]).toMatchObject({ tagName: 'tag_b' });
+    expect(replayedPayloads[2]).toMatchObject({ postId: 55 });
+
+    warnSpy.mockRestore();
+  });
+
   it('does not replay queued events for a previous subscription type', () => {
     const onEvent = vi.fn();
 

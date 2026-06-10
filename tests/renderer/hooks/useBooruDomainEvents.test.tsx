@@ -165,6 +165,35 @@ describe('useBooruDomainEvents', () => {
     }));
   });
 
+  it('routes saved-search cross-site moves to subscribers of the previous site', () => {
+    const onSavedSearchesChanged = vi.fn();
+
+    render(<Listener siteId={2} onSavedSearchesChanged={onSavedSearchesChanged} />);
+
+    act(() => {
+      // 保存的搜索从站点 2 移动到站点 5：订阅站点 2 的页面也应收到事件
+      appEventCallback?.(appEvent('booru:saved-searches-changed', {
+        action: 'updated',
+        siteId: 5,
+        previousSiteId: 2,
+        searchId: 20,
+      }));
+      // 与站点 2 无关的跨站点移动（4 → 5）：不应触发
+      appEventCallback?.(appEvent('booru:saved-searches-changed', {
+        action: 'updated',
+        siteId: 5,
+        previousSiteId: 4,
+        searchId: 21,
+      }));
+    });
+
+    expect(onSavedSearchesChanged).toHaveBeenCalledTimes(1);
+    expect(onSavedSearchesChanged).toHaveBeenCalledWith(expect.objectContaining({
+      searchId: 20,
+      previousSiteId: 2,
+    }));
+  });
+
   it('routes P1 and P2 Booru events through the same site filter', () => {
     const onFavoriteGroupsChanged = vi.fn();
     const onSavedSearchesChanged = vi.fn();

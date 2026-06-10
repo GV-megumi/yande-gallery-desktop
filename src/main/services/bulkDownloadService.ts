@@ -2262,7 +2262,7 @@ async function downloadRecord(
         
         if (!statusUpdateSuccess) {
           console.error(`[bulkDownloadService] 警告：状态更新失败（已重试 ${maxStatusUpdateRetries} 次）: ${record.fileName}`);
-          // 即使状态更新失败，也继续广播状态，让前端知道下载完成
+          // 状态更新失败时不广播：只有数据库 mutation 成功后才发布事件（下方以 statusUpdateSuccess 守卫）
         }
         
         // 广播状态变化到前端（通知下载完成）- 仅在数据库状态确认成功后发送
@@ -2835,6 +2835,13 @@ export async function retryFailedRecord(
       return { success: false, error: 'Record not found' };
     }
 
+    // 纯校验必须先于带副作用的看门：ensureCanEnterRunning 可能软删 history
+    // session，若先过看门再校验，重试一条非 failed 记录会先改动会话状态、
+    // 然后才返回校验错误。
+    if (targetRecord.status !== 'failed') {
+      return { success: false, error: 'Failed record not found' };
+    }
+
     const activeSessionIsHistory =
       activeSessionRow.status === 'completed' ||
       activeSessionRow.status === 'failed' ||
@@ -2867,10 +2874,6 @@ export async function retryFailedRecord(
       canEnterRunningAlreadyChecked = true;
     }
 
-    if (targetRecord.status !== 'failed') {
-      return { success: false, error: 'Failed record not found' };
-    }
-    
     // 重置记录状态为 pending
     const resetResult = await runWithChanges(db, `
       UPDATE bulk_download_records 

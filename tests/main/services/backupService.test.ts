@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { IPC_CHANNELS } from '../../../src/main/ipc/channels.js';
 import {
   mergeSensitiveConfig,
   normalizeConfigSaveInput,
@@ -212,6 +213,53 @@ describe('restoreAppBackupData', () => {
       && values.includes('original-site')
     );
     expect(insertOriginalSiteCall).toBeTruthy();
+  });
+
+  it('恢复成功后应同时广播旧 CONFIG_CHANGED 频道，兼容尚未迁移到新事件总线的订阅方', async () => {
+    const backupData = createBackupPayload();
+
+    const sendMock = vi.fn();
+    const destroyedSendMock = vi.fn();
+
+    // 模拟两个窗口：一个存活、一个已销毁，验证只向存活窗口发送旧频道事件
+    vi.doMock('electron', () => ({
+      BrowserWindow: {
+        getAllWindows: () => [
+          { isDestroyed: () => false, webContents: { send: sendMock } },
+          { isDestroyed: () => true, webContents: { send: destroyedSendMock } },
+        ],
+      },
+    }));
+
+    vi.doMock('../../../src/main/services/config.js', () => ({
+      getConfig: vi.fn(() => ({})),
+      saveConfig: vi.fn(async () => ({ success: true })),
+      toRendererSafeUiConfig,
+    }));
+
+    vi.doMock('../../../src/main/services/database.js', () => ({
+      getDatabase: vi.fn(async () => ({})),
+      all: vi.fn(async () => []),
+      run: vi.fn(async () => undefined),
+      runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+    }));
+
+    const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
+    await restoreAppBackupData(backupData, { mode: 'replace' });
+
+    // 旧频道负载形态需与 configHandlers.broadcastConfigChanged 一致（ConfigChangedSummary 摘要）
+    const legacyCalls = sendMock.mock.calls.filter(([channel]) => channel === IPC_CHANNELS.CONFIG_CHANGED);
+    expect(legacyCalls).toHaveLength(1);
+    expect(legacyCalls[0][1]).toEqual({
+      version: expect.any(Number),
+      sections: ['database', 'galleries', 'booru', 'apiService', 'ui'],
+    });
+
+    // 已销毁窗口不应收到旧频道事件
+    const destroyedLegacyCalls = destroyedSendMock.mock.calls.filter(
+      ([channel]) => channel === IPC_CHANNELS.CONFIG_CHANGED,
+    );
+    expect(destroyedLegacyCalls).toHaveLength(0);
   });
 });
 

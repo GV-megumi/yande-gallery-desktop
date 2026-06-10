@@ -9,6 +9,8 @@ import {
 } from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
 import { emitAppDataRestored, emitConfigChanged } from './appEventPublisher.js';
+import { IPC_CHANNELS } from '../ipc/channels.js';
+import type { ConfigChangedSummary } from '../../shared/types.js';
 
 export const BACKUP_TABLES = [
   'booru_sites',
@@ -224,6 +226,59 @@ async function restoreBackupTablesSnapshot(
   });
 }
 
+type LegacyBroadcastWindow = {
+  isDestroyed?: () => boolean;
+  webContents?: { send?: (channel: string, payload: ConfigChangedSummary) => void };
+};
+
+// 兼容广播：把配置变更摘要发到旧的 IPC_CHANNELS.CONFIG_CHANGED 频道。
+// 为何需要双通道广播——emitConfigChanged 只发新的 SYSTEM_APP_EVENT 事件总线，
+// 而 preload 侧 config.onChanged / booruPreferences.onAppearanceChanged 等旧订阅方
+// 仍监听旧频道、尚未迁移到新事件总线；若恢复备份后只发新总线，
+// 这些订阅方会继续持有恢复前的过期配置。
+// 负载形态与 configHandlers.broadcastConfigChanged 保持完全一致（ConfigChangedSummary 摘要），
+// electron 采用动态导入（参照 rendererEventBus 的做法），保证纯 Node 测试环境下安全降级。
+async function broadcastLegacyConfigChanged(summary: ConfigChangedSummary): Promise<void> {
+  let getAllWindows: (() => unknown) | undefined;
+  try {
+    const electron = await import('electron');
+    const browserWindow = (electron as { BrowserWindow?: { getAllWindows?: () => unknown } }).BrowserWindow;
+    getAllWindows = typeof browserWindow?.getAllWindows === 'function'
+      ? browserWindow.getAllWindows.bind(browserWindow)
+      : undefined;
+  } catch {
+    getAllWindows = undefined;
+  }
+
+  let rawWindows: unknown = [];
+  try {
+    rawWindows = typeof getAllWindows === 'function' ? getAllWindows() : [];
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    console.warn('[backupService] 获取窗口列表失败，旧配置变更频道未广播:', message);
+    return;
+  }
+
+  if (!Array.isArray(rawWindows)) {
+    return;
+  }
+
+  for (const win of rawWindows as LegacyBroadcastWindow[]) {
+    try {
+      if (typeof win.isDestroyed === 'function' && win.isDestroyed()) {
+        continue;
+      }
+      if (typeof win.webContents?.send !== 'function') {
+        continue;
+      }
+      win.webContents.send(IPC_CHANNELS.CONFIG_CHANGED, summary);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn('[backupService] 旧配置变更频道广播失败:', message);
+    }
+  }
+}
+
 export async function restoreAppBackupData(
   backupData: AppBackupData,
   options: RestoreBackupOptions = {}
@@ -279,9 +334,14 @@ export async function restoreAppBackupData(
     restoredTables: summarizeBackupTables(backupData),
   };
   emitAppDataRestored(result);
-  emitConfigChanged({
+  // 同一份摘要同时发新事件总线和旧 IPC 频道，保证两侧订阅方看到一致的 version。
+  const configChangedSummary: ConfigChangedSummary = {
     version: Date.now(),
     sections: ['database', 'galleries', 'booru', 'apiService', 'ui'],
-  });
+  };
+  emitConfigChanged(configChangedSummary);
+  // 双通道广播：兼容尚未迁移到新事件总线的旧频道订阅方（详见 broadcastLegacyConfigChanged 注释）。
+  // 这里等待广播完成，确保 IPC 恢复结果返回前旧订阅方已收到配置变更通知。
+  await broadcastLegacyConfigChanged(configChangedSummary);
   return result;
 }

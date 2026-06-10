@@ -59,7 +59,14 @@ export function useBooruDomainEvents(options: UseBooruDomainEventsOptions): void
     if (event.type === 'booru:favorite-groups-changed' && matchesSite(event.payload.siteId)) {
       options.onFavoriteGroupsChanged?.(event.payload);
     }
-    if (event.type === 'booru:saved-searches-changed' && matchesSite(event.payload.siteId)) {
+    if (
+      event.type === 'booru:saved-searches-changed' &&
+      // 跨站点移动保存的搜索时事件会附带 previousSiteId，
+      // 订阅了原站点的页面也需要刷新（搜索从其列表中被移走）。
+      // previousSiteId 为 undefined 时不参与匹配，避免 matchesSite 把 undefined 当作"匹配所有"
+      (matchesSite(event.payload.siteId) ||
+        (event.payload.previousSiteId !== undefined && matchesSite(event.payload.previousSiteId)))
+    ) {
       options.onSavedSearchesChanged?.(event.payload);
     }
     if (event.type === 'booru:search-history-changed' && matchesSite(event.payload.siteId)) {
