@@ -559,6 +559,62 @@ describe('BooruPage loading pagination', () => {
     expect(screen.queryByTestId('booru-card-9001')).toBeNull();
   });
 
+  it('keeps the manually selected non-active site when booru:sites-changed reloads the site list', async () => {
+    // 两个站点：站点 1 为激活站点，用户手动切到非激活的站点 2
+    getSites.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 1, name: 'Yande', url: 'https://yande.re', active: true },
+        { id: 2, name: 'Konachan', url: 'https://konachan.com', active: false },
+      ],
+    });
+    getPosts
+      .mockResolvedValueOnce({
+        success: true,
+        data: [makePost({ postId: 1001, siteId: 1 })],
+      })
+      .mockResolvedValue({
+        success: true,
+        data: [makePost({ postId: 2002, siteId: 2 })],
+      });
+
+    render(
+      <AntApp>
+        <BooruPage />
+      </AntApp>
+    );
+
+    expect(await screen.findByTestId('booru-card-1001')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('toolbar-site-2'));
+    expect(await screen.findByTestId('booru-card-2002')).toBeTruthy();
+    expect(getPosts).toHaveBeenCalledTimes(2);
+
+    // 模拟设置页重命名站点等触发 sites-changed：站点列表重载，
+    // 但用户手动选中的非激活站点与浏览位置必须保留，不应被重置回激活站点
+    act(() => {
+      appEventCallback?.(appEvent('booru:sites-changed', {
+        action: 'updated',
+        siteId: 1,
+        changedFields: ['name'],
+      }));
+    });
+
+    await waitFor(() => {
+      expect(getSites).toHaveBeenCalledTimes(2);
+    });
+
+    // 排空 loadSites 的 then 链，让任何（错误的）选中重置有机会触发 reload
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getPosts).toHaveBeenCalledTimes(2);
+    expect(screen.getByTestId('booru-card-2002')).toBeTruthy();
+    expect(screen.queryByTestId('booru-card-1001')).toBeNull();
+  });
+
   it('starts only one next-page request for rapid pagination double click', async () => {
     const nextPage = deferred<{ success: true; data: BooruPost[] }>();
     getPosts

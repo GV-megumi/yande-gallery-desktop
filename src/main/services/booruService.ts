@@ -641,6 +641,12 @@ export async function setActiveBooruSite(id: number): Promise<void> {
     const db = await getDatabase();
 
     const result = await runInTransaction(db, async () => {
+      // 先在事务内校验目标站点存在：若 id 已失效（如在其他窗口被删除），
+      // 直接抛错回滚，避免清空所有 active 标志后留下"无激活站点"的状态
+      const target = await get<{ id: number }>(db, 'SELECT id FROM booru_sites WHERE id = ?', [id]);
+      if (!target) {
+        throw new Error(`站点不存在: ${id}`);
+      }
       await run(db, 'UPDATE booru_sites SET active = 0');
       return runWithChanges(db, 'UPDATE booru_sites SET active = 1 WHERE id = ?', [id]);
     });
@@ -1105,15 +1111,23 @@ export async function removeFromFavorites(apiPostId: number, siteId: number): Pr
     );
     if (dbPost) {
       const deleteResult = await runWithChanges(db, 'DELETE FROM booru_favorites WHERE postId = ?', [dbPost.id]);
-      const updateResult = await runWithChanges(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ?', [dbPost.id]);
-      emitBooruPostFavoriteChanged({
-        action: 'removed',
-        siteId,
-        postId: apiPostId,
-        dbPostId: dbPost.id,
-        isFavorited: false,
-        affectedCount: Math.max(deleteResult.changes, updateResult.changes),
-      });
+      // 值守卫（AND isFavorited != 0）：node-sqlite3 的 this.changes 统计的是匹配行数
+      // 而非实际修改行数，无条件 UPDATE 会让"本来就是 0"的行也报告 changes=1。
+      // NULL != 0 在 SQL 中为 NULL（不匹配），NULL 语义上即未收藏，无需修改
+      const updateResult = await runWithChanges(db, 'UPDATE booru_posts SET isFavorited = 0 WHERE id = ? AND isFavorited != 0', [dbPost.id]);
+      const affectedCount = Math.max(deleteResult.changes, updateResult.changes);
+      // 仅在确实删除了收藏记录或修正了收藏标志时才广播 removed 事件，
+      // 避免对从未收藏的帖子也广播虚假的取消收藏事件
+      if (affectedCount > 0) {
+        emitBooruPostFavoriteChanged({
+          action: 'removed',
+          siteId,
+          postId: apiPostId,
+          dbPostId: dbPost.id,
+          isFavorited: false,
+          affectedCount,
+        });
+      }
     }
 
     console.log('[booruService] 移除收藏成功:', apiPostId);
@@ -1251,10 +1265,15 @@ export async function setPostLiked(
 ): Promise<number> {
   try {
     const db = await getDatabase();
+    const likedValue = liked ? 1 : 0;
+    // 值守卫（COALESCE(isLiked, 0) != ?）：node-sqlite3 的 this.changes 统计匹配行数
+    // 而非实际修改行数，无条件 UPDATE 会让"已是目标值"的行也报告 changes=1，
+    // 导致 syncPostLikedStates 把已同步过的帖子误判为有变更并广播 synced 事件
+    // （曾引发喜欢页 拉取→事件→拉取 的死循环）。NULL 视为 0（未喜欢）。
     const result = await runWithChanges(
       db,
-      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ?',
-      [liked ? 1 : 0, siteId, apiPostId],
+      'UPDATE booru_posts SET isLiked = ? WHERE siteId = ? AND postId = ? AND COALESCE(isLiked, 0) != ?',
+      [likedValue, siteId, apiPostId, likedValue],
     );
     if (options.emit !== false) {
       emitBooruPostServerFavoriteChanged({
@@ -3684,11 +3703,15 @@ export async function updateSavedSearch(id: number, updates: { name?: string; qu
   params.push(id);
   const result = await runWithChanges(db, `UPDATE booru_saved_searches SET ${sets.join(', ')} WHERE id = ?`, params);
   if (result.changes > 0 && existing) {
+    const previousSiteId = existing.siteId ?? null;
+    const nextSiteId = updates.siteId !== undefined ? updates.siteId : previousSiteId;
     emitBooruSavedSearchesChanged({
       action: 'updated',
-      siteId: updates.siteId !== undefined ? updates.siteId : existing.siteId ?? null,
+      siteId: nextSiteId,
       searchId: id,
       affectedCount: result.changes,
+      // 跨站点移动时附带原站点 id，让仅订阅原站点的页面也能感知该搜索已被移走并刷新
+      ...(previousSiteId !== nextSiteId ? { previousSiteId } : {}),
     });
   }
 }

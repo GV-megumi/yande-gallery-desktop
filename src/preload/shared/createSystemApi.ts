@@ -11,6 +11,25 @@ import { IPC_CHANNELS } from '../../main/ipc/channels.js';
 import type { RendererAppEvent } from '../../shared/types.js';
 
 export function createSystemApi() {
+  // onAppEvent 多路复用状态：
+  // App.tsx 的导航缓存会让多个页面长期保持挂载，渲染层每个 useRendererAppEvent
+  // 订阅若各自 ipcRenderer.on 会累积大量底层监听器（MaxListenersExceeded 警告 + O(N) 派发）。
+  // 这里只在首个订阅时懒注册一个底层 ipc 监听器，内部用 Set 向各回调分发，
+  // 全部退订后移除底层监听器。订阅/退订 API 形态与回调收到的 payload 保持不变。
+  const appEventCallbacks = new Set<(event: RendererAppEvent) => void>();
+  let appEventSubscription: ((_event: any, event: RendererAppEvent) => void) | null = null;
+
+  const ensureAppEventSubscription = () => {
+    if (appEventSubscription) return;
+    appEventSubscription = (_event: any, event: RendererAppEvent) => {
+      // 拷贝快照后再派发，避免回调中订阅/退订影响本轮分发
+      for (const callback of [...appEventCallbacks]) {
+        callback(event);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.SYSTEM_APP_EVENT, appEventSubscription);
+  };
+
   return {
     selectFolder: () => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_SELECT_FOLDER),
     openExternal: (url: string) => ipcRenderer.invoke(IPC_CHANNELS.SYSTEM_OPEN_EXTERNAL, url),
@@ -44,9 +63,20 @@ export function createSystemApi() {
       return () => ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_NAVIGATE, subscription);
     },
     onAppEvent: (callback: (event: RendererAppEvent) => void) => {
-      const subscription = (_event: any, event: RendererAppEvent) => callback(event);
-      ipcRenderer.on(IPC_CHANNELS.SYSTEM_APP_EVENT, subscription);
-      return () => ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_APP_EVENT, subscription);
+      ensureAppEventSubscription();
+      appEventCallbacks.add(callback);
+      let removed = false;
+      return () => {
+        // 防止重复退订误删其他订阅者的状态
+        if (removed) return;
+        removed = true;
+        appEventCallbacks.delete(callback);
+        // 最后一个订阅者退订后，移除底层 ipc 监听器
+        if (appEventCallbacks.size === 0 && appEventSubscription) {
+          ipcRenderer.removeListener(IPC_CHANNELS.SYSTEM_APP_EVENT, appEventSubscription);
+          appEventSubscription = null;
+        }
+      };
     },
   } as const;
 }

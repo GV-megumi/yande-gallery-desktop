@@ -51,6 +51,14 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const postsLengthRef = useRef(posts.length);
   postsLengthRef.current = posts.length;
 
+  // 收藏列表请求序号：丢弃过期响应，避免连续触发的刷新乱序覆盖新数据
+  const loadFavoritesRequestIdRef = useRef(0);
+  // 域事件触发刷新的防抖定时器（与 BlacklistedTagsPage 的守卫模式一致）
+  const favoritesReloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 用 ref 持有最新页码，防抖定时器触发时读取最新值
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
+
   // 收藏状态管理（在收藏页面中，取消收藏会从列表移除）
   const { favorites, setFavorites, toggleFavorite } = useFavorite({
     siteId: selectedSiteId,
@@ -120,11 +128,19 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
 
       const result = await window.electronAPI.booru.getSites();
       if (result.success && result.data) {
-        console.log('[BooruFavoritesPage] 加载站点列表成功:', result.data.length, '个站点');
-        setSites(result.data);
-        
-        if (result.data.length > 0) {
-          setSelectedSiteId(result.data[0].id);
+        const siteList = result.data;
+        console.log('[BooruFavoritesPage] 加载站点列表成功:', siteList.length, '个站点');
+        setSites(siteList);
+
+        if (siteList.length > 0) {
+          // 已选站点仍然存在时保持选择不变：避免 booru:sites-changed 事件重新触发 loadSites 时
+          // 把用户在下拉框中手动选中的站点重置为第一个站点
+          setSelectedSiteId(prev => {
+            if (prev !== null && siteList.some(s => s.id === prev)) {
+              return prev;
+            }
+            return siteList[0].id;
+          });
         } else {
           setSelectedSiteId(null);
           setPosts([]);
@@ -197,6 +213,9 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       : selectedGroupId;
 
     console.log(`[BooruFavoritesPage] 加载收藏列表，站点: ${selectedSiteId}, 页码: ${page}, 分组: ${selectedGroupId}`);
+    // 请求序号守卫：后发请求会使先发请求的响应失效，防止乱序覆盖
+    const requestId = loadFavoritesRequestIdRef.current + 1;
+    loadFavoritesRequestIdRef.current = requestId;
     setLoading(true);
 
     try {
@@ -206,6 +225,11 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       }
 
       const result = await window.electronAPI.booru.getFavorites(selectedSiteId, page, appearanceConfig.itemsPerPage, groupIdParam);
+      // 丢弃过期响应（期间已发起更新的加载请求）
+      if (loadFavoritesRequestIdRef.current !== requestId) {
+        console.log('[BooruFavoritesPage] 丢弃过期收藏响应，requestId:', requestId, 'current:', loadFavoritesRequestIdRef.current);
+        return;
+      }
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruFavoritesPage] 加载收藏成功:', data.length, '张图片');
@@ -223,22 +247,50 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         message.error('加载收藏失败: ' + result.error);
       }
     } catch (error) {
+      if (loadFavoritesRequestIdRef.current !== requestId) return;
       console.error('[BooruFavoritesPage] 加载收藏失败:', error);
       message.error('加载收藏失败');
     } finally {
-      setLoading(false);
+      // 仅当前最新请求负责收尾 loading 状态，过期请求不得干扰
+      if (loadFavoritesRequestIdRef.current === requestId) {
+        setLoading(false);
+      }
     }
   };
+
+  // 用 ref 持有最新的 loadFavorites 闭包，防抖定时器触发时总是使用最新的站点/分组/配置
+  const loadFavoritesRef = useRef(loadFavorites);
+  loadFavoritesRef.current = loadFavorites;
+
+  // 防抖调度刷新：收藏修复等批量操作会逐条派发 favorite 域事件，
+  // 合并短时间内的多次触发，避免对本地收藏库的 N 次全量重查（参照 BlacklistedTagsPage 的守卫模式）
+  const scheduleFavoritesReload = () => {
+    if (favoritesReloadTimerRef.current) {
+      clearTimeout(favoritesReloadTimerRef.current);
+    }
+    favoritesReloadTimerRef.current = setTimeout(() => {
+      favoritesReloadTimerRef.current = null;
+      loadFavoritesRef.current(currentPageRef.current);
+    }, 50);
+  };
+
+  // 卸载时清理防抖定时器
+  useEffect(() => () => {
+    if (favoritesReloadTimerRef.current) {
+      clearTimeout(favoritesReloadTimerRef.current);
+      favoritesReloadTimerRef.current = null;
+    }
+  }, []);
 
   useBooruDomainEvents({
     siteId: selectedSiteId,
     active: !suspended,
     onPostFavoriteChanged: () => {
-      loadFavorites(currentPage);
+      scheduleFavoritesReload();
     },
     onFavoriteGroupsChanged: () => {
       loadGroups();
-      loadFavorites(currentPage);
+      scheduleFavoritesReload();
     },
     onSitesChanged: () => {
       loadSites();

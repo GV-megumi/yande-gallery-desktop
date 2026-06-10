@@ -29,6 +29,13 @@ interface BooruBulkDownloadPageProps {
   active?: boolean;
 }
 
+// 刷新防抖：trailing 200ms 合并密集事件；maxWait 1000ms 兜底。
+// records-changed 在每个文件完成/失败时都会触发，小文件 + 高并发（跳过风暴）下
+// 事件间隔可能持续小于 200ms，纯 trailing 防抖会被不断重置而"饿死"——
+// 风暴期间列表始终不刷新。maxWait 保证从第一次挂起的刷新算起，最多等 1000ms 必定执行一次。
+const REFRESH_DEBOUNCE_MS = 200;
+const REFRESH_MAX_WAIT_MS = 1000;
+
 export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ active = true }) => {
   const { message } = App.useApp();
   const [sessions, setSessions] = useState<BulkDownloadSession[]>([]);
@@ -41,6 +48,8 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   const activeRef = useRef(active);
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const refreshNeedsTasksRef = useRef(false);
+  // 本轮防抖窗口内第一次挂起刷新的时间戳（null 表示当前没有挂起的刷新），用于 maxWait 判定
+  const refreshFirstPendingAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     activeRef.current = active;
@@ -120,18 +129,37 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
 
   const scheduleRefresh = useCallback((withTasks: boolean) => {
     refreshNeedsTasksRef.current = refreshNeedsTasksRef.current || withTasks;
-    if (refreshTimerRef.current) {
-      clearTimeout(refreshTimerRef.current);
-    }
-    refreshTimerRef.current = setTimeout(() => {
+
+    // 执行刷新并复位防抖状态（trailing 定时器触发与 maxWait 强制 flush 共用）
+    const flush = () => {
       const shouldLoadTasks = refreshNeedsTasksRef.current;
       refreshTimerRef.current = null;
       refreshNeedsTasksRef.current = false;
+      refreshFirstPendingAtRef.current = null;
       loadSessions();
       if (shouldLoadTasks) {
         loadTasks();
       }
-    }, 200);
+    };
+
+    const now = Date.now();
+    if (refreshFirstPendingAtRef.current === null) {
+      // 新一轮防抖窗口：记录第一次挂起刷新的时间
+      refreshFirstPendingAtRef.current = now;
+    } else if (now - refreshFirstPendingAtRef.current >= REFRESH_MAX_WAIT_MS) {
+      // 持续不断的事件会一直重置 trailing 定时器；从第一次挂起算起超过 maxWait
+      // 时不再重新计时，立即刷新，避免下载风暴期间列表长时间不更新（防抖饿死）
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+      flush();
+      return;
+    }
+
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
+    }
+    refreshTimerRef.current = setTimeout(flush, REFRESH_DEBOUNCE_MS);
   }, [loadSessions, loadTasks]);
 
   useEffect(() => () => {
@@ -140,6 +168,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       refreshTimerRef.current = null;
     }
     refreshNeedsTasksRef.current = false;
+    refreshFirstPendingAtRef.current = null;
   }, []);
 
   // 下载恢复已移至 init.ts，程序启动时自动后台恢复，无需手动触发

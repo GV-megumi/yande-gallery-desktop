@@ -314,6 +314,109 @@ describe('BooruPostDetailsPage image loading', () => {
     expect(imageSrcs(view.baseElement)).toContain('app://cache/shared.jpg');
   });
 
+  it('stops retrying after every fallback URL has failed instead of ping-ponging sample/preview', async () => {
+    const brokenPost = post({
+      postId: 501,
+      md5: 'broken',
+      fileUrl: 'https://cdn.example.test/broken-file.jpg',
+      sampleUrl: 'https://cdn.example.test/broken-sample.jpg',
+      previewUrl: 'https://cdn.example.test/broken-preview.jpg',
+    });
+
+    // 缓存查询与下载均失败，组件会回退为直接使用原图 URL
+    getCachedImageUrl.mockResolvedValue({ success: false });
+    cacheImage.mockResolvedValue({ success: false, error: 'network error' });
+
+    const view = renderDetails(brokenPost);
+
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-file.jpg');
+    });
+
+    // 原图失败 → 回退 sampleUrl
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-sample.jpg');
+    });
+
+    // sampleUrl 失败 → 回退 previewUrl
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
+    });
+
+    // previewUrl 也失败 → 不能再往返回 sampleUrl，必须停止重试
+    const finalImage = firstImage(view.baseElement);
+    await act(async () => {
+      fireEvent.error(finalImage);
+    });
+    expect(firstImage(view.baseElement)).toBe(finalImage);
+    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
+
+    // 再次触发失败也保持稳定，不应重新发起请求
+    await act(async () => {
+      fireEvent.error(finalImage);
+    });
+    expect(firstImage(view.baseElement)).toBe(finalImage);
+    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
+  });
+
+  it('resets the failed URL record when switching posts so fallback works again', async () => {
+    const brokenPost = post({
+      postId: 511,
+      md5: 'broken-a',
+      fileUrl: 'https://cdn.example.test/a-file.jpg',
+      sampleUrl: 'https://cdn.example.test/a-sample.jpg',
+      previewUrl: 'https://cdn.example.test/a-preview.jpg',
+    });
+    const nextPost = post({
+      postId: 512,
+      md5: 'broken-b',
+      fileUrl: 'https://cdn.example.test/b-file.jpg',
+      sampleUrl: 'https://cdn.example.test/b-sample.jpg',
+      previewUrl: 'https://cdn.example.test/b-preview.jpg',
+    });
+
+    getCachedImageUrl.mockResolvedValue({ success: false });
+    cacheImage.mockResolvedValue({ success: false, error: 'network error' });
+
+    const view = renderDetails(brokenPost);
+
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/a-file.jpg');
+    });
+
+    // 第一张图耗尽所有候选 URL
+    for (const expected of ['https://cdn.example.test/a-sample.jpg', 'https://cdn.example.test/a-preview.jpg']) {
+      await act(async () => {
+        fireEvent.error(firstImage(view.baseElement));
+      });
+      await waitFor(() => {
+        expect(imageSrcs(view.baseElement)).toContain(expected);
+      });
+    }
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/a-preview.jpg');
+
+    // 切换帖子后失败记录应重置，新帖子的回退链可正常工作
+    rerenderDetails(view, nextPost);
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/b-file.jpg');
+    });
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/b-sample.jpg');
+    });
+  });
+
   it('does not remount when a failed fallback URL is already the current image URL', async () => {
     const fallbackPost = post({
       postId: 401,
