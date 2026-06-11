@@ -18,8 +18,12 @@ npm install
 # 开发
 npm run dev
 
-# 测试
+# 类型检查（test 与 build 都会先跑这一步）
+npm run typecheck
+
+# 测试（typecheck + vitest；只跑 vitest 用 test:unit）
 npm run test
+npm run test:unit
 
 # 构建
 npm run build

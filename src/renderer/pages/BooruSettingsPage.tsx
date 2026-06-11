@@ -23,6 +23,7 @@ import {
 } from 'antd';
 import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined, UserOutlined, LockOutlined, LoginOutlined, LogoutOutlined, CheckCircleOutlined, MinusCircleOutlined, MoreOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
+import type { BooruAppearancePreference } from '../../main/services/config';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
 import { colors, radius, layout } from '../styles/tokens';
 
@@ -41,16 +42,32 @@ const BOORU_APPEARANCE_FIELDS = [
 ] as const;
 
 type BooruAppearanceField = (typeof BOORU_APPEARANCE_FIELDS)[number];
-type BooruAppearanceConfig = Partial<Record<BooruAppearanceField, unknown>>;
+// 外观设置页管理的字段子集（不含 pageMode，pageMode 由 Booru 页内切换管理，
+// 主进程保存时会与现有 appearance 合并、保留旧值），值类型与主进程
+// BooruAppearancePreference 对齐，保证 config.save 入参类型完整。
+type BooruAppearanceConfig = Partial<Pick<BooruAppearancePreference, BooruAppearanceField>>;
 
-const sanitizeAppearanceConfig = (appearance: unknown): BooruAppearanceConfig => {
+// 按单个 key 拷贝字段：用泛型保留 key 与值类型的对应关系。
+// 直接用联合类型 key 写入（target[field] = source[field]）时，
+// TS 会把写入目标坍缩成所有字段值类型的交集，导致编译失败。
+const copyAppearanceField = <K extends BooruAppearanceField>(
+  target: BooruAppearanceConfig,
+  source: BooruAppearanceConfig,
+  field: K
+): void => {
+  target[field] = source[field];
+};
+
+const sanitizeAppearanceConfig = (
+  appearance: Partial<BooruAppearancePreference> | null | undefined
+): BooruAppearanceConfig => {
   if (!appearance || typeof appearance !== 'object') {
     return {};
   }
 
   return BOORU_APPEARANCE_FIELDS.reduce<BooruAppearanceConfig>((sanitized, field) => {
     if (Object.prototype.hasOwnProperty.call(appearance, field)) {
-      sanitized[field] = (appearance as Record<string, unknown>)[field];
+      copyAppearanceField(sanitized, appearance, field);
     }
     return sanitized;
   }, {});

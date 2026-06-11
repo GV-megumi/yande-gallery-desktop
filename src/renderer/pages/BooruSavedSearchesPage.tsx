@@ -171,7 +171,7 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
     <div>
       {/* 工具栏 */}
       <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg }}>
-        <Select
+        <Select<number | typeof ALL_SITES_VALUE>
           value={selectedSiteId ?? ALL_SITES_VALUE}
           onChange={value => setSelectedSiteId(value === ALL_SITES_VALUE ? null : value)}
           style={{ width: 180 }}
@@ -313,7 +313,7 @@ export const BooruSavedSearchesPage: React.FC<BooruSavedSearchesPageProps> = ({ 
           </div>
           <div>
             <Text type="secondary" style={{ fontSize: fontSize.sm, marginBottom: 4, display: 'block' }}>站点</Text>
-            <Select
+            <Select<number | typeof ALL_SITES_VALUE>
               value={formSiteId ?? ALL_SITES_VALUE}
               onChange={value => setFormSiteId(value === ALL_SITES_VALUE ? null : value)}
               style={{ width: '100%' }}

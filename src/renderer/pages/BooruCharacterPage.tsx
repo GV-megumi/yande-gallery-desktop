@@ -312,7 +312,7 @@ export const BooruCharacterPage: React.FC<BooruCharacterPageProps> = ({
   };
 
   const getPreviewUrl = (post: BooruPost) => {
-    return getBooruPreviewUrl(post, appearanceConfig.previewQuality as any, selectedSite);
+    return getBooruPreviewUrl(post, appearanceConfig.previewQuality as any);
   };
 
   // 初始化：加载配置和站点列表
