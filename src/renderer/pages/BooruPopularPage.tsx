@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Select, DatePicker, Space, Spin, Empty, App } from 'antd';
+import { Card, Select, DatePicker, Space, Empty, App } from 'antd';
 import { FireOutlined } from '@ant-design/icons';
 import type { BooruPost, BooruSite } from '../../shared/types';
 import { BooruImageCard } from '../components/BooruImageCard';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
-import { colors, spacing, fontSize } from '../styles/tokens';
+import { colors, spacing, fontSize, iconColors } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
@@ -149,7 +150,7 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
         marginBottom: spacing.lg,
       }}>
         <Space>
-          <FireOutlined style={{ color: '#FF3B30', fontSize: 18 }} />
+          <FireOutlined style={{ color: iconColors.popular, fontSize: 18 }} />
           <span style={{ fontSize: fontSize.lg, fontWeight: 600, color: colors.textPrimary }}>
             热门图片
           </span>
@@ -196,9 +197,7 @@ export const BooruPopularPage: React.FC<BooruPopularPageProps> = ({ onTagClick, 
 
       {/* 图片网格 */}
       {loading ? (
-        <Spin size="large" tip="加载中...">
-          <div style={{ padding: 60 }} />
-        </Spin>
+        <SkeletonGrid count={12} cardWidth={220} gap={spacing.md} />
       ) : posts.length === 0 ? (
         <Card>
           <Empty description="暂无热门图片" />

@@ -319,6 +319,21 @@ html.dark .ios-skeleton-shimmer {
   animation: shake-error 0.35s ease;
 }
 
+/* --- 主题切换平滑过渡：toggleTheme 时给 html 临时挂上该 class --- */
+.theme-transition * {
+  transition: background-color .25s ease, color .25s ease, border-color .25s ease, fill .25s ease !important;
+}
+
+/* --- 全局键盘焦点环（仅 :focus-visible，不影响鼠标点击） --- */
+:focus-visible {
+  outline: 2px solid #6366F1;
+  outline-offset: 2px;
+}
+
+html.dark :focus-visible {
+  outline-color: #818CF8;
+}
+
 /* --- 发光脉冲动画（用于强调元素） --- */
 @keyframes glow-pulse {
   0%, 100% { box-shadow: 0 0 0 rgba(129, 140, 248, 0); }

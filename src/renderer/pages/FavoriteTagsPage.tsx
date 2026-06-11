@@ -4,6 +4,7 @@ import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
 import { getDisplayStatus, getStatusColor as getStatusColorUtil, isRetryableStatus, isErrorStatus } from '../../shared/favoriteTagStatus';
+import { colors } from '../styles/tokens';
 import { useLocale } from '../locales';
 import { BatchTagAddModal } from '../components/BatchTagAddModal';
 import { ImportTagsDialog } from '../components/ImportTagsDialog';
@@ -788,7 +789,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       render: (labels?: string[]) => (
         labels && labels.length > 0
           ? labels.map(label => <Tag key={label} color="purple">{label}</Tag>)
-          : <span style={{ color: '#ccc' }}>{t('common.none')}</span>
+          : <span style={{ color: colors.textQuaternary }}>{t('common.none')}</span>
       ),
     },
     {
@@ -823,12 +824,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
           ? (
             <div style={{ minWidth: 140 }}>
               <Progress percent={record.runtimeProgress.percent} size="small" />
-              <div style={{ fontSize: 12, color: '#666' }}>
+              <div style={{ fontSize: 12, color: colors.textSecondary }}>
                 {record.runtimeProgress.completed}/{record.runtimeProgress.total}
               </div>
             </div>
           )
-          : <span style={{ color: '#999' }}>-</span>
+          : <span style={{ color: colors.textTertiary }}>-</span>
       ),
     },
     {
@@ -845,7 +846,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       width: 180,
       responsive: ['xl'],
       ellipsis: true,
-      render: (notes?: string) => notes || <span style={{ color: '#ccc' }}>-</span>,
+      render: (notes?: string) => notes || <span style={{ color: colors.textQuaternary }}>-</span>,
     },
     {
       title: t('favoriteTags.actions'),
@@ -1207,10 +1208,10 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
           const failed = downloadHistory.filter(h => h.status === 'failed').length;
           const total = downloadHistory.length;
           return (
-            <div style={{ marginBottom: 12, padding: '8px 12px', background: '#fafafa', borderRadius: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+            <div style={{ marginBottom: 12, padding: '8px 12px', background: colors.bgLight, borderRadius: 6, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
               <span>{t('favoriteTags.historyTotal')}: <strong>{total}</strong></span>
-              <span style={{ color: '#52c41a' }}>{t('favoriteTags.historyCompleted')}: <strong>{completed}</strong></span>
-              <span style={{ color: '#ff4d4f' }}>{t('favoriteTags.historyFailed')}: <strong>{failed}</strong></span>
+              <span style={{ color: colors.success }}>{t('favoriteTags.historyCompleted')}: <strong>{completed}</strong></span>
+              <span style={{ color: colors.danger }}>{t('favoriteTags.historyFailed')}: <strong>{failed}</strong></span>
             </div>
           );
         })()}
@@ -1241,7 +1242,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
                     <Tag color={getStatusColorUtil(item.status as FavoriteTagDownloadDisplayStatus)}>
                       {t(`favoriteTags.${item.status}`) || item.status}
                     </Tag>
-                    <span style={{ fontSize: 12, color: '#999' }}>{item.sessionId.slice(0, 8)}</span>
+                    <span style={{ fontSize: 12, color: colors.textTertiary }}>{item.sessionId.slice(0, 8)}</span>
                   </Space>
                 }
                 description={

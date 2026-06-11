@@ -5,7 +5,7 @@
 
 import React, { useState, Suspense } from 'react';
 import { Segmented } from 'antd';
-import { spacing, colors } from '../styles/tokens';
+import { spacing, colors, layout } from '../styles/tokens';
 import { useLocale } from '../locales';
 
 const BooruDownloadPage = React.lazy(() => import('./BooruDownloadPage'));
@@ -35,8 +35,9 @@ export const BooruDownloadHubPage: React.FC<BooruDownloadHubPageProps> = ({
     </div>
   );
 
+  // 页面内边距统一在 Hub 根容器提供，保证 Segmented 切换栏与两个子页内容左右对齐
   return (
-    <div>
+    <div style={{ padding: layout.contentPadding }}>
       {/* tab 切换栏 */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: spacing.lg }}>
         <Segmented

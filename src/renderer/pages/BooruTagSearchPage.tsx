@@ -16,13 +16,13 @@ import { getDirectImplicationTags, resolveCanonicalTag, type TagRelationships } 
 
 const { Title, Text } = Typography;
 
-/** 标签类型名称和颜色 */
+/** 标签类型名称和颜色（color 用 getter 延迟取值，跟随主题切换） */
 const TAG_TYPE_INFO: Record<number, { name: string; color: string }> = {
-  0: { name: '通用', color: colors.textSecondary },
-  1: { name: '艺术家', color: '#FF3B30' },
-  3: { name: '版权', color: '#AF52DE' },
-  4: { name: '角色', color: '#34C759' },
-  5: { name: '元数据', color: '#FF9500' },
+  0: { name: '通用', get color() { return colors.tagGeneral; } },
+  1: { name: '艺术家', get color() { return colors.tagArtist; } },
+  3: { name: '版权', get color() { return colors.tagCopyright; } },
+  4: { name: '角色', get color() { return colors.tagCharacter; } },
+  5: { name: '元数据', get color() { return colors.tagMeta; } },
 };
 
 /** 标签详情信息 */
@@ -645,7 +645,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
                 style={{ cursor: 'pointer', marginBottom: 2, fontSize: fontSize.xs }}
                 onClick={() => handleTagClick(tag)}
               >
-                {tag.replace(/_/g, ' ')} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
+                {tag.replace(/_/g, ' ')} <span style={{ color: colors.textTertiary }}>{count}</span>
               </Tag>
             ))}
           </div>
@@ -699,21 +699,32 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
               onPageChange={(page) => searchTagPosts(canonicalSearchTag, page)}
             />
 
-            <BooruGridLayout
-              posts={filteredSortedPosts}
-              gridSize={appearanceConfig.gridSize}
-              spacing={appearanceConfig.spacing}
-              borderRadius={appearanceConfig.borderRadius}
-              selectedSite={selectedSite || null}
-              onPreview={handlePreview}
-              onDownload={handleDownload}
-              onToggleFavorite={handleToggleFavorite}
-              favorites={favorites}
-              getPreviewUrl={getPreviewUrl}
-              onTagClick={handleTagClick}
-              onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
-              serverFavorites={serverFavorites}
-            />
+            {/* 当前页有数据但被评级筛选过滤为空时，给出轻量提示而非空白网格 */}
+            {filteredSortedPosts.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="当前页没有符合评级筛选的图片"
+                style={{ margin: `${spacing['3xl']}px 0` }}
+              >
+                <Button onClick={() => setRatingFilter('all')}>显示全部评级</Button>
+              </Empty>
+            ) : (
+              <BooruGridLayout
+                posts={filteredSortedPosts}
+                gridSize={appearanceConfig.gridSize}
+                spacing={appearanceConfig.spacing}
+                borderRadius={appearanceConfig.borderRadius}
+                selectedSite={selectedSite || null}
+                onPreview={handlePreview}
+                onDownload={handleDownload}
+                onToggleFavorite={handleToggleFavorite}
+                favorites={favorites}
+                getPreviewUrl={getPreviewUrl}
+                onTagClick={handleTagClick}
+                onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
+                serverFavorites={serverFavorites}
+              />
+            )}
 
             <PaginationControl
               currentPage={currentPage}

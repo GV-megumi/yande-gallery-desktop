@@ -103,11 +103,14 @@ export const ContextMenuPortal: React.FC<ContextMenuPortalProps> = ({
     // 延迟添加监听，避免当前右键事件立即触发关闭
     const timer = setTimeout(() => {
       document.addEventListener('click', handleClose);
+      // 捕获阶段监听右键：空白处再次右键也能关闭已打开的菜单
+      document.addEventListener('contextmenu', handleClose, true);
       document.addEventListener('scroll', handleClose, true);
     }, 10);
     return () => {
       clearTimeout(timer);
       document.removeEventListener('click', handleClose);
+      document.removeEventListener('contextmenu', handleClose, true);
       document.removeEventListener('scroll', handleClose, true);
     };
   }, [open, onClose]);

@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
-import { Spin, Empty } from 'antd';
+import { Spin, Empty, Button } from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
 import { ImageGrid, ImageGridProps } from './ImageGrid';
 import { SkeletonWaterfall } from './SkeletonGrid';
 
@@ -53,7 +54,20 @@ export const ImageListWrapper: React.FC<ImageListWrapperProps> = React.memo(({
   }
 
   if (images.length === 0) {
-    return <Empty description={emptyDescription} style={{ marginTop: '100px' }} />;
+    // 空列表时仍然渲染 children（如分页器），保证空页可以点击"上一页"返回
+    return (
+      <>
+        <Empty description={emptyDescription} style={{ marginTop: '100px' }}>
+          {/* 注意：不要直接把 onClick 事件对象透传给 onReload（部分调用方带可选参数） */}
+          {imageGridProps.onReload && (
+            <Button icon={<ReloadOutlined />} onClick={() => imageGridProps.onReload()}>
+              重新加载
+            </Button>
+          )}
+        </Empty>
+        {children}
+      </>
+    );
   }
 
   return (

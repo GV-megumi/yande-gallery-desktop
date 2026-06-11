@@ -19,6 +19,7 @@ import {
 import { DownloadQueueItem } from '../../shared/types';
 import { localPathToAppUrl } from '../utils/url';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
+import { colors, radius, fontSize } from '../styles/tokens';
 
 const { Option } = Select;
 
@@ -54,7 +55,10 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
   const [pausingAll, setPausingAll] = useState(false);
   const [resumingAll, setResumingAll] = useState(false);
   const [clearing, setClearing] = useState(false);
+  const [retryingAll, setRetryingAll] = useState(false);
   const hasResumedRef = useRef(false); // 标记是否已经尝试恢复过
+  // 下载速度采样：按队列项 id 记录上次采样的 (已下载字节, 时间戳, 平滑速度)，用于差分计算速度与剩余时间
+  const speedSamplesRef = useRef<Map<number, { bytes: number; timestamp: number; speed: number }>>(new Map());
   
   // 用于查看原图的状态
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -324,6 +328,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
 
   // 重试所有失败的下载
   const handleRetryAllFailed = async () => {
+    setRetryingAll(true);
     try {
       if (!window.electronAPI) return;
 
@@ -354,6 +359,8 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     } catch (error) {
       console.error('[BooruDownloadPage] 重试所有失败下载失败:', error);
       message.error('重试失败');
+    } finally {
+      setRetryingAll(false);
     }
   };
 
@@ -371,6 +378,24 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
 
     // 监听进度更新
     const removeProgressListener = window.electronAPI?.booru.onDownloadProgress((data: any) => {
+      // 差分采样计算下载速度：用本次与上次的 (字节数, 时间戳) 之差求瞬时速度，
+      // 再做简单指数平滑，避免速度数字抖动过大
+      const now = Date.now();
+      const sample = speedSamplesRef.current.get(data.id);
+      if (sample) {
+        const deltaSeconds = (now - sample.timestamp) / 1000;
+        if (deltaSeconds > 0 && data.downloadedBytes >= sample.bytes) {
+          const instantSpeed = (data.downloadedBytes - sample.bytes) / deltaSeconds;
+          const smoothedSpeed = sample.speed > 0 ? sample.speed * 0.7 + instantSpeed * 0.3 : instantSpeed;
+          speedSamplesRef.current.set(data.id, { bytes: data.downloadedBytes, timestamp: now, speed: smoothedSpeed });
+        } else if (data.downloadedBytes < sample.bytes) {
+          // 字节回退说明任务被重试从头下载（复用同一队列 id），重置采样避免速度/剩余时间冻结在过期值
+          speedSamplesRef.current.set(data.id, { bytes: data.downloadedBytes, timestamp: now, speed: 0 });
+        }
+      } else {
+        speedSamplesRef.current.set(data.id, { bytes: data.downloadedBytes, timestamp: now, speed: 0 });
+      }
+
       setActiveDownloads(prev => prev.map(item => {
         if (item.id === data.id) {
           return {
@@ -386,7 +411,11 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     });
 
     // 监听状态更新
-    const removeStatusListener = window.electronAPI?.booru.onDownloadStatus((_data: any) => {
+    const removeStatusListener = window.electronAPI?.booru.onDownloadStatus((data: any) => {
+      // 任务离开下载中状态时清掉速度采样，避免残留过期数据
+      if (data?.id != null && data?.status !== 'downloading') {
+        speedSamplesRef.current.delete(data.id);
+      }
       // 状态变更时重新加载队列，确保列表准确
       loadQueue();
     });
@@ -400,6 +429,8 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
       if (removeProgressListener) removeProgressListener();
       if (removeStatusListener) removeStatusListener();
       if (removeQueueStatusListener) removeQueueStatusListener();
+      // 页面非活跃期间收不到状态事件，残留采样会在回页后显示过期速度，切走时全部清空
+      speedSamplesRef.current.clear();
     };
   }, [active, loadQueue]);
 
@@ -410,6 +441,14 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
     const sizes = ['B', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // 格式化剩余时间（秒 → 可读文本）
+  const formatEta = (seconds: number) => {
+    if (!isFinite(seconds) || seconds < 0) return '--';
+    if (seconds < 60) return `剩余 ${Math.ceil(seconds)} 秒`;
+    if (seconds < 3600) return `剩余 ${Math.floor(seconds / 60)} 分 ${Math.ceil(seconds % 60)} 秒`;
+    return `剩余 ${Math.floor(seconds / 3600)} 时 ${Math.floor((seconds % 3600) / 60)} 分`;
   };
 
   // 清空下载记录
@@ -552,18 +591,33 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
       title: '进度',
       key: 'progress',
       width: 250,
-      render: (_: any, record: DownloadQueueItem) => (
-        <Space direction="vertical" style={{ width: '100%' }} size={0}>
-          <Progress 
-            percent={record.progress} 
-            size="small" 
-            status={record.status === 'downloading' ? 'active' : (record.status === 'paused' ? 'exception' : 'normal')} 
-          />
-          <span style={{ fontSize: '12px', color: '#888' }}>
-            {formatBytes(record.downloadedBytes)} / {formatBytes(record.totalBytes)}
-          </span>
-        </Space>
-      )
+      render: (_: any, record: DownloadQueueItem) => {
+        // 第二行信息：速度 · 剩余时间 · 已下/总量（仅下载中且有有效采样时显示速度与剩余时间）
+        const sample = speedSamplesRef.current.get(record.id);
+        const parts: string[] = [];
+        if (record.status === 'downloading' && sample && sample.speed > 0) {
+          parts.push(`${formatBytes(sample.speed)}/s`);
+          const remainBytes = (record.totalBytes || 0) - (record.downloadedBytes || 0);
+          if (remainBytes > 0) {
+            parts.push(formatEta(remainBytes / sample.speed));
+          }
+        }
+        parts.push(`${formatBytes(record.downloadedBytes)} / ${formatBytes(record.totalBytes)}`);
+        return (
+          <Space direction="vertical" style={{ width: '100%' }} size={0}>
+            <Progress
+              percent={record.progress}
+              size="small"
+              // 暂停态用 normal + 警告色，与 StatusTag 的黄色警告语义一致，避免误用红色错误态
+              status={record.status === 'downloading' ? 'active' : 'normal'}
+              strokeColor={record.status === 'paused' ? colors.warning : undefined}
+            />
+            <span style={{ fontSize: fontSize.sm, color: colors.textTertiary }}>
+              {parts.join(' · ')}
+            </span>
+          </Space>
+        );
+      }
     },
     {
       title: '操作',
@@ -578,7 +632,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
                 icon={<PlayCircleOutlined />}
                 aria-label="恢复下载"
                 onClick={() => handleResumeDownload(record.id)}
-                style={{ color: '#52c41a' }}
+                style={{ color: colors.success }}
               />
             </Tooltip>
           ) : (
@@ -617,6 +671,33 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
   // 已完成列定义
   const completedColumns = [
     {
+      title: '预览',
+      key: 'thumbnail',
+      width: 64,
+      render: (_: any, record: DownloadQueueItem) => (
+        record.targetPath ? (
+          <img
+            src={getImageUrl(record.targetPath)}
+            alt="下载缩略图"
+            loading="lazy"
+            style={{
+              width: 48,
+              height: 48,
+              objectFit: 'cover',
+              borderRadius: radius.xs,
+              cursor: 'pointer',
+              display: 'block'
+            }}
+            onClick={() => {
+              // 点击缩略图复用现有的原图预览逻辑
+              setPreviewImage(getImageUrl(record.targetPath!));
+              setPreviewVisible(true);
+            }}
+          />
+        ) : null
+      )
+    },
+    {
       title: 'ID',
       dataIndex: 'postId',
       key: 'postId',
@@ -630,9 +711,9 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
         const fileName = path ? path.split(/[\\/]/).pop() : '未知';
         return (
           <Tooltip title="点击在资源管理器中显示">
-            <span 
-              style={{ 
-                color: '#007AFF',
+            <span
+              style={{
+                color: colors.textLink,
                 cursor: 'pointer',
                 display: 'inline-flex',
                 alignItems: 'center',
@@ -686,9 +767,10 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
   ];
 
 
+  // 页面内边距统一由 BooruDownloadHubPage 根容器提供，避免与 Segmented 切换栏错位
   return (
-    <div style={{ padding: '24px' }}>
-      <Card 
+    <div>
+      <Card
         title={
           <Space>
             <DownloadOutlined />
@@ -738,7 +820,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
                   dataSource={activeDownloads}
                   columns={activeColumns}
                   rowKey="id"
-                  pagination={false}
+                  pagination={{ pageSize: 50, hideOnSinglePage: true }}
                   locale={{ emptyText: '没有进行中的下载' }}
                   onRow={makeOnRow('active')}
                 />
@@ -752,7 +834,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
               <>
                 <div style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <Space>
-                    <span style={{ color: 'rgba(60, 60, 67, 0.60)' }}>排序:</span>
+                    <span style={{ color: colors.textSecondary }}>排序:</span>
                     <Select
                       value={sortField}
                       onChange={(value: SortField) => setSortField(value)}
@@ -811,10 +893,12 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
                         onConfirm={handleRetryAllFailed}
                         okText="确定"
                         cancelText="取消"
+                        disabled={retryingAll}
                       >
                         <Button
                           type="primary"
                           icon={<ReloadOutlined />}
+                          loading={retryingAll}
                         >
                           全部重试
                         </Button>
@@ -869,7 +953,7 @@ export const BooruDownloadPage: React.FC<BooruDownloadPageProps> = ({ active = t
                               icon={<ReloadOutlined />}
                               aria-label="重试下载"
                               onClick={() => handleRetryFailed(record)}
-                              style={{ color: '#1677ff' }}
+                              style={{ color: colors.primary }}
                             />
                           </Tooltip>
                           <Popconfirm

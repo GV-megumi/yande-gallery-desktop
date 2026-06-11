@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Button, Empty, message, Modal, Tooltip } from 'antd';
+import { Button, Empty, message, Modal, Popconfirm, Tooltip } from 'antd';
 import { DeleteOutlined, ClearOutlined, CopyOutlined, WarningOutlined } from '@ant-design/icons';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { ContextMenu } from '../components/ContextMenu';
 import { LazyLoadFooter } from '../components/LazyLoadFooter';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 interface InvalidImage {
@@ -30,6 +31,8 @@ export const InvalidImagesPage: React.FC = () => {
   const [hasMore, setHasMore] = useState(true);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  // 首次加载是否已完成：避免初始加载阶段误显示“没有无效图片”空态
+  const [initialized, setInitialized] = useState(false);
 
   const loadImages = useCallback(async (pageNum: number, append: boolean = false) => {
     if (!window.electronAPI) return;
@@ -52,6 +55,7 @@ export const InvalidImagesPage: React.FC = () => {
       message.error('加载无效图片失败');
     } finally {
       setLoading(false);
+      setInitialized(true);
     }
   }, []);
 
@@ -132,6 +136,11 @@ export const InvalidImagesPage: React.FC = () => {
     return localPathToAppUrl(filePath);
   };
 
+  // 加载中且列表为空时显示骨架屏（含首次加载）
+  if (loading && images.length === 0) {
+    return <SkeletonGrid count={8} cardWidth={220} gap={12} />;
+  }
+
   if (!loading && loadError && images.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -147,7 +156,7 @@ export const InvalidImagesPage: React.FC = () => {
     );
   }
 
-  if (!loading && images.length === 0) {
+  if (initialized && !loading && images.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <Empty
@@ -280,32 +289,39 @@ const InvalidImageCard: React.FC<{
             </div>
           )}
 
-          {/* 右上角删除按钮 */}
-          <Button
-            type="text"
-            size="small"
-            icon={<DeleteOutlined />}
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(image.id);
-            }}
-            style={{
-              position: 'absolute',
-              top: 6,
-              right: 6,
-              width: 28,
-              height: 28,
-              borderRadius: '50%',
-              background: 'rgba(0, 0, 0, 0.45)',
-              backdropFilter: 'blur(8px)',
-              color: '#FFFFFF',
-              zIndex: zIndex.sticky,
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              border: 'none',
-            }}
-          />
+          {/* 右上角删除按钮（Popconfirm 二次确认，避免误删） */}
+          <Popconfirm
+            title="删除此无效项？"
+            onConfirm={() => onDelete(image.id)}
+            okText="删除"
+            cancelText="取消"
+          >
+            <Tooltip title="删除此项">
+              <Button
+                type="text"
+                size="small"
+                icon={<DeleteOutlined />}
+                aria-label="删除此项"
+                onClick={(e) => e.stopPropagation()}
+                style={{
+                  position: 'absolute',
+                  top: 6,
+                  right: 6,
+                  width: 28,
+                  height: 28,
+                  borderRadius: '50%',
+                  background: 'rgba(0, 0, 0, 0.45)',
+                  backdropFilter: 'blur(8px)',
+                  color: '#FFFFFF',
+                  zIndex: zIndex.sticky,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  border: 'none',
+                }}
+              />
+            </Tooltip>
+          </Popconfirm>
         </div>
 
         {/* 信息区域 */}

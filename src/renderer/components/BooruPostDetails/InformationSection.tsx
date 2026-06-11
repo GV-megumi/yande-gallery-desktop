@@ -7,6 +7,8 @@ const { Text } = Typography;
 interface InformationSectionProps {
   post: BooruPost;
   site: BooruSite | null;
+  /** 点击艺术家标签时按艺术家搜索（传入原始标签名，含下划线） */
+  onArtistClick?: (artistName: string) => void;
 }
 
 // 纯函数提取到组件外，避免每次渲染重建
@@ -49,11 +51,12 @@ const generateCopyrightName = (tags: string[]): string => {
   return `${tags[0].replace(/_/g, ' ')} 和其他 ${tags.length - 1} 个`;
 };
 
+// 返回原始标签名（含下划线），无艺术家标签时返回空串（不渲染占位）
 const chooseArtistTag = (tags: string[]): string => {
-  if (tags.length === 0) return '未知艺术家';
+  if (tags.length === 0) return '';
   const excluded = ['banned_artist', 'voice_actor'];
   const artist = tags.find(tag => !excluded.some(ex => tag.includes(ex)));
-  return artist ? artist.replace(/_/g, ' ') : tags[0].replace(/_/g, ' ');
+  return artist || tags[0];
 };
 
 /**
@@ -61,7 +64,8 @@ const chooseArtistTag = (tags: string[]): string => {
  */
 export const InformationSection: React.FC<InformationSectionProps> = React.memo(({
   post,
-  site
+  site,
+  onArtistClick
 }) => {
   const [tagCategories, setTagCategories] = useState<Record<string, string>>({});
 
@@ -95,15 +99,18 @@ export const InformationSection: React.FC<InformationSectionProps> = React.memo(
   }, [site, post.tags]);
 
   // 使用 useMemo 缓存标签分类和名称计算
-  const { characterName, copyrightName, artistName } = useMemo(() => {
+  const { characterName, copyrightName, artistTag, artistName } = useMemo(() => {
     const allTags = parseTags(post.tags);
     const extractByCategory = (category: string) =>
       allTags.filter(tag => (tagCategories[tag] || 'general') === category);
 
+    // artistTag 保留原始标签名（供搜索回调使用），artistName 为展示用名称
+    const rawArtistTag = chooseArtistTag(extractByCategory('artist'));
     return {
       characterName: generateCharacterName(extractByCategory('character')),
       copyrightName: generateCopyrightName(extractByCategory('copyright')),
-      artistName: chooseArtistTag(extractByCategory('artist')),
+      artistTag: rawArtistTag,
+      artistName: rawArtistTag.replace(/_/g, ' '),
     };
   }, [post.tags, tagCategories]);
 
@@ -120,8 +127,12 @@ export const InformationSection: React.FC<InformationSectionProps> = React.memo(
         </div>
       )}
       <Space size="middle" wrap>
-        {artistName && (
-          <Tag color="red" style={{ cursor: 'pointer' }}>
+        {artistTag && (
+          <Tag
+            color="red"
+            style={{ cursor: onArtistClick ? 'pointer' : 'default' }}
+            onClick={onArtistClick ? () => onArtistClick(artistTag) : undefined}
+          >
             {artistName}
           </Tag>
         )}

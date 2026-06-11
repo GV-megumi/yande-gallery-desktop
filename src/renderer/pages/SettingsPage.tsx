@@ -2,8 +2,8 @@
  * 设置页面 — iOS Grouped Inset 风格
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Switch, Select, message, Modal, Spin, Segmented, Space, Popconfirm } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Switch, Select, Spin, Segmented, Space, Popconfirm, App, Alert, Empty, Tooltip } from 'antd';
+import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 import { useLocale, type LocaleType } from '../locales';
@@ -110,6 +110,15 @@ const SettingsRow: React.FC<{
       transition: 'background 0.15s',
     }}
     onClick={onClick}
+    // 可点击行的键盘可达性：Enter / Space 等同点击
+    role={onClick ? 'button' : undefined}
+    tabIndex={onClick ? 0 : undefined}
+    onKeyDown={onClick ? (e) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onClick();
+      }
+    } : undefined}
     onMouseEnter={(e) => {
       if (onClick) e.currentTarget.style.background = colors.bgLight;
     }}
@@ -142,6 +151,8 @@ const SettingsRow: React.FC<{
 /** 缓存管理分组 */
 const CacheManagementGroup: React.FC = () => {
   const { t } = useLocale();
+  // antd v5 上下文化提示，替代静态 message
+  const { message } = App.useApp();
   const [cacheStats, setCacheStats] = useState<{ sizeMB: number; fileCount: number } | null>(null);
   const [loadingStats, setLoadingStats] = useState(false);
   const [clearing, setClearing] = useState(false);
@@ -215,6 +226,8 @@ const CacheManagementGroup: React.FC = () => {
 };
 
 export const SettingsPage: React.FC = () => {
+  // antd v5 上下文化提示，替代静态 message / Modal（App.tsx 已包 <App>）
+  const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
   const [folders, setFolders] = useState<GalleryFolder[]>([]);
   const [loading, setLoading] = useState(false);
@@ -243,6 +256,10 @@ export const SettingsPage: React.FC = () => {
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [apiPortDraft, setApiPortDraft] = useState('');
+  // API 服务配置加载失败信息（null 表示无错误）
+  const [apiLoadError, setApiLoadError] = useState<string | null>(null);
+  // 连通性测试进行中的目标（防止重复触发）
+  const [testing, setTesting] = useState<'baidu' | 'google' | null>(null);
 
   // bug9：通知 / 桌面行为状态。mount 时通过新 preload API 拉取，setter 立即写回主进程。
   // 使用 optimistic update：先 setState 给 UI 即时反馈，setter 失败再 load 回滚。
@@ -372,11 +389,16 @@ export const SettingsPage: React.FC = () => {
       if (configRes?.success && configRes.data) {
         setApiConfig(configRes.data);
         setApiPortDraft(String(configRes.data.port));
+        setApiLoadError(null);
+      } else {
+        // 配置拉取失败：记录错误用于渲染重试入口
+        setApiLoadError(configRes?.error || '加载 API 服务配置失败');
       }
       if (statusRes?.success && statusRes.data) setApiStatus(statusRes.data);
       if (logsRes?.success && logsRes.data) setApiLogs(logsRes.data.items || []);
     } catch (err) {
       console.warn('[SettingsPage] 加载 API 服务配置失败:', err);
+      setApiLoadError(err instanceof Error ? err.message : '加载 API 服务配置失败');
     }
   };
 
@@ -528,7 +550,7 @@ export const SettingsPage: React.FC = () => {
       const updatedFolders = [...folders, newFolder];
       setFolders(updatedFolders);
       await saveFoldersConfig(updatedFolders);
-      Modal.confirm({
+      modal.confirm({
         title: '扫描子文件夹',
         content: `是否立即扫描 "${folderName}" 下的所有子文件夹并创建图集？`,
         okText: '立即扫描', cancelText: '稍后扫描',
@@ -559,18 +581,12 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  const handleDeleteFolder = (index: number) => {
-    const folderName = folders[index].name;
-    Modal.confirm({
-      title: '确认删除', content: `确定要删除文件夹 "${folderName}" 吗？`,
-      okText: '删除', cancelText: '取消', okType: 'danger',
-      onOk: async () => {
-        const updated = folders.filter((_, i) => i !== index);
-        setFolders(updated);
-        await saveFoldersConfig(updated);
-        message.success('已删除文件夹');
-      }
-    });
+  // 删除文件夹：确认由列表行的 Popconfirm 负责，这里直接执行删除
+  const handleDeleteFolder = async (index: number) => {
+    const updated = folders.filter((_, i) => i !== index);
+    setFolders(updated);
+    await saveFoldersConfig(updated);
+    message.success('已删除文件夹');
   };
 
   const saveFoldersConfig = async (foldersToSave: GalleryFolder[]) => {
@@ -680,7 +696,7 @@ export const SettingsPage: React.FC = () => {
 
   const handleImportBackup = async () => {
     if (!window.electronAPI) return;
-    Modal.confirm({
+    modal.confirm({
       title: '导入应用备份',
       content: '推荐使用“合并恢复”，仅补充或覆盖同 ID 数据；若需要清空当前站点/收藏/标签/搜索数据，请使用下方的“完全替换恢复”按钮。',
       okText: '合并恢复',
@@ -691,7 +707,7 @@ export const SettingsPage: React.FC = () => {
   };
 
   const handleReplaceBackup = async () => {
-    Modal.confirm({
+    modal.confirm({
       title: '完全替换恢复',
       content: '这会先清空当前站点配置、收藏、标签、保存的搜索和搜索历史，再从备份文件恢复。仅在明确需要回滚到备份状态时使用。',
       okText: '继续替换',
@@ -727,13 +743,15 @@ export const SettingsPage: React.FC = () => {
           >
             <Spin spinning={loading}>
               {folders.length === 0 ? (
-                <div style={{
-                  padding: `${spacing.xxl}px`,
-                  textAlign: 'center',
-                  color: colors.textTertiary,
-                  fontSize: fontSize.base,
-                }}>
-                  {t('settings.noFolders')}
+                <div style={{ padding: `${spacing.xxl}px` }}>
+                  <Empty
+                    image={Empty.PRESENTED_IMAGE_SIMPLE}
+                    description={t('settings.noFolders')}
+                  >
+                    <Button type="primary" icon={<PlusOutlined />} onClick={handleAddFolder}>
+                      {t('settings.addFolder')}
+                    </Button>
+                  </Empty>
                 </div>
               ) : (
                 folders.map((item, index) => (
@@ -1044,8 +1062,9 @@ export const SettingsPage: React.FC = () => {
               extra={<span style={{ color: colors.textTertiary }}>{pkgJson.version}</span>}
             />
             <SettingsRow label="Electron" extra={<span style={{ color: colors.textTertiary }}>39.x</span>} />
-            <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>18.2.0</span>} />
-            <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>5.x</span>} isLast />
+            {/* React / Ant Design 版本从 package.json 读取，去掉语义化前缀（^ / ~） */}
+            <SettingsRow label="React" extra={<span style={{ color: colors.textTertiary }}>{pkgJson.dependencies.react.replace(/^[\^~]/, '')}</span>} />
+            <SettingsRow label="Ant Design" extra={<span style={{ color: colors.textTertiary }}>{pkgJson.dependencies.antd.replace(/^[\^~]/, '')}</span>} isLast />
           </SettingsGroup>
 
           <SettingsGroup title="更新">
@@ -1053,9 +1072,9 @@ export const SettingsPage: React.FC = () => {
               label="检查更新"
               description={
                 updateResult?.error
-                  ? <span style={{ color: '#ff4d4f' }}>检查失败：{updateResult.error}</span>
+                  ? <span style={{ color: colors.danger }}>检查失败：{updateResult.error}</span>
                   : updateResult?.hasUpdate
-                    ? <span style={{ color: '#52c41a' }}>发现新版本 v{updateResult.latestVersion}（当前 v{updateResult.currentVersion}）</span>
+                    ? <span style={{ color: colors.success }}>发现新版本 v{updateResult.latestVersion}（当前 v{updateResult.currentVersion}）</span>
                     : updateResult
                       ? <span style={{ color: colors.textTertiary }}>当前已是最新版本 v{updateResult.currentVersion}</span>
                       : <span style={{ color: colors.textTertiary }}>点击按钮检查是否有新版本</span>
@@ -1098,7 +1117,28 @@ export const SettingsPage: React.FC = () => {
       )}
 
       {/* ===== API 服务 ===== */}
-      {activeTab === 'api' && apiConfig && apiStatus && (
+      {/* 加载失败：渲染错误提示 + 重试入口 */}
+      {activeTab === 'api' && apiLoadError && (
+        <Alert
+          type="error"
+          showIcon
+          message="加载 API 服务配置失败"
+          description={apiLoadError}
+          style={{ marginBottom: spacing.xxl }}
+          action={
+            <Button size="small" onClick={() => { setApiLoadError(null); void loadApiService(); }}>
+              重试
+            </Button>
+          }
+        />
+      )}
+      {/* 加载中：配置尚未就绪时渲染居中 Spin */}
+      {activeTab === 'api' && !apiLoadError && (!apiConfig || !apiStatus) && (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: `${spacing['4xl']}px 0` }}>
+          <Spin />
+        </div>
+      )}
+      {activeTab === 'api' && !apiLoadError && apiConfig && apiStatus && (
         <>
           <SettingsGroup title="API 服务" footer="默认仅本机访问；局域网模式仍会拦截非私网来源。">
             <SettingsRow
@@ -1150,9 +1190,18 @@ export const SettingsPage: React.FC = () => {
                   <Button size="small" onClick={() => setApiKeyVisible(v => !v)}>
                     {apiKeyVisible ? '隐藏' : '显示'}
                   </Button>
-                  <Button size="small" onClick={() => void generateApiServiceKey()}>
-                    生成新 Key
-                  </Button>
+                  {/* 重新生成是破坏性操作：二次确认 + danger 样式 */}
+                  <Popconfirm
+                    title="重新生成将使旧 Key 立即失效，已接入的客户端需更新"
+                    okText="生成"
+                    cancelText="取消"
+                    okButtonProps={{ danger: true }}
+                    onConfirm={() => void generateApiServiceKey()}
+                  >
+                    <Button size="small" danger>
+                      生成新 Key
+                    </Button>
+                  </Popconfirm>
                 </Space>
               }
             />
@@ -1160,6 +1209,26 @@ export const SettingsPage: React.FC = () => {
               label="当前值"
               description={apiKeyVisible ? apiConfig.apiKey || '未生成' : '已隐藏'}
               isLast
+              extra={
+                <Tooltip title="复制">
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<CopyOutlined />}
+                    disabled={!apiConfig.apiKey}
+                    onClick={async () => {
+                      if (!apiConfig.apiKey) return;
+                      try {
+                        await navigator.clipboard.writeText(apiConfig.apiKey);
+                        message.success('已复制');
+                      } catch (err) {
+                        console.error('[SettingsPage] 复制 API Key 失败:', err);
+                        message.error('复制失败');
+                      }
+                    }}
+                  />
+                </Tooltip>
+              }
             />
           </SettingsGroup>
 
@@ -1273,30 +1342,48 @@ export const SettingsPage: React.FC = () => {
               label={t('settings.testBaidu')}
               onClick={async () => {
                 if (!window.electronAPI) return;
+                // 测试进行中：忽略重复点击
+                if (testing) return;
+                setTesting('baidu');
                 try {
                   const result = await window.electronAPI.system.testBaidu();
                   if (result.success) message.success(t('settings.baiduSuccess', { status: result.status ?? 200 }));
                   else message.error(t('settings.baiduFailed') + ': ' + result.error);
                 } catch (error) {
                   message.error(t('settings.baiduFailed') + ': ' + String(error));
+                } finally {
+                  setTesting(null);
                 }
               }}
-              extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Baidu</span>}
+              extra={
+                testing === 'baidu'
+                  ? <Spin size="small" />
+                  : <span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Baidu</span>
+              }
             />
             <SettingsRow
               label={t('settings.testGoogle')}
               isLast
               onClick={async () => {
                 if (!window.electronAPI) return;
+                // 测试进行中：忽略重复点击
+                if (testing) return;
+                setTesting('google');
                 try {
                   const result = await window.electronAPI.system.testGoogle();
                   if (result.success) message.success(t('settings.googleSuccess', { status: result.status ?? 200 }));
                   else message.error(t('settings.googleFailed') + ': ' + result.error);
                 } catch (error) {
                   message.error(t('settings.googleFailed') + ': ' + String(error));
+                } finally {
+                  setTesting(null);
                 }
               }}
-              extra={<span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Google</span>}
+              extra={
+                testing === 'google'
+                  ? <Spin size="small" />
+                  : <span style={{ color: colors.textTertiary, fontSize: fontSize.sm }}>Google</span>
+              }
             />
           </SettingsGroup>
         </>

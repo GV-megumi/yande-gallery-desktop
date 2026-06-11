@@ -8,7 +8,7 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Progress, Tag, Button, Space, Popconfirm, message, Descriptions, Modal } from 'antd';
+import { App, Card, Progress, Tag, Button, Space, Popconfirm, Descriptions, Modal, Spin } from 'antd';
 import {
   PauseOutlined,
   PlayCircleOutlined,
@@ -20,16 +20,21 @@ import {
 import { BulkDownloadSession, BulkDownloadSessionStatus } from '../../shared/types';
 import { BulkDownloadSessionDetail } from './BulkDownloadSessionDetail';
 import { StatusTag } from './StatusTag';
+import { colors } from '../styles/tokens';
 
 interface BulkDownloadSessionCardProps {
   session: BulkDownloadSession;
+  /** 会话所属站点名称（由外层根据 session.siteId 查出后传入） */
+  siteName?: string;
   onRefresh: () => void;
 }
 
 export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = ({
   session,
+  siteName,
   onRefresh
 }) => {
+  const { message } = App.useApp();
   const [stats, setStats] = useState<{
     total: number;
     completed: number;
@@ -294,6 +299,9 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
       }
     >
       <Descriptions column={2} size="small">
+        {siteName && (
+          <Descriptions.Item label="站点">{siteName}</Descriptions.Item>
+        )}
         <Descriptions.Item label="下载路径">{task?.path || '-'}</Descriptions.Item>
         <Descriptions.Item label="标签">{task?.tags || '-'}</Descriptions.Item>
         <Descriptions.Item label="每页数量">{task?.perPage || '-'}</Descriptions.Item>
@@ -325,12 +333,21 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
           </div>
           <Progress
             percent={progress}
-            status={session.status === 'failed' ? 'exception' : 'active'}
+            // 状态机映射：完成→成功，失败→错误，进行中（运行/扫描）→活跃，其余（暂停/取消/全部跳过）→普通
+            status={
+              session.status === 'completed'
+                ? 'success'
+                : session.status === 'failed'
+                ? 'exception'
+                : (session.status === 'running' || session.status === 'dryRun')
+                ? 'active'
+                : 'normal'
+            }
             strokeColor={
-              session.status === 'completed' 
-                ? '#52c41a' 
-                : session.status === 'failed' 
-                ? '#ff4d4f' 
+              session.status === 'completed'
+                ? colors.success
+                : session.status === 'failed'
+                ? colors.danger
                 : undefined
             }
           />
@@ -338,8 +355,11 @@ export const BulkDownloadSessionCard: React.FC<BulkDownloadSessionCardProps> = (
       )}
 
       {session.status === 'dryRun' && (
-        <div style={{ marginTop: 16, color: '#007AFF' }}>
-          正在扫描页面 {session.currentPage}...
+        <div style={{ marginTop: 16, color: colors.info }}>
+          <Space>
+            <Spin size="small" />
+            <span>正在扫描页面 {session.currentPage}...</span>
+          </Space>
         </div>
       )}
 

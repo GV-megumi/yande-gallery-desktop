@@ -145,18 +145,22 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
         </Select>
       </Form.Item>
 
-      <Form.Item
-        label="下载路径"
-        name="path"
-        rules={[{ required: true, message: '请选择下载路径' }]}
-      >
+      {/* 外层 Form.Item 只负责布局与必填标记；name 绑定放在内层 noStyle Form.Item 上，
+          确保 Input 真正受表单控制（旧实现 Space.Compact 隔断了值绑定） */}
+      <Form.Item label="下载路径" required>
         <Space.Compact style={{ width: '100%' }}>
-          <Input
-            style={{ flex: 1 }}
-            placeholder="选择下载目录"
-            readOnly
-            value={form.getFieldValue('path') || ''} // 确保显示当前值
-          />
+          <Form.Item
+            name="path"
+            noStyle
+            rules={[{ required: true, message: '请选择下载路径' }]}
+          >
+            <Input
+              style={{ flex: 1 }}
+              placeholder="点击选择下载目录"
+              readOnly
+              onClick={handleSelectFolder}
+            />
+          </Form.Item>
           <Button onClick={handleSelectFolder}>选择文件夹</Button>
         </Space.Compact>
       </Form.Item>
@@ -199,8 +203,9 @@ export const BulkDownloadTaskForm: React.FC<BulkDownloadTaskFormProps> = ({
         label="每页数量"
         name="perPage"
         rules={[{ required: true, message: '请输入每页数量' }]}
+        help="每页抓取的帖子数，过大可能触发站点限流"
       >
-        <InputNumber min={1} max={100} style={{ width: '100%' }} />
+        <InputNumber min={1} max={1000} style={{ width: '100%' }} />
       </Form.Item>
 
       <Form.Item

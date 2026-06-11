@@ -4,6 +4,7 @@ import { StarOutlined, StarFilled, CopyOutlined, SearchOutlined, StopOutlined } 
 import { BlacklistedTag, BooruPost, BooruSite } from '../../../shared/types';
 import { ContextMenu } from '../ContextMenu';
 import { useBooruDomainEvents } from '../../hooks/useBooruDomainEvents';
+import { colors } from '../../styles/tokens';
 
 const { Text } = Typography;
 
@@ -67,7 +68,8 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
   onCharacterClick
 }) => {
   const { message } = App.useApp();
-  const [expanded, setExpanded] = useState(false);
+  // 标签是详情页核心信息，默认展开
+  const [expanded, setExpanded] = useState(true);
   const [tagCategories, setTagCategories] = useState<Record<string, string>>({});
   const [favoritedTags, setFavoritedTags] = useState<Set<string>>(new Set());
   const [blacklistedTagsByName, setBlacklistedTagsByName] = useState<Map<string, BlacklistedTag>>(() => new Map());
@@ -328,8 +330,8 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
         message.success('已复制: ' + tag.replace(/_/g, ' '));
       }},
       ...(onTagClick ? [{ key: 'search', label: '按该标签搜索', icon: <SearchOutlined />, onClick: () => onTagClick(tag) }] : []),
-      { key: 'favorite', label: isFav ? '取消收藏标签' : '收藏标签', icon: isFav ? <StarFilled style={{ color: '#faad14' }} /> : <StarOutlined />, onClick: () => toggleFavoriteTag(tag) },
-      { key: 'blacklist', label: isBlacklisted ? '移除黑名单' : '加入黑名单', icon: <StopOutlined style={{ color: '#FF3B30' }} />, onClick: () => toggleBlacklistTag(tag) },
+      { key: 'favorite', label: isFav ? '取消收藏标签' : '收藏标签', icon: isFav ? <StarFilled style={{ color: colors.warning }} /> : <StarOutlined />, onClick: () => toggleFavoriteTag(tag) },
+      { key: 'blacklist', label: isBlacklisted ? '移除黑名单' : '加入黑名单', icon: <StopOutlined style={{ color: colors.danger }} />, onClick: () => toggleBlacklistTag(tag) },
     ];
     return (
       <ContextMenu key={`${category}-${index}`} items={tagContextItems}>
@@ -344,8 +346,8 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
               style={{ cursor: 'pointer', marginRight: 4 }}
             >
               {isFav
-                ? <StarFilled style={{ color: '#faad14', fontSize: 12 }} />
-                : <StarOutlined style={{ color: '#d9d9d9', fontSize: 12 }} />}
+                ? <StarFilled style={{ color: colors.warning, fontSize: 12 }} />
+                : <StarOutlined style={{ color: colors.textQuaternary, fontSize: 12 }} />}
             </span>
             {tag.replace(/_/g, ' ')}
           </Tag>
@@ -359,7 +361,7 @@ export const TagsSection: React.FC<TagsSectionProps> = React.memo(({
       <Collapse
         activeKey={expanded ? ['tags'] : []}
         onChange={(keys) => setExpanded(keys.includes('tags'))}
-        style={{ background: '#fff' }}
+        style={{ background: colors.bgElevated }}
         items={[
           {
             key: 'tags',

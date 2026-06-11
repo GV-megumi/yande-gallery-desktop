@@ -349,20 +349,29 @@ describe('BooruPostDetailsPage image loading', () => {
       expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
     });
 
-    // previewUrl 也失败 → 不能再往返回 sampleUrl，必须停止重试
-    const finalImage = firstImage(view.baseElement);
+    // previewUrl 也失败 → 回退链耗尽，进入加载失败终态：渲染错误占位，不再往返重试或发起新请求
+    const cacheCallsBeforeExhaustion = cacheImage.mock.calls.length;
     await act(async () => {
-      fireEvent.error(finalImage);
+      fireEvent.error(firstImage(view.baseElement));
     });
-    expect(firstImage(view.baseElement)).toBe(finalImage);
-    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
+    await waitFor(() => {
+      expect(view.baseElement.textContent).toContain('图片加载失败');
+    });
+    expect(view.baseElement.querySelector('img')).toBeNull();
+    expect(cacheImage.mock.calls.length).toBe(cacheCallsBeforeExhaustion);
 
-    // 再次触发失败也保持稳定，不应重新发起请求
+    // 点击重试应清空失败记录并重新发起一次完整加载
+    const retryButton = Array.from(view.baseElement.querySelectorAll('button')).find(
+      (button) => button.textContent?.includes('重试')
+    );
+    expect(retryButton).toBeTruthy();
     await act(async () => {
-      fireEvent.error(finalImage);
+      fireEvent.click(retryButton!);
     });
-    expect(firstImage(view.baseElement)).toBe(finalImage);
-    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-preview.jpg');
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/broken-file.jpg');
+    });
+    expect(cacheImage.mock.calls.length).toBe(cacheCallsBeforeExhaustion + 1);
   });
 
   it('resets the failed URL record when switching posts so fallback works again', async () => {
@@ -402,9 +411,12 @@ describe('BooruPostDetailsPage image loading', () => {
     await act(async () => {
       fireEvent.error(firstImage(view.baseElement));
     });
-    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/a-preview.jpg');
+    // 回退链耗尽后进入加载失败终态
+    await waitFor(() => {
+      expect(view.baseElement.textContent).toContain('图片加载失败');
+    });
 
-    // 切换帖子后失败记录应重置，新帖子的回退链可正常工作
+    // 切换帖子后失败记录与失败终态应重置，新帖子的回退链可正常工作
     rerenderDetails(view, nextPost);
     await waitFor(() => {
       expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/b-file.jpg');
@@ -417,7 +429,52 @@ describe('BooruPostDetailsPage image loading', () => {
     });
   });
 
-  it('does not remount when a failed fallback URL is already the current image URL', async () => {
+  it('clears the terminal error state when the async load later commits successfully', async () => {
+    const racePost = post({
+      postId: 601,
+      md5: 'race',
+      fileUrl: 'https://cdn.example.test/race-file.jpg',
+      sampleUrl: 'https://cdn.example.test/race-sample.jpg',
+      previewUrl: 'https://cdn.example.test/race-preview.jpg',
+    });
+    const pendingCache = deferred<{ success: boolean; data?: string; error?: string }>();
+
+    getCachedImageUrl.mockResolvedValue({ success: false });
+    cacheImage.mockReturnValue(pendingCache.promise);
+
+    const view = renderDetails(racePost);
+
+    // 主进程缓存加载期间先挂载 previewUrl 占位图
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/race-preview.jpg');
+    });
+
+    // 占位图直连失败 → 回退 sample → 再失败 → 候选耗尽进入失败终态
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/race-sample.jpg');
+    });
+    await act(async () => {
+      fireEvent.error(firstImage(view.baseElement));
+    });
+    await waitFor(() => {
+      expect(view.baseElement.textContent).toContain('图片加载失败');
+    });
+
+    // 主进程缓存随后成功提交 → 必须清除失败终态并显示缓存图，不能被错误占位永久遮住
+    await act(async () => {
+      pendingCache.resolve({ success: true, data: 'app://cache/race.jpg' });
+      await pendingCache.promise;
+    });
+    await waitFor(() => {
+      expect(imageSrcs(view.baseElement)).toContain('app://cache/race.jpg');
+    });
+    expect(view.baseElement.textContent).not.toContain('图片加载失败');
+  });
+
+  it('enters the terminal error state without re-requesting when the only candidate URL fails', async () => {
     const fallbackPost = post({
       postId: 401,
       fileUrl: '',
@@ -430,13 +487,16 @@ describe('BooruPostDetailsPage image loading', () => {
     await waitFor(() => {
       expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/fallback-sample.jpg');
     });
-    const renderedImage = firstImage(view.baseElement);
 
     await act(async () => {
-      fireEvent.error(renderedImage);
+      fireEvent.error(firstImage(view.baseElement));
     });
 
-    expect(firstImage(view.baseElement)).toBe(renderedImage);
-    expect(imageSrcs(view.baseElement)).toContain('https://cdn.example.test/fallback-sample.jpg');
+    // 唯一候选 URL 失败后进入加载失败终态：渲染错误占位，不再循环重挂载或重新请求
+    await waitFor(() => {
+      expect(view.baseElement.textContent).toContain('图片加载失败');
+    });
+    expect(view.baseElement.querySelector('img')).toBeNull();
+    expect(cacheImage).not.toHaveBeenCalled();
   });
 });

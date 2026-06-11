@@ -360,7 +360,7 @@ afterEach(() => {
 
 describe('SettingsPage general tab behavior', () => {
   it('接收 config:changed 后应按受影响 section 重新加载配置', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     await screen.findByText('缓存管理');
     await waitFor(() => {
@@ -383,7 +383,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('接收 api-service:status-changed 后应直接刷新 API 服务状态展示', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const apiTab = await screen.findByText('API 服务');
     await userEvent.click(apiTab);
@@ -412,7 +412,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('API 服务页应加载配置并保存启用状态的精确 patch', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const apiTab = await screen.findByText('API 服务');
     await userEvent.click(apiTab);
@@ -431,7 +431,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('API 权限开关应只保存单个权限的 nested patch', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const apiTab = await screen.findByText('API 服务');
     await userEvent.click(apiTab);
@@ -449,7 +449,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('API 端口应先编辑 draft，失焦后再保存', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const apiTab = await screen.findByText('API 服务');
     await userEvent.click(apiTab);
@@ -468,7 +468,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('不展示没有真实配置链路的自动生成缩略图伪设置', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     await screen.findByText('缩略图');
 
@@ -551,7 +551,7 @@ describe('SettingsPage general tab behavior', () => {
   });
 
   it('不展示仅提示开发中的高级伪操作', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     await screen.findByText('缓存管理');
 
@@ -560,7 +560,7 @@ describe('SettingsPage general tab behavior', () => {
     expect(screen.queryByText('重置全部')).toBeNull();
   });
   it('应在桌面行为中展示硬件加速开关并保存到 desktop 配置域', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const label = await screen.findByText('启用硬件加速');
     const row = label.closest('div[style*="display: flex"]') as HTMLElement | null;
@@ -578,7 +578,7 @@ describe('SettingsPage general tab behavior', () => {
 
 describe('SettingsPage save behavior', () => {
   it('在通用设置页点击保存所有设置时不应把代理凭据回传到渲染层保存负载', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const saveButtonLabel = await screen.findByText('保存所有设置');
     const saveButton = saveButtonLabel.closest('button');
@@ -607,7 +607,7 @@ describe('SettingsPage save behavior', () => {
   });
 
   it('保存所有设置时不应把已单独保存的 desktop 配置整包回写', async () => {
-    render(<SettingsPage />);
+    render(<App><SettingsPage /></App>);
 
     const hardwareAccelerationLabel = await screen.findByText('启用硬件加速');
     const hardwareAccelerationRow = hardwareAccelerationLabel.closest('div[style*="display: flex"]') as HTMLElement | null;
@@ -658,10 +658,11 @@ describe('SettingsPage save behavior', () => {
       </App>
     );
 
-    const editButtonLabel = await screen.findByText('编辑');
-    const editButton = editButtonLabel.closest('button');
-    expect(editButton).not.toBeNull();
-    await userEvent.click(editButton!);
+    // 编辑入口已收纳进"更多操作"下拉菜单
+    const moreButton = await screen.findByRole('button', { name: '更多操作' });
+    await userEvent.click(moreButton);
+    const editMenuItem = await screen.findByText('编辑');
+    await userEvent.click(editMenuItem);
 
     const [saltInput, apiKeyInput] = await screen.findAllByPlaceholderText('留空保留当前值；仅在需要覆盖时填写') as HTMLInputElement[];
     const usernameInput = screen.getByDisplayValue('alice') as HTMLInputElement;
@@ -723,10 +724,11 @@ describe('SettingsPage save behavior', () => {
       </App>
     );
 
-    const editButtonLabel = await screen.findByText('编辑');
-    const editButton = editButtonLabel.closest('button');
-    expect(editButton).not.toBeNull();
-    await userEvent.click(editButton!);
+    // 编辑入口已收纳进"更多操作"下拉菜单
+    const moreButton = await screen.findByRole('button', { name: '更多操作' });
+    await userEvent.click(moreButton);
+    const editMenuItem = await screen.findByText('编辑');
+    await userEvent.click(editMenuItem);
 
     const [saltInput, apiKeyInput] = await screen.findAllByPlaceholderText('留空保留当前值；仅在需要覆盖时填写') as HTMLInputElement[];
     const nameInput = screen.getByDisplayValue('Yande') as HTMLInputElement;

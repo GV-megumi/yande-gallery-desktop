@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Tooltip } from 'antd';
+import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
 
 interface NoteData {
@@ -55,7 +56,8 @@ export const NotesOverlay: React.FC<NotesOverlayProps> = ({
     loadNotes();
   }, [post.postId, site?.id]);
 
-  if (!showNotes || notes.length === 0) return null;
+  // 无注释时不渲染；隐藏注释时仍保留切换按钮，否则无法再恢复显示
+  if (notes.length === 0) return null;
 
   // 原图尺寸（用于坐标换算）
   const imgWidth = post.width || 1;
@@ -70,29 +72,34 @@ export const NotesOverlay: React.FC<NotesOverlayProps> = ({
         zIndex: 5,
       }}
     >
-      {/* 切换按钮 */}
-      <button
-        onClick={() => setShowNotes(false)}
-        style={{
-          position: 'absolute',
-          top: 8,
-          right: 48,
-          pointerEvents: 'auto',
-          background: 'rgba(0,0,0,0.5)',
-          color: '#fff',
-          border: 'none',
-          borderRadius: 4,
-          padding: '2px 8px',
-          fontSize: 11,
-          cursor: 'pointer',
-          zIndex: 10,
-        }}
-        title="隐藏注释"
-      >
-        注释 ✕
-      </button>
+      {/* 切换按钮 — 放在左上角，避免与右上角旋转/翻转控制组重叠 */}
+      <Tooltip title={showNotes ? '隐藏注释' : '显示注释'}>
+        <button
+          onClick={() => setShowNotes((value) => !value)}
+          style={{
+            position: 'absolute',
+            top: 8,
+            left: 8,
+            pointerEvents: 'auto',
+            background: 'rgba(0,0,0,0.5)',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 4,
+            padding: '2px 8px',
+            fontSize: 11,
+            cursor: 'pointer',
+            zIndex: 10,
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: 4,
+          }}
+        >
+          {showNotes ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          {showNotes ? `注释 (${notes.length})` : `显示注释 (${notes.length})`}
+        </button>
+      </Tooltip>
 
-      {notes.map((note) => {
+      {showNotes && notes.map((note) => {
         // 坐标转换：Moebooru/Danbooru 返回的是相对于原图的绝对像素坐标
         // 需要转换为相对于容器的百分比
         const left = `${(note.x / imgWidth) * 100}%`;

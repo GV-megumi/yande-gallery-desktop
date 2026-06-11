@@ -10,8 +10,8 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Button, Space, Tabs, message, Empty, Spin, Popconfirm, Modal, Progress } from 'antd';
-import { ReloadOutlined } from '@ant-design/icons';
+import { App, Card, Table, Tag, Button, Space, Tabs, Empty, Spin, Popconfirm, Modal, Progress } from 'antd';
+import { ReloadOutlined, FolderOpenOutlined } from '@ant-design/icons';
 import { BulkDownloadSession, BulkDownloadRecord, BulkDownloadRecordStatus } from '../../shared/types';
 import { StatusTag } from './StatusTag';
 
@@ -24,6 +24,7 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
   session,
   onRefresh
 }) => {
+  const { message } = App.useApp();
   const [records, setRecords] = useState<BulkDownloadRecord[]>([]);
   const [activeTab, setActiveTab] = useState<string>('all');
   const [loading, setLoading] = useState(false);
@@ -255,6 +256,35 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
     }
   };
 
+  // 打开已完成记录所在目录（在资源管理器中选中文件）
+  // 与 BooruDownloadPage.handleViewFile 复用同一 system.showItem IPC，
+  // 本地路径由任务下载目录 + 记录文件名拼出
+  const handleOpenInFolder = async (record: BulkDownloadRecord) => {
+    try {
+      if (!window.electronAPI) {
+        message.error('系统API不可用');
+        return;
+      }
+
+      const dir = session.task?.path;
+      if (!dir || !record.fileName) {
+        message.warning('无法定位文件路径');
+        return;
+      }
+
+      // 按目录中已有的分隔符风格拼接，兼容 Windows 与 POSIX 路径
+      const sep = dir.includes('\\') ? '\\' : '/';
+      const fullPath = dir.endsWith(sep) ? dir + record.fileName : dir + sep + record.fileName;
+      const result = await window.electronAPI.system.showItem(fullPath);
+      if (!result.success) {
+        message.error(result.error || '打开目录失败');
+      }
+    } catch (error) {
+      console.error('打开目录失败:', error);
+      message.error('打开目录失败');
+    }
+  };
+
   // 格式化文件大小
   const formatBytes = (bytes?: number) => {
     if (!bytes) return '-';
@@ -347,18 +377,33 @@ export const BulkDownloadSessionDetail: React.FC<BulkDownloadSessionDetailProps>
       title: '操作',
       key: 'action',
       width: 120,
-      render: (_: any, record: BulkDownloadRecord) => (
-        record.status === 'failed' ? (
-          <Button
-            type="link"
-            size="small"
-            icon={<ReloadOutlined />}
-            onClick={() => handleRetryRecord(record)}
-          >
-            重试
-          </Button>
-        ) : null
-      )
+      render: (_: any, record: BulkDownloadRecord) => {
+        if (record.status === 'failed') {
+          return (
+            <Button
+              type="link"
+              size="small"
+              icon={<ReloadOutlined />}
+              onClick={() => handleRetryRecord(record)}
+            >
+              重试
+            </Button>
+          );
+        }
+        if (record.status === 'completed') {
+          return (
+            <Button
+              type="link"
+              size="small"
+              icon={<FolderOpenOutlined />}
+              onClick={() => handleOpenInFolder(record)}
+            >
+              打开目录
+            </Button>
+          );
+        }
+        return null;
+      }
     }
   ];
 

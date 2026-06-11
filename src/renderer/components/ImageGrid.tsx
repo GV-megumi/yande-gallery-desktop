@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { Card, Image, Tag, Button, Modal, Descriptions, Space, message, Tooltip } from 'antd';
+import { Card, Image, Tag, Button, Modal, Descriptions, Space, message, Tooltip, App } from 'antd';
 import { TagsOutlined, FolderOpenOutlined, CopyOutlined, PictureOutlined as PicOutlined, ReloadOutlined, DeleteOutlined } from '@ant-design/icons';
 import { formatFileSize } from '../utils/format';
 import { localPathToAppUrl } from '../utils/url';
@@ -8,23 +8,6 @@ import { ContextMenu } from './ContextMenu';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 // --- 静态样式常量（避免每次渲染创建新对象） ---
-const cardWrapperStyle: React.CSSProperties = {
-  borderRadius: radius.md,
-  overflow: 'hidden',
-  boxShadow: shadows.card,
-  background: colors.bgBase,
-  border: `1px solid ${colors.borderCard}`,
-  position: 'relative',
-  cursor: 'pointer',
-};
-const imageWrapperStyle: React.CSSProperties = { width: '100%', position: 'relative', overflow: 'hidden' };
-const imgStyle: React.CSSProperties = { width: '100%', height: 'auto', display: 'block', cursor: 'pointer' };
-const infoBtnStyle: React.CSSProperties = {
-  position: 'absolute', top: 6, right: 6, width: 28, height: 28,
-  borderRadius: radius.round, background: 'rgba(0, 0, 0, 0.35)',
-  backdropFilter: 'blur(8px)', color: '#FFFFFF', zIndex: zIndex.sticky,
-  display: 'flex', alignItems: 'center', justifyContent: 'center', border: 'none',
-};
 const containerStyle: React.CSSProperties = { position: 'relative' };
 const previewImgStyle: React.CSSProperties = { display: 'none' };
 const batchGroupSeparator = '__';
@@ -194,6 +177,15 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
     <ContextMenu items={imageContextItems}>
     <div
       className="card-ios-hover"
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        // 键盘可达性：Enter/Space 等同点击打开预览
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onPreviewClick(previewSrc, image.id, image.filename);
+        }
+      }}
       style={{
         borderRadius: radius.md,
         overflow: 'hidden',
@@ -262,36 +254,43 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
               </div>
             </div>
           )}
-          {/* 右上角信息按钮 -- 圆形 */}
+          {/* 右上角信息按钮 -- 圆形，hover 卡片时显隐 */}
           {!isThumbnailLoading && (
-            <Tooltip title="查看信息">
-              <Button
-                type="text"
-                size="small"
-                icon={<TagsOutlined />}
-                aria-label="查看信息"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onImageInfo(image);
-                }}
-                style={{
-                  position: 'absolute',
-                  top: 6,
-                  right: 6,
-                  width: 28,
-                  height: 28,
-                  borderRadius: radius.round,
-                  background: 'rgba(0, 0, 0, 0.35)',
-                  backdropFilter: 'blur(8px)',
-                  color: '#FFFFFF',
-                  zIndex: zIndex.sticky,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  border: 'none',
-                }}
-              />
-            </Tooltip>
+            <div
+              className="card-overlay-buttons"
+              style={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                zIndex: zIndex.sticky,
+              }}
+            >
+              <Tooltip title="查看信息">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<TagsOutlined />}
+                  aria-label="查看信息"
+                  className="overlay-btn overlay-btn-dark"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onImageInfo(image);
+                  }}
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: radius.round,
+                    background: colors.overlayDark,
+                    backdropFilter: 'blur(8px)',
+                    color: '#FFFFFF',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    border: 'none',
+                  }}
+                />
+              </Tooltip>
+            </div>
           )}
         </div>
     </div>
@@ -316,6 +315,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   batchSize = 200,
   groupKeyPrefix
 }) => {
+  // antd v5 上下文化 message（避免静态调用无法响应主题/容器配置）
+  const { message: contextMessage } = App.useApp();
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [hiddenImageIds, setHiddenImageIds] = useState<Set<number>>(() => new Set());
   // 存储每个图片的缩略图路径，key 是 image.id
@@ -324,6 +325,8 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   // 单图预览状态（替代 Image.PreviewGroup，避免 2000+ 图片创建隐藏预览节点）
   const [previewVisible, setPreviewVisible] = useState(false);
   const [previewImage, setPreviewImage] = useState<string>('');
+  // 预览请求序号：防止晚返回的丢失校验误关用户后续打开的其他预览
+  const previewRequestIdRef = useRef(0);
   const imageIdsKey = useMemo(
     () => images.map((image) => `${typeof image.id === 'number' ? image.id : ''}`).join('|'),
     [images]
@@ -556,24 +559,31 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     setSelectedImage(image);
   }, []);
 
-  // 点击预览回调：先检查源文件是否存在，丢失则提示并上报（仅首次入库）
-  const handlePreviewClick = useCallback(async (previewSrc: string, imageId: number, filename: string) => {
-    if (imageId && window.electronAPI) {
-      try {
-        const result = await window.electronAPI.gallery.reportInvalidImage(imageId);
-        if (result.success || result.error === '图片记录不存在') {
-          // 文件丢失（首次或已迁移），仅提示，不刷新页面
-          message.warning(`源文件已丢失: ${filename}`);
-          return;
-        }
-        // '源文件仍然存在' → 文件正常，继续预览
-      } catch {
-        // 检查失败，继续尝试预览
-      }
-    }
+  // 点击预览回调：乐观打开预览，源文件校验改为后台异步执行（仅首次入库上报）
+  const handlePreviewClick = useCallback((previewSrc: string, imageId: number, filename: string) => {
+    // 先立即打开预览，避免等待 IPC 校验造成点击延迟
+    const requestId = ++previewRequestIdRef.current;
     setPreviewImage(previewSrc);
     setPreviewVisible(true);
-  }, []);
+
+    if (imageId && window.electronAPI) {
+      window.electronAPI.gallery.reportInvalidImage(imageId)
+        .then((result) => {
+          if (result.success || result.error === '图片记录不存在') {
+            // 文件丢失（首次或已迁移）：仅当预览仍属于本次点击时才关闭，避免误关后续预览
+            if (previewRequestIdRef.current === requestId) {
+              setPreviewVisible(false);
+              setPreviewImage('');
+            }
+            contextMessage.warning(`源文件已丢失: ${filename}`);
+          }
+          // '源文件仍然存在' → 文件正常，保持预览打开
+        })
+        .catch(() => {
+          // 校验失败，保持预览打开
+        });
+    }
+  }, [contextMessage]);
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {

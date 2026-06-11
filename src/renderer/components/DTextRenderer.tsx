@@ -1,8 +1,30 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Typography } from 'antd';
-import { spacing } from '../styles/tokens';
+import { colors, spacing } from '../styles/tokens';
 
 const { Paragraph, Text } = Typography;
+
+/**
+ * 剧透文本：默认遮挡（同色块覆盖），点击切换显示/隐藏
+ */
+const SpoilerText: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [revealed, setRevealed] = useState(false);
+  return (
+    <span
+      onClick={() => setRevealed((value) => !value)}
+      title={revealed ? undefined : '点击显示剧透'}
+      style={{
+        background: revealed ? 'transparent' : colors.textPrimary,
+        color: revealed ? 'inherit' : 'transparent',
+        padding: '0 4px',
+        borderRadius: 2,
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </span>
+  );
+};
 
 export type MarkupMode = 'dtext' | 'bbcode';
 
@@ -41,7 +63,7 @@ function renderInline(text: string): React.ReactNode[] {
     } else if (match[17]) {
       nodes.push(<del key={nextKey('s')}>{match[17]}</del>);
     } else if (match[19]) {
-      nodes.push(<span key={nextKey('spoiler')} style={{ background: '#333', color: '#333', padding: '0 4px', borderRadius: 2 }}>{match[19]}</span>);
+      nodes.push(<SpoilerText key={nextKey('spoiler')}>{match[19]}</SpoilerText>);
     }
 
     lastIndex = index + match[0].length;
@@ -69,7 +91,7 @@ function renderBlocks(text: string): React.ReactNode {
     }
 
     parts.push(
-      <div key={nextKey('quote')} style={{ borderLeft: '3px solid rgba(0,0,0,0.15)', paddingLeft: 12, marginBottom: spacing.sm, opacity: 0.8 }}>
+      <div key={nextKey('quote')} style={{ borderLeft: `3px solid ${colors.separatorOpaque}`, paddingLeft: 12, marginBottom: spacing.sm, opacity: 0.8 }}>
         <Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>{renderInline(match[1].trim())}</Paragraph>
       </div>
     );
@@ -92,8 +114,13 @@ interface DTextRendererProps {
 }
 
 export const DTextRenderer: React.FC<DTextRendererProps> = ({ value, mode = 'dtext' }) => {
-  const normalized = mode === 'bbcode' ? value : value.replace(/~([\w:.-]+)/g, '{{$1}}');
-  return <>{renderBlocks(normalized)}</>;
+  // 缓存元素树：nextKey 是全局自增计数器，每次重新生成节点 key 都会变化，
+  // 不缓存会导致 SpoilerText 等有状态子组件在父组件任意重渲染时被重挂载、丢失展开状态
+  const content = useMemo(() => {
+    const normalized = mode === 'bbcode' ? value : value.replace(/~([\w:.-]+)/g, '{{$1}}');
+    return renderBlocks(normalized);
+  }, [value, mode]);
+  return <>{content}</>;
 };
 
 export default DTextRenderer;
