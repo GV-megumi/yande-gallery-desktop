@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { App } from 'antd';
 import { GoogleDrivePage } from '../../../src/renderer/pages/GoogleDrivePage';
 import { GooglePhotosPage } from '../../../src/renderer/pages/GooglePhotosPage';
@@ -104,5 +104,38 @@ describe('Google embedded pages error fallback', () => {
 
     fireEvent(webview, new Event('did-fail-load'));
     expect(await screen.findByRole('button', { name: '在外部浏览器打开' })).toBeTruthy();
+  });
+
+  it('加载失败后主框架加载成功（did-finish-load）应自动清除失败覆盖层', async () => {
+    const { container } = renderWithApp(<GeminiPage />);
+    const webview = container.querySelector('webview') as any;
+    expect(webview).toBeTruthy();
+
+    fireEvent(webview, new Event('did-fail-load'));
+    expect(await screen.findByText('Gemini 加载失败')).toBeTruthy();
+
+    // SPA 自行恢复 / 重试成功：主框架加载完成后覆盖层应消失，不再永久遮挡可用页面
+    fireEvent(webview, new Event('did-finish-load'));
+    await waitFor(() => {
+      expect(screen.queryByText('Gemini 加载失败')).toBeNull();
+    });
+  });
+
+  it('子框架失败（isMainFrame=false）与跳转中止（errorCode -3）不应显示失败覆盖层', async () => {
+    const { container } = renderWithApp(<GoogleDrivePage />);
+    const webview = container.querySelector('webview') as any;
+    expect(webview).toBeTruthy();
+
+    const subFrameFail = new Event('did-fail-load') as any;
+    subFrameFail.isMainFrame = false;
+    fireEvent(webview, subFrameFail);
+
+    const abortFail = new Event('did-fail-load') as any;
+    abortFail.errorCode = -3;
+    fireEvent(webview, abortFail);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Google Drive 加载失败')).toBeNull();
+    });
   });
 });

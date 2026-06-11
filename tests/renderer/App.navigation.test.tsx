@@ -456,7 +456,7 @@ describe('App navigation synchronization', () => {
     expect(screen.getByTestId('tag-management-page').getAttribute('data-active')).toBe('false');
   });
 
-  it('固定项迁移去重后应继续向后补满最多 5 个唯一项，而不是先截断再丢失后续唯一项', async () => {
+  it('固定项迁移应完成旧 key 映射与去重，且不丢失后续唯一项', async () => {
     const { App } = await import('../../src/renderer/App');
     const appShellSave = (window as any).electronAPI.pagePreferences.appShell.save as ReturnType<typeof vi.fn>;
 

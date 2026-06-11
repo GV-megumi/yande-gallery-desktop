@@ -58,6 +58,12 @@ type MenuItem = {
 /** 固定（保活）/ 快捷访问共用的页面条目（持久化到 config.yaml） */
 type PinnedItem = { key: string; section: 'gallery' | 'booru' | 'google'; defaultTab?: string };
 
+/** 合并页面对应的默认 tab 映射（子窗口打开合并页时落到的初始 tab） */
+const MERGED_DEFAULT_TABS: Record<string, string> = {
+  'tag-management': 'favorite',
+  'download': 'downloads',
+};
+
 /** 侧边栏图标：小圆角方块 + 品牌色 */
 const IconBadge: React.FC<{ color: string; icon: React.ReactNode }> = ({ color, icon }) => (
   <span style={{
@@ -292,13 +298,22 @@ export const AppContent: React.FC = () => {
   /** 取消固定一个页面，并释放其缓存（命中当前页时保留挂载） */
   const unpinItem = useCallback((section: PinnedItem['section'], key: string) => {
     const pageId = `${section}:${key}`;
-    const previousMounted = mountedPageIds;
+    const wasMounted = mountedPageIds.has(pageId);
     setPinnedItems(prev => {
       const previous = prev;
       const next = prev.filter(p => !(p.section === section && p.key === key));
       savePinnedItems(next, () => {
         setPinnedItems(previous);
-        setMountedPageIds(previousMounted);
+        // 回滚只恢复本次取消固定释放的页面 id，不整体覆盖 mountedPageIds——
+        // 保存等待期间其他页面的缓存可能已变化，整体覆盖会清掉那些变更
+        if (wasMounted) {
+          setMountedPageIds(ids => {
+            if (ids.has(pageId)) return ids;
+            const s = new Set(ids);
+            s.add(pageId);
+            return s;
+          });
+        }
       });
       console.log('[App] 已取消固定:', section, key);
       return next;
@@ -679,15 +694,10 @@ export const AppContent: React.FC = () => {
 
   const handleSavedSearchRun = useCallback((query: string, siteId?: number | null) => {
     console.log('[App] 执行保存的搜索:', query, siteId);
-    setSelectedBooruSubKey('posts');
+    // 统一走 navigateToSubPage：除切换 subKey 外还维护页面缓存（离开未固定的保存搜索页时释放）
+    navigateToSubPage('booru', 'posts');
     navigateToTagSearch(query, siteId);
-  }, [navigateToTagSearch]);
-
-  /** 合并页面对应的默认 tab 映射 */
-  const MERGED_DEFAULT_TABS: Record<string, string> = {
-    'tag-management': 'favorite',
-    'download': 'downloads',
-  };
+  }, [navigateToSubPage, navigateToTagSearch]);
 
   /** 在子窗口中打开二级菜单页面 */
   const handleOpenSubWindow = useCallback((section: 'gallery' | 'booru' | 'google', key: string) => {
