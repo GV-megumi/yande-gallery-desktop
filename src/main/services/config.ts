@@ -1010,17 +1010,6 @@ function rebuildGoogleConfig(
   };
 }
 
-function clampPinnedItems(
-  pinnedItems?: PinnedItemConfig[]
-): PinnedItemConfig[] | undefined {
-  if (!pinnedItems) {
-    return undefined;
-  }
-
-  // 固定（保持后台加载）数量不限，不再裁剪到 5 个
-  return pinnedItems;
-}
-
 function rebuildPagePreferences(
   currentPagePreferences?: PagePreferencesConfig,
   incomingPagePreferences?: PagePreferencesConfig,
@@ -1090,7 +1079,8 @@ function rebuildPagePreferences(
             booru: incomingPagePreferences.appShell.menuOrder?.booru ?? currentPagePreferences?.appShell?.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
             google: incomingPagePreferences.appShell.menuOrder?.google ?? currentPagePreferences?.appShell?.menuOrder?.google ?? currentUi?.menuOrder?.google,
           },
-          pinnedItems: clampPinnedItems(incomingPagePreferences.appShell.pinnedItems ?? currentPagePreferences?.appShell?.pinnedItems ?? currentUi?.pinnedItems),
+          // 固定（保持后台加载）数量不限，不做裁剪
+          pinnedItems: incomingPagePreferences.appShell.pinnedItems ?? currentPagePreferences?.appShell?.pinnedItems ?? currentUi?.pinnedItems,
           quickAccessItems: incomingPagePreferences.appShell.quickAccessItems ?? currentPagePreferences?.appShell?.quickAccessItems,
           sidebarWidth: incomingPagePreferences.appShell.sidebarWidth ?? currentPagePreferences?.appShell?.sidebarWidth,
         }
@@ -1102,7 +1092,7 @@ function rebuildPagePreferences(
               booru: currentPagePreferences.appShell.menuOrder?.booru ?? currentUi?.menuOrder?.booru,
               google: currentPagePreferences.appShell.menuOrder?.google ?? currentUi?.menuOrder?.google,
             },
-            pinnedItems: clampPinnedItems(currentPagePreferences.appShell.pinnedItems ?? currentUi?.pinnedItems),
+            pinnedItems: currentPagePreferences.appShell.pinnedItems ?? currentUi?.pinnedItems,
             quickAccessItems: currentPagePreferences.appShell.quickAccessItems,
             sidebarWidth: currentPagePreferences.appShell.sidebarWidth,
           }
@@ -1116,7 +1106,7 @@ function rebuildPagePreferences(
                     google: currentUi.menuOrder.google,
                   }
                 : undefined,
-              pinnedItems: clampPinnedItems(currentUi.pinnedItems),
+              pinnedItems: currentUi.pinnedItems,
             }
           : undefined,
   };
@@ -1327,7 +1317,7 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
             booru: input.ui.menuOrder?.booru ?? currentConfig.ui?.menuOrder?.booru,
             google: input.ui.menuOrder?.google ?? currentConfig.ui?.menuOrder?.google,
           },
-          pinnedItems: clampPinnedItems(input.ui.pinnedItems ?? currentConfig.ui?.pinnedItems),
+          pinnedItems: input.ui.pinnedItems ?? currentConfig.ui?.pinnedItems,
           pagePreferences: rebuildPagePreferences(currentConfig.ui?.pagePreferences, input.ui.pagePreferences, currentConfig.ui),
         }
       : currentConfig.ui,

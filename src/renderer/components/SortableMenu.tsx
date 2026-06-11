@@ -7,7 +7,7 @@
  */
 
 import React, { useState } from 'react';
-import { Tooltip, Dropdown } from 'antd';
+import { Tooltip, Dropdown, type MenuProps } from 'antd';
 import { PushpinOutlined, ExportOutlined, ThunderboltOutlined, CloseOutlined } from '@ant-design/icons';
 import {
   DndContext,
@@ -148,7 +148,7 @@ const SortableItem: React.FC<{
   );
 
   // 右键上下文菜单：固定（保活）/ 快捷访问 / 关闭页面 / 单独窗口打开
-  const contextMenuItems: Array<Record<string, unknown>> = [];
+  const contextMenuItems: NonNullable<MenuProps['items']> = [];
   if (onPinToggle) {
     contextMenuItems.push({
       key: 'pin-action',
@@ -183,7 +183,7 @@ const SortableItem: React.FC<{
     <Dropdown
       trigger={['contextMenu']}
       menu={{
-        items: contextMenuItems as any,
+        items: contextMenuItems,
         onClick: ({ key: menuKey }) => {
           if (menuKey === 'pin-action' && onPinToggle) {
             onPinToggle(item.key, isPinned);
