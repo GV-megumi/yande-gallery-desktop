@@ -4,10 +4,9 @@
  */
 
 import React, { useState, useEffect, useRef } from 'react';
-import { Button, Spin } from 'antd';
+import { Button } from 'antd';
 
 export const GeminiPage: React.FC = () => {
-  const [webviewLoading, setWebviewLoading] = useState(true);
   const [loadFailed, setLoadFailed] = useState(false);
   const webviewRef = useRef<any>(null);
 
@@ -15,30 +14,21 @@ export const GeminiPage: React.FC = () => {
     const webview = webviewRef.current;
     if (!webview) return;
 
-    const onStart = () => {
-      setWebviewLoading(true);
-      setLoadFailed(false);
-    };
-    const onStop = () => setWebviewLoading(false);
-    const onFail = () => {
-      setWebviewLoading(false);
+    // 不再显示加载覆盖层：webview 内容渐进渲染即可，等待全部请求结束反而长时间遮挡页面。
+    // 仅主框架的真实加载失败才显示失败覆盖层；子框架失败与跳转中止（errorCode -3）不应遮挡正常页面
+    const onFail = (event: any) => {
+      if (event?.isMainFrame === false || event?.errorCode === -3) return;
       setLoadFailed(true);
     };
 
-    webview.addEventListener('did-start-loading', onStart);
-    webview.addEventListener('did-stop-loading', onStop);
     webview.addEventListener('did-fail-load', onFail);
-
     return () => {
-      webview.removeEventListener('did-start-loading', onStart);
-      webview.removeEventListener('did-stop-loading', onStop);
       webview.removeEventListener('did-fail-load', onFail);
     };
   }, []);
 
   const handleRetry = () => {
     setLoadFailed(false);
-    setWebviewLoading(true);
     webviewRef.current?.reload?.();
   };
 
@@ -48,15 +38,6 @@ export const GeminiPage: React.FC = () => {
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-      {webviewLoading && !loadFailed && (
-        <div style={{
-          position: 'absolute', inset: 0,
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          background: 'rgba(255,255,255,0.8)', zIndex: 10,
-        }}>
-          <Spin size="large" />
-        </div>
-      )}
       {loadFailed && (
         <div style={{
           position: 'absolute', inset: 0, zIndex: 11,
