@@ -3658,7 +3658,7 @@ export async function moveFavoriteToGroup(siteId: number, apiPostId: number, gro
 /**
  * 获取保存的搜索列表
  */
-export async function getSavedSearches(siteId?: number): Promise<any[]> {
+export async function getSavedSearches(siteId?: number | null): Promise<any[]> {
   const db = await getDatabase();
   const sql = siteId != null
     ? 'SELECT * FROM booru_saved_searches WHERE siteId = ? ORDER BY createdAt DESC'

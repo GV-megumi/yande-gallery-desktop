@@ -2483,7 +2483,7 @@ export function setupBooruHandlers() {
 
   // === 保存的搜索 ===
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SAVED_SEARCHES, async (_event: IpcMainInvokeEvent, siteId?: number) => {
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_SAVED_SEARCHES, async (_event: IpcMainInvokeEvent, siteId?: number | null) => {
     try {
       const searches = await booruService.getSavedSearches(siteId);
       return { success: true, data: searches };

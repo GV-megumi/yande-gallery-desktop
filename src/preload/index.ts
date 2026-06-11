@@ -228,7 +228,7 @@ declare global {
         getPosts: (siteId: number, page?: number, tags?: string[], limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPost: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         searchPosts: (siteId: number, tags: string[], page?: number, limit?: number, fetchTagCategories?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        getFavorites: (siteId: number, page?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavorites: (siteId: number, page?: number, limit?: number, groupId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
         onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => () => void;
         removeFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -286,6 +286,14 @@ declare global {
         updateFavoriteGroup: (id: number, updates: { name?: string; color?: string }) => Promise<{ success: boolean; error?: string }>;
         deleteFavoriteGroup: (id: number) => Promise<{ success: boolean; error?: string }>;
         moveFavoriteToGroup: (postId: number, siteId: number, groupId: number | null) => Promise<{ success: boolean; error?: string }>;
+        // 帖子注释 / 版本历史
+        getNotes: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getPostVersions: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        // 保存的搜索
+        getSavedSearches: (siteId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        addSavedSearch: (siteId: number | null, name: string, query: string) => Promise<{ success: boolean; data?: number; error?: string }>;
+        updateSavedSearch: (id: number, updates: { name?: string; query?: string; siteId?: number | null }) => Promise<{ success: boolean; error?: string }>;
+        deleteSavedSearch: (id: number) => Promise<{ success: boolean; error?: string }>;
         addSearchHistory: (siteId: number, query: string, resultCount?: number) => Promise<{ success: boolean; error?: string }>;
         getSearchHistory: (siteId?: number, limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         clearSearchHistory: (siteId?: number) => Promise<{ success: boolean; error?: string }>;

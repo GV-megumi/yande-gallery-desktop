@@ -179,7 +179,7 @@ export function ImportTagsDialog<T extends AnyRecord>({
           />
           <div style={{ marginBottom: 12 }}>
             <label style={{ display: 'block', marginBottom: 6 }}>兜底站点</label>
-            <Select
+            <Select<number | typeof GLOBAL_SITE_SELECT_VALUE>
               style={{ width: '100%' }}
               placeholder="必须选择"
               value={fallbackSiteId === null ? GLOBAL_SITE_SELECT_VALUE : fallbackSiteId}

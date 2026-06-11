@@ -318,7 +318,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
           post={postActions.selectedPost}
           site={activeSite}
           posts={poolPosts}
-          initialIndex={postActions.selectedPost ? poolPosts.findIndex(p => p.postId === postActions.selectedPost.postId) : 0}
+          initialIndex={postActions.selectedPost ? poolPosts.findIndex(p => p.postId === postActions.selectedPost!.postId) : 0}
           onClose={postActions.closeDetails}
           onToggleFavorite={handleToggleFavorite}
           onDownload={handleDownload}

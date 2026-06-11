@@ -594,7 +594,7 @@ export const BooruArtistPage: React.FC<BooruArtistPageProps> = ({
         post={postActions.selectedPost}
         site={selectedSite}
         posts={sortedPosts}
-        initialIndex={postActions.selectedPost ? sortedPosts.findIndex(p => p.postId === postActions.selectedPost.postId) : 0}
+        initialIndex={postActions.selectedPost ? sortedPosts.findIndex(p => p.postId === postActions.selectedPost!.postId) : 0}
         onClose={postActions.closeDetails}
         onToggleFavorite={handleToggleFavorite}
         onDownload={handleDownload}

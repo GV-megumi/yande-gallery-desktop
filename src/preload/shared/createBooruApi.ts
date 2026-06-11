@@ -258,7 +258,7 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_MOVE_FAVORITE_TO_GROUP, postId, siteId, groupId),
 
     // 保存的搜索
-    getSavedSearches: (siteId?: number) =>
+    getSavedSearches: (siteId?: number | null) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_SAVED_SEARCHES, siteId),
     addSavedSearch: (siteId: number | null, name: string, query: string) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_SAVED_SEARCH, siteId, name, query),
