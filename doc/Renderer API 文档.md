@@ -136,7 +136,7 @@
 - `favoriteTags.get()` / `favoriteTags.save(preferences)`
 - `blacklistedTags.get()` / `blacklistedTags.save(preferences)`
 - `gallery.get()` / `gallery.save(preferences)`：存储形态为 `GalleryPagePreferencesBySubTab`，按子 Tab（recent / all / galleries / invalid-images）分别记忆
-- `appShell.get()` / `appShell.save(preferences)`：应用外壳偏好（菜单展开、顶部标签栏等）
+- `appShell.get()` / `appShell.save(preferences)`：应用外壳偏好。字段：`menuOrder`（各级菜单排序）、`pinnedItems`（固定/保活页面，数量不限）、`quickAccessItems`（底部快捷访问入口）、`sidebarWidth`（侧边栏宽度）。`save` 为字段级合并，可只传变更字段
 
 使用这些偏好时须同时参考 `doc/注意事项/导航缓存与页面偏好持久化.md`，避免"用户返回后被自动还原"这类交互 bug。
 

@@ -1073,7 +1073,7 @@ describe('config 模块纯函数测试', () => {
       expect(result.ui?.pinnedItems).toEqual([{ section: 'gallery', key: 'recent' }]);
     });
 
-    it('应在配置归一化层将 ui.pagePreferences.appShell.pinnedItems 收口到最多 5 个', async () => {
+    it('固定项数量不限：归一化层不应裁剪 ui.pagePreferences.appShell.pinnedItems', async () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
@@ -1127,7 +1127,8 @@ describe('config 模块纯函数测试', () => {
         },
       } as any);
 
-      expect(result.ui?.pagePreferences?.appShell?.pinnedItems).toEqual(incomingPinnedItems.slice(0, 5));
+      // 固定语义已改为"保持后台加载"，数量不限，6 项应原样保留
+      expect(result.ui?.pagePreferences?.appShell?.pinnedItems).toEqual([...incomingPinnedItems]);
     });
   });
 

@@ -103,7 +103,12 @@ export interface AppShellPagePreference {
     booru?: string[];
     google?: string[];
   };
+  /** 固定（保持后台加载）的页面，数量不限 */
   pinnedItems?: PinnedItemConfig[];
+  /** 快捷访问栏的页面（侧边栏底部入口） */
+  quickAccessItems?: PinnedItemConfig[];
+  /** 侧边栏宽度（px），渲染层恢复时会 clamp 到合法区间 */
+  sidebarWidth?: number;
 }
 
 export interface PagePreferencesConfig {
@@ -1012,7 +1017,8 @@ function clampPinnedItems(
     return undefined;
   }
 
-  return pinnedItems.slice(0, 5);
+  // 固定（保持后台加载）数量不限，不再裁剪到 5 个
+  return pinnedItems;
 }
 
 function rebuildPagePreferences(
@@ -1085,6 +1091,8 @@ function rebuildPagePreferences(
             google: incomingPagePreferences.appShell.menuOrder?.google ?? currentPagePreferences?.appShell?.menuOrder?.google ?? currentUi?.menuOrder?.google,
           },
           pinnedItems: clampPinnedItems(incomingPagePreferences.appShell.pinnedItems ?? currentPagePreferences?.appShell?.pinnedItems ?? currentUi?.pinnedItems),
+          quickAccessItems: incomingPagePreferences.appShell.quickAccessItems ?? currentPagePreferences?.appShell?.quickAccessItems,
+          sidebarWidth: incomingPagePreferences.appShell.sidebarWidth ?? currentPagePreferences?.appShell?.sidebarWidth,
         }
       : currentPagePreferences?.appShell
         ? {
@@ -1095,6 +1103,8 @@ function rebuildPagePreferences(
               google: currentPagePreferences.appShell.menuOrder?.google ?? currentUi?.menuOrder?.google,
             },
             pinnedItems: clampPinnedItems(currentPagePreferences.appShell.pinnedItems ?? currentUi?.pinnedItems),
+            quickAccessItems: currentPagePreferences.appShell.quickAccessItems,
+            sidebarWidth: currentPagePreferences.appShell.sidebarWidth,
           }
         : currentUi?.menuOrder || currentUi?.pinnedItems
           ? {

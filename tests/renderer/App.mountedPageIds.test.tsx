@@ -3,11 +3,11 @@
 /**
  * bug1: 测试 mountedPageIds 统一缓存层行为
  *
- * 三条核心路径：
- * 1. 一级菜单切回某 section 时，若当前 subKey 命中 pin 列表 → 恢复 pin 缓存
- *    （反模式守卫：旧代码 onSelect 一刀切 setActivePinnedId(null)，哪怕命中 pin 也不恢复）
+ * 核心路径（新导航模型：一级菜单只切侧边栏列表，二级菜单点击才导航）：
+ * 1. 固定（保活）页切走再切回应命中缓存，不重新挂载
  * 2. 三个 section 各自的"当前页"都保留挂载（display:none 切换，不卸载）
- * 3. 同 section 切换 subKey 后，旧 subKey 若非 pin 应被释放（出 mountedPageIds）
+ * 3. 同 section 切换 subKey 后，旧 subKey 若非固定应被释放（出 mountedPageIds）
+ * 4. 关闭页面缓存：命中当前页时守卫跳过；非当前固定页应被卸载
  *
  * 实现思路：通过 DOM 断言（Option B）——每个 mountedPageIds 条目在渲染层里对应
  * 一个 `.ios-page-enter` div 包装，通过观察它的 `style.display` 断言激活状态，
@@ -79,6 +79,7 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
     items,
     selectedKey,
     onSelect,
+    onClosePage,
   }: {
     items: Array<{ key: string; label?: React.ReactNode }>;
     selectedKey: string;
@@ -86,6 +87,7 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
     onReorder?: (keys: string[]) => void;
     onPinToggle?: (key: string, current: boolean) => void;
     pinnedKeys?: string[];
+    onClosePage?: (key: string) => void;
   }) => {
     const keys = items.map((item) => item.key);
     const testId = keys.includes('gallery') && keys.includes('booru')
@@ -101,14 +103,23 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
     return (
       <div data-testid={testId}>
         {items.map((item) => (
-          <button
-            key={item.key}
-            data-testid={`${testId}-${item.key}`}
-            data-selected={String(selectedKey === item.key)}
-            onClick={() => onSelect(item.key)}
-          >
-            {typeof item.label === 'string' ? item.label : item.key}
-          </button>
+          <React.Fragment key={item.key}>
+            <button
+              data-testid={`${testId}-${item.key}`}
+              data-selected={String(selectedKey === item.key)}
+              onClick={() => onSelect(item.key)}
+            >
+              {typeof item.label === 'string' ? item.label : item.key}
+            </button>
+            {onClosePage ? (
+              <button
+                data-testid={`${testId}-${item.key}-close`}
+                onClick={() => onClosePage(item.key)}
+              >
+                close
+              </button>
+            ) : null}
+          </React.Fragment>
         ))}
       </div>
     );
@@ -239,15 +250,16 @@ describe('App mountedPageIds cache behavior', () => {
     cleanup();
   });
 
-  it('一级菜单切回 booru 时，若当前 subKey 是 pin 应恢复 pin 缓存（反模式守卫）', async () => {
+  it('固定页面切走再切回应命中缓存而非重新挂载', async () => {
     const user = userEvent.setup();
     const { App } = await import('../../src/renderer/App');
 
-    // 预置：booru:posts 在 pin 列表里
+    // 预置：booru:posts 被固定（保活）
     (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
       success: true,
       data: {
         pinnedItems: [{ section: 'booru', key: 'posts' }],
+        quickAccessItems: [],
       },
     });
 
@@ -256,8 +268,9 @@ describe('App mountedPageIds cache behavior', () => {
     // 初始在 gallery
     await screen.findByTestId('gallery-page-recent');
 
-    // 切到 booru（默认 subKey='posts'，命中 pin）
+    // 进入 booru:posts（一级菜单只切列表，需点二级菜单导航）
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
 
     await waitFor(() => {
       expect(screen.getByTestId('booru-page')).toBeTruthy();
@@ -270,27 +283,29 @@ describe('App mountedPageIds cache behavior', () => {
     const mountCountAfterFirstSwitch = mountCounts['booru-page'];
     expect(mountCountAfterFirstSwitch).toBeGreaterThan(0);
 
-    // 切到 gallery
+    // 切到 gallery:recent
     await user.click(screen.getByTestId('main-menu-gallery'));
+    await user.click(await screen.findByTestId('gallery-menu-recent'));
 
     await waitFor(() => {
       const galleryContainer = screen.getByTestId('gallery-page-recent').closest('.ios-page-enter') as HTMLElement;
       expect(galleryContainer.style.display).not.toBe('none');
     });
 
-    // booru 页应仍挂载（display:none），mount 次数不变
+    // booru 页应仍挂载（固定保活，display:none），mount 次数不变
     expect(screen.queryByTestId('booru-page')).not.toBeNull();
     expect(mountCounts['booru-page']).toBe(mountCountAfterFirstSwitch);
 
-    // 切回 booru
+    // 切回 booru:posts
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
 
     await waitFor(() => {
       const container = screen.getByTestId('booru-page').closest('.ios-page-enter') as HTMLElement;
       expect(container.style.display).not.toBe('none');
     });
 
-    // 关键断言：booru-page mount 次数仍不变 → 恢复 pin 缓存而非重新挂载
+    // 关键断言：booru-page mount 次数仍不变 → 命中缓存而非重新挂载
     expect(mountCounts['booru-page']).toBe(mountCountAfterFirstSwitch);
   });
 
@@ -303,12 +318,14 @@ describe('App mountedPageIds cache behavior', () => {
     // gallery:recent 初始激活
     await screen.findByTestId('gallery-page-recent');
 
-    // 切到 booru
+    // 切到 booru:posts
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
     await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
 
-    // 切回 gallery
+    // 切回 gallery:recent
     await user.click(screen.getByTestId('main-menu-gallery'));
+    await user.click(await screen.findByTestId('gallery-menu-recent'));
     await waitFor(() => {
       const container = screen.getByTestId('gallery-page-recent').closest('.ios-page-enter') as HTMLElement;
       expect(container.style.display).not.toBe('none');
@@ -333,11 +350,12 @@ describe('App mountedPageIds cache behavior', () => {
 
     await screen.findByTestId('gallery-page-recent');
 
-    // 切到 booru：默认 posts
+    // 进入 booru:posts
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
     await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
 
-    // 切到 forums（非 pin）
+    // 切到 forums（未固定）
     await user.click(screen.getByTestId('booru-menu-forums'));
     await waitFor(() => expect(screen.getByTestId('booru-forum-page')).toBeTruthy());
 
@@ -363,6 +381,7 @@ describe('App mountedPageIds cache behavior', () => {
       success: true,
       data: {
         pinnedItems: [{ section: 'booru', key: 'posts' }],
+        quickAccessItems: [],
       },
     });
 
@@ -371,11 +390,11 @@ describe('App mountedPageIds cache behavior', () => {
     await screen.findByTestId('gallery-page-recent');
 
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
     await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
     const postsMountCount = mountCounts['booru-page'];
 
-    // 切到 forums（非 pin），应释放非 pin 旧 subKey 会被释放，
-    // 但 booru:posts 是 pin，切到 forums 时 posts 应仍保留（在 mountedPageIds 里）
+    // 切到 forums（未固定）：booru:posts 已固定，切走后应仍保留在 mountedPageIds 里
     await user.click(screen.getByTestId('booru-menu-forums'));
     await waitFor(() => expect(screen.getByTestId('booru-forum-page')).toBeTruthy());
 
@@ -389,20 +408,12 @@ describe('App mountedPageIds cache behavior', () => {
   });
 
   /**
-   * bug1-I1 回归：closePin 守卫当前 subKey
-   *
-   * 场景：pin 了 booru:posts 且当前就停在 booru/posts，右键 → "关闭"。
-   * 旧代码无条件 delete(pinId) → mountedPageIds 暂时丢失 → DOM unmount →
-   * 随后 mount effect（App.tsx ~L484 根据 selectedKey/subKey 确保页面 id 入集）
-   * 再次把它加回来 → 重新挂载，丢失本地 state（mount 次数 ≥ 2）。
-   *
-   * 修复后：closePin 检测到当前 section+subKey 命中 → 跳过 delete，
-   * 仅将 activePinnedId 置 null（基础层接管），DOM 不动，mount 次数维持 1。
-   *
-   * 反模式证据：把 App.tsx closePin 的守卫去掉后重跑本条应 FAIL
-   * （mount 次数 = 2 而非 1）。
+   * 关闭页面缓存守卫回归（原 bug1-I1）：
+   * 命中当前 section+subKey 时跳过卸载，避免 DOM unmount → mount effect 立即
+   * 加回 → 重挂载丢状态。新交互里"关闭页面"在二级菜单右键菜单中，
+   * mock 直接暴露 close 按钮（绕过 closableKeys 过滤）以验证守卫本身。
    */
-  it('bug1-I1：closePin 命中当前 subKey 时不应卸载 DOM', async () => {
+  it('关闭页面缓存命中当前 subKey 时不应卸载 DOM（守卫）', async () => {
     const user = userEvent.setup();
     const { App } = await import('../../src/renderer/App');
 
@@ -410,54 +421,60 @@ describe('App mountedPageIds cache behavior', () => {
       success: true,
       data: {
         pinnedItems: [{ section: 'booru', key: 'posts' }],
+        quickAccessItems: [],
       },
     });
 
     render(<App />);
 
-    // 初始 gallery
     await screen.findByTestId('gallery-page-recent');
 
-    // 切到 booru（默认 subKey=posts，命中 pin）
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
     await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
-
-    // 此时 booru-page 已挂载 1 次
     expect(mountCounts['booru-page']).toBe(1);
 
-    // 找到侧边栏的 pin 项（含 meta.label="帖子"），右键触发 antd Dropdown
-    // Dropdown trigger=['contextMenu']。这里用固定项那一行的外层 div。
-    // 固定项位于第二·五段（非 SortableMenu），文本 "帖子" 出现两次：
-    // SortableMenu 里的按钮（data-testid=booru-menu-posts） + 固定项一行。
-    // 用 "帖子" 文本查全部，挑出不在 data-testid 按钮内的那一个。
-    const allPostsText = screen.getAllByText('帖子');
-    const pinnedItemText = allPostsText.find(el => !el.closest('[data-testid="booru-menu-posts"]'));
-    expect(pinnedItemText).toBeTruthy();
-    const pinnedRow = pinnedItemText!.closest('div[style]') as HTMLElement;
-    expect(pinnedRow).toBeTruthy();
+    // 对当前页触发"关闭页面"：守卫应跳过卸载
+    await user.click(screen.getByTestId('booru-menu-posts-close'));
 
-    // 触发 contextmenu 打开下拉菜单
-    fireEvent.contextMenu(pinnedRow);
-
-    // 等待 antd Dropdown 的菜单项 "关闭" 出现
-    const closeItem = await screen.findByText('关闭');
-    // 点击 "关闭"
-    await user.click(closeItem);
-
-    // 给 state 更新一帧机会
     await waitFor(() => {
-      // activePinnedId 被清空 → pin 的阴影条会消失，但我们用更稳的信号：
-      // booru-page DOM 容器仍存在（命中守卫，未 unmount）
       expect(screen.queryByTestId('booru-page')).not.toBeNull();
     });
-
-    // 关键断言：booru-page 的 mount 次数仍为 1（未被 unmount→remount）
     expect(mountCounts['booru-page']).toBe(1);
-
-    // 容器仍是激活态（此时走基础层：activePinnedId=null，
-    // selectedKey=booru + selectedBooruSubKey=posts → isBaseCurrent=true）
     const container = screen.getByTestId('booru-page').closest('.ios-page-enter') as HTMLElement;
     expect(container.style.display).not.toBe('none');
+  });
+
+  it('关闭页面缓存：非当前的固定页应被卸载释放', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        pinnedItems: [{ section: 'booru', key: 'posts' }],
+        quickAccessItems: [],
+      },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('gallery-page-recent');
+
+    // 进入 booru:posts 再切到 forums：posts 因固定保留在后台
+    await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
+    await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
+    await user.click(screen.getByTestId('booru-menu-forums'));
+    await waitFor(() => expect(screen.getByTestId('booru-forum-page')).toBeTruthy());
+    expect(screen.queryByTestId('booru-page')).not.toBeNull();
+
+    // 关闭 posts 的页面缓存：应从 DOM 卸载（固定状态保留，下次访问重新加载）
+    await user.click(screen.getByTestId('booru-menu-posts-close'));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('booru-page')).toBeNull();
+    });
   });
 
   /**
@@ -486,8 +503,9 @@ describe('App mountedPageIds cache behavior', () => {
     expect(galleryEl.getAttribute('data-suspended')).toBe('false');
     expect(galleryPageSuspendedLog.some(e => e.subTab === 'recent' && !e.suspended)).toBe(true);
 
-    // 切到 booru
+    // 切到 booru:posts
     await user.click(screen.getByTestId('main-menu-booru'));
+    await user.click(await screen.findByTestId('booru-menu-posts'));
     await waitFor(() => expect(screen.getByTestId('booru-page')).toBeTruthy());
 
     // 等一帧让 React 完成父级重渲染把新的 suspended 推下去
