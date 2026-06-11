@@ -65,6 +65,8 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
     onReorder,
     onPinToggle,
     pinnedKeys,
+    onQuickToggle,
+    quickKeys,
   }: {
     items: Array<{ key: string; label?: React.ReactNode }>;
     selectedKey: string;
@@ -72,6 +74,8 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
     onReorder?: (keys: string[]) => void;
     onPinToggle?: (key: string, current: boolean) => void;
     pinnedKeys?: string[];
+    onQuickToggle?: (key: string, current: boolean) => void;
+    quickKeys?: string[];
   }) => {
     const keys = items.map((item) => item.key);
     const testId = keys.includes('gallery') && keys.includes('booru')
@@ -113,6 +117,14 @@ vi.mock('../../src/renderer/components/SortableMenu', () => ({
                   {pinned ? 'unpin' : 'pin'}
                 </button>
               ) : null}
+              {onQuickToggle ? (
+                <button
+                  data-testid={`${testId}-${item.key}-quick`}
+                  onClick={() => onQuickToggle(item.key, (quickKeys ?? []).includes(item.key))}
+                >
+                  {(quickKeys ?? []).includes(item.key) ? 'unquick' : 'quick'}
+                </button>
+              ) : null}
             </div>
           );
         })}
@@ -143,6 +155,10 @@ vi.mock('../../src/renderer/pages/BooruTagManagementPage', () => ({
 
 vi.mock('../../src/renderer/pages/GoogleDrivePage', () => ({
   GoogleDrivePage: () => <div data-testid="google-drive-page">google-drive</div>,
+}));
+
+vi.mock('../../src/renderer/pages/SettingsPage', () => ({
+  SettingsPage: () => <div data-testid="settings-page">settings</div>,
 }));
 
 describe('App navigation synchronization', () => {
@@ -207,7 +223,12 @@ describe('App navigation synchronization', () => {
     expect(appShellGet).toHaveBeenCalledTimes(1);
     expect(configGet).not.toHaveBeenCalled();
 
+    // 一级菜单只切换侧边栏列表；点击二级菜单才切换内容
     await user.click(screen.getByTestId('main-menu-booru'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('booru-menu-posts')).not.toBeNull();
+    });
+    await user.click(screen.getByTestId('booru-menu-posts'));
 
     await waitFor(() => {
       expect(screen.getByTestId('booru-menu-posts').getAttribute('data-selected')).toBe('true');
@@ -256,7 +277,37 @@ describe('App navigation synchronization', () => {
     });
   });
 
-  it('一级菜单切到 booru 时应同步切换右侧内容与默认二级菜单', async () => {
+  it('设置是全局页面：打开设置后点击一级菜单应回到该分区上次的二级页', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    render(<App />);
+
+    // 初始在图库：最近
+    await waitFor(() => {
+      expect(screen.getByTestId('gallery-page')).toBeTruthy();
+    });
+
+    // 打开底部全局设置入口
+    await user.click(screen.getByText('设置'));
+    await waitFor(() => {
+      expect(screen.getByTestId('settings-page')).toBeTruthy();
+    });
+
+    // 一级菜单只切换侧边栏列表，设置页保持打开
+    await user.click(screen.getByTestId('main-menu-gallery'));
+    expect(screen.getByTestId('settings-page')).toBeTruthy();
+
+    // 点击二级菜单才真正导航：关闭设置并回到图库最近，而不是停留在设置
+    await user.click(screen.getByTestId('gallery-menu-recent'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('settings-page')).toBeNull();
+    });
+    expect(screen.getByTestId('gallery-page')).toBeTruthy();
+    expect(screen.getByTestId('gallery-menu-recent').getAttribute('data-selected')).toBe('true');
+  });
+
+  it('一级菜单只切换二级菜单列表，点击二级菜单才切换内容', async () => {
     const user = userEvent.setup();
     const { App } = await import('../../src/renderer/App');
 
@@ -264,23 +315,70 @@ describe('App navigation synchronization', () => {
 
     expect((await screen.findByTestId('gallery-page')).textContent).toContain('gallery:recent');
 
+    // 点一级菜单 Booru：仅侧边栏二级列表切换，内容仍是图库
     await user.click(screen.getByTestId('main-menu-booru'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('booru-menu-posts')).not.toBeNull();
+    });
+    expect(screen.queryByTestId('booru-page')).toBeNull();
+    const galleryContainer = screen.getByTestId('gallery-page').closest('.ios-page-enter') as HTMLElement;
+    expect(galleryContainer.style.display).not.toBe('none');
+
+    // 点二级菜单 帖子：才真正切换内容
+    await user.click(screen.getByTestId('booru-menu-posts'));
+    await waitFor(() => {
+      expect(screen.getByTestId('booru-page')).toBeTruthy();
+    });
+    expect(screen.getByTestId('booru-menu-posts').getAttribute('data-selected')).toBe('true');
+    // 图库页保持挂载但容器 display:none 隐藏
+    expect(galleryContainer.style.display).toBe('none');
+    const booruContainer = screen.getByTestId('booru-page').closest('.ios-page-enter') as HTMLElement;
+    expect(booruContainer.style.display).not.toBe('none');
+  });
+
+  it('快捷访问项点击应直达对应页面', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+
+    (window as any).electronAPI.pagePreferences.appShell.get = vi.fn().mockResolvedValue({
+      success: true,
+      data: { pinnedItems: [], quickAccessItems: [{ section: 'booru', key: 'posts' }] },
+    });
+
+    render(<App />);
+
+    await screen.findByTestId('gallery-page');
+
+    // 底部快捷访问渲染"帖子"入口（此时 booru 二级菜单未显示，文本唯一）
+    const quickEntry = await screen.findByText('帖子');
+    await user.click(quickEntry);
 
     await waitFor(() => {
       expect(screen.getByTestId('booru-page')).toBeTruthy();
     });
+    // 导航语义：侧边栏切到 booru 列表且 posts 选中
+    await waitFor(() => {
+      expect(screen.getByTestId('booru-menu-posts').getAttribute('data-selected')).toBe('true');
+    });
+  });
 
-    // bug1 追加需求：基础页也常驻缓存，gallery 页保持挂载但容器 display:none 隐藏
-    const galleryNode = screen.getByTestId('gallery-page');
-    const galleryContainer = galleryNode.closest('.ios-page-enter') as HTMLElement | null;
-    expect(galleryContainer).not.toBeNull();
-    expect(galleryContainer!.style.display).toBe('none');
-    // booru 页容器不应被隐藏
-    const booruNode = screen.getByTestId('booru-page');
-    const booruContainer = booruNode.closest('.ios-page-enter') as HTMLElement | null;
-    expect(booruContainer).not.toBeNull();
-    expect(booruContainer!.style.display).not.toBe('none');
-    expect(screen.getByTestId('booru-menu-posts').getAttribute('data-selected')).toBe('true');
+  it('添加快捷访问应保存 quickAccessItems 并渲染到底部快捷栏', async () => {
+    const user = userEvent.setup();
+    const { App } = await import('../../src/renderer/App');
+    const appShellSave = (window as any).electronAPI.pagePreferences.appShell.save as ReturnType<typeof vi.fn>;
+
+    render(<App />);
+
+    await user.click(await screen.findByTestId('main-menu-google'));
+    await user.click(screen.getByTestId('google-menu-gdrive-quick'));
+
+    await waitFor(() => {
+      expect(appShellSave).toHaveBeenCalledWith({ quickAccessItems: [{ section: 'google', key: 'gdrive' }] });
+    });
+    // google 二级菜单和底部快捷栏各有一份 Drive 文本
+    await waitFor(() => {
+      expect(screen.getAllByText('Drive').length).toBeGreaterThanOrEqual(2);
+    });
   });
 
   it('固定项状态变化时应通过 pagePreferences.appShell 保存，且不再写整包 config', async () => {
@@ -442,7 +540,7 @@ describe('App navigation synchronization', () => {
     });
   });
 
-  it('取消固定保存返回 success false 时应恢复活跃固定页状态', async () => {
+  it('取消固定保存返回 success false 时应回滚固定状态', async () => {
     const user = userEvent.setup();
     const { App } = await import('../../src/renderer/App');
     const appShellSave = (window as any).electronAPI.pagePreferences.appShell.save as ReturnType<typeof vi.fn>;
@@ -451,6 +549,8 @@ describe('App navigation synchronization', () => {
       success: true,
       data: {
         pinnedItems: [{ section: 'booru', key: 'download' }],
+        // 显式给出快捷访问，避免首次迁移的保存调用消耗下面的失败 mock
+        quickAccessItems: [],
       },
     });
     appShellSave.mockResolvedValueOnce({ success: false, error: 'save failed' });
@@ -461,8 +561,9 @@ describe('App navigation synchronization', () => {
     await user.click(screen.getByTestId('booru-menu-download'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('booru-menu-download').getAttribute('data-selected')).toBe('false');
+      expect(screen.getByTestId('booru-menu-download').getAttribute('data-selected')).toBe('true');
     });
+    expect(screen.getByTestId('booru-menu-download-pin').textContent).toBe('unpin');
 
     await user.click(screen.getByTestId('booru-menu-download-pin'));
 
@@ -470,8 +571,9 @@ describe('App navigation synchronization', () => {
       expect(appShellSave).toHaveBeenCalledWith({ pinnedItems: [] });
     });
 
+    // 保存失败 → 回滚为固定态；页面保持活跃
     await waitFor(() => {
-      expect(screen.getByTestId('booru-menu-download').getAttribute('data-selected')).toBe('false');
+      expect(screen.getByTestId('booru-menu-download-pin').textContent).toBe('unpin');
     });
     expect(screen.getAllByTestId('download-hub-page').some((node) => node.getAttribute('data-active') === 'true')).toBe(true);
   });

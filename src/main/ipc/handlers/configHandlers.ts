@@ -360,6 +360,8 @@ export function setupConfigHandlers() {
             google: pagePreference?.menuOrder?.google ?? config.ui?.menuOrder?.google,
           },
           pinnedItems: pagePreference?.pinnedItems ?? config.ui?.pinnedItems,
+          quickAccessItems: pagePreference?.quickAccessItems,
+          sidebarWidth: pagePreference?.sidebarWidth,
         },
       };
     } catch (error) {

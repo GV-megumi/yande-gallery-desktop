@@ -4,7 +4,7 @@ import React, { useState, useEffect, useMemo, useCallback, Suspense, createConte
 export const HeaderExtraContext = createContext<(node: React.ReactNode) => void>(() => {});
 /** 读取标题栏右侧插槽的 hook */
 export const useHeaderExtra = () => useContext(HeaderExtraContext);
-import { Layout, Menu, message, App as AntApp, Tooltip, Dropdown } from 'antd';
+import { Layout, Menu, message, App as AntApp, Tooltip, Dropdown, Spin } from 'antd';
 import appIconUrl from './assets/icon.png';
 import { useTheme } from './hooks/useTheme';
 import { useRendererAppEvent } from './hooks/useRendererAppEvent';
@@ -16,10 +16,11 @@ import {
   PictureOutlined, SettingOutlined, ClockCircleOutlined,
   AppstoreOutlined, CloudOutlined, BookOutlined,
   CloudDownloadOutlined, StarOutlined, FolderOutlined,
-  SunOutlined, MoonOutlined, StopOutlined,
+  StopOutlined,
   FireOutlined, DatabaseOutlined, HeartOutlined,
   SearchOutlined, SmileOutlined, MessageOutlined,
-  HddOutlined, CameraOutlined, UserOutlined, WarningOutlined
+  HddOutlined, CameraOutlined, UserOutlined, WarningOutlined,
+  ExportOutlined, ThunderboltOutlined
 } from '@ant-design/icons';
 
 // 页面级组件：使用 React.lazy 实现代码分割
@@ -44,7 +45,7 @@ const BooruServerFavoritesPage = React.lazy(() => import('./pages/BooruServerFav
 const GoogleDrivePage = React.lazy(() => import('./pages/GoogleDrivePage').then(m => ({ default: m.GoogleDrivePage })));
 const GooglePhotosPage = React.lazy(() => import('./pages/GooglePhotosPage').then(m => ({ default: m.GooglePhotosPage })));
 const GeminiPage = React.lazy(() => import('./pages/GeminiPage').then(m => ({ default: m.GeminiPage })));
-import { colors, spacing, radius, layout, fontSize, iconColors, shadows } from './styles/tokens';
+import { colors, spacing, layout, fontSize, iconColors, shadows, glassStyle } from './styles/tokens';
 
 const { Content, Sider } = Layout;
 
@@ -54,7 +55,7 @@ type MenuItem = {
   label: string;
 };
 
-/** 固定到底部的菜单项（最多 5 个，持久化到 config.yaml） */
+/** 固定（保活）/ 快捷访问共用的页面条目（持久化到 config.yaml） */
 type PinnedItem = { key: string; section: 'gallery' | 'booru' | 'google'; defaultTab?: string };
 
 /** 侧边栏图标：小圆角方块 + 品牌色 */
@@ -182,6 +183,8 @@ export const AppContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [headerExtra, setHeaderExtra] = useState<React.ReactNode>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(layout.sidebarWidth);
+  /** 是否正在拖拽调整侧边栏宽度（拖拽期间禁用宽度过渡动画） */
+  const [isResizing, setIsResizing] = useState(false);
   // 导航栈：支持嵌套页面（详情→标签搜索→详情→标签搜索→...）
   const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([]);
   const { isDark, themeMode, setThemeMode } = useTheme();
@@ -199,11 +202,13 @@ export const AppContent: React.FC = () => {
   const [booruOrder, setBooruOrder] = useState<string[]>([]);
   const [googleOrder, setGoogleOrder] = useState<string[]>([]);
 
-  // ── 固定到底部的菜单项（最多 5 个，持久化；本次会话开启的保留缓存） ──
+  // ── 固定（保持后台加载）的页面：离开时不释放缓存，数量不限，持久化 ──
   const [pinnedItems, setPinnedItems] = useState<PinnedItem[]>([]);
-  /** 当前活跃的固定页面 id（"section:key"），null = 查看普通内容 */
-  const [activePinnedId, setActivePinnedId] = useState<string | null>(null);
-  /** 本次会话中已挂载过的页面 id Set（pin 与 base 共用；`${section}:${subKey}`） */
+  // ── 快捷访问：侧边栏底部的页面入口，点击直达，持久化 ──
+  const [quickItems, setQuickItems] = useState<PinnedItem[]>([]);
+  /** 设置页是否打开：设置是独立于三个分区的全局页面，不占用任何分区的二级页状态 */
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 本次会话中已挂载的页面 id Set（`${section}:${subKey}`） */
   const [mountedPageIds, setMountedPageIds] = useState<Set<string>>(new Set());
 
   /** 按已保存的顺序重排菜单项，未记录的新项追加到末尾 */
@@ -258,70 +263,104 @@ export const AppContent: React.FC = () => {
     }
   }, []);
 
-  /** 固定一个菜单项（最多 5 个） */
+  /** 持久化快捷访问项到偏好接口 */
+  const saveQuickItems = useCallback(async (items: PinnedItem[], rollback?: () => void) => {
+    try {
+      const result = await window.electronAPI.pagePreferences.appShell.save({ quickAccessItems: items });
+      if (!result.success) {
+        throw new Error(result.error || 'save failed');
+      }
+      console.log('[App] 快捷访问项已保存', items);
+    } catch (err) {
+      console.error('[App] 保存快捷访问项失败:', err);
+      rollback?.();
+      message.error('快捷访问保存失败');
+    }
+  }, []);
+
+  /** 固定一个页面（保持后台加载，数量不限） */
   const pinItem = useCallback((section: PinnedItem['section'], key: string) => {
     setPinnedItems(prev => {
-      if (prev.length >= 5 || prev.some(p => p.section === section && p.key === key)) return prev;
+      if (prev.some(p => p.section === section && p.key === key)) return prev;
       const next = [...prev, { section, key }];
       savePinnedItems(next, () => setPinnedItems(prev));
-      console.log('[App] 已固定菜单项:', section, key);
+      console.log('[App] 已固定页面:', section, key);
       return next;
     });
   }, [savePinnedItems]);
 
-  /** 取消固定一个菜单项，并清理其缓存 */
+  /** 取消固定一个页面，并释放其缓存（命中当前页时保留挂载） */
   const unpinItem = useCallback((section: PinnedItem['section'], key: string) => {
-    const pinId = `${section}:${key}`;
+    const pageId = `${section}:${key}`;
     const previousMounted = mountedPageIds;
-    const previousActive = activePinnedId;
     setPinnedItems(prev => {
       const previous = prev;
       const next = prev.filter(p => !(p.section === section && p.key === key));
       savePinnedItems(next, () => {
         setPinnedItems(previous);
         setMountedPageIds(previousMounted);
-        setActivePinnedId(previousActive);
       });
-      console.log('[App] 已取消固定菜单项:', section, key);
+      console.log('[App] 已取消固定:', section, key);
       return next;
     });
-    setMountedPageIds(prev => { const s = new Set(prev); s.delete(pinId); return s; });
-    setActivePinnedId(cur => cur === pinId ? null : cur);
-  }, [activePinnedId, mountedPageIds, savePinnedItems]);
-
-  /** 关闭固定页面缓存（不取消固定，只卸载缓存） */
-  const closePin = useCallback((section: PinnedItem['section'], key: string) => {
-    const pinId = `${section}:${key}`;
     setMountedPageIds(prev => {
       const s = new Set(prev);
-      // 守卫：若该 pin 恰好是某 section 的当前 subKey，直接 delete 会出现
+      // 命中当前页时不卸载（用户还停在这页；mount effect 也会立刻加回来造成重挂载闪烁）
+      const currentSub = section === 'gallery' ? selectedSubKey
+        : section === 'booru' ? selectedBooruSubKey
+        : selectedGoogleSubKey;
+      if (!(selectedKey === section && currentSub === key)) {
+        s.delete(pageId);
+      }
+      return s;
+    });
+  }, [mountedPageIds, savePinnedItems, selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
+
+  /** 关闭页面缓存（不改变固定状态，只立即释放后台挂载） */
+  const closePageCache = useCallback((section: PinnedItem['section'], key: string) => {
+    const pageId = `${section}:${key}`;
+    setMountedPageIds(prev => {
+      const s = new Set(prev);
+      // 守卫：若恰好是某 section 的当前 subKey，直接 delete 会出现
       // DOM 瞬间 unmount → mount effect 立即把 id 加回来 → 一次 flash 重挂载 +
       // 状态丢失。命中当前页时不做卸载（语义上也没意义：用户还停在这页）。
       const currentSub = section === 'gallery' ? selectedSubKey
         : section === 'booru' ? selectedBooruSubKey
         : selectedGoogleSubKey;
       if (!(selectedKey === section && currentSub === key)) {
-        s.delete(pinId);
+        s.delete(pageId);
       }
       return s;
     });
-    setActivePinnedId(cur => cur === pinId ? null : cur);
-    console.log('[App] 已关闭固定页面缓存:', pinId);
+    console.log('[App] 已关闭页面缓存:', pageId);
   }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
 
-  /** 点击固定菜单项：挂载并激活其缓存层 */
-  const handlePinnedClick = useCallback((pin: PinnedItem) => {
-    const pinId = `${pin.section}:${pin.key}`;
-    console.log('[App] 切换到固定页面:', pinId);
-    setMountedPageIds(prev => new Set([...prev, pinId]));
-    setActivePinnedId(pinId);
-  }, []);
+  /** 添加快捷访问（侧边栏底部入口） */
+  const addQuickItem = useCallback((section: PinnedItem['section'], key: string) => {
+    setQuickItems(prev => {
+      if (prev.some(p => p.section === section && p.key === key)) return prev;
+      const next = [...prev, { section, key }];
+      saveQuickItems(next, () => setQuickItems(prev));
+      console.log('[App] 已添加快捷访问:', section, key);
+      return next;
+    });
+  }, [saveQuickItems]);
+
+  /** 移除快捷访问 */
+  const removeQuickItem = useCallback((section: PinnedItem['section'], key: string) => {
+    setQuickItems(prev => {
+      const previous = prev;
+      const next = prev.filter(p => !(p.section === section && p.key === key));
+      saveQuickItems(next, () => setQuickItems(previous));
+      console.log('[App] 已移除快捷访问:', section, key);
+      return next;
+    });
+  }, [saveQuickItems]);
 
   /**
    * 二级菜单 subKey 切换时维护 mountedPageIds：
    *   - 新 id 入集合
-   *   - 旧 id 若非固定项、也不再是该 section 的当前页 → 出集合（释放）
-   * 固定项始终保留（由 handlePinnedClick 维护）。
+   *   - 旧 id 若未被固定（保活）、也不再是该 section 的当前页 → 出集合（释放）
    */
   const onSubKeyChanged = useCallback((
     section: 'gallery' | 'booru' | 'google',
@@ -340,20 +379,40 @@ export const AppContent: React.FC = () => {
     });
   }, [pinnedItems]);
 
-  /** 根据 section 取对应子菜单列表的元数据（用于固定项图标/标签） */
-  const getPinnedItemMeta = useCallback((pin: PinnedItem) => {
-    const list = pin.section === 'gallery' ? orderedGalleryItems
-      : pin.section === 'booru' ? orderedBooruItems
+  /** 统一的二级页导航：二级菜单点击、快捷访问点击、系统通知跳转共用 */
+  const navigateToSubPage = useCallback((section: 'gallery' | 'booru' | 'google', key: string) => {
+    const oldKey = section === 'gallery' ? selectedSubKey
+      : section === 'booru' ? selectedBooruSubKey
+      : selectedGoogleSubKey;
+    setSidebarSection(section);
+    setSelectedKey(section);
+    if (section === 'gallery') setSelectedSubKey(key);
+    else if (section === 'booru') setSelectedBooruSubKey(key);
+    else setSelectedGoogleSubKey(key);
+    setNavigationStack([]);
+    setSettingsOpen(false);
+    onSubKeyChanged(section, oldKey, key);
+  }, [selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, onSubKeyChanged]);
+
+  /** 根据 section 取对应子菜单列表的元数据（用于快捷访问项图标/标签） */
+  const getMenuItemMeta = useCallback((item: PinnedItem) => {
+    const list = item.section === 'gallery' ? orderedGalleryItems
+      : item.section === 'booru' ? orderedBooruItems
       : orderedGoogleItems;
-    return list.find(i => i.key === pin.key);
+    return list.find(i => i.key === item.key);
   }, [orderedGalleryItems, orderedBooruItems, orderedGoogleItems]);
 
   const toggleTheme = useCallback(() => {
+    // 主题切换时给根元素临时挂上过渡 class，让背景/文字颜色平滑变化（见 global.css .theme-transition）
+    document.documentElement.classList.add('theme-transition');
     setThemeMode(isDark ? 'light' : 'dark');
+    window.setTimeout(() => {
+      document.documentElement.classList.remove('theme-transition');
+    }, 300);
   }, [isDark, setThemeMode]);
 
   /** 侧边栏宽度阈值常量 */
-  const SIDEBAR_MIN = 64;
+  const SIDEBAR_MIN = layout.sidebarCollapsedWidth;
   const SIDEBAR_MAX = 320;
   const SIDEBAR_COLLAPSE_THRESHOLD = 140;
   /** 宽度低于阈值时折叠为纯图标模式 */
@@ -364,31 +423,51 @@ export const AppContent: React.FC = () => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidth = sidebarWidth;
+    let finalWidth = startWidth;
+    // rAF 节流句柄：一帧最多触发一次 setState，避免高频 mousemove 重渲染
+    let rafId = 0;
+    setIsResizing(true);
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
     const onMove = (ev: MouseEvent) => {
-      const newWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startWidth + ev.clientX - startX));
-      setSidebarWidth(newWidth);
+      finalWidth = Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, startWidth + ev.clientX - startX));
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = 0;
+        setSidebarWidth(finalWidth);
+      });
     };
     const onUp = () => {
+      if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+      setSidebarWidth(finalWidth);
+      setIsResizing(false);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
       document.removeEventListener('mousemove', onMove);
       document.removeEventListener('mouseup', onUp);
+      // 持久化最终宽度（失败仅记录日志，不打断交互）
+      if (finalWidth !== startWidth) {
+        window.electronAPI?.pagePreferences?.appShell?.save({ sidebarWidth: finalWidth })
+          .then(result => {
+            if (!result.success) console.error('[App] 保存侧边栏宽度失败:', result.error);
+          })
+          .catch(err => console.error('[App] 保存侧边栏宽度失败:', err));
+      }
     };
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
   }, [sidebarWidth]);
 
   const openSettings = useCallback(() => {
-    if (sidebarSection === 'gallery') { setSelectedKey('gallery'); setSelectedSubKey('settings'); }
-    else { setSelectedKey('booru'); setSelectedBooruSubKey('settings'); }
-  }, [sidebarSection]);
+    setSettingsOpen(true);
+  }, []);
 
   const focusSearch = useCallback(() => {
-    const searchInput = document.querySelector<HTMLInputElement>(
+    // 页面缓存层里可能存在多个 display:none 的搜索框，取第一个可见的（offsetParent 为 null 即不可见）
+    const candidates = document.querySelectorAll<HTMLInputElement>(
       '.ant-input-search input, .ant-input-affix-wrapper input, input[type="search"]'
     );
+    const searchInput = Array.from(candidates).find(el => el.offsetParent !== null);
     if (searchInput) { searchInput.focus(); searchInput.select(); }
   }, []);
 
@@ -432,36 +511,57 @@ export const AppContent: React.FC = () => {
     if (order?.google?.length) setGoogleOrder(order.google);
     else setGoogleOrder([]);
 
-    if (appShellResult.data?.pinnedItems?.length) {
-      const PINNED_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
-        'favorite-tags': { key: 'tag-management', defaultTab: 'favorite' },
-        'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
-        'downloads': { key: 'download', defaultTab: 'downloads' },
-        'bulk-download': { key: 'download', defaultTab: 'bulk' },
-      };
-      let migrated = false;
-      const raw = appShellResult.data.pinnedItems as PinnedItem[];
-      const migratedPins: PinnedItem[] = [];
+    // 旧 key 迁移 + 去重（固定项与快捷访问项共用）
+    const PINNED_KEY_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
+      'favorite-tags': { key: 'tag-management', defaultTab: 'favorite' },
+      'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
+      'downloads': { key: 'download', defaultTab: 'downloads' },
+      'bulk-download': { key: 'download', defaultTab: 'bulk' },
+    };
+    const migrateItems = (raw: PinnedItem[] | undefined): { items: PinnedItem[]; changed: boolean } => {
+      if (!raw?.length) return { items: [], changed: false };
+      let changed = false;
+      const out: PinnedItem[] = [];
       const seen = new Set<string>();
-      for (const pin of raw) {
-        const mapping = PINNED_MIGRATION[pin.key];
-        const newPin = mapping
-          ? { ...pin, key: mapping.key, defaultTab: pin.defaultTab ?? mapping.defaultTab }
-          : pin;
-        if (mapping) migrated = true;
-        const dedupKey = `${newPin.section}:${newPin.key}`;
+      for (const item of raw) {
+        const mapping = PINNED_KEY_MIGRATION[item.key];
+        const next = mapping
+          ? { ...item, key: mapping.key, defaultTab: item.defaultTab ?? mapping.defaultTab }
+          : item;
+        if (mapping) changed = true;
+        const dedupKey = `${next.section}:${next.key}`;
         if (!seen.has(dedupKey)) {
           seen.add(dedupKey);
-          migratedPins.push(newPin);
+          out.push(next);
+        } else {
+          changed = true;
         }
-        if (migratedPins.length >= 5) break;
       }
-      setPinnedItems(migratedPins);
-      if (migrated) savePinnedItems(migratedPins);
+      return { items: out, changed };
+    };
+
+    const pinnedResult = migrateItems(appShellResult.data?.pinnedItems as PinnedItem[] | undefined);
+    setPinnedItems(pinnedResult.items);
+    if (pinnedResult.changed) savePinnedItems(pinnedResult.items);
+
+    const rawQuick = appShellResult.data?.quickAccessItems as PinnedItem[] | undefined;
+    if (rawQuick === undefined) {
+      // 语义迁移：旧版"固定到底部"同时承担保活与底部入口两职。
+      // quickAccessItems 从未保存过时，把固定项复制为快捷访问，保持升级后底部栏外观不变
+      setQuickItems(pinnedResult.items);
+      if (pinnedResult.items.length > 0) saveQuickItems(pinnedResult.items);
     } else {
-      setPinnedItems([]);
+      const quickResult = migrateItems(rawQuick);
+      setQuickItems(quickResult.items);
+      if (quickResult.changed) saveQuickItems(quickResult.items);
     }
-  }, [saveMenuOrder, savePinnedItems]);
+
+    // 恢复侧边栏宽度（clamp 到合法区间，避免脏数据破坏布局）
+    const savedSidebarWidth = appShellResult.data?.sidebarWidth;
+    if (typeof savedSidebarWidth === 'number' && Number.isFinite(savedSidebarWidth)) {
+      setSidebarWidth(Math.max(SIDEBAR_MIN, Math.min(SIDEBAR_MAX, savedSidebarWidth)));
+    }
+  }, [saveMenuOrder, savePinnedItems, saveQuickItems]);
 
   useRendererAppEvent(['config:changed', 'app:data-restored'], (event) => {
     if (event.type === 'app:data-restored') {
@@ -486,69 +586,8 @@ export const AppContent: React.FC = () => {
             console.error('[App] 数据库初始化失败:', result.error);
             message.error('数据库初始化失败: ' + result.error);
           }
-          // 加载 App 壳层偏好
-          const appShellResult = await window.electronAPI.pagePreferences.appShell.get();
-          if (appShellResult.success && appShellResult.data?.menuOrder) {
-            const order = appShellResult.data.menuOrder;
-            if (order.main?.length)    setMainOrder(order.main);
-            if (order.gallery?.length) setGalleryOrder(order.gallery);
-            if (order.booru?.length) {
-              // 迁移旧的 booru 菜单排序 key
-              const BOORU_ORDER_MIGRATION: Record<string, string> = {
-                'favorite-tags': 'tag-management',
-                'blacklisted-tags': 'tag-management',
-                'downloads': 'download',
-                'bulk-download': 'download',
-              };
-              const seen = new Set<string>();
-              const migratedBooruOrder = (order.booru as string[])
-                .map(k => BOORU_ORDER_MIGRATION[k] ?? k)
-                .filter(k => { if (seen.has(k)) return false; seen.add(k); return true; });
-              setBooruOrder(migratedBooruOrder);
-              if (migratedBooruOrder.length !== order.booru.length || migratedBooruOrder.some((key, index) => key !== order.booru?.[index])) {
-                saveMenuOrder('booru', migratedBooruOrder);
-              }
-            }
-            if (order.google?.length)  setGoogleOrder(order.google);
-            console.log('[App] 菜单排序已加载', order);
-          }
-          // 加载固定菜单项（含旧 key 迁移）
-          if (appShellResult.data?.pinnedItems?.length) {
-            const PINNED_MIGRATION: Record<string, { key: string; defaultTab: string }> = {
-              'favorite-tags':   { key: 'tag-management', defaultTab: 'favorite' },
-              'blacklisted-tags': { key: 'tag-management', defaultTab: 'blacklist' },
-              'downloads':       { key: 'download',       defaultTab: 'downloads' },
-              'bulk-download':   { key: 'download',       defaultTab: 'bulk' },
-            };
-            let migrated = false;
-            const raw = appShellResult.data.pinnedItems as PinnedItem[];
-            const migratedPins: PinnedItem[] = [];
-            const seen = new Set<string>();
-            for (const pin of raw) {
-              const mapping = PINNED_MIGRATION[pin.key];
-              const newPin = mapping
-                ? { ...pin, key: mapping.key, defaultTab: pin.defaultTab ?? mapping.defaultTab }
-                : pin;
-              if (mapping) migrated = true;
-              // 去重：合并后可能出现重复的 key
-              const dedupKey = `${newPin.section}:${newPin.key}`;
-              if (!seen.has(dedupKey)) {
-                seen.add(dedupKey);
-                migratedPins.push(newPin);
-              }
-              if (migratedPins.length >= 5) {
-                break;
-              }
-            }
-            setPinnedItems(migratedPins);
-            if (migrated) {
-              console.log('[App] 固定菜单项已迁移旧 key', migratedPins);
-              // 异步持久化迁移后的结果
-              savePinnedItems(migratedPins);
-            } else {
-              console.log('[App] 固定菜单项已加载', migratedPins);
-            }
-          }
+          // 加载 App 壳层偏好（菜单排序 / 固定项 / 快捷访问 / 侧边栏宽度，含旧 key 迁移）
+          await loadAppShellPreferences();
         }
       } catch (error) {
         console.error('Failed to initialize database:', error);
@@ -583,37 +622,17 @@ export const AppContent: React.FC = () => {
   }, [selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey]);
 
   // bug9：监听主进程 SYSTEM_NAVIGATE（目前来源是通知 click）。收到后切 section + 对应 subKey。
-  // 已是 pin 的页面走 handlePinnedClick 恢复缓存页面上下文（依赖 bug1 的 pin 恢复链）。
-  // 依赖 pinnedItems + handlePinnedClick 以跟踪最新固定项集合；当前不为 sessionId 做硬联动（下载管理页自己决定是否读取高亮）。
+  // 当前不为 sessionId 做硬联动（下载管理页自己决定是否读取高亮）。
   useEffect(() => {
     const off = window.electronAPI?.system?.onSystemNavigate?.((payload) => {
       if (!payload || typeof payload.section !== 'string' || typeof payload.subKey !== 'string') return;
       const section = payload.section as 'gallery' | 'booru' | 'google';
-      const subKey = payload.subKey;
-      if (section === 'gallery') {
-        setSidebarSection('gallery');
-        setSelectedKey('gallery');
-        setSelectedSubKey(subKey);
-      } else if (section === 'booru') {
-        setSidebarSection('booru');
-        setSelectedKey('booru');
-        setSelectedBooruSubKey(subKey);
-      } else if (section === 'google') {
-        setSidebarSection('google');
-        setSelectedKey('google');
-        setSelectedGoogleSubKey(subKey);
-      } else {
-        return;
-      }
-      // 如果目标页在固定项里，触发 pin 恢复链；否则清除 activePinnedId，让 UI 回到普通二级菜单态
-      if (pinnedItems.some(p => p.section === section && p.key === subKey)) {
-        handlePinnedClick({ section, key: subKey });
-      } else {
-        setActivePinnedId(null);
-      }
+      if (section !== 'gallery' && section !== 'booru' && section !== 'google') return;
+      // 系统导航走统一的二级页导航（含缓存维护与关闭设置页）
+      navigateToSubPage(section, payload.subKey);
     });
     return () => { off?.(); };
-  }, [pinnedItems, handlePinnedClick]);
+  }, [navigateToSubPage]);
 
   // 导航栈操作：push 压栈（保留下层页面），pop 弹栈（返回上一页）
   const pushNavigation = useCallback((entry: NavigationEntry) => {
@@ -681,15 +700,8 @@ export const AppContent: React.FC = () => {
   const topNavEntry = navigationStack.length > 0 ? navigationStack[navigationStack.length - 1] : null;
 
   const pageTitle = useMemo(() => {
-    // 固定页面激活时显示其标题
-    if (activePinnedId) {
-      const pin = pinnedItems.find(p => `${p.section}:${p.key}` === activePinnedId);
-      if (pin) {
-        const meta = (pin.section === 'gallery' ? orderedGalleryItems : pin.section === 'booru' ? orderedBooruItems : orderedGoogleItems).find(i => i.key === pin.key);
-        const sectionName = pin.section === 'gallery' ? t('pageTitle.gallery') : pin.section === 'booru' ? t('pageTitle.booru') : '应用';
-        return { main: sectionName, sub: meta?.label as string | undefined };
-      }
-    }
+    // 设置页是全局页面，打开时覆盖一切
+    if (settingsOpen) return { main: t('pageTitle.settings') };
     // 导航栈有内容时，显示栈顶页面的标题
     if (topNavEntry) {
       switch (topNavEntry.type) {
@@ -702,18 +714,16 @@ export const AppContent: React.FC = () => {
     }
     switch (selectedKey) {
       case 'gallery':
-        if (selectedSubKey === 'settings') return { main: t('pageTitle.settings') };
         return { main: t('pageTitle.gallery'), sub: gallerySubMenuItems.find(i => i.key === selectedSubKey)?.label };
       case 'booru':
         if (selectedBooruSubKey === 'booru-settings') return { main: t('pageTitle.booru'), sub: t('menu.siteConfig') };
-        if (selectedBooruSubKey === 'settings') return { main: t('pageTitle.settings') };
         return { main: t('pageTitle.booru'), sub: booruSubMenuItems.find(i => i.key === selectedBooruSubKey)?.label };
       case 'google':
         return { main: '应用', sub: googleSubMenuItems.find(i => i.key === selectedGoogleSubKey)?.label };
       default:
         return { main: t('pageTitle.booru') };
     }
-  }, [activePinnedId, pinnedItems, selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems, googleSubMenuItems, orderedGalleryItems, orderedBooruItems, orderedGoogleItems]);
+  }, [settingsOpen, selectedKey, selectedSubKey, selectedBooruSubKey, selectedGoogleSubKey, topNavEntry, t, gallerySubMenuItems, booruSubMenuItems, googleSubMenuItems]);
 
   /** 渲染导航栈中的单个条目 */
   const renderNavigationEntry = (entry: NavigationEntry, index: number) => {
@@ -788,7 +798,11 @@ export const AppContent: React.FC = () => {
         return (
           <Tooltip key={item.key} title={item.label} placement="right" mouseEnterDelay={0.3}>
             <div
+              role="button"
+              tabIndex={0}
               onClick={() => onSelect(item.key)}
+              // 键盘可达性：Enter / Space 等同点击
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(item.key); } }}
               style={{
                 display: 'flex',
                 alignItems: 'center',
@@ -797,13 +811,11 @@ export const AppContent: React.FC = () => {
                 margin: '1px 8px',
                 borderRadius: 8,
                 cursor: 'pointer',
-                background: isActive
-                  ? (isDark ? 'rgba(129,140,248,0.15)' : 'rgba(79,70,229,0.08)')
-                  : 'transparent',
+                background: isActive ? colors.sidebarActiveBg : 'transparent',
                 transition: 'background 0.15s',
               }}
               onMouseEnter={e => {
-                if (!isActive) (e.currentTarget as HTMLDivElement).style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)';
+                if (!isActive) (e.currentTarget as HTMLDivElement).style.background = colors.sidebarHoverBg;
               }}
               onMouseLeave={e => {
                 if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent';
@@ -817,10 +829,10 @@ export const AppContent: React.FC = () => {
     </div>
   );
 
-  /** 当前是否为嵌入式全屏页面（webview 等需要占满容器的场景，仅适用于普通导航） */
-  const isEmbedPage = !activePinnedId && selectedKey === 'google' && (selectedGoogleSubKey === 'gdrive' || selectedGoogleSubKey === 'gphotos' || selectedGoogleSubKey === 'gemini');
-  /** Google 区域隐藏顶部标题栏（普通导航）；查看固定页面时始终显示标题栏 */
-  const isHeaderHidden = !activePinnedId && selectedKey === 'google';
+  /** 当前是否为嵌入式全屏页面（webview 等需要占满容器的场景；设置页打开时不算） */
+  const isEmbedPage = !settingsOpen && selectedKey === 'google' && (selectedGoogleSubKey === 'gdrive' || selectedGoogleSubKey === 'gphotos' || selectedGoogleSubKey === 'gemini');
+  /** Google 区域隐藏顶部标题栏；设置页打开时始终显示标题栏 */
+  const isHeaderHidden = !settingsOpen && selectedKey === 'google';
 
   /**
    * 根据 (section, subKey) 渲染对应页面实例。
@@ -843,7 +855,6 @@ export const AppContent: React.FC = () => {
     // 被叠加且非活跃的页面用 suspended 降级渲染（参考现有 BooruPage 等实现）
     const baseSuspended = !isActive || navigationStack.length > 0;
     if (section === 'gallery') {
-      if (key === 'settings') return <SettingsPage />;
       if (key === 'invalid-images') return <InvalidImagesPage />;
       // bug1-I2：常驻缓存层下非活跃时挂起 GalleryPage 内部副作用（水合/保存）。
       // 其它页面（BooruUserPage / SavedSearches / Google embeds）视后续性能观察
@@ -862,7 +873,6 @@ export const AppContent: React.FC = () => {
       if (key === 'download') return <BooruDownloadHubPage active={isActive} defaultTab={(defaultTab as 'downloads' | 'bulk' | undefined) ?? 'downloads'} />;
       if (key === 'saved-searches') return <BooruSavedSearchesPage onRunSearch={handleSavedSearchRun} />;
       if (key === 'booru-settings') return <BooruSettingsPage />;
-      if (key === 'settings') return <SettingsPage />;
       return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
     }
     // google
@@ -885,9 +895,24 @@ export const AppContent: React.FC = () => {
     : selectedKey === 'booru' ? selectedBooruSubKey
     : selectedGoogleSubKey;
 
+  /** 某分区当前已缓存（后台挂载）的二级页 key 列表，用于菜单缓存指示 */
+  const getCachedKeys = (section: 'gallery' | 'booru' | 'google'): string[] =>
+    [...mountedPageIds]
+      .filter(id => id.startsWith(`${section}:`))
+      .map(id => id.slice(section.length + 1));
+
+  /** 可"关闭页面"的 key：已缓存且不是该分区当前页（关闭当前页无意义且会闪烁重挂载） */
+  const getClosableKeys = (section: 'gallery' | 'booru' | 'google'): string[] => {
+    const currentSub = section === 'gallery' ? selectedSubKey
+      : section === 'booru' ? selectedBooruSubKey
+      : selectedGoogleSubKey;
+    return getCachedKeys(section).filter(k => !(selectedKey === section && currentSub === k));
+  };
+
   /** Suspense 加载中占位 */
   const suspenseFallback = (
-    <div style={{ display: "flex", justifyContent: "center", alignItems: "center", height: "60vh" }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md, justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+      <Spin size="large" />
       <div style={{ color: colors.textTertiary }}>加载中...</div>
     </div>
   );
@@ -911,7 +936,8 @@ export const AppContent: React.FC = () => {
           borderRight: `1px solid ${colors.separator}`,
           position: 'relative',
           flexShrink: 0,
-          transition: 'none',
+          // 拖拽期间禁用过渡（跟手），点击 Logo 折叠/展开时平滑动画
+          transition: isResizing ? 'none' : 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
         }}
       >
         {/* 内层 flex 包装：Sider 内部有 ant-layout-sider-children 非 flex 层，
@@ -921,7 +947,7 @@ export const AppContent: React.FC = () => {
         <div
           onMouseDown={handleSidebarMouseDown}
           style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 6, cursor: 'col-resize', zIndex: 200, background: 'transparent', transition: 'background 0.2s' }}
-          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)'; }}
+          onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = colors.border; }}
           onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
         />
 
@@ -929,16 +955,22 @@ export const AppContent: React.FC = () => {
         <div style={{ flexShrink: 0 }}>
           {/* Logo */}
           <div style={{ padding: isCollapsed ? '20px 0 12px' : '20px 16px 12px', display: 'flex', justifyContent: isCollapsed ? 'center' : 'flex-start' }}>
-            <Tooltip title={isCollapsed ? 'Yande Gallery Desktop' : ''} placement="right">
+            <Tooltip title={isCollapsed ? '展开侧边栏' : '折叠侧边栏'} placement="right">
               <div style={{ display: 'flex', alignItems: 'center', gap: isCollapsed ? 0 : 10, overflow: 'hidden' }}>
-                <img
-                  src={appIconUrl}
-                  alt="Yande Gallery"
+                {/* Logo 兼任折叠按钮：hover 背景明示可点 */}
+                <div
                   onClick={() => setSidebarWidth(isCollapsed ? layout.sidebarWidth : SIDEBAR_MIN)}
-                  title={isCollapsed ? '展开侧边栏' : '折叠侧边栏'}
-                  style={{ width: 32, height: 32, flexShrink: 0, cursor: 'pointer', userSelect: 'none' as const, objectFit: 'contain' }}
-                  draggable={false}
-                />
+                  style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: 4, borderRadius: 8, cursor: 'pointer', flexShrink: 0, transition: 'background 0.15s' }}
+                  onMouseEnter={e => { (e.currentTarget as HTMLDivElement).style.background = colors.sidebarHoverBg; }}
+                  onMouseLeave={e => { (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
+                >
+                  <img
+                    src={appIconUrl}
+                    alt="Yande Gallery"
+                    style={{ width: 32, height: 32, display: 'block', userSelect: 'none' as const, objectFit: 'contain' }}
+                    draggable={false}
+                  />
+                </div>
                 {!isCollapsed && (
                   <div style={{ overflow: 'hidden' }}>
                     <div style={{ fontSize: 15, fontWeight: 700, letterSpacing: '-0.3px', color: colors.textPrimary, lineHeight: '18px', fontFamily: 'var(--font-display, sans-serif)', whiteSpace: 'nowrap' }}>Yande Gallery</div>
@@ -955,21 +987,9 @@ export const AppContent: React.FC = () => {
             onSelect={(key) => {
               const nextSection = key as 'gallery' | 'booru' | 'google';
               console.log(`[App] 主菜单切换分区: ${nextSection}`);
+              // 一级菜单只切换侧边栏的二级菜单列表，不切换右侧内容；
+              // 点击二级菜单项才真正导航
               setSidebarSection(nextSection);
-              setSelectedKey(nextSection);
-              setNavigationStack([]);
-              // 目标 section 的当前 subKey
-              const targetSubKey = nextSection === 'gallery' ? selectedSubKey
-                : nextSection === 'booru' ? selectedBooruSubKey
-                : selectedGoogleSubKey;
-              // 确保该页面被挂载（首次切入此 section 时也入集合）
-              setMountedPageIds(prev => new Set([...prev, `${nextSection}:${targetSubKey}`]));
-              // 若目标是固定项 → 激活 pin；否则 activePinnedId 置空走基础层
-              if (pinnedItems.some(p => p.section === nextSection && p.key === targetSubKey)) {
-                handlePinnedClick({ section: nextSection, key: targetSubKey });
-              } else {
-                setActivePinnedId(null);
-              }
             }}
             onReorder={(keys) => { const previous = mainOrder; setMainOrder(keys); saveMenuOrder('main', keys, () => setMainOrder(previous)); }}
             isCollapsed={isCollapsed}
@@ -991,117 +1011,107 @@ export const AppContent: React.FC = () => {
             {sidebarSection === 'gallery' && (
               <SortableMenu
                 items={orderedGalleryItems}
-                selectedKey={activePinnedId ? '' : (selectedKey === 'gallery' ? selectedSubKey : '')}
+                selectedKey={settingsOpen ? '' : (selectedKey === 'gallery' ? selectedSubKey : '')}
                 onSelect={(key) => {
                   console.log(`[App] 图库子菜单: ${key}`);
-                  const oldKey = selectedSubKey;
-                  setSelectedKey('gallery');
-                  setSidebarSection('gallery');
-                  setSelectedSubKey(key);
-                  setNavigationStack([]);
-                  onSubKeyChanged('gallery', oldKey, key);
-                  if (pinnedItems.some(p => p.section === 'gallery' && p.key === key)) {
-                    handlePinnedClick({ section: 'gallery', key });
-                  } else {
-                    setActivePinnedId(null);
-                  }
+                  navigateToSubPage('gallery', key);
                 }}
                 onReorder={(keys) => { const previous = galleryOrder; setGalleryOrder(keys); saveMenuOrder('gallery', keys, () => setGalleryOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'gallery').map(p => p.key)}
-                canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('gallery', key) : pinItem('gallery', key)}
+                quickKeys={quickItems.filter(p => p.section === 'gallery').map(p => p.key)}
+                onQuickToggle={(key, cur) => cur ? removeQuickItem('gallery', key) : addQuickItem('gallery', key)}
+                cachedKeys={getCachedKeys('gallery')}
+                closableKeys={getClosableKeys('gallery')}
+                onClosePage={(key) => closePageCache('gallery', key)}
                 onOpenSubWindow={(key) => handleOpenSubWindow('gallery', key)}
               />
             )}
             {sidebarSection === 'booru' && (
               <SortableMenu
                 items={orderedBooruItems}
-                selectedKey={activePinnedId ? '' : (selectedKey === 'booru' ? selectedBooruSubKey : '')}
+                selectedKey={settingsOpen ? '' : (selectedKey === 'booru' ? selectedBooruSubKey : '')}
                 onSelect={(key) => {
                   console.log(`[App] Booru子菜单: ${key}`);
-                  const oldKey = selectedBooruSubKey;
-                  setSelectedKey('booru');
-                  setSidebarSection('booru');
-                  setSelectedBooruSubKey(key);
-                  setNavigationStack([]);
-                  onSubKeyChanged('booru', oldKey, key);
-                  if (pinnedItems.some(p => p.section === 'booru' && p.key === key)) {
-                    handlePinnedClick({ section: 'booru', key });
-                  } else {
-                    setActivePinnedId(null);
-                  }
+                  navigateToSubPage('booru', key);
                 }}
                 onReorder={(keys) => { const previous = booruOrder; setBooruOrder(keys); saveMenuOrder('booru', keys, () => setBooruOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'booru').map(p => p.key)}
-                canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('booru', key) : pinItem('booru', key)}
+                quickKeys={quickItems.filter(p => p.section === 'booru').map(p => p.key)}
+                onQuickToggle={(key, cur) => cur ? removeQuickItem('booru', key) : addQuickItem('booru', key)}
+                cachedKeys={getCachedKeys('booru')}
+                closableKeys={getClosableKeys('booru')}
+                onClosePage={(key) => closePageCache('booru', key)}
                 onOpenSubWindow={(key) => handleOpenSubWindow('booru', key)}
               />
             )}
             {sidebarSection === 'google' && (
               <SortableMenu
                 items={orderedGoogleItems}
-                selectedKey={activePinnedId ? '' : (selectedKey === 'google' ? selectedGoogleSubKey : '')}
+                selectedKey={settingsOpen ? '' : (selectedKey === 'google' ? selectedGoogleSubKey : '')}
                 onSelect={(key) => {
                   console.log(`[App] 应用子菜单: ${key}`);
-                  const oldKey = selectedGoogleSubKey;
-                  setSelectedKey('google');
-                  setSidebarSection('google');
-                  setSelectedGoogleSubKey(key);
-                  setNavigationStack([]);
-                  onSubKeyChanged('google', oldKey, key);
-                  if (pinnedItems.some(p => p.section === 'google' && p.key === key)) {
-                    handlePinnedClick({ section: 'google', key });
-                  } else {
-                    setActivePinnedId(null);
-                  }
+                  navigateToSubPage('google', key);
                 }}
                 onReorder={(keys) => { const previous = googleOrder; setGoogleOrder(keys); saveMenuOrder('google', keys, () => setGoogleOrder(previous)); }}
                 isCollapsed={isCollapsed}
                 isDark={isDark}
                 pinnedKeys={pinnedItems.filter(p => p.section === 'google').map(p => p.key)}
-                canAddPin={pinnedItems.length < 5}
                 onPinToggle={(key, cur) => cur ? unpinItem('google', key) : pinItem('google', key)}
+                quickKeys={quickItems.filter(p => p.section === 'google').map(p => p.key)}
+                onQuickToggle={(key, cur) => cur ? removeQuickItem('google', key) : addQuickItem('google', key)}
+                cachedKeys={getCachedKeys('google')}
+                closableKeys={getClosableKeys('google')}
+                onClosePage={(key) => closePageCache('google', key)}
                 onOpenSubWindow={(key) => handleOpenSubWindow('google', key)}
               />
             )}
           </div>
         </div>
 
-        {/* ── 第二·五段：固定项（最多5个，始终可见，不随一级菜单切换） ── */}
-        {pinnedItems.length > 0 && (
-          <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}`, paddingTop: 4, paddingBottom: 4 }}>
-            {pinnedItems.map(pin => {
-              const meta = getPinnedItemMeta(pin);
+        {/* ── 第二·五段：快捷访问（始终可见，点击直达对应页面，右键管理） ── */}
+        {quickItems.length > 0 && (
+          <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}`, paddingTop: 4, paddingBottom: 4, maxHeight: '32vh', overflowY: 'auto', overflowX: 'hidden' }}>
+            {!isCollapsed && (
+              <div style={{ padding: `2px ${spacing.lg}px ${spacing.xs}px`, fontSize: 10, fontWeight: 700, color: colors.textTertiary, textTransform: 'uppercase' as const, letterSpacing: '1px' }}>
+                快捷访问
+              </div>
+            )}
+            {quickItems.map(item => {
+              const meta = getMenuItemMeta(item);
               if (!meta) return null;
-              const pinId = `${pin.section}:${pin.key}`;
-              const isActive = activePinnedId === pinId;
-              const isCached = mountedPageIds.has(pinId);
-              const activeBg    = isDark ? 'rgba(129,140,248,0.15)' : 'rgba(79,70,229,0.08)';
-              const activeColor = isDark ? '#818CF8' : '#4F46E5';
-              const normalColor = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)';
+              const itemId = `${item.section}:${item.key}`;
+              const currentSub = item.section === 'gallery' ? selectedSubKey
+                : item.section === 'booru' ? selectedBooruSubKey
+                : selectedGoogleSubKey;
+              const isActive = !settingsOpen && selectedKey === item.section && currentSub === item.key;
               const itemContent = (
                 <Dropdown
                   trigger={['contextMenu']}
                   menu={{
                     items: [
-                      { key: 'close', label: '关闭', disabled: !mountedPageIds.has(`${pin.section}:${pin.key}`) },
-                      { key: 'unpin', label: '取消固定', danger: true },
+                      { key: 'open-sub-window', icon: <ExportOutlined />, label: '单独窗口打开' },
+                      { key: 'remove-quick', icon: <ThunderboltOutlined />, label: '移除快捷访问', danger: true },
                     ],
-                    onClick: ({ key }) => key === 'close' ? closePin(pin.section, pin.key) : unpinItem(pin.section, pin.key),
+                    onClick: ({ key }) => {
+                      if (key === 'open-sub-window') handleOpenSubWindow(item.section, item.key);
+                      else removeQuickItem(item.section, item.key);
+                    },
                   }}
                 >
                   <div
-                    onClick={() => handlePinnedClick(pin)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', height: 38, margin: '1px 8px', padding: isCollapsed ? 0 : '0 8px 0 12px', borderRadius: 8, cursor: 'pointer', background: isActive ? activeBg : 'transparent', color: isActive ? activeColor : normalColor, fontSize: 14, fontWeight: isActive ? 600 : 400, gap: isCollapsed ? 0 : 10, overflow: 'hidden', transition: 'background 0.15s', userSelect: 'none' as const,
-                      // 已缓存时加左侧阴影条
-                      boxShadow: isCached ? `inset 2px 0 0 0 ${isDark ? 'rgba(129,140,248,0.5)' : 'rgba(79,70,229,0.35)'}` : undefined,
-                    }}
-                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)'; }}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => navigateToSubPage(item.section, item.key)}
+                    // 键盘可达性：Enter / Space 等同点击
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); navigateToSubPage(item.section, item.key); } }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: isCollapsed ? 'center' : 'flex-start', height: 38, margin: '1px 8px', padding: isCollapsed ? 0 : '0 8px 0 12px', borderRadius: 8, cursor: 'pointer', background: isActive ? colors.sidebarActiveBg : 'transparent', color: isActive ? colors.sidebarActiveColor : colors.textSecondary, fontSize: 14, fontWeight: isActive ? 600 : 400, gap: isCollapsed ? 0 : 10, overflow: 'hidden', transition: 'background 0.15s', userSelect: 'none' as const }}
+                    onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = colors.sidebarHoverBg; }}
                     onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLDivElement).style.background = 'transparent'; }}
                   >
                     {meta.icon}
@@ -1110,37 +1120,22 @@ export const AppContent: React.FC = () => {
                 </Dropdown>
               );
               return isCollapsed ? (
-                <Tooltip key={pinId} title={meta.label} placement="right" mouseEnterDelay={0.3}>{itemContent}</Tooltip>
-              ) : <React.Fragment key={pinId}>{itemContent}</React.Fragment>;
+                <Tooltip key={itemId} title={meta.label} placement="right" mouseEnterDelay={0.3}>{itemContent}</Tooltip>
+              ) : <React.Fragment key={itemId}>{itemContent}</React.Fragment>;
             })}
           </div>
         )}
 
-        {/* ── 第三段：设置 + 深色模式（固定底部，不随一级菜单切换） ── */}
-        <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}` }}>
-          {/* 应用设置入口 */}
+        {/* ── 第三段：设置入口（固定底部，全局页面，不属于任何分区） ── */}
+        <div style={{ flexShrink: 0, borderTop: `1px solid ${colors.separator}`, paddingBottom: spacing.xs }}>
           {(() => {
-            const settingsActiveKey = (selectedKey === 'booru' && selectedBooruSubKey === 'settings') || (selectedKey !== 'booru' && selectedSubKey === 'settings') ? 'settings' : '';
-            const handleSettingsClick = () => { if (sidebarSection === 'booru') { setSelectedKey('booru'); setSelectedBooruSubKey('settings'); } else { setSelectedKey('gallery'); setSelectedSubKey('settings'); } };
+            const settingsActiveKey = settingsOpen ? 'settings' : '';
+            const handleSettingsClick = () => setSettingsOpen(true);
             const settingsItem = [{ key: 'settings', icon: <DotIcon color={iconColors.settings} icon={<SettingOutlined />} />, label: t('menu.settings') }];
             return isCollapsed
               ? renderIconMenu(settingsItem, settingsActiveKey, handleSettingsClick)
               : <Menu mode="inline" selectedKeys={settingsActiveKey ? ['settings'] : []} items={settingsItem} onClick={handleSettingsClick} style={{ background: 'transparent', borderRight: 'none' }} />;
           })()}
-          {/* 深色模式切换 */}
-          <div style={{ padding: `${spacing.xs}px ${spacing.md}px ${spacing.sm}px`, display: 'flex', justifyContent: 'center' }}>
-            <Tooltip title={isCollapsed ? (isDark ? t('app.lightMode') : t('app.darkMode')) : ''} placement="right">
-              <button
-                onClick={toggleTheme}
-                style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', gap: isCollapsed ? 0 : 6, width: isCollapsed ? 36 : '100%', height: isCollapsed ? 36 : undefined, padding: isCollapsed ? '0' : '8px 12px', borderRadius: isCollapsed ? '50%' : radius.sm, border: 'none', background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)', color: colors.textSecondary, fontSize: isCollapsed ? 16 : fontSize.sm, fontWeight: 500, cursor: 'pointer', transition: 'all 0.2s ease' }}
-                onMouseEnter={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'; }}
-                onMouseLeave={e => { e.currentTarget.style.background = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)'; }}
-              >
-                {isDark ? <SunOutlined /> : <MoonOutlined />}
-                {!isCollapsed && (isDark ? t('app.lightMode') : t('app.darkMode'))}
-              </button>
-            </Tooltip>
-          </div>
         </div>
         </div>
       </Sider>
@@ -1161,11 +1156,9 @@ export const AppContent: React.FC = () => {
           display: isHeaderHidden ? 'none' : 'flex',
           alignItems: 'center',
           flexShrink: 0,
-          background: isDark
-            ? 'rgba(15, 17, 23, 0.80)'
-            : 'rgba(248, 248, 252, 0.80)',
-          backdropFilter: 'blur(20px) saturate(180%)',
-          WebkitBackdropFilter: 'blur(20px) saturate(180%)',
+          ...glassStyle,
+          // glassStyle 的 background 在模块加载时固化为亮色值，这里按当前主题重新取值
+          background: colors.materialRegular,
           borderBottom: `1px solid ${colors.separator}`,
           zIndex: 10,
         }}>
@@ -1189,20 +1182,28 @@ export const AppContent: React.FC = () => {
               }}>
                 /
               </span>
-              <span style={{
-                fontSize: fontSize.xl,
-                fontWeight: 700,
-                letterSpacing: '-0.3px',
-                color: colors.textTertiary,
-                fontFamily: 'var(--font-display, sans-serif)',
-              }}>
-                {pageTitle.sub}
-              </span>
+              {/* 子标题过长时截断省略，悬停 Tooltip 看全文 */}
+              <Tooltip title={pageTitle.sub}>
+                <span style={{
+                  fontSize: fontSize.xl,
+                  fontWeight: 700,
+                  letterSpacing: '-0.3px',
+                  color: colors.textTertiary,
+                  fontFamily: 'var(--font-display, sans-serif)',
+                  flex: 1,
+                  minWidth: 0,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}>
+                  {pageTitle.sub}
+                </span>
+              </Tooltip>
             </>
           )}
           {/* 页面注入的右侧操作按钮 */}
           {headerExtra && (
-            <div style={{ marginLeft: 'auto' }}>
+            <div style={{ marginLeft: 'auto', flexShrink: 0 }}>
               {headerExtra}
             </div>
           )}
@@ -1220,31 +1221,30 @@ export const AppContent: React.FC = () => {
         >
           {/* 加载中占位 */}
           {loading && (
-            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-              <h2 style={{ color: colors.textTertiary, fontWeight: 400, fontSize: fontSize.lg }}>{t('app.initializing')}</h2>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: spacing.md, justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+              <Spin size="large" />
+              <div style={{ color: colors.textTertiary, fontWeight: 400, fontSize: fontSize.lg }}>{t('app.initializing')}</div>
             </div>
           )}
 
-          {/* 统一页面缓存层：pin 与基础页共用 mountedPageIds，不再各走一套 */}
+          {/* 统一页面缓存层：当前页与固定（保活）页共用 mountedPageIds */}
           {!loading && [...mountedPageIds].map(id => {
             const [sec, subKey] = id.split(':', 2) as ['gallery' | 'booru' | 'google', string];
             const isEmbed = sec === 'google' && (subKey === 'gdrive' || subKey === 'gphotos' || subKey === 'gemini');
-            const pinId = `${sec}:${subKey}`;
-            // bug1 Issue3：pin 上的 defaultTab 需透传给页面，否则迁移后的旧 pin
-            // （blacklisted-tags / bulk-download）打开会退回组件默认 tab。
-            const pinMeta = pinnedItems.find(p => `${p.section}:${p.key}` === pinId);
-            const isPin = !!pinMeta;
-            const pinDefaultTab = pinMeta?.defaultTab;
-            const isBaseCurrent = !activePinnedId && selectedKey === sec && currentSubKey === subKey;
-            // 是否激活：pin 命中 activePinnedId，或基础层当前页（支持 pin 项被
-            // closePin 后 activePinnedId=null 但用户仍停在对应 subKey 的情况，
-            // 这时 pin 项应作为基础层 active 继续显示）。
-            const isActive = (isPin && activePinnedId === pinId) || isBaseCurrent;
+            const pageId = `${sec}:${subKey}`;
+            // 合并页（tag-management / download）的 defaultTab：优先取快捷访问项上的配置，
+            // 兼容旧固定项迁移携带的 defaultTab（blacklisted-tags / bulk-download → 对应 tab）。
+            const itemMeta = quickItems.find(p => `${p.section}:${p.key}` === pageId)
+              ?? pinnedItems.find(p => `${p.section}:${p.key}` === pageId);
+            const pageDefaultTab = itemMeta?.defaultTab;
+            // 是否激活：该页是当前 section 的当前二级页；
+            // 全局设置页打开时所有缓存页隐藏（保持挂载），由独立的设置层覆盖显示。
+            const isActive = !settingsOpen && selectedKey === sec && currentSubKey === subKey;
             // embed 页（gdrive/gphotos/gemini）继续走 absolute 独立层（webview 需要占满容器）
             if (isEmbed) {
               return (
                 <div
-                  key={`page-${pinId}`}
+                  key={`page-${pageId}`}
                   className="ios-page-enter"
                   style={{
                     position: 'absolute',
@@ -1258,16 +1258,16 @@ export const AppContent: React.FC = () => {
                   }}
                 >
                   <Suspense fallback={suspenseFallback}>
-                    {renderPageForId(sec, subKey, isActive, pinDefaultTab)}
+                    {renderPageForId(sec, subKey, isActive, pageDefaultTab)}
                   </Suspense>
                 </div>
               );
             }
-            // 只在当前活跃基础页且导航栈非空时，用栈顶覆盖本页（与历史 renderBaseContent 行为一致）
-            const shouldOverlayNavStack = isActive && isBaseCurrent && navigationStack.length > 0;
+            // 只在当前活跃页且导航栈非空时，用栈顶覆盖本页（与历史 renderBaseContent 行为一致）
+            const shouldOverlayNavStack = isActive && navigationStack.length > 0;
             return (
               <div
-                key={`page-${pinId}`}
+                key={`page-${pageId}`}
                 className="ios-page-enter noise-bg"
                 style={{
                   padding: `${spacing.lg}px`,
@@ -1280,21 +1280,40 @@ export const AppContent: React.FC = () => {
                 <Suspense fallback={suspenseFallback}>
                   {shouldOverlayNavStack ? (
                     <>
-                      <div style={{ display: 'none' }}>{renderPageForId(sec, subKey, false, pinDefaultTab)}</div>
+                      <div style={{ display: 'none' }}>{renderPageForId(sec, subKey, false, pageDefaultTab)}</div>
                       {navigationStack.map((entry, index) => {
                         const isTop = index === navigationStack.length - 1;
                         return (
-                          <div key={`nav-${entry.type}-${index}`} style={isTop ? undefined : { display: 'none' }}>
+                          // 稳定 key 保活栈内页面状态；push 时新条目挂载播放淡入，
+                          // pop 露出的页面由 display:none → 可见 自动重放 CSS 动画，无需重挂载
+                          <div key={`nav-${entry.type}-${index}`} className="ios-page-enter" style={isTop ? undefined : { display: 'none' }}>
                             {renderNavigationEntry(entry, index)}
                           </div>
                         );
                       })}
                     </>
-                  ) : renderPageForId(sec, subKey, isActive, pinDefaultTab)}
+                  ) : renderPageForId(sec, subKey, isActive, pageDefaultTab)}
                 </Suspense>
               </div>
             );
           })}
+
+          {/* 全局设置页层：独立于三个分区，关闭即卸载（与普通二级页离开释放的语义一致） */}
+          {!loading && settingsOpen && (
+            <div
+              className="ios-page-enter noise-bg"
+              style={{
+                padding: `${spacing.lg}px`,
+                overflowY: 'auto',
+                overflowX: 'hidden',
+                height: '100%',
+              }}
+            >
+              <Suspense fallback={suspenseFallback}>
+                <SettingsPage />
+              </Suspense>
+            </div>
+          )}
         </Content>
       </Layout>
 
