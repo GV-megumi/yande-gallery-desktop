@@ -4,7 +4,7 @@
  */
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Button, InputNumber } from 'antd';
+import { Button, InputNumber, Tooltip } from 'antd';
 import { LeftOutlined, RightOutlined } from '@ant-design/icons';
 import { colors, spacing, radius, fontSize } from '../styles/tokens';
 
@@ -91,29 +91,32 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
   onPageChange,
   disabled = false
 }) => {
+  // 跳页输入框：记录被点击省略号的索引，只在对应位置渲染输入框
+  const [jumpInputIndex, setJumpInputIndex] = useState<number | null>(null);
+  const [jumpValue, setJumpValue] = useState<number | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  // 打开跳转输入框时自动聚焦
+  useEffect(() => {
+    if (jumpInputIndex !== null && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [jumpInputIndex]);
+
+  // 注意：条件返回必须放在所有 hooks 之后，
+  // 否则运行时切换分页位置配置会导致 hooks 数量变化而崩溃
   if (!shouldRender(paginationPosition, position)) return null;
 
   const isTop = position === 'top';
   const hasPrev = currentPage > 1;
   const hasNext = currentCount >= itemsPerPage;
 
-  const [jumpInputVisible, setJumpInputVisible] = useState(false);
-  const [jumpValue, setJumpValue] = useState<number | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  // 打开跳转输入框时自动聚焦
-  useEffect(() => {
-    if (jumpInputVisible && inputRef.current) {
-      inputRef.current.focus();
-    }
-  }, [jumpInputVisible]);
-
   const handleJump = () => {
     if (disabled) return;
     if (jumpValue && jumpValue >= 1 && jumpValue !== currentPage && onPageChange) {
       onPageChange(jumpValue);
     }
-    setJumpInputVisible(false);
+    setJumpInputIndex(null);
     setJumpValue(null);
   };
 
@@ -146,20 +149,23 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
       gap: 4,
     }}>
       {/* 上一页 */}
-      <Button
-        icon={<LeftOutlined />}
-        disabled={disabled || !hasPrev}
-        onClick={onPrevious}
-        size="small"
-        type="text"
-        style={arrowBtnStyle}
-      />
+      <Tooltip title="上一页">
+        <Button
+          icon={<LeftOutlined />}
+          aria-label="上一页"
+          disabled={disabled || !hasPrev}
+          onClick={onPrevious}
+          size="small"
+          type="text"
+          style={arrowBtnStyle}
+        />
+      </Tooltip>
 
       {/* 页码按钮 */}
       {pageNumbers.map((page, idx) => {
         if (page === -1) {
-          // 省略号 — 点击弹出输入框
-          return jumpInputVisible ? (
+          // 省略号 — 点击在原位置弹出输入框（仅被点击的那个省略号变为输入框）
+          return jumpInputIndex === idx ? (
             <InputNumber
               key={`jump-${idx}`}
               ref={inputRef as any}
@@ -184,7 +190,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
               key={`ellipsis-${idx}`}
               onClick={() => {
                 if (!disabled && onPageChange) {
-                  setJumpInputVisible(true);
+                  setJumpInputIndex(idx);
                   setJumpValue(null);
                 }
               }}
@@ -218,6 +224,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
             key={page}
             onClick={() => handlePageClick(page)}
             disabled={disabled}
+            aria-current={page === currentPage ? 'page' : undefined}
             style={{
               ...pageButtonStyle(page === currentPage),
               cursor: disabled ? 'not-allowed' : page === currentPage ? 'default' : 'pointer',
@@ -239,14 +246,17 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
       })}
 
       {/* 下一页 */}
-      <Button
-        icon={<RightOutlined />}
-        disabled={disabled || !hasNext}
-        onClick={onNext}
-        size="small"
-        type="text"
-        style={arrowBtnStyle}
-      />
+      <Tooltip title="下一页">
+        <Button
+          icon={<RightOutlined />}
+          aria-label="下一页"
+          disabled={disabled || !hasNext}
+          onClick={onNext}
+          size="small"
+          type="text"
+          style={arrowBtnStyle}
+        />
+      </Tooltip>
     </div>
   );
 });

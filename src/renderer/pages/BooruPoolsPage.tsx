@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Card, Input, List, Space, Spin, Empty, App, Button, Tag, Typography } from 'antd';
+import { Card, Input, List, Space, Empty, App, Button, Tag, Tooltip, Typography } from 'antd';
 import { DatabaseOutlined, SearchOutlined, ArrowLeftOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import type { BooruPost, BooruSite, BooruPool } from '../../shared/types';
 import { BooruImageCard } from '../components/BooruImageCard';
+import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
-import { colors, spacing, fontSize } from '../styles/tokens';
+import { colors, spacing, fontSize, radius, iconColors } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
@@ -223,7 +224,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             gap: spacing.md, marginBottom: spacing.lg,
             padding: `${spacing.sm}px ${spacing.lg}px`,
-            background: 'rgba(0,0,0,0.02)', borderRadius: 8,
+            background: colors.bgLight, borderRadius: radius.sm,
           }}>
             <Button
               icon={<LeftOutlined />}
@@ -255,9 +256,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
         {/* Pool 图片网格 */}
         {poolLoading ? (
-          <Spin size="large" tip="加载中...">
-            <div style={{ padding: 60 }} />
-          </Spin>
+          <SkeletonGrid count={12} cardWidth={220} gap={spacing.md} />
         ) : poolPosts.length === 0 ? (
           <Empty description="该 Pool 暂无图片" />
         ) : (
@@ -350,7 +349,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
         marginBottom: spacing.lg,
       }}>
         <Space>
-          <DatabaseOutlined style={{ color: '#5856D6', fontSize: 18 }} />
+          <DatabaseOutlined style={{ color: iconColors.pools, fontSize: 18 }} />
           <span style={{ fontSize: fontSize.lg, fontWeight: 600, color: colors.textPrimary }}>
             Pool 图集
           </span>
@@ -364,15 +363,15 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
             onChange={(e) => setSearchDraft(e.target.value)}
             onPressEnter={(e) => handleSearch(e.currentTarget.value)}
           />
-          <Button icon={<SearchOutlined />} onClick={() => handleSearch(searchDraft)} />
+          <Tooltip title="搜索 Pool">
+            <Button icon={<SearchOutlined />} aria-label="搜索 Pool" onClick={() => handleSearch(searchDraft)} />
+          </Tooltip>
         </Space.Compact>
       </div>
 
       {/* Pool 列表 */}
       {loading ? (
-        <Spin size="large" tip="加载中...">
-          <div style={{ padding: 60 }} />
-        </Spin>
+        <SkeletonGrid count={12} cardWidth={220} gap={spacing.md} />
       ) : pools.length === 0 ? (
         <Card>
           <Empty description="暂无 Pool" />

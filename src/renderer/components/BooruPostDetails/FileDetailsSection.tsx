@@ -1,7 +1,8 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Collapse, Descriptions, Space, Button, message, Typography } from 'antd';
+import { Collapse, Descriptions, Space, Button, Typography, Tooltip, App } from 'antd';
 import { CopyOutlined } from '@ant-design/icons';
 import { BooruPost, BooruSite } from '../../../shared/types';
+import { colors } from '../../styles/tokens';
 
 const { Text } = Typography;
 
@@ -40,6 +41,7 @@ export const FileDetailsSection: React.FC<FileDetailsSectionProps> = React.memo(
   post,
   site
 }) => {
+  const { message } = App.useApp();
   const [expanded, setExpanded] = useState(false);
 
   const handleCopyId = useCallback(() => {
@@ -51,7 +53,7 @@ export const FileDetailsSection: React.FC<FileDetailsSectionProps> = React.memo(
         message.error('复制失败');
       });
     }
-  }, [post.postId]);
+  }, [post.postId, message]);
 
   const summary = useMemo(() => {
     const parts: string[] = [];
@@ -67,7 +69,7 @@ export const FileDetailsSection: React.FC<FileDetailsSectionProps> = React.memo(
       <Collapse
         activeKey={expanded ? ['details'] : []}
         onChange={(keys) => setExpanded(keys.includes('details'))}
-        style={{ background: '#fff' }}
+        style={{ background: colors.bgElevated }}
         items={[
           {
             key: 'details',
@@ -82,7 +84,9 @@ export const FileDetailsSection: React.FC<FileDetailsSectionProps> = React.memo(
                 <Descriptions.Item label="ID">
                   <Space>
                     <Text>{post.postId || '未知'}</Text>
-                    <Button type="text" size="small" icon={<CopyOutlined />} onClick={handleCopyId} style={{ marginLeft: '8px' }} />
+                    <Tooltip title="复制 ID">
+                      <Button type="text" size="small" icon={<CopyOutlined />} onClick={handleCopyId} style={{ marginLeft: '8px' }} />
+                    </Tooltip>
                   </Space>
                 </Descriptions.Item>
                 <Descriptions.Item label="评分">

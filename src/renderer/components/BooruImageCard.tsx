@@ -8,10 +8,10 @@ import {
   BookOutlined, BookFilled, DownloadOutlined, EyeOutlined,
   ReloadOutlined, PictureOutlined, CopyOutlined, GlobalOutlined,
   SearchOutlined, HeartOutlined, HeartFilled, InfoCircleOutlined,
-  LinkOutlined, PlayCircleFilled
+  LinkOutlined, PlayCircleFilled, CheckOutlined
 } from '@ant-design/icons';
 import { BooruPost } from '../../shared/types';
-import { colors, radius, shadows, fontSize } from '../styles/tokens';
+import { colors, radius, shadows, fontSize, transitions } from '../styles/tokens';
 import { ContextMenu } from './ContextMenu';
 
 // --- 静态样式常量 ---
@@ -183,12 +183,14 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
     return items;
   }, [handlePreview, handleToggleFavorite, handleToggleServerFavorite, handleDownload, isFavorited, isServerFavorited, postPageUrl, fullFileUrl, computedPreviewUrl, post.postId, post.width, post.height, post.fileSize, post.rating, post.score, post.md5, post.source]);
 
-  // 评分色
+  // 评分色：仅明确 explicit 才显示红 E，评级缺失时显示灰色 '?' 徽章
   const ratingConfig = post.rating === 'safe'
     ? { color: colors.ratingSafe, text: 'S' }
     : post.rating === 'questionable'
     ? { color: colors.ratingQuestionable, text: 'Q' }
-    : { color: colors.ratingExplicit, text: 'E' };
+    : post.rating === 'explicit'
+    ? { color: colors.ratingExplicit, text: 'E' }
+    : { color: colors.tagGeneral, text: '?' };
 
   return (
     <ContextMenu items={cardContextItems}>
@@ -211,8 +213,13 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
           handlePreview();
         }}
       >
-        {/* 图片区域 — 全出血 */}
-        <div style={{ position: 'relative', width: '100%' }}>
+        {/* 图片区域 — 全出血，按帖子宽高比固定占位：骨架可见、避免瀑布流加载跳动
+            （与 BooruGridLayout 的列高估算逻辑一致，缺失尺寸时同为 3:4） */}
+        <div style={{
+          position: 'relative',
+          width: '100%',
+          aspectRatio: post.width && post.height ? `${post.width} / ${post.height}` : '3 / 4',
+        }}>
           {/* 骨架占位 */}
           {!imageLoaded && !imageError && (
             <div
@@ -268,6 +275,8 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
             alt={`#${post.postId}`}
             style={{
               width: '100%',
+              height: '100%',
+              objectFit: 'cover',
               display: imageError ? 'none' : 'block',
               opacity: imageLoaded ? 1 : 0,
               transition: 'opacity 0.35s ease',
@@ -324,9 +333,10 @@ export const BooruImageCard: React.FC<BooruImageCardProps> = React.memo(({
                     alignItems: 'center',
                     justifyContent: 'center',
                     fontWeight: 700,
+                    transition: transitions.fast,
                   }}
                 >
-                  {selected ? '√' : ''}
+                  {selected ? <CheckOutlined style={{ fontSize: 11 }} /> : null}
                 </span>
               )}
               <span style={{

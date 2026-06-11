@@ -9,7 +9,7 @@ import { LazyLoadFooter } from '../components/LazyLoadFooter';
 import { GalleryCoverImage } from '../components/GalleryCoverImage';
 import { SkeletonGrid } from '../components/SkeletonGrid';
 import { localPathToAppUrl } from '../utils/url';
-import { colors, spacing, radius, fontSize, zIndex } from '../styles/tokens';
+import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 
 const areGalleryPreferencesEqual = (
@@ -1218,7 +1218,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       let changed = false;
       const next = { ...previous };
       for (const galleryId of normalizedIds) {
-        if ((next[galleryId] ?? null) !== thumbnailPath) {
+        // 严格比较：undefined（加载中）与 null（确认失败）语义不同，
+        // 生成失败事件需要把 undefined 显式写为 null 让封面回退原图
+        if (next[galleryId] !== thumbnailPath) {
           next[galleryId] = thumbnailPath;
           changed = true;
         }
@@ -1249,8 +1251,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   }
 
   // 加载图集封面缩略图（并发加载 + 取消支持）
+  // 挂起时不加载；恢复时重跑以补偿挂起期间丢失的缩略图生成事件（已生成的会命中磁盘缓存立即回填）
   useEffect(() => {
-    if (!window.electronAPI || galleries.length === 0) return;
+    if (!window.electronAPI || galleries.length === 0 || suspended) return;
 
     let cancelled = false;
     console.log(`[GalleryPage] 开始加载图集封面缩略图，图集数量: ${galleries.length}`);
@@ -1264,17 +1267,23 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         if (cancelled) return;
         const batch = galleriesWithCover.slice(i, i + concurrency);
 
-        const results = await Promise.all(batch.map(async (gallery) => {
+        const results = await Promise.all(batch.map(async (gallery): Promise<{ id: number; path: string | null } | null> => {
           if (cancelled) return null;
           try {
             const result = await window.electronAPI.image.getThumbnail(gallery.coverImage.filepath);
             if (result.success && result.data) {
               return { id: gallery.id, path: result.data };
             }
+            // 生成排队中：保持 undefined（加载中），等待缩略图生成事件回填
+            if ((result as any).pending) {
+              return null;
+            }
+            // 确认失败：显式置 null，封面组件回退渲染原图
+            return { id: gallery.id, path: null };
           } catch (error) {
             console.error(`获取封面缩略图失败 ${gallery.id}:`, error);
+            return { id: gallery.id, path: null };
           }
-          return null;
         }));
 
         if (cancelled) return;
@@ -1293,7 +1302,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
     loadThumbnails();
     return () => { cancelled = true; };
-  }, [galleries]);
+  }, [galleries, suspended]);
 
   // 将本地文件路径转换为 app:// 协议 URL（用于图集封面）
   const getImageUrl = (filePath: string): string => {
@@ -1334,7 +1343,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                 type="primary"
                 size="small"
                 onClick={applyPendingRecentImages}
-                style={{ pointerEvents: 'auto', boxShadow: '0 8px 24px rgba(17, 24, 39, 0.12)' }}
+                style={{ pointerEvents: 'auto', boxShadow: shadows.cardHover }}
               >
                 新增 {pendingRecentImages.length} 张，点击查看
               </Button>
@@ -1396,6 +1405,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   <LazyLoadFooter
                     current={recentVisibleCount}
                     total={recentImages.length}
+                    // 最近页已有 300px 预读的滚动监听驱动自动加载，关闭 footer 的 observer 避免单次触底双倍加载
+                    autoLoad={false}
                     onLoadMore={() =>
                       setRecentVisibleCount((prev) =>
                         Math.min(prev + RECENT_VISIBLE_BATCH_SIZE, recentImages.length)
@@ -1515,7 +1526,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   onChange={(e) => setGallerySearchQuery(e.target.value)}
                   onPressEnter={(e) => handleGallerySearch(e.currentTarget.value)}
                 />
-                <Button icon={<SearchOutlined />} onClick={() => handleGallerySearch(gallerySearchQuery)} />
+                <Tooltip title="搜索图集">
+                  <Button
+                    icon={<SearchOutlined />}
+                    aria-label="搜索图集"
+                    onClick={() => handleGallerySearch(gallerySearchQuery)}
+                  />
+                </Tooltip>
               </Space.Compact>
               <div style={{ flex: 1 }} />
               {/* 排序控件 */}
@@ -1781,6 +1798,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                     }}
                   >
                     <div
+                      role="button"
+                      tabIndex={0}
                       style={{
                         cursor: 'pointer',
                         background: 'transparent'
@@ -1790,11 +1809,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         setSelectedGallery(gallery);
                         loadGalleryImages(gallery.id);
                       }}
+                      onKeyDown={(e) => {
+                        // 键盘可达性：Enter/Space 等同点击进入图集
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          console.log(`[GalleryPage] 键盘打开图集: ${gallery.name} (ID: ${gallery.id})`);
+                          setSelectedGallery(gallery);
+                          loadGalleryImages(gallery.id);
+                        }
+                      }}
                     >
-                      {/* 图片区域 - 使用独立的封面组件 */}
+                      {/* 图片区域 - 使用独立的封面组件（缩略图三态透传：undefined=加载中，null=确认失败） */}
                       <GalleryCoverImage
                         coverImage={gallery.coverImage}
-                        thumbnailPath={coverThumbnails[gallery.id] || null}
+                        thumbnailPath={coverThumbnails[gallery.id]}
                         getImageUrl={getImageUrl}
                         onInfoClick={async () => {
                         const requestRunId = galleryInfoRequestRunIdRef.current + 1;
@@ -1826,7 +1854,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       {/* 文字区域 */}
                       <div
                         style={{
-                          fontSize: gallery.name.length > 20 ? fontSize.sm : fontSize.md,
+                          fontSize: fontSize.md,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
                           whiteSpace: 'nowrap',
@@ -1839,6 +1867,17 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         title={gallery.name}
                       >
                         {gallery.name}
+                      </div>
+                      {/* 次要信息：图片数量 */}
+                      <div
+                        style={{
+                          fontSize: fontSize.xs,
+                          color: colors.textTertiary,
+                          textAlign: 'center',
+                          marginTop: spacing.xs / 2,
+                        }}
+                      >
+                        {gallery.imageCount} 张
                       </div>
                     </div>
                   </Dropdown>

@@ -25,7 +25,7 @@ const ShortcutRow: React.FC<{ label: string; shortcut: string; isLast?: boolean 
     <span style={{ color: colors.textPrimary, fontSize: fontSize.base }}>{label}</span>
     <Tag
       style={{
-        fontFamily: 'monospace',
+        fontFamily: 'var(--font-mono)',
         fontSize: fontSize.sm,
         padding: '2px 8px',
         margin: 0,

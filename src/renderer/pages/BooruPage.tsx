@@ -13,6 +13,7 @@ import {
   RendererBooruPostFavoriteChangedPayload,
   RendererBooruPostServerFavoriteChangedPayload,
 } from '../../shared/types';
+import { colors } from '../styles/tokens';
 import { getBooruPreviewUrl } from '../utils/url';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
@@ -59,6 +60,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     selectedSiteIdRef.current = selectedSiteId;
     blacklistRequestIdRef.current += 1;
   }, [selectedSiteId]);
+  // 批量收藏进行中标记：抑制单张收藏成功 toast，改由批量逻辑统一汇总提示
+  const batchFavoriteInProgressRef = useRef(false);
   // 收藏状态管理
   const { favorites, setFavorites, toggleFavorite, loadFavoritesFromPosts } = useFavorite({
     siteId: selectedSiteId,
@@ -69,7 +72,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
           p.postId === postId ? { ...p, isFavorited } : p
         )
       );
-      message[isFavorited ? 'success' : 'success'](isFavorited ? '已添加收藏' : '已取消收藏');
+      if (!batchFavoriteInProgressRef.current) {
+        message.success(isFavorited ? '已添加收藏' : '已取消收藏');
+      }
     },
     logPrefix: '[BooruPage]'
   });
@@ -459,8 +464,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     }
   }, [toggleFavorite, message]);
 
-  // 处理下载
-  const handleDownload = useCallback(async (post: BooruPost) => {
+  // 处理下载（silent 时不弹单张成功 toast，供批量下载汇总提示使用）
+  const handleDownload = useCallback(async (post: BooruPost, silent?: boolean) => {
     console.log('[BooruPage] 下载图片:', post.postId);
     try {
       if (!window.electronAPI || !selectedSiteId) return;
@@ -468,7 +473,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       const result = await window.electronAPI.booru.addToDownload(post.postId, selectedSiteId);
       if (result.success) {
         console.log('[BooruPage] 已添加到下载队列:', result.data);
-        message.success('已添加到下载队列');
+        if (!silent) message.success('已添加到下载队列');
       } else {
         console.error('[BooruPage] 下载失败:', result.error);
         message.error('下载失败: ' + result.error);
@@ -612,22 +617,33 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
   const handleBatchFavorite = useCallback(async () => {
     if (!selectedSiteId || selectedPosts.length === 0) return;
+    const key = 'booru-batch-favorite';
+    batchFavoriteInProgressRef.current = true;
     let added = 0;
-    for (const post of selectedPosts) {
-      if (!favorites.has(post.postId) && !post.isFavorited) {
-        const result = await toggleFavorite(post);
+    try {
+      const targets = selectedPosts.filter(post => !favorites.has(post.postId) && !post.isFavorited);
+      for (let i = 0; i < targets.length; i++) {
+        // 同 key 更新进度提示，避免逐张弹 toast 风暴
+        message.open({ key, type: 'loading', content: `正在批量收藏 ${i + 1}/${targets.length}`, duration: 0 });
+        const result = await toggleFavorite(targets[i]);
         if (result.success) added += 1;
       }
+    } finally {
+      batchFavoriteInProgressRef.current = false;
     }
-    message.success(`已处理 ${added} 张图片的收藏`);
+    message.open({ key, type: 'success', content: `已处理 ${added} 张图片的收藏`, duration: 2 });
   }, [selectedSiteId, selectedPosts, favorites, toggleFavorite, message]);
 
   const handleBatchDownload = useCallback(async () => {
     if (!selectedSiteId || selectedPosts.length === 0) return;
-    for (const post of selectedPosts) {
-      await handleDownload(post);
+    const key = 'booru-batch-download';
+    const total = selectedPosts.length;
+    for (let i = 0; i < total; i++) {
+      // 同 key 更新进度提示，单张静默加入队列
+      message.open({ key, type: 'loading', content: `正在加入下载队列 ${i + 1}/${total}`, duration: 0 });
+      await handleDownload(selectedPosts[i], true);
     }
-    message.success(`已将 ${selectedPosts.length} 张图片加入下载队列`);
+    message.open({ key, type: 'success', content: `已将 ${total} 张图片加入下载队列`, duration: 2 });
   }, [selectedSiteId, selectedPosts, handleDownload, message]);
 
   const handleAppendSelectedTag = useCallback((tag: string) => {
@@ -712,16 +728,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         selectedSiteId={selectedSiteId}
         loading={loading}
         ratingFilter={ratingFilter}
-        offsetTop={24}
+        offsetTop={appearanceConfig.margin}
         onSiteChange={handleSiteChange}
         onRatingChange={(rating) => {
           console.log('[BooruPage] 分级筛选改变:', rating);
+          // 评级过滤是纯前端筛选（filteredSortedPosts），无需重新请求，保留当前页码
           setRatingFilter(rating);
-          if (isSearchMode) {
-            searchPosts(searchQuery, 1);
-          } else {
-            loadPosts(1);
-          }
         }}
         onRefresh={() => {
           console.log('[BooruPage] 刷新页面');
@@ -773,10 +785,17 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       />
 
       {selectionMode && (
-        <div style={{ padding: '8px 12px', marginBottom: 8, background: 'rgba(52, 199, 89, 0.08)', borderRadius: 8 }}>
+        <div style={{ padding: '8px 12px', marginBottom: 8, background: colors.successBg, borderRadius: 8 }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: selectedPosts.length > 0 ? 8 : 0 }}>
-            <span style={{ fontSize: 13, color: 'rgba(0,0,0,0.65)' }}>已选择 {selectedPosts.length} 张图片</span>
+            <span style={{ fontSize: 13, color: colors.textSecondary }}>已选择 {selectedPosts.length} 张图片</span>
             <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <Button
+                size="small"
+                onClick={() => setSelectedPostIds(new Set(filteredSortedPosts.map(p => p.postId)))}
+                disabled={filteredSortedPosts.length === 0}
+              >
+                全选本页
+              </Button>
               <Button size="small" onClick={handleBatchFavorite} disabled={selectedPosts.length === 0}>批量收藏</Button>
               <Button size="small" onClick={handleBatchDownload} disabled={selectedPosts.length === 0}>批量下载</Button>
               <Button size="small" onClick={() => setSelectedPostIds(new Set())} disabled={selectedPosts.length === 0}>清空选择</Button>
@@ -784,7 +803,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
           </div>
           {commonSelectedTags.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ color: 'rgba(0,0,0,0.45)', fontSize: 12 }}>共同标签:</span>
+              <span style={{ color: colors.textTertiary, fontSize: 12 }}>共同标签:</span>
               {commonSelectedTags.slice(0, 12).map((tag) => (
                 <Tag key={tag} style={{ cursor: 'pointer', marginBottom: 0 }} onClick={() => handleAppendSelectedTag(tag)}>
                   {tag}
@@ -800,18 +819,18 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         <div style={{
           padding: '6px 12px',
           marginBottom: 8,
-          background: 'rgba(22, 119, 255, 0.04)',
+          background: colors.primaryBg,
           borderRadius: 8,
           fontSize: 12,
         }}>
-          <span style={{ color: 'rgba(0,0,0,0.45)', marginRight: 8 }}>相关标签:</span>
+          <span style={{ color: colors.textTertiary, marginRight: 8 }}>相关标签:</span>
           {relatedTags.map(({ tag, count }) => (
             <Tag
               key={tag}
               style={{ cursor: 'pointer', marginBottom: 2 }}
               onClick={() => handleTagClick(tag)}
             >
-              {tag} <span style={{ color: 'rgba(0,0,0,0.3)' }}>{count}</span>
+              {tag} <span style={{ color: colors.textQuaternary }}>{count}</span>
             </Tag>
           ))}
         </div>
@@ -822,12 +841,12 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         <div style={{
           padding: '8px 12px',
           marginBottom: 8,
-          background: 'rgba(255, 59, 48, 0.06)',
+          background: colors.dangerBg,
           borderRadius: 8,
           fontSize: 12,
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
-            <span style={{ color: '#FF3B30' }}>
+            <span style={{ color: colors.danger }}>
               黑名单命中 {blacklistHitStats.size} 个标签
               {(() => {
                 const activeBlacklist = blacklistTagNames.filter(t => !disabledBlacklistTags.has(t));
@@ -871,8 +890,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
                       padding: '1px 6px',
                       borderRadius: 4,
                       cursor: 'pointer',
-                      background: isDisabled ? 'rgba(0,0,0,0.04)' : 'rgba(255, 59, 48, 0.1)',
-                      color: isDisabled ? '#999' : '#FF3B30',
+                      background: isDisabled ? colors.bgGray : colors.dangerBg,
+                      color: isDisabled ? colors.textTertiary : colors.danger,
                       textDecoration: isDisabled ? 'line-through' : 'none',
                       transition: 'all 0.2s',
                     }}
@@ -888,10 +907,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         <div style={{
           padding: '6px 12px',
           marginBottom: 8,
-          background: 'rgba(255, 149, 0, 0.06)',
+          background: colors.warningBg,
           borderRadius: 8,
           fontSize: 12,
-          color: '#FF9500',
+          color: colors.warning,
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center'
@@ -940,19 +959,27 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
           />
         )}
 
+        {/* 空态分流：未配置站点 / 搜索无结果 / 普通空页 */}
         {!loading && posts.length === 0 && (
-          <Empty
-            description={isSearchMode ? '未找到匹配的图片' : '暂无图片'}
-            style={{ marginTop: '100px' }}
-          >
-            <Button
-              type="primary"
-              onClick={() => loadPosts(1)}
-              disabled={!selectedSiteId}
+          sites.length === 0 ? (
+            <Empty
+              description="尚未配置 Booru 站点，请先到 Booru → 站点配置 添加站点"
+              style={{ marginTop: '100px' }}
+            />
+          ) : (
+            <Empty
+              description={isSearchMode ? '未找到匹配的图片' : '暂无图片'}
+              style={{ marginTop: '100px' }}
             >
-              重新加载
-            </Button>
-          </Empty>
+              <Button
+                type="primary"
+                onClick={() => loadPosts(1)}
+                disabled={!selectedSiteId}
+              >
+                重新加载
+              </Button>
+            </Empty>
+          )
         )}
 
         {!loading && posts.length > 0 && (
@@ -968,17 +995,28 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
               onPageChange={handlePageChange}
             />
 
-            <BooruGridLayout
-              posts={filteredSortedPosts}
-              gridSize={appearanceConfig.gridSize}
-              spacing={appearanceConfig.spacing}
-              borderRadius={appearanceConfig.borderRadius}
-              selectedSite={selectedSite || null}
-              onPreview={handlePreview}
-              onDownload={handleDownload}
-              onToggleFavorite={handleToggleFavorite}
-              favorites={favorites}
-              getPreviewUrl={getPreviewUrl}
+            {/* 本页有数据但全部被前端过滤掉时，渲染内联空态而非空白网格 */}
+            {filteredSortedPosts.length === 0 ? (
+              <Empty
+                description="本页图片已全部被评级筛选或黑名单隐藏"
+                style={{ margin: '60px 0' }}
+              >
+                {ratingFilter !== 'all' && (
+                  <Button onClick={() => setRatingFilter('all')}>显示全部评级</Button>
+                )}
+              </Empty>
+            ) : (
+              <BooruGridLayout
+                posts={filteredSortedPosts}
+                gridSize={appearanceConfig.gridSize}
+                spacing={appearanceConfig.spacing}
+                borderRadius={appearanceConfig.borderRadius}
+                selectedSite={selectedSite || null}
+                onPreview={handlePreview}
+                onDownload={handleDownload}
+                onToggleFavorite={handleToggleFavorite}
+                favorites={favorites}
+                getPreviewUrl={getPreviewUrl}
                 onTagClick={handleTagClick}
                 onToggleServerFavorite={selectedSite?.username ? handleToggleServerFavorite : undefined}
                 serverFavorites={serverFavorites}
@@ -986,6 +1024,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
                 selectedPostIds={selectedPostIds}
                 onToggleSelect={(post) => setSelectedPostIds((current) => toggleSelectedPost(current, post.postId))}
               />
+            )}
 
             <PaginationControl
               currentPage={currentPage}

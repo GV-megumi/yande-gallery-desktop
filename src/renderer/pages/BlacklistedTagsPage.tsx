@@ -398,7 +398,7 @@ export const BlacklistedTagsPage: React.FC<BlacklistedTagsPageProps> = ({ active
             添加
           </Button>
           <Button
-            icon={<ImportOutlined />}
+            icon={<PlusOutlined />}
             onClick={() => setBatchAddModalOpen(true)}
           >
             批量添加

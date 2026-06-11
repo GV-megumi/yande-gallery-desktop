@@ -1417,6 +1417,11 @@ async function performDryRun(
 
     const client = createBooruClient(site);
 
+    // 站点服务端 limit 硬上限（Gelbooru 100 / Danbooru 200 / Moebooru 1000）：
+    // 超限请求会被站点静默截断，导致下方"短页即末页"的分页启发式在第 1 页误判终止
+    const SITE_LIMIT_CAP: Record<string, number> = { gelbooru: 100, danbooru: 200, moebooru: 1000 };
+    const effectivePerPage = Math.min(task.perPage, SITE_LIMIT_CAP[site.type] ?? 100);
+
     const tags = task.tags.split(' ').filter(t => t.trim());
     let currentPage = 1;
     let totalPages: number | undefined;
@@ -1448,7 +1453,7 @@ async function performDryRun(
         try {
           posts = await client.getPosts({
         tags: tags,
-        limit: task.perPage,
+        limit: effectivePerPage,
         page: currentPage
       });
           break; // 成功则跳出重试循环
@@ -1486,8 +1491,8 @@ async function performDryRun(
         break;
       }
 
-      // 如果没有设置总页数，尝试从响应中获取
-      if (!totalPages && posts.length < task.perPage) {
+      // 如果没有设置总页数，尝试从响应中获取（与实际请求的 effectivePerPage 比较）
+      if (!totalPages && posts.length < effectivePerPage) {
         totalPages = currentPage;
       }
 
@@ -1567,7 +1572,7 @@ async function performDryRun(
       }
 
       currentPage++;
-      if (posts.length < task.perPage) {
+      if (posts.length < effectivePerPage) {
         hasMore = false;
         if (!totalPages) {
           totalPages = currentPage - 1;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Button, Input, Space } from 'antd';
+import { Button, Input, Space, Tooltip } from 'antd';
 import { SearchOutlined } from '@ant-design/icons';
 import { spacing } from '../styles/tokens';
 
@@ -31,7 +31,9 @@ export const ImageSearchBar: React.FC<ImageSearchBarProps> = ({
           onChange={(e) => onChange(e.target.value)}
           onPressEnter={(e) => onSearch(e.currentTarget.value)}
         />
-        <Button icon={<SearchOutlined />} onClick={() => onSearch(value)} />
+        <Tooltip title="搜索">
+          <Button icon={<SearchOutlined />} onClick={() => onSearch(value)} />
+        </Tooltip>
       </Space.Compact>
     </div>
   );

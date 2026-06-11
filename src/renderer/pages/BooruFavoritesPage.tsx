@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Button, Empty, App, Typography, notification, Input, Modal, Popconfirm } from 'antd';
+import { Button, Empty, App, Typography, notification, Input, Modal, Popconfirm, Tooltip } from 'antd';
 import { BookOutlined, PlusOutlined, EditOutlined, DeleteOutlined, FolderOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
@@ -8,7 +8,7 @@ import { SkeletonGrid } from '../components/SkeletonGrid';
 import { BooruPostDetailsPage } from './BooruPostDetailsPage';
 import { BooruPost, BooruSite } from '../../shared/types';
 import { getBooruPreviewUrl } from '../utils/url';
-import { spacing } from '../styles/tokens';
+import { colors, spacing, radius, transitions } from '../styles/tokens';
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
@@ -45,7 +45,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [groupModalVisible, setGroupModalVisible] = useState(false);
   const [editingGroup, setEditingGroup] = useState<any | null>(null);
   const [newGroupName, setNewGroupName] = useState('');
-  const [groupColor, setGroupColor] = useState('#1677ff');
+  const [groupColor, setGroupColor] = useState<string>(colors.primary);
 
   // 用 ref 持有最新的 posts 长度，避免 onSuccess 回调中的闭包过期
   const postsLengthRef = useRef(posts.length);
@@ -297,14 +297,14 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     },
   });
 
-  // 处理站点切换
+  // 处理站点切换：只重置状态，加载交给 selectedSiteId 的 useEffect 统一触发，
+  // 避免这里直接调用 loadFavorites(1) 与 effect 形成双请求（与 BooruTagSearchPage 模式对齐）
   const handleSiteChange = (siteId: number) => {
     console.log('[BooruFavoritesPage] 切换站点:', siteId);
     setSelectedSiteId(siteId);
     setPosts([]);
     setCurrentPage(1);
     setHasMore(true);
-    loadFavorites(1);
   };
 
   // 处理收藏切换（委托给 useFavorite Hook）
@@ -422,6 +422,28 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
           onPressEnter={handleSaveGroup}
           autoFocus
         />
+        {/* 预设分组颜色：点击色块选中，选中项用描边高亮 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: spacing.sm }}>
+          {[colors.primary, colors.accent, colors.cyan, colors.success, colors.warning, colors.purple].map((presetColor) => (
+            <div
+              key={presetColor}
+              role="button"
+              aria-label={`选择分组颜色 ${presetColor}`}
+              onClick={() => setGroupColor(presetColor)}
+              style={{
+                width: 20,
+                height: 20,
+                borderRadius: radius.round,
+                background: presetColor,
+                cursor: 'pointer',
+                boxShadow: groupColor === presetColor
+                  ? `0 0 0 2px ${colors.bgBase}, 0 0 0 4px ${presetColor}`
+                  : 'none',
+                transition: transitions.fast,
+              }}
+            />
+          ))}
+        </div>
       </div>
     </Modal>
   );
@@ -464,20 +486,36 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
             >
               {g.name}
             </Button>
-            <Button
-              type="text"
-              size="small"
-              icon={<EditOutlined />}
-              style={{ padding: '0 4px', opacity: 0.5 }}
-              onClick={() => { setEditingGroup(g); setNewGroupName(g.name); setGroupColor(g.color || '#1677ff'); setGroupModalVisible(true); }}
-            />
+            <Tooltip title="编辑分组">
+              <Button
+                type="text"
+                size="small"
+                icon={<EditOutlined />}
+                aria-label="编辑分组"
+                style={{ opacity: 0.6, transition: transitions.fast }}
+                onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
+                onClick={() => { setEditingGroup(g); setNewGroupName(g.name); setGroupColor(g.color || colors.primary); setGroupModalVisible(true); }}
+              />
+            </Tooltip>
             <Popconfirm
               title="确定删除该分组？收藏不会被删除"
               onConfirm={() => handleDeleteGroup(g.id)}
               okText="删除"
               cancelText="取消"
             >
-              <Button type="text" size="small" danger icon={<DeleteOutlined />} style={{ padding: '0 4px', opacity: 0.5 }} />
+              <Tooltip title="删除分组">
+                <Button
+                  type="text"
+                  size="small"
+                  danger
+                  icon={<DeleteOutlined />}
+                  aria-label="删除分组"
+                  style={{ opacity: 0.6, transition: transitions.fast }}
+                  onMouseEnter={(e) => { e.currentTarget.style.opacity = '1'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.opacity = '0.6'; }}
+                />
+              </Tooltip>
             </Popconfirm>
           </div>
         ))}
@@ -536,21 +574,32 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
               onPageChange={(page) => loadFavorites(page)}
             />
 
-            <BooruGridLayout
-              posts={filteredSortedPosts}
-              gridSize={appearanceConfig.gridSize}
-              spacing={appearanceConfig.spacing}
-              borderRadius={appearanceConfig.borderRadius}
-              selectedSite={selectedSite || null}
-              onPreview={handlePreview}
-              onDownload={postActions.download}
-              onToggleFavorite={handleToggleFavorite}
-              favorites={favorites}
-              getPreviewUrl={getPreviewUrl}
-              onTagClick={handleTagClick}
-              onToggleServerFavorite={selectedSite?.username ? postActions.toggleServerFavorite : undefined}
-              serverFavorites={postActions.serverFavorites}
-            />
+            {/* 当前页有数据但被评级筛选过滤为空时，给出轻量提示而非空白网格 */}
+            {filteredSortedPosts.length === 0 ? (
+              <Empty
+                image={Empty.PRESENTED_IMAGE_SIMPLE}
+                description="当前页没有符合评级筛选的图片"
+                style={{ margin: `${spacing['3xl']}px 0` }}
+              >
+                <Button onClick={() => setRatingFilter('all')}>显示全部评级</Button>
+              </Empty>
+            ) : (
+              <BooruGridLayout
+                posts={filteredSortedPosts}
+                gridSize={appearanceConfig.gridSize}
+                spacing={appearanceConfig.spacing}
+                borderRadius={appearanceConfig.borderRadius}
+                selectedSite={selectedSite || null}
+                onPreview={handlePreview}
+                onDownload={postActions.download}
+                onToggleFavorite={handleToggleFavorite}
+                favorites={favorites}
+                getPreviewUrl={getPreviewUrl}
+                onTagClick={handleTagClick}
+                onToggleServerFavorite={selectedSite?.username ? postActions.toggleServerFavorite : undefined}
+                serverFavorites={postActions.serverFavorites}
+              />
+            )}
 
             <PaginationControl
               currentPage={currentPage}

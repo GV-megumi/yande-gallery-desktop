@@ -4,7 +4,7 @@
  */
 
 import React from 'react';
-import { colors, spacing, radius, shadows } from '../styles/tokens';
+import { colors, spacing, radius, shadows, layout } from '../styles/tokens';
 
 interface SkeletonGridProps {
   /** 卡片数量（默认 12） */
@@ -77,7 +77,7 @@ export const SkeletonWaterfall: React.FC<{ count?: number }> = ({ count = 8 }) =
   return (
     <div style={{
       columnWidth: 220,
-      columnGap: 16,
+      columnGap: layout.cardGap,
     }}>
       {heights.map((h, i) => (
         <div
@@ -87,7 +87,7 @@ export const SkeletonWaterfall: React.FC<{ count?: number }> = ({ count = 8 }) =
             width: '100%',
             height: h,
             borderRadius: radius.md,
-            marginBottom: 16,
+            marginBottom: layout.cardGap,
             breakInside: 'avoid',
             boxShadow: shadows.subtle,
           }}

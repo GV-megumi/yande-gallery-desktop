@@ -8,7 +8,7 @@
  */
 
 import React, { useCallback, useEffect, useState, useMemo, useRef } from 'react';
-import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Tabs } from 'antd';
+import { Card, Button, Space, App, Modal, Empty, Spin, List, Popconfirm, Tag, Tabs, Tooltip } from 'antd';
 import {
   DownloadOutlined,
   PlusOutlined,
@@ -408,8 +408,9 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
     loadSessions();
   };
 
+  // 页面内边距统一由 BooruDownloadHubPage 根容器提供，避免与 Segmented 切换栏错位
   return (
-    <div style={{ padding: '24px' }}>
+    <div>
       <Card
         title={
           <Space>
@@ -459,6 +460,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
                       <BulkDownloadSessionCard
                         key={session.id}
                         session={session}
+                        siteName={sites.find(s => s.id === session.siteId)?.name}
                         onRefresh={loadSessions}
                       />
                     ))}
@@ -481,6 +483,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
                       <BulkDownloadSessionCard
                         key={session.id}
                         session={session}
+                        siteName={sites.find(s => s.id === session.siteId)?.name}
                         onRefresh={loadSessions}
                       />
                     ))}
@@ -527,11 +530,15 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
                                 okText="确定"
                                 cancelText="取消"
                               >
-                                <Button
-                                  danger
-                                  size="small"
-                                  icon={<DeleteOutlined />}
-                                />
+                                {/* Tooltip 放在 Popconfirm 内层，避免两个浮层触发冲突 */}
+                                <Tooltip title="删除任务">
+                                  <Button
+                                    danger
+                                    size="small"
+                                    icon={<DeleteOutlined />}
+                                    aria-label="删除任务"
+                                  />
+                                </Tooltip>
                               </Popconfirm>
                             </Space>
                           ]}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Modal, Space, Button, Tooltip, Slider } from 'antd';
-import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined, RotateLeftOutlined, RotateRightOutlined, BorderOutlined } from '@ant-design/icons';
+import { LeftOutlined, RightOutlined, CloseOutlined, PlayCircleOutlined, PauseCircleOutlined, RotateLeftOutlined, RotateRightOutlined, BorderOutlined, PictureOutlined, ReloadOutlined } from '@ant-design/icons';
 
 // 检测是否为视频格式
 const VIDEO_EXTENSIONS = new Set(['mp4', 'webm', 'mkv', 'mov', 'avi']);
@@ -20,7 +20,7 @@ import { RelatedPostsSection } from '../components/BooruPostDetails/RelatedPosts
 import { CommentSection } from '../components/BooruPostDetails/CommentSection';
 import { NotesOverlay } from '../components/BooruPostDetails/NotesOverlay';
 import { PostHistorySection } from '../components/BooruPostDetails/PostHistorySection';
-import { colors, spacing, radius, fontSize } from '../styles/tokens';
+import { colors, spacing, radius, fontSize, transitions } from '../styles/tokens';
 import { buildViewerTransform, getComparablePreviewUrl, rotateBy } from '../utils/viewerControls';
 
 interface BooruPostDetailsPageProps {
@@ -88,6 +88,12 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const imageRequestIdRef = useRef(0);
   // 记录当前回退链中已失败的图片 URL，避免 onError 在 sample/preview 之间无限往返重试
   const failedImageUrlsRef = useRef<Set<string>>(new Set());
+  // 图片加载失败终态：回退链全部耗尽时置 true，渲染错误占位并提供重试
+  const [imageLoadError, setImageLoadError] = useState(false);
+  // 当前 imageUrl 是否仅为切换帖子时的预览图占位（占位期间不渲染注释层等依赖最终图的内容）
+  const [isImagePlaceholder, setIsImagePlaceholder] = useState(false);
+  // 重试令牌：点击重试时递增，重新触发图片加载流程
+  const [imageRetryToken, setImageRetryToken] = useState(0);
   const [imageMetadata, setImageMetadata] = useState<{
     format?: string;
     width?: number;
@@ -106,6 +112,32 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [slideshowActive, setSlideshowActive] = useState(false);
   const [slideshowInterval, setSlideshowInterval] = useState(5); // 秒
   const slideshowTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // 幻灯片控制条自动隐藏：查看区 2 秒无鼠标移动视为空闲
+  const [controlsIdle, setControlsIdle] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 标记查看区活跃，重置空闲计时（同值 setState 会被 React 跳过，频繁调用开销可忽略）
+  const markViewerActivity = useCallback(() => {
+    setControlsIdle(false);
+    if (idleTimerRef.current) {
+      clearTimeout(idleTimerRef.current);
+    }
+    idleTimerRef.current = setTimeout(() => setControlsIdle(true), 2000);
+  }, []);
+
+  // 打开详情页时启动一次空闲计时；关闭/卸载时清理计时器
+  useEffect(() => {
+    if (open) {
+      markViewerActivity();
+    }
+    return () => {
+      if (idleTimerRef.current) {
+        clearTimeout(idleTimerRef.current);
+        idleTimerRef.current = null;
+      }
+    };
+  }, [open, markViewerActivity]);
 
   // 记录已同步的 postId，用于区分"索引未同步"和"用户手动导航"
   const [syncedPostId, setSyncedPostId] = useState<number | null>(null);
@@ -228,7 +260,13 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     const isCurrentRequest = () => !cancelled && imageRequestIdRef.current === requestId;
     const clearImageForRequest = () => {
       if (!isCurrentRequest()) return;
-      setImageUrl('');
+      // 切换帖子时先用预览图/样张占位，避免原图就绪前出现黑屏闪烁；
+      // 视频帖子无法用图片占位（渲染分支会把 imageUrl 当视频源），保持为空
+      const placeholderUrl = currentPost && !isVideoPost(currentPost)
+        ? (currentPost.previewUrl || currentPost.sampleUrl || '')
+        : '';
+      setImageUrl(placeholderUrl);
+      setIsImagePlaceholder(!!placeholderUrl);
       setActiveImageRequestId(requestId);
       setActiveImagePostId(currentPost?.postId ?? null);
     };
@@ -240,6 +278,10 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     const commitImageUrl = (url: string) => {
       if (!isCurrentRequest()) return false;
       setImageUrl(url);
+      setIsImagePlaceholder(false);
+      // 占位图直连失败与主进程加载成功存在竞态：成功提交时必须清除失败终态，
+      // 否则错误占位会永久遮住已加载成功的图片
+      setImageLoadError(false);
       setImageVersion((value) => value + 1);
       setActiveImageRequestId(requestId);
       setActiveImagePostId(currentPost?.postId ?? null);
@@ -248,6 +290,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
 
     clearImageForRequest();
     setCachingForRequest(false);
+    // 切换帖子或重试时重置加载失败终态
+    setImageLoadError(false);
 
     if (!open || !currentPost) {
       return () => {
@@ -337,7 +381,15 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [imageLoadKey]);
+  }, [imageLoadKey, imageRetryToken]);
+
+  // 重试加载：清空失败记录并重新触发加载流程
+  const handleRetryImage = useCallback(() => {
+    console.log('[BooruPostDetailsPage] 用户点击重试，重新加载图片');
+    failedImageUrlsRef.current = new Set();
+    setImageLoadError(false);
+    setImageRetryToken((value) => value + 1);
+  }, []);
 
   // 预加载前后3张图片（带并发控制和取消机制）
   useEffect(() => {
@@ -473,6 +525,9 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     if (!open) return;
 
     const handleKeyDown = (e: KeyboardEvent) => {
+      // 焦点在输入框/可编辑区域时不响应快捷键，避免评论输入时左右键误触翻页
+      const el = e.target as HTMLElement;
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable) return;
       if (e.key === 'ArrowLeft') {
         e.preventDefault();
         handlePrevious();
@@ -520,13 +575,42 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
     }
   }, [open]);
 
-  // 图片缩放
-  const handleWheel = (e: React.WheelEvent) => {
-    if (e.ctrlKey || e.metaKey) {
-      e.preventDefault();
-      const delta = e.deltaY > 0 ? -0.1 : 0.1;
-      setImageScale(prev => Math.max(0.5, Math.min(3, prev + delta)));
+  // 以光标为锚点缩放：补偿 position 使光标下的图片内容在缩放前后保持不动。
+  // 仅在未旋转/未翻转时补偿（旋转后坐标系转换复杂，退化为居中缩放）
+  const applyZoom = (e: React.MouseEvent | React.WheelEvent, prevScale: number, nextScale: number) => {
+    if (nextScale === prevScale) return;
+    if (rotation === 0 && !flipX && !flipY) {
+      // 图片居中显示，光标坐标转换为相对容器中心（即图片变换原点）的偏移
+      const rect = e.currentTarget.getBoundingClientRect();
+      const cursorX = e.clientX - rect.left - rect.width / 2;
+      const cursorY = e.clientY - rect.top - rect.height / 2;
+      const ratio = nextScale / prevScale;
+      setImagePosition(prev => ({
+        x: cursorX - ratio * (cursorX - prev.x),
+        y: cursorY - ratio * (cursorY - prev.y),
+      }));
     }
+    setImageScale(nextScale);
+  };
+
+  // 图片缩放：查看区无滚动需求（overflow hidden），普通滚轮直接缩放，无需按住 Ctrl
+  const handleWheel = (e: React.WheelEvent) => {
+    const delta = e.deltaY > 0 ? -0.1 : 0.1;
+    const nextScale = Math.max(0.5, Math.min(3, imageScale + delta));
+    applyZoom(e, imageScale, nextScale);
+  };
+
+  // 双击在适配（1x，位置归零）与 2 倍之间切换
+  const handleDoubleClick = (e: React.MouseEvent) => {
+    if (isVideoPost(currentPost)) return;
+    // 忽略来自按钮/滑杆的双击冒泡（如快速连点翻页按钮），避免误触缩放
+    if ((e.target as HTMLElement).closest('button, .ant-slider')) return;
+    if (imageScale !== 1) {
+      setImageScale(1);
+      setImagePosition({ x: 0, y: 0 });
+      return;
+    }
+    applyZoom(e, imageScale, 2);
   };
 
   // 图片拖拽
@@ -538,6 +622,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   };
 
   const handleMouseMove = (e: React.MouseEvent) => {
+    // 任何鼠标移动都视为活跃，重置幻灯片控制条的自动隐藏计时
+    markViewerActivity();
     if (isDragging && imageScale > 1) {
       setImagePosition({
         x: e.clientX - dragStart.x,
@@ -627,6 +713,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               cursor: imageScale > 1 ? 'move' : 'default'
             }}
             onWheel={handleWheel}
+            onDoubleClick={handleDoubleClick}
             onMouseDown={handleMouseDown}
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUp}
@@ -774,6 +861,21 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   </div>
                 ))}
               </div>
+            ) : imageLoadError ? (
+              /* 图片加载失败终态占位（查看区始终为黑色背景，文字使用半透明白） */
+              <div style={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: spacing.md,
+                color: 'rgba(255, 255, 255, 0.65)',
+              }}>
+                <PictureOutlined style={{ fontSize: 48 }} />
+                <span style={{ fontSize: fontSize.base }}>图片加载失败</span>
+                <Button icon={<ReloadOutlined />} onClick={handleRetryImage}>
+                  重试
+                </Button>
+              </div>
             ) : imageUrl ? (
               /* 图片查看器 */
               <img
@@ -808,6 +910,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   if (img.src) failedUrls.add(img.src);
                   const commitFallbackImageUrl = (url: string) => {
                     setImageUrl(url);
+                    setIsImagePlaceholder(false);
                     setImageVersion((value) => value + 1);
                     setActiveImageRequestId(activeImageRequestId);
                     setActiveImagePostId(currentPost?.postId ?? null);
@@ -821,8 +924,9 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   ] : [];
                   const fallback = fallbackOptions.find(({ url }) => !failedUrls.has(url));
                   if (!fallback) {
-                    // 所有候选 URL 均已失败，停止重试，保留当前失败状态（不再触发网络请求）
+                    // 所有候选 URL 均已失败，进入加载失败终态，渲染错误占位（不再触发网络请求）
                     console.warn('[BooruPostDetailsPage] 所有候选图片 URL 均加载失败，停止重试:', currentPost?.postId);
+                    setImageLoadError(true);
                     return;
                   }
 
@@ -839,8 +943,8 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               />
             ) : null}
 
-            {/* 注释叠加层（仅图片帖子显示） */}
-            {imageUrl && !compareMode && !isVideoPost(currentPost) && (
+            {/* 注释叠加层（仅图片帖子显示；占位图阶段不渲染，等最终图就绪） */}
+            {imageUrl && !isImagePlaceholder && !imageLoadError && !compareMode && !isVideoPost(currentPost) && (
               <NotesOverlay
                 key={`${currentPost.postId}:${activeImageRequestId}:${imageVersion}`}
                 post={currentPost}
@@ -848,7 +952,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               />
             )}
 
-            {/* 幻灯片控制条 — 底部中央悬浮 */}
+            {/* 幻灯片控制条 — 底部中央悬浮；空闲 2 秒且未在播放时自动淡出（页码与顶栏重复，已移除） */}
             {posts.length > 1 && (
               <div style={{
                 position: 'absolute',
@@ -863,6 +967,9 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                 padding: '6px 16px',
                 zIndex: 10,
                 backdropFilter: 'blur(8px)',
+                opacity: controlsIdle && !slideshowActive ? 0 : 1,
+                pointerEvents: controlsIdle && !slideshowActive ? 'none' : 'auto',
+                transition: transitions.opacity,
               }}>
                 <Tooltip title={slideshowActive ? '暂停' : '自动播放'}>
                   <Button
@@ -885,9 +992,6 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
                   style={{ width: 80, margin: 0 }}
                   tooltip={{ formatter: (val) => `${val}秒` }}
                 />
-                <span style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11 }}>
-                  {currentIndex + 1}/{posts.length}
-                </span>
               </div>
             )}
           </div>
@@ -905,6 +1009,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
               <InformationSection
                 post={currentPost}
                 site={site}
+                onArtistClick={onArtistClick}
               />
 
               {/* 工具栏 */}

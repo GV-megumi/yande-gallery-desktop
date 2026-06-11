@@ -8,21 +8,23 @@ import {
   Input,
   Switch,
   Space,
-  message as antdMessage,
   Tabs,
   Select,
   InputNumber,
   Divider,
   Tag,
-  Popconfirm,
   App,
   Slider,
   Typography,
-  Alert
+  Alert,
+  Spin,
+  Dropdown,
+  Tooltip
 } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined, UserOutlined, LockOutlined, LoginOutlined, LogoutOutlined, CheckCircleOutlined } from '@ant-design/icons';
+import { PlusOutlined, EditOutlined, DeleteOutlined, CloudOutlined, ApiOutlined, BgColorsOutlined, FileTextOutlined, InfoCircleOutlined, UserOutlined, LockOutlined, LoginOutlined, LogoutOutlined, CheckCircleOutlined, MinusCircleOutlined, MoreOutlined } from '@ant-design/icons';
 import { BooruSite } from '../../shared/types';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
+import { colors, radius, layout } from '../styles/tokens';
 
 const { Option } = Select;
 const { Text, Paragraph } = Typography;
@@ -94,7 +96,12 @@ const CacheStatsDisplay: React.FC = () => {
   }, []);
 
   if (!stats) {
-    return null;
+    // 统计未就绪时渲染占位 Spin，避免加载完成后布局跳动
+    return (
+      <Form.Item label="当前缓存状态">
+        <Spin size="small" />
+      </Form.Item>
+    );
   }
 
   return (
@@ -137,9 +144,11 @@ const SUPPORTED_TOKENS = [
 ];
 
 export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [loading, setLoading] = useState(false);
+  // 正在测试连接的站点 ID（null 表示空闲），用于防止并发测试
+  const [testingSiteId, setTestingSiteId] = useState<number | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingSite, setEditingSite] = useState<BooruSite | null>(null);
   const [form] = Form.useForm();
@@ -609,7 +618,9 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   // 测试连接
   const handleTestConnection = async (site: BooruSite) => {
     console.log('[BooruSettingsPage] 测试站点连接:', site.name);
-    message.info('正在测试连接...');
+    // 已有测试进行中：忽略本次触发
+    if (testingSiteId !== null) return;
+    setTestingSiteId(site.id);
 
     try {
       if (!window.electronAPI) return;
@@ -626,6 +637,8 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
     } catch (error) {
       console.error('[BooruSettingsPage] 连接测试失败:', error);
       message.error('连接失败: ' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      setTestingSiteId(null);
     }
   };
 
@@ -729,7 +742,9 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
       dataIndex: 'favoriteSupport',
       key: 'favoriteSupport',
       render: (support: boolean) => (
-        <span>{support ? '✅' : '❌'}</span>
+        support
+          ? <CheckCircleOutlined style={{ color: colors.success }} />
+          : <MinusCircleOutlined style={{ color: colors.textTertiary }} />
       )
     },
     {
@@ -765,34 +780,58 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
               登录
             </Button>
           )}
-          <Button
-            size="small"
-            icon={<ApiOutlined />}
-            onClick={() => handleTestConnection(record)}
+          {/* 低频操作收进更多菜单：测试 / 编辑 / 删除 */}
+          <Dropdown
+            trigger={['click']}
+            menu={{
+              items: [
+                {
+                  key: 'test',
+                  icon: <ApiOutlined />,
+                  label: '测试连接',
+                  disabled: testingSiteId !== null,
+                },
+                {
+                  key: 'edit',
+                  icon: <EditOutlined />,
+                  label: '编辑',
+                },
+                { type: 'divider' },
+                {
+                  key: 'delete',
+                  icon: <DeleteOutlined />,
+                  label: '删除',
+                  danger: true,
+                },
+              ],
+              onClick: ({ key }) => {
+                if (key === 'test') {
+                  void handleTestConnection(record);
+                } else if (key === 'edit') {
+                  handleEditSite(record);
+                } else if (key === 'delete') {
+                  // 删除是破坏性操作：保留二次确认
+                  modal.confirm({
+                    title: '确定要删除这个站点吗？',
+                    content: `站点 "${record.name}" 删除后无法恢复`,
+                    okText: '删除',
+                    cancelText: '取消',
+                    okButtonProps: { danger: true },
+                    onOk: () => handleDeleteSite(record),
+                  });
+                }
+              },
+            }}
           >
-            测试
-          </Button>
-          <Button
-            size="small"
-            icon={<EditOutlined />}
-            onClick={() => handleEditSite(record)}
-          >
-            编辑
-          </Button>
-          <Popconfirm
-            title="确定要删除这个站点吗？"
-            onConfirm={() => handleDeleteSite(record)}
-            okText="确定"
-            cancelText="取消"
-          >
-            <Button
-              size="small"
-              danger
-              icon={<DeleteOutlined />}
-            >
-              删除
-            </Button>
-          </Popconfirm>
+            <Tooltip title="更多操作">
+              <Button
+                size="small"
+                icon={<MoreOutlined />}
+                aria-label="更多操作"
+                loading={testingSiteId === record.id}
+              />
+            </Tooltip>
+          </Dropdown>
         </Space>
       )
     }
@@ -807,7 +846,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
   }, []);
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: layout.contentPadding }}>
       <Tabs
         activeKey={activeTab}
         onChange={setActiveTab}
@@ -998,24 +1037,18 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
                   <Form.Item
                     label="缓存目录最大大小"
+                    name="maxCacheSizeMB"
                     tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
+                    rules={[
+                      { type: 'integer', min: 100, message: '缓存上限不能小于 100 MB' },
+                    ]}
                   >
-                    <Space.Compact style={{ width: '100%' }}>
-                      <Form.Item
-                        name="maxCacheSizeMB"
-                        noStyle
-                        rules={[
-                          { type: 'integer', min: 100, message: '缓存上限不能小于 100 MB' },
-                        ]}
-                      >
-                        <InputNumber
-                          min={100}
-                          step={100}
-                          style={{ width: '100%' }}
-                        />
-                      </Form.Item>
-                      <Button disabled style={{ cursor: 'default' }}>MB</Button>
-                    </Space.Compact>
+                    <InputNumber
+                      min={100}
+                      step={100}
+                      style={{ width: '100%' }}
+                      addonAfter="MB"
+                    />
                   </Form.Item>
 
                   <CacheStatsDisplay />
@@ -1119,7 +1152,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
                   <Divider orientation="left" style={{ marginTop: 32 }}>使用示例</Divider>
 
-                  <div style={{ background: 'var(--ant-color-bg-layout, #F2F2F7)', padding: 16, borderRadius: 14, fontFamily: 'monospace', fontSize: '13px' }}>
+                  <div style={{ background: colors.bgGray, padding: 16, borderRadius: radius.md, fontFamily: 'var(--font-mono)', fontSize: '13px' }}>
                     <Paragraph>
                       <Text strong>简单：</Text> <Text code>{`{id}_{md5}.{extension}`}</Text> → 123456_abc123.jpg
                     </Paragraph>
@@ -1184,7 +1217,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
         forceRender
       >
         <Alert
-          message="登录后可以使用喜欢、投票和评论功能"
+          message="登录后可使用收藏等账号功能"
           type="info"
           showIcon
           style={{ marginBottom: 16 }}
@@ -1210,7 +1243,7 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
             label="用户名"
             rules={[{ required: true, message: '请输入用户名' }]}
           >
-            <Input prefix={<UserOutlined />} placeholder="你的 Yande.re 用户名" />
+            <Input prefix={<UserOutlined />} placeholder={`你的 ${loginSite?.name || '站点'} 用户名`} />
           </Form.Item>
 
           <Form.Item
@@ -1304,9 +1337,9 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
 
           <Divider orientation="left">其他选项</Divider>
 
-          <Form.Item name="favoriteSupport" valuePropName="checked">
+          {/* Form.Item 必须保持单子元素，否则 value/onChange 绑定会失效 */}
+          <Form.Item name="favoriteSupport" label="支持收藏功能" valuePropName="checked">
             <Switch checkedChildren="支持" unCheckedChildren="不支持" />
-            <span style={{ marginLeft: 8 }}>支持收藏功能</span>
           </Form.Item>
 
           <Form.Item>

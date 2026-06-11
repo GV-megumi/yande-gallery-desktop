@@ -1,10 +1,9 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Space, Button, App, Tooltip, Tag, Typography, Dropdown } from 'antd';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Space, Button, App, Tooltip, Tag, Typography, Dropdown, Input } from 'antd';
 import {
   BookOutlined,
   BookFilled,
   DownloadOutlined,
-  PlayCircleOutlined,
   ShareAltOutlined,
   LikeOutlined,
   LikeFilled,
@@ -21,6 +20,28 @@ import {
 import { BooruPost, BooruSite } from '../../../shared/types';
 import { useLocale } from '../../locales';
 import { useBooruDomainEvents } from '../../hooks/useBooruDomainEvents';
+import { colors } from '../../styles/tokens';
+
+/**
+ * 举报原因输入框（受控小组件）
+ * modal.confirm 的 content 不会随外部 state 重渲染，
+ * 因此由该组件持有自身受控 state，并通过 onChange 将最新值上报给调用方
+ */
+const ReportReasonInput: React.FC<{ onChange: (value: string) => void }> = ({ onChange }) => {
+  const [value, setValue] = useState('');
+  return (
+    <Input.TextArea
+      rows={3}
+      placeholder="请输入举报原因"
+      value={value}
+      onChange={(e) => {
+        setValue(e.target.value);
+        onChange(e.target.value);
+      }}
+      style={{ marginTop: 8 }}
+    />
+  );
+};
 
 interface ToolbarProps {
   post: BooruPost;
@@ -45,7 +66,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   isServerFavorited: externalServerFavorited,
   onToggleServerFavorite
 }) => {
-  const { message } = App.useApp();
+  const { message, modal } = App.useApp();
   const { t } = useLocale();
   const [voteState, setVoteState] = useState<1 | 0 | -1>(0);
   // 如果外部传入了 isServerFavorited，使用外部状态；否则用内部状态
@@ -58,6 +79,9 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   // 收藏用户列表
   const [favoriteUsers, setFavoriteUsers] = useState<string[]>([]);
   const [favoriteUsersExpanded, setFavoriteUsersExpanded] = useState(false);
+
+  // 举报原因（由弹窗内受控输入框上报最新值）
+  const reportReasonRef = useRef('');
 
   // 是否已登录
   const isLoggedIn = !!site?.authenticated;
@@ -170,12 +194,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
     }
   }, [onToggleServerFavorite, isLoggedIn, site, serverFavorited, post, message, t]);
 
-  const handleSlideshow = useCallback(() => {
-    console.log('[Toolbar] 开始幻灯片播放');
-    message.info(t('details.slideshowDev'));
-  }, [message, t]);
-
-  const handleReportPost = useCallback(async () => {
+  const handleReportPost = useCallback(() => {
     if (!site || site.type !== 'danbooru') {
       message.warning('当前站点暂不支持举报');
       return;
@@ -185,23 +204,37 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
       return;
     }
 
-    const reason = window.prompt('请输入举报原因');
-    if (!reason || !reason.trim()) {
-      return;
-    }
-
-    try {
-      const result = await window.electronAPI.booru.reportPost(site.id, post.postId, reason.trim());
-      if (result.success) {
-        message.success('举报已提交');
-      } else {
-        message.error('举报失败: ' + result.error);
-      }
-    } catch (error) {
-      console.error('[Toolbar] 举报帖子失败:', error);
-      message.error('举报失败');
-    }
-  }, [site, isLoggedIn, post.postId, message]);
+    // Electron 渲染进程不支持 window.prompt，改用确认弹窗内嵌受控输入框收集举报原因
+    reportReasonRef.current = '';
+    modal.confirm({
+      title: '举报帖子',
+      icon: <WarningOutlined />,
+      content: <ReportReasonInput onChange={(value) => { reportReasonRef.current = value; }} />,
+      okText: '提交',
+      cancelText: '取消',
+      // onOk 返回 Promise，确认按钮自动进入 loading；reject 时弹窗保持打开
+      onOk: async () => {
+        const reason = reportReasonRef.current.trim();
+        if (!reason) {
+          message.warning('请输入举报原因');
+          return Promise.reject(new Error('举报原因不能为空'));
+        }
+        try {
+          const result = await window.electronAPI.booru.reportPost(site.id, post.postId, reason);
+          if (result.success) {
+            message.success('举报已提交');
+          } else {
+            message.error('举报失败: ' + result.error);
+            return Promise.reject(new Error(result.error || '举报失败'));
+          }
+        } catch (error) {
+          console.error('[Toolbar] 举报帖子失败:', error);
+          message.error('举报失败');
+          return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+    });
+  }, [site, isLoggedIn, post.postId, message, modal]);
 
   const copyToClipboard = useCallback((text: string, successMsg: string) => {
     if (!text) { message.warning('链接不可用'); return; }
@@ -240,7 +273,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
   const supportsFavorite = site?.favoriteSupport ?? false;
 
   return (
-    <div style={{ marginBottom: '24px', paddingBottom: '16px', borderBottom: '1px solid #f0f0f0' }}>
+    <div style={{ marginBottom: '24px', paddingBottom: '16px', borderBottom: `1px solid ${colors.separator}` }}>
       {/* 主操作行：收藏、喜欢、投票 */}
       <Space wrap style={{ marginBottom: 8 }}>
         {supportsFavorite && (
@@ -261,7 +294,7 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
               icon={serverFavorited ? <HeartFilled /> : <HeartOutlined />}
               onClick={handleServerFavorite}
               loading={serverFavLoading}
-              style={serverFavorited ? { background: '#ff4d4f', borderColor: '#ff4d4f' } : undefined}
+              style={serverFavorited ? { background: colors.accent, borderColor: colors.accent } : undefined}
             >
               {serverFavorited ? t('details.liked') : t('details.like')}
             </Button>
@@ -306,19 +339,13 @@ export const Toolbar: React.FC<ToolbarProps> = React.memo(({
         )}
       </Space>
 
-      {/* 次操作行：下载、幻灯片、分享 */}
+      {/* 次操作行：下载、分享（幻灯片入口已移除，统一使用查看区底部的幻灯片控制条） */}
       <Space wrap>
         <Button
           icon={<DownloadOutlined />}
           onClick={handleDownload}
         >
           {t('details.download')}
-        </Button>
-        <Button
-          icon={<PlayCircleOutlined />}
-          onClick={handleSlideshow}
-        >
-          {t('details.slideshow')}
         </Button>
         <Dropdown menu={{ items: shareMenuItems }} trigger={['click']}>
           <Button icon={<ShareAltOutlined />}>

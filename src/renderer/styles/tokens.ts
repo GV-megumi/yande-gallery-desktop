@@ -318,7 +318,7 @@ export const layout = {
   /** 侧边栏宽度 */
   sidebarWidth: 240,
   /** 侧边栏折叠宽度 */
-  sidebarCollapsedWidth: 72,
+  sidebarCollapsedWidth: 64,
   /** 标题栏高度 */
   headerHeight: 56,
   /** 工具栏高度 */

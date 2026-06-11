@@ -167,7 +167,7 @@ export const BooruPageToolbar: React.FC<BooruPageToolbarProps> = React.memo(({
     setHistoryOpen(false);
     setTagSuggestions([]);
     onSearch?.(value);
-    setTimeout(loadSearchHistory, 500);
+    // 搜索历史由 onSearchHistoryChanged 领域事件驱动刷新，无需延时手动拉取
   };
 
   const handleSelectTag = (tagName: string) => {
@@ -267,12 +267,14 @@ export const BooruPageToolbar: React.FC<BooruPageToolbarProps> = React.memo(({
                   size="middle"
                 />
               </AutoComplete>
-              <Button
-                icon={<SearchOutlined />}
-                onClick={() => handleSearch(searchQuery)}
-                disabled={!selectedSiteId || loading}
-                size="middle"
-              />
+              <Tooltip title="搜索">
+                <Button
+                  icon={<SearchOutlined />}
+                  onClick={() => handleSearch(searchQuery)}
+                  disabled={!selectedSiteId || loading}
+                  size="middle"
+                />
+              </Tooltip>
             </Space.Compact>
             <SearchSyntaxHelp />
           </div>

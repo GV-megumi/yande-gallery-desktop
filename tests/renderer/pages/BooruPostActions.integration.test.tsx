@@ -441,7 +441,7 @@ describe('TP-11 试点页面动作桥接', () => {
     expect(searchPools).not.toHaveBeenCalled();
     expect(getPools).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole('button', { name: /search/i }));
+    fireEvent.click(screen.getByRole('button', { name: '搜索 Pool' }));
 
     await waitFor(() => {
       expect(searchPools).toHaveBeenCalledWith(1, 'abc', 1);
