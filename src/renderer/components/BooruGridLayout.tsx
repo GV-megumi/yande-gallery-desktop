@@ -57,10 +57,13 @@ export const BooruGridLayout: React.FC<BooruGridLayoutProps> = React.memo(({
   const containerRef = useRef<HTMLDivElement>(null);
   const [columnCount, setColumnCount] = useState(5);
   const [containerWidth, setContainerWidth] = useState(0);
-  // 记录上一次 posts 引用，仅在 posts 真正变化时播放入场动画
-  const prevPostsRef = useRef<BooruPost[]>(posts);
-  const shouldAnimate = prevPostsRef.current !== posts;
-  useEffect(() => { prevPostsRef.current = posts; }, [posts]);
+  // 以帖子 ID 序列标识内容集合：仅在集合变化（翻页/搜索/换站点）时播放入场动画。
+  // 收藏/喜欢等单帖字段更新会经 setPosts(prev.map(...)) 产生新数组引用，
+  // 若按引用比较会误判为新内容、整格重播动画，表现为全网格闪烁（像图片全部重新加载）
+  const postsIdsKey = useMemo(() => posts.map(p => p.id).join('|'), [posts]);
+  const prevIdsKeyRef = useRef(postsIdsKey);
+  const shouldAnimate = prevIdsKeyRef.current !== postsIdsKey;
+  useEffect(() => { prevIdsKeyRef.current = postsIdsKey; }, [postsIdsKey]);
 
   // 根据容器宽度和 gridSize 计算列数（rAF 防抖避免连续 resize 频繁重算）
   useEffect(() => {
