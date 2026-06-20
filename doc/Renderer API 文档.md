@@ -83,9 +83,10 @@
 
 面向配置读取、保存和配置事件。
 
+> 注：本地图库不再走配置层，改由 `gallery` 域 CRUD（`createGallery` / `deleteGallery` / `updateGallery`）管理。
+
 - `get()`：获取当前去敏 `RendererSafeAppConfig`
 - `save(newConfig)`：保存配置
-- `updateGalleryFolders(folders)`：更新图库目录配置
 - `reload()`：重新加载配置
 - `getNotifications()` / `setNotifications(patch)`：桌面通知分域读写
 - `getDesktop()` / `setDesktop(patch)`：桌面行为分域读写
