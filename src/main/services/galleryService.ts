@@ -8,6 +8,7 @@ import {
   emitGalleryGalleriesChanged,
   emitGalleryIgnoredFoldersChanged,
 } from './appEventPublisher.js';
+import { addGalleryRoot, removeGalleryRoot } from './galleryRootRegistry.js';
 
 // 图库类型
 export interface Gallery {
@@ -197,6 +198,7 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
 
     const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
 
+    addGalleryRoot(folderPath);
     emitGalleryGalleriesChanged({ galleryId: result?.id, action: 'created', folderPath });
 
     return { success: true, data: result?.id };
@@ -396,6 +398,7 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       );
     });
 
+    removeGalleryRoot(normalized);
     emitGalleryGalleriesChanged({ galleryId: id, action: 'deleted', folderPath: normalized });
     emitGalleryIgnoredFoldersChanged({ action: 'created', folderPath: normalized, affectedCount: 1 });
 
