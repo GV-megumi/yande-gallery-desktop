@@ -18,7 +18,6 @@ interface GalleryRow {
   id?: number;          // DB 图库 id
   path: string;         // 对应 DB folderPath
   name: string;
-  autoScan: boolean;
   recursive: boolean;
   extensions: string[];
   imageCount?: number;
@@ -415,13 +414,15 @@ export const SettingsPage: React.FC = () => {
               id: g.id,
               path: g.folderPath,
               name: g.name,
-              autoScan: Boolean(g.isWatching),
               recursive: Boolean(g.recursive),
               extensions: Array.isArray(g.extensions) ? g.extensions : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
               imageCount: g.imageCount,
               isWatching: Boolean(g.isWatching),
             }))
           );
+        } else {
+          console.error('[SettingsPage] 加载图库列表失败', galleriesResult.error);
+          message.error(galleriesResult.error || '加载图库列表失败');
         }
         const dp = config.downloads?.path || './downloads';
         const ts = config.thumbnails?.maxWidth || 800;
@@ -527,7 +528,7 @@ export const SettingsPage: React.FC = () => {
   // 删除图库：modal.confirm 做确认，「彻底删除」清记录+缩略图（磁盘原图保留）
   const handleDeleteFolder = (index: number) => {
     const target = folders[index];
-    if (target?.id === undefined) {
+    if (target?.id == null) {
       // 无 DB id（迁移前遗留），直接从本地 state 移除
       setFolders(folders.filter((_, i) => i !== index));
       return;
@@ -551,7 +552,7 @@ export const SettingsPage: React.FC = () => {
   // 停止监视：保留全部数据，仅关闭自动同步
   const handleStopWatching = async (index: number) => {
     const target = folders[index];
-    if (target?.id === undefined) return;
+    if (target?.id == null) return;
     const result = await window.electronAPI.gallery.updateGallery(target.id, { isWatching: false });
     if (!result.success) { message.error(result.error || '操作失败'); return; }
     message.success('已停止监视该图库（数据保留）');
