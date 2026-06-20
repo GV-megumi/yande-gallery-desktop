@@ -27,9 +27,27 @@ vi.mock('../../../src/renderer/components/ImageGrid', () => ({
 }));
 
 vi.mock('../../../src/renderer/components/ImageListWrapper', () => ({
-  ImageListWrapper: ({ children, images, loading }: { children?: React.ReactNode; images?: Array<{ id?: number; name?: string }>; loading?: boolean }) => (
+  ImageListWrapper: ({
+    children,
+    images,
+    loading,
+    sortBy,
+    sortOrder,
+  }: {
+    children?: React.ReactNode;
+    images?: Array<{ id?: number; name?: string }>;
+    loading?: boolean;
+    sortBy?: string;
+    sortOrder?: string;
+  }) => (
     <div>
-      <div data-testid="image-list-wrapper" data-loading={loading ? 'true' : 'false'}>
+      <div
+        data-testid="image-list-wrapper"
+        data-loading={loading ? 'true' : 'false'}
+        data-image-count={(images || []).length}
+        data-sort-by={sortBy ?? ''}
+        data-sort-order={sortOrder ?? ''}
+      >
         {(images || []).map((image, index) => (
           <div key={image.id ?? index}>{image.name ?? `image-${image.id ?? index}`}</div>
         ))}
@@ -110,6 +128,20 @@ function renderGalleriesPage() {
 
 function renderAllPage() {
   return render(<GalleryPage subTab="all" />);
+}
+
+function createGalleryImages(count: number) {
+  return Array.from({ length: count }, (_, index) => {
+    const id = index + 1;
+    return {
+      id,
+      name: `image-${String(id).padStart(4, '0')}`,
+      filename: `image-${String(id).padStart(4, '0')}.jpg`,
+      filepath: `D:/gallery/test/image-${String(id).padStart(4, '0')}.jpg`,
+      createdAt: `2026-04-14T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+      updatedAt: `2026-04-14T00:${String(index % 60).padStart(2, '0')}:00.000Z`,
+    };
+  });
 }
 
 describe('GalleryPage gallery delete action', () => {
@@ -860,6 +892,7 @@ describe('GalleryPage gallery delete action', () => {
           gallerySortOrder: 'asc',
           selectedGalleryId: undefined,
           gallerySort: 'name',
+          galleryDetailSortOrder: 'asc',
         },
       });
     });
@@ -1078,6 +1111,96 @@ describe('GalleryPage gallery delete action', () => {
     await new Promise((resolve) => setTimeout(resolve, 400));
 
     expect(saveGalleryPagePreferences).not.toHaveBeenCalled();
+  });
+
+  it('Bug5：图集详情加载多批图片后切换排序字段或顺序，应回到顶部并只渲染首批200张', async () => {
+    getGalleryPagePreferences.mockResolvedValueOnce({
+      success: true,
+      data: {
+        galleries: {
+          gallerySearchQuery: '',
+          gallerySortKey: 'updatedAt',
+          gallerySortOrder: 'desc',
+          gallerySort: 'time',
+        },
+      },
+    });
+    getImagesByFolder.mockResolvedValueOnce({
+      success: true,
+      data: createGalleryImages(1000),
+    });
+
+    render(
+      <div data-testid="scroll-host" style={{ overflowY: 'auto', height: 480 }}>
+        <GalleryPage subTab="galleries" initialGalleryId={1} />
+      </div>,
+    );
+
+    await screen.findByRole('button', { name: /返\s*回/ });
+    await waitFor(() => {
+      expect(screen.getByTestId('image-list-wrapper').getAttribute('data-image-count')).toBe('200');
+    });
+
+    const loadMore = screen.getByTestId('lazy-load-footer');
+    await userEvent.click(loadMore);
+    await userEvent.click(loadMore);
+    await userEvent.click(loadMore);
+    await userEvent.click(loadMore);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('image-list-wrapper').getAttribute('data-image-count')).toBe('1000');
+    });
+
+    const scrollHost = screen.getByTestId('scroll-host') as HTMLElement;
+    scrollHost.scrollTop = 1200;
+    await userEvent.click(screen.getByText('按文件名'));
+
+    await waitFor(() => {
+      const wrapper = screen.getByTestId('image-list-wrapper');
+      expect(wrapper.getAttribute('data-sort-by')).toBe('name');
+      expect(wrapper.getAttribute('data-sort-order')).toBe('asc');
+      expect(wrapper.getAttribute('data-image-count')).toBe('200');
+    });
+    expect(scrollHost.scrollTop).toBe(0);
+
+    scrollHost.scrollTop = 900;
+    await userEvent.click(screen.getByRole('button', { name: '切换为降序' }));
+
+    await waitFor(() => {
+      const wrapper = screen.getByTestId('image-list-wrapper');
+      expect(wrapper.getAttribute('data-sort-order')).toBe('desc');
+      expect(wrapper.getAttribute('data-image-count')).toBe('200');
+    });
+    expect(scrollHost.scrollTop).toBe(0);
+  });
+
+  it('Bug5：图集详情应恢复持久化的图片排序顺序', async () => {
+    getGalleryPagePreferences.mockResolvedValueOnce({
+      success: true,
+      data: {
+        galleries: {
+          gallerySearchQuery: '',
+          gallerySortKey: 'updatedAt',
+          gallerySortOrder: 'desc',
+          gallerySort: 'name',
+          galleryDetailSortOrder: 'desc',
+        },
+      },
+    });
+    getImagesByFolder.mockResolvedValueOnce({
+      success: true,
+      data: createGalleryImages(1),
+    });
+
+    render(<GalleryPage subTab="galleries" initialGalleryId={1} />);
+
+    await screen.findByRole('button', { name: /返\s*回/ });
+    await waitFor(() => {
+      const wrapper = screen.getByTestId('image-list-wrapper');
+      expect(wrapper.getAttribute('data-sort-by')).toBe('name');
+      expect(wrapper.getAttribute('data-sort-order')).toBe('desc');
+    });
+    expect(screen.getByRole('button', { name: '切换为升序' })).toBeTruthy();
   });
 
   it('Bug11 反模式守卫：子窗口模式下"返回"= 关窗，不应 persistPreferences 落盘', async () => {

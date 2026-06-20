@@ -380,21 +380,22 @@ describe('booru API routes', () => {
   });
 
   it('uses real service argument order for favorites and likes', async () => {
-    mockGetFavorites.mockResolvedValue([]);
+    mockGetFavorites.mockResolvedValue({ items: [], total: 0 });
     mockAddToFavorites.mockResolvedValue(55);
     mockRemoveFromFavorites.mockResolvedValue(undefined);
     mockSetPostLiked.mockResolvedValue(undefined);
     mockGetBooruPostBySiteAndId.mockResolvedValue(post({ siteId: 3, postId: 44 }));
     const routes = createBooruRoutes();
 
-    await findRoute(routes, '/api/v1/favorites').handler(context({
+    await expect(findRoute(routes, '/api/v1/favorites').handler(context({
       query: new URLSearchParams([
         ['siteId', '3'],
         ['page', '2'],
         ['limit', '15'],
         ['groupId', 'null'],
+        ['rating', 'explicit'],
       ]),
-    }));
+    }))).resolves.toEqual({ items: [], total: 0 });
     await expect(
       findRoute(routes, '/api/v1/favorites/:siteId/:postId', 'POST')
         .handler(context({ params: { siteId: '3', postId: '45' }, body: {} })),
@@ -429,7 +430,7 @@ describe('booru API routes', () => {
         .handler(context({ params: { siteId: '3', postId: '44' } })),
     ).resolves.toEqual({ liked: false });
 
-    expect(mockGetFavorites).toHaveBeenCalledWith(3, 2, 15, null);
+    expect(mockGetFavorites).toHaveBeenCalledWith(3, 2, 15, null, 'explicit');
     expect(mockAddToFavorites).toHaveBeenNthCalledWith(1, 45, 3, undefined);
     expect(mockAddToFavorites).toHaveBeenNthCalledWith(2, 44, 3, 'keeper');
     expect(mockAddToFavorites).toHaveBeenCalledTimes(2);

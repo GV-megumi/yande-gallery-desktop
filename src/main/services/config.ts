@@ -89,6 +89,7 @@ export interface GalleryGalleriesPagePreference {
   /** null 表示"显式清空"（合并时从结果中移除），undefined 表示"不修改"（合并时保留旧值） */
   selectedGalleryId?: number | null;
   gallerySort?: 'time' | 'name';
+  galleryDetailSortOrder?: 'asc' | 'desc';
 }
 
 export interface GalleryPagePreferencesBySubTab {
@@ -1066,6 +1067,7 @@ function rebuildPagePreferences(
                   gallerySortOrder: inGalleries.gallerySortOrder ?? curGalleries?.gallerySortOrder,
                   selectedGalleryId: resolvedSelectedGalleryId,
                   gallerySort: inGalleries.gallerySort ?? curGalleries?.gallerySort,
+                  galleryDetailSortOrder: inGalleries.galleryDetailSortOrder ?? curGalleries?.galleryDetailSortOrder,
                 };
               })()
             : currentPagePreferences?.galleryBySubTab?.galleries,

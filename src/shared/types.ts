@@ -273,8 +273,8 @@ export interface BulkDownloadSession {
   currentPage: number;
   totalPages?: number;
   error?: string;
-  originType?: 'favoriteTag';
-  originId?: number;
+  originType?: 'favoriteTag' | 'favorites';
+  originId?: number | null;
   task?: BulkDownloadTask;
   stats?: BulkDownloadSessionStats;
 }
@@ -541,6 +541,15 @@ export interface BulkDownloadOptions {
   quality?: string;
   perPage?: number;
   concurrency?: number;
+}
+
+export type FavoritesBulkDownloadRating = 'safe' | 'questionable' | 'explicit' | 'all';
+
+export interface StartFavoritesBulkDownloadInput {
+  siteId: number;
+  /** undefined = 全部；null = 未分组；number = 指定分组 */
+  groupId?: number | null;
+  rating?: FavoritesBulkDownloadRating;
 }
 
 export interface InvalidImage {

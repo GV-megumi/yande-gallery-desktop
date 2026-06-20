@@ -41,6 +41,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
 
 vi.mock('../../../src/main/services/config.js', () => ({
   getConfig: vi.fn(() => ({ downloads: { path: 'D:/downloads' } })),
+  getDownloadsPath: vi.fn(() => 'D:/downloads'),
   resolveConfigPath: (value: string) => value,
 }));
 

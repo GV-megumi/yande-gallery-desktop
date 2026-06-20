@@ -42,6 +42,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   const [tasks, setTasks] = useState<BulkDownloadTask[]>([]);
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [loading, setLoading] = useState(false);
+  const [manualRefreshing, setManualRefreshing] = useState(false);
   const [formVisible, setFormVisible] = useState(false);
   const [editingTask, setEditingTask] = useState<BulkDownloadTask | undefined>(undefined);
   const [activeSessionTab, setActiveSessionTab] = useState('active');
@@ -56,8 +57,11 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   }, [active]);
 
   // 加载活跃会话
-  const loadSessions = useCallback(async () => {
-    setLoading(true);
+  const loadSessions = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    const showLoading = options.showLoading === true;
+    if (showLoading) {
+      setLoading(true);
+    }
     try {
       if (!window.electronAPI) return;
 
@@ -73,7 +77,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       console.error('加载会话失败:', error);
       message.error('加载会话失败');
     } finally {
-      if (activeRef.current) {
+      if (showLoading && activeRef.current) {
         setLoading(false);
       }
     }
@@ -177,7 +181,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
       return;
     }
 
-    loadSessions();
+    loadSessions({ showLoading: true });
     loadTasks();
     loadSites();
   }, [active, loadSessions, loadSites, loadTasks]);
@@ -404,8 +408,15 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
   };
 
   // 刷新会话
-  const handleRefresh = () => {
-    loadSessions();
+  const handleRefresh = async () => {
+    setManualRefreshing(true);
+    try {
+      await loadSessions();
+    } finally {
+      if (activeRef.current) {
+        setManualRefreshing(false);
+      }
+    }
   };
 
   // 页面内边距统一由 BooruDownloadHubPage 根容器提供，避免与 Segmented 切换栏错位
@@ -423,7 +434,7 @@ export const BooruBulkDownloadPage: React.FC<BooruBulkDownloadPageProps> = ({ ac
             <Button 
               icon={<ReloadOutlined />} 
               onClick={handleRefresh}
-              loading={loading}
+              loading={manualRefreshing}
             >
               刷新
             </Button>

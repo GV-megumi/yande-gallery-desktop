@@ -96,7 +96,7 @@ function handleClickByAction(opts: { sessionId?: string }) {
 export function notifyBulkSession(ctx: {
   status: BulkStatus;
   tags: string;
-  originType?: 'favoriteTag' | null;
+  originType?: 'favoriteTag' | 'favorites' | null;
   error?: string | null;
   sessionId?: string;
   taskLevelEnabled: boolean;
@@ -105,7 +105,11 @@ export function notifyBulkSession(ctx: {
   if (typeof Notification.isSupported === 'function' && !Notification.isSupported()) return;
   if (!shouldNotifyBulk(ctx.status, ctx.taskLevelEnabled)) return;
 
-  const scopeLabel = ctx.originType === 'favoriteTag' ? '收藏标签下载' : '批量下载';
+  const scopeLabel = ctx.originType === 'favoriteTag'
+    ? '收藏标签下载'
+    : ctx.originType === 'favorites'
+      ? '收藏下载'
+      : '批量下载';
   const bodyBase = ctx.tags ? `标签：${ctx.tags}` : '请打开应用查看详情';
   const content = ctx.status === 'completed'
     ? { title: `${scopeLabel}已完成`, body: bodyBase }

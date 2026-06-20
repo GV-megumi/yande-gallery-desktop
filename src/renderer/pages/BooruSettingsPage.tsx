@@ -115,21 +115,21 @@ const CacheStatsDisplay: React.FC = () => {
   if (!stats) {
     // 统计未就绪时渲染占位 Spin，避免加载完成后布局跳动
     return (
-      <Form.Item label="当前缓存状态">
+      <Form.Item label="当前 Booru 原图缓存状态">
         <Spin size="small" />
       </Form.Item>
     );
   }
 
   return (
-    <Form.Item label="当前缓存状态">
+    <Form.Item label="当前 Booru 原图缓存状态">
       <Space direction="vertical" style={{ width: '100%' }}>
         <div>
-          <Text>缓存大小: </Text>
+          <Text>Booru 原图缓存大小: </Text>
           <Text strong>{stats.sizeMB.toFixed(2)} MB</Text>
         </div>
         <div>
-          <Text>缓存文件数: </Text>
+          <Text>Booru 原图缓存文件数: </Text>
           <Text strong>{stats.fileCount}</Text>
         </div>
         <Button size="small" onClick={loadStats} loading={loading}>
@@ -1050,12 +1050,12 @@ export const BooruSettingsPage: React.FC<BooruSettingsPageProps> = () => {
                     />
                   </Form.Item>
 
-                  <Divider orientation="left">缓存设置</Divider>
+                  <Divider orientation="left">Booru 原图缓存设置</Divider>
 
                   <Form.Item
-                    label="缓存目录最大大小"
+                    label="Booru 原图缓存目录最大大小"
                     name="maxCacheSizeMB"
-                    tooltip="原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
+                    tooltip="Booru 原图缓存目录的最大大小（MB），超过此大小会自动清理最旧的一半缓存文件"
                     rules={[
                       { type: 'integer', min: 100, message: '缓存上限不能小于 100 MB' },
                     ]}

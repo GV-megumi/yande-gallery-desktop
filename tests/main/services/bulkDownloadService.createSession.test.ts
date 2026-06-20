@@ -16,6 +16,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 const getMock = vi.fn();
 const runMock = vi.fn();
 const allMock = vi.fn();
+const createBooruClient = vi.fn();
 
 vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
@@ -28,6 +29,34 @@ vi.mock('../../../src/main/services/database.js', () => ({
   run: (...args: any[]) => runMock(...args),
   runWithChanges: (...args: any[]) => runMock(...args),
   all: (...args: any[]) => allMock(...args),
+}));
+
+vi.mock('../../../src/main/services/config.js', () => ({
+  getProxyConfig: vi.fn(() => ({ enabled: false })),
+  getMaxConcurrentBulkDownloadSessions: vi.fn(() => 3),
+  getNotificationsConfig: vi.fn(() => ({
+    enabled: false,
+    byStatus: { completed: true, failed: true, allSkipped: true },
+    singleDownload: { enabled: false },
+    clickAction: 'focus',
+  })),
+}));
+
+vi.mock('../../../src/main/services/booruClientFactory.js', () => ({
+  createBooruClient: (...args: any[]) => createBooruClient(...args),
+}));
+
+vi.mock('../../../src/main/services/booruService.js', () => ({
+  getBooruSiteById: vi.fn(async () => ({
+    id: 1,
+    name: 'site',
+    type: 'moebooru',
+    url: 'https://example.test',
+    active: true,
+    favoriteSupport: true,
+  })),
+  getBooruPostBySiteAndId: vi.fn(),
+  markPostAsDownloaded: vi.fn(),
 }));
 
 const TASK_ROW = {
@@ -62,6 +91,7 @@ describe('bulkDownloadService.createBulkDownloadSession - 活跃会话去重', (
     getMock.mockReset();
     runMock.mockReset();
     allMock.mockReset();
+    createBooruClient.mockReset();
     vi.resetModules();
   });
 
@@ -195,5 +225,77 @@ describe('bulkDownloadService.createBulkDownloadSession - 活跃会话去重', (
     expect(dedupCount).toBe(1);
     // 两次返回的 session.id 一致
     expect(r1.data?.id).toBe(r2.data?.id);
+  });
+
+  it('originType=favorites 的 pending 会话跳过远端 dryRun，无待下载记录时进入 allSkipped', async () => {
+    const SESSION_ROW = {
+      id: 'session-favorites',
+      taskId: 'task-favorites',
+      siteId: 1,
+      path: '.',
+      tags: '',
+      blacklistedTags: null,
+      notifications: 0,
+      skipIfExists: 1,
+      quality: 'original',
+      perPage: 100,
+      concurrency: 2,
+      status: 'pending',
+      originType: 'favorites',
+      originId: 1,
+      startedAt: '2026-06-20T00:00:00.000Z',
+      completedAt: null,
+      currentPage: 1,
+      totalPages: null,
+      error: null,
+      createdAt: '2026-06-20T00:00:00.000Z',
+      updatedAt: '2026-06-20T00:00:00.000Z',
+    };
+
+    getMock.mockImplementation(async (_db: any, sql: string) => {
+      if (/SELECT s\.\*, t\.\*/.test(sql)) return SESSION_ROW;
+      if (/WHERE taskId = \? AND id != \?/.test(sql)) return undefined;
+      if (/COUNT\(\*\) AS n/.test(sql)) return { n: 0 };
+      if (/SELECT s\.status, s\.originType/.test(sql)) {
+        return {
+          status: 'dryRun',
+          originType: 'favorites',
+          originId: 1,
+          error: null,
+          notifications: 0,
+          tags: '',
+        };
+      }
+      if (/SELECT taskId, siteId, status, originType, originId/.test(sql)) {
+        return {
+          taskId: 'task-favorites',
+          siteId: 1,
+          status: 'dryRun',
+          originType: 'favorites',
+          originId: 1,
+        };
+      }
+      if (/status = 'queued'/.test(sql)) return undefined;
+      return undefined;
+    });
+    allMock.mockImplementation(async (_db: any, sql: string) => {
+      if (/FROM bulk_download_records/.test(sql) && /GROUP BY status/.test(sql)) {
+        return [];
+      }
+      return [];
+    });
+
+    const { startBulkDownloadSession } = await import(
+      '../../../src/main/services/bulkDownloadService.js'
+    );
+    const result = await startBulkDownloadSession('session-favorites');
+
+    expect(result).toEqual({ success: true });
+    expect(createBooruClient).not.toHaveBeenCalled();
+    const sessionUpdateParams = runMock.mock.calls
+      .filter((call) => /UPDATE bulk_download_sessions/.test(String(call[1])))
+      .map((call) => call[2]);
+    expect(sessionUpdateParams).toContainEqual(expect.arrayContaining(['dryRun']));
+    expect(sessionUpdateParams).toContainEqual(expect.arrayContaining(['allSkipped']));
   });
 });

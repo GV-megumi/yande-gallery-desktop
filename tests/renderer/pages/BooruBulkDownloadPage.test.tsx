@@ -176,6 +176,61 @@ describe('BooruBulkDownloadPage active gating', () => {
     expect(getActiveSessions).toHaveBeenCalledTimes(1);
   });
 
+  it('后台事件刷新会话时不应让顶部刷新按钮进入 loading 状态', async () => {
+    let appEventCallback: ((event: any) => void) | undefined;
+    (window as any).electronAPI.system = {
+      onAppEvent: vi.fn((callback) => {
+        appEventCallback = callback;
+        return vi.fn();
+      }),
+    };
+
+    render(
+      <App>
+        <BooruBulkDownloadPage active />
+      </App>
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    const refreshButton = screen.getByRole('button', { name: /刷新/ });
+    expect((refreshButton as HTMLButtonElement).disabled).toBe(false);
+
+    getActiveSessions.mockClear();
+    let resolveSessions: ((value: unknown) => void) | undefined;
+    const pendingRefresh = new Promise((resolve) => {
+      resolveSessions = resolve;
+    });
+    getActiveSessions.mockImplementationOnce(() => pendingRefresh as any);
+
+    act(() => {
+      appEventCallback?.({
+        type: 'bulk-download:sessions-changed',
+        version: 1,
+        occurredAt: '2026-06-20T00:00:00.000Z',
+        source: 'bulkDownloadService',
+        payload: { reason: 'statusChanged', sessionId: 's1' },
+      });
+      vi.advanceTimersByTime(200);
+    });
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(getActiveSessions).toHaveBeenCalledTimes(1);
+    expect((refreshButton as HTMLButtonElement).disabled).toBe(false);
+    expect(refreshButton.className).not.toContain('ant-btn-loading');
+
+    await act(async () => {
+      resolveSessions?.({ success: true, data: [] });
+      await pendingRefresh;
+      await Promise.resolve();
+    });
+  });
+
   // FINDING 11 回归守卫：records-changed 每个文件完成都会触发，事件间隔持续 <200ms 时，
   // 纯 trailing 防抖会被不断重置而饿死（风暴期间列表永不刷新）。
   // 修复后 scheduleRefresh 带 1000ms maxWait：从第一次挂起刷新算起，超过 maxWait 立即 flush。

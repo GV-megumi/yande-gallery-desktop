@@ -86,6 +86,7 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
   const [activeImageRequestId, setActiveImageRequestId] = useState(0);
   const [activeImagePostId, setActiveImagePostId] = useState<number | null>(null);
   const imageRequestIdRef = useRef(0);
+  const detailsScrollRef = useRef<HTMLDivElement | null>(null);
   // 记录当前回退链中已失败的图片 URL，避免 onError 在 sample/preview 之间无限往返重试
   const failedImageUrlsRef = useRef<Set<string>>(new Set());
   // 图片加载失败终态：回退链全部耗尽时置 true，渲染错误占位并提供重试
@@ -211,6 +212,13 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
       setCompareMode(false);
     }
   }, [open, currentPost]);
+
+  useEffect(() => {
+    if (!open || !currentPost) return;
+    if (detailsScrollRef.current) {
+      detailsScrollRef.current.scrollTop = 0;
+    }
+  }, [open, currentPost?.siteId, currentPost?.postId]);
 
   useEffect(() => {
     if (!open || !currentPost || isVideoPost(currentPost)) {
@@ -997,13 +1005,17 @@ export const BooruPostDetailsPage: React.FC<BooruPostDetailsPageProps> = ({
           </div>
 
           {/* 右侧：详情面板 */}
-          <div style={{
-            width: 380,
-            minWidth: 320,
-            borderLeft: `0.5px solid ${colors.separator}`,
-            overflowY: 'auto',
-            background: colors.bgBase,
-          }}>
+          <div
+            ref={detailsScrollRef}
+            data-testid="booru-details-scroll-panel"
+            style={{
+              width: 380,
+              minWidth: 320,
+              borderLeft: `0.5px solid ${colors.separator}`,
+              overflowY: 'auto',
+              background: colors.bgBase,
+            }}
+          >
             <div style={{ padding: spacing.lg }}>
               {/* 信息部分 */}
               <InformationSection

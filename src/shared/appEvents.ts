@@ -52,7 +52,7 @@ export interface RendererBulkDownloadSessionsChangedPayload {
     | 'deleted'
     | 'retryStarted'
     | 'retryMerged';
-  originType?: 'favoriteTag' | 'manual' | null;
+  originType?: 'favoriteTag' | 'favorites' | 'manual' | null;
   originId?: number | null;
 }
 

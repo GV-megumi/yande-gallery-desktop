@@ -6,7 +6,7 @@
  * （70+ 方法）。不做方法筛减或合并，以保证主窗口对外行为严格等价。
  */
 import { ipcRenderer } from 'electron';
-import type { BooruSite, BooruSiteRecord } from '../../shared/types.js';
+import type { BooruPost, BooruSite, BooruSiteRecord, PaginatedResult, StartFavoritesBulkDownloadInput } from '../../shared/types.js';
 import { IPC_CHANNELS } from '../../main/ipc/channels.js';
 
 export function createBooruApi() {
@@ -28,8 +28,18 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_SEARCH_POSTS, siteId, tags, page, limit, fetchTagCategories),
 
     // 收藏
-    getFavorites: (siteId: number, page: number = 1, limit: number = 20, groupId?: number | null) =>
-      ipcRenderer.invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit, groupId),
+    getFavorites: (...args: [siteId: number, page?: number, limit?: number, groupId?: number | null, rating?: 'safe' | 'questionable' | 'explicit' | 'all']) => {
+      const [siteId, page = 1, limit = 20, groupId, rating] = args;
+      const legacyArrayResponse = args.length === 1;
+      return ipcRenderer
+        .invoke(IPC_CHANNELS.BOORU_GET_FAVORITES, siteId, page, limit, groupId, rating)
+        .then((result: { success: boolean; data?: PaginatedResult<BooruPost>; error?: string }) => {
+          if (legacyArrayResponse && result.success && result.data && !Array.isArray(result.data)) {
+            return { ...result, data: result.data.items };
+          }
+          return result;
+        }) as Promise<{ success: boolean; data?: PaginatedResult<BooruPost> | BooruPost[]; error?: string }>;
+    },
     addFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_ADD_FAVORITE, postId, siteId, syncToServer),
     removeFavorite: (postId: number, siteId: number, syncToServer: boolean = false) =>
@@ -146,6 +156,8 @@ export function createBooruApi() {
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING, favoriteTagId),
     startFavoriteTagBulkDownload: (favoriteTagId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD, favoriteTagId),
+    startFavoritesBulkDownload: (input: StartFavoritesBulkDownloadInput) =>
+      ipcRenderer.invoke(IPC_CHANNELS.BOORU_START_FAVORITES_BULK_DOWNLOAD, input),
 
     // 收藏标签分组
     getFavoriteTagLabels: () =>

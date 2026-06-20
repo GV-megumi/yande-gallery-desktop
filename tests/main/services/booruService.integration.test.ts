@@ -467,6 +467,7 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('../../../src/main/services/config', () => ({
   getConfig: vi.fn(() => ({ downloads: { path: 'downloads' } })),
+  getDownloadsPath: vi.fn(() => 'C:/config/downloads'),
   resolveConfigPath: vi.fn((p: string) => `C:/config/${p}`),
 }));
 

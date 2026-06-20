@@ -7,6 +7,7 @@ type MockBooruService = {
   upsertFavoriteTagDownloadBinding: (input: unknown) => Promise<unknown>;
   deleteFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<void>;
   startFavoriteTagBulkDownload: (favoriteTagId: number) => Promise<unknown>;
+  startFavoritesBulkDownload: (input: unknown) => Promise<unknown>;
 };
 
 function createFavoriteTagDownloadHandlers(booruService: MockBooruService) {
@@ -51,6 +52,14 @@ function createFavoriteTagDownloadHandlers(booruService: MockBooruService) {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
     },
+    [IPC_CHANNELS.BOORU_START_FAVORITES_BULK_DOWNLOAD]: async (input: unknown) => {
+      try {
+        const data = await booruService.startFavoritesBulkDownload(input);
+        return { success: true, data };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    },
   };
 }
 
@@ -62,6 +71,7 @@ describe('handlers - favorite tag download IPC behavior', () => {
       upsertFavoriteTagDownloadBinding: async () => null,
       deleteFavoriteTagDownloadBinding: async () => undefined,
       startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE](2)).resolves.toEqual({
@@ -77,6 +87,7 @@ describe('handlers - favorite tag download IPC behavior', () => {
       upsertFavoriteTagDownloadBinding: async () => null,
       deleteFavoriteTagDownloadBinding: async () => undefined,
       startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_GET_FAVORITE_TAG_DOWNLOAD_BINDING](5)).resolves.toEqual({
@@ -93,6 +104,7 @@ describe('handlers - favorite tag download IPC behavior', () => {
       upsertFavoriteTagDownloadBinding: async (payload) => payload,
       deleteFavoriteTagDownloadBinding: async () => undefined,
       startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING](input)).resolves.toEqual({
@@ -111,6 +123,7 @@ describe('handlers - favorite tag download IPC behavior', () => {
         deletedId = favoriteTagId;
       },
       startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING](9)).resolves.toEqual({ success: true });
@@ -127,12 +140,35 @@ describe('handlers - favorite tag download IPC behavior', () => {
         taskId: `task-${favoriteTagId}`,
         sessionId: `session-${favoriteTagId}`,
       }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD](11)).resolves.toEqual({
       success: true,
       data: { taskId: 'task-11', sessionId: 'session-11' },
     });
+  });
+
+  it('应通过 BOORU_START_FAVORITES_BULK_DOWNLOAD 传递收藏筛选参数并返回 taskId/sessionId', async () => {
+    const input = { siteId: 3, groupId: null, rating: 'safe' };
+    let capturedInput: unknown;
+    const handlers = createFavoriteTagDownloadHandlers({
+      getFavoriteTagsWithDownloadState: async () => [],
+      getFavoriteTagDownloadBinding: async () => null,
+      upsertFavoriteTagDownloadBinding: async () => null,
+      deleteFavoriteTagDownloadBinding: async () => undefined,
+      startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async (payload) => {
+        capturedInput = payload;
+        return { taskId: 'task-favorites', sessionId: 'session-favorites' };
+      },
+    });
+
+    await expect(handlers[IPC_CHANNELS.BOORU_START_FAVORITES_BULK_DOWNLOAD](input)).resolves.toEqual({
+      success: true,
+      data: { taskId: 'task-favorites', sessionId: 'session-favorites' },
+    });
+    expect(capturedInput).toBe(input);
   });
 
   it('服务抛错时应返回 success=false 和 error', async () => {
@@ -144,6 +180,7 @@ describe('handlers - favorite tag download IPC behavior', () => {
       upsertFavoriteTagDownloadBinding: async () => null,
       deleteFavoriteTagDownloadBinding: async () => undefined,
       startFavoriteTagBulkDownload: async () => ({ taskId: 'task-1', sessionId: 'session-1' }),
+      startFavoritesBulkDownload: async () => ({ taskId: 'task-favorites', sessionId: 'session-favorites' }),
     });
 
     await expect(handlers[IPC_CHANNELS.BOORU_GET_FAVORITE_TAGS_WITH_DOWNLOAD_STATE](1)).resolves.toEqual({

@@ -1,0 +1,354 @@
+# Bug 记录 v0.1.3
+
+本文档用于记录 v0.1.3 使用过程中发现的问题。每条记录保留用户反馈、复现路径、预期行为、实际行为，并在代码查证后补充根因、涉及文件、处理建议和验证方式。
+
+## 当前记录
+
+### Bug1：Booru 图片预览翻页后滚动位置停留在页尾
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈
+- 现象：在 Booru 图片浏览列表中滚动到页面底部后，点击底部分页的“下一页”或“上一页”切换到新页面，新页面仍停留在底部位置。
+- 预期：点击“下一页”或“上一页”后，新页面应从顶部开始显示。
+- 实际：翻页后的页面滚动位置没有重置，仍处于底部。
+- 影响范围：Booru 图片浏览列表底部分页；尤其影响从页尾继续浏览新页面内容的场景。
+- 查证结果：
+  - 最初查证覆盖了 `BooruPostDetailsPage` 的右侧详情滚动容器，并已补充帖子切换时重置详情面板滚动。
+  - 用户复测后问题仍存在，说明实际残留场景不是详情弹窗，而是 `BooruPage` 图片浏览列表的底部分页。
+  - `BooruPage` 自身根节点只有内边距，真实滚动容器来自 `App` 中缓存页外层 `overflowY: 'auto'` 的页面容器。
+  - `handlePreviousPage` / `handleNextPage` / `handlePageChange` 只发起新的分页请求，没有把最近的可滚动父容器 `scrollTop` 重置为 0。
+- 根因判断：主 Booru 图片列表切换页码时只更新数据请求和分页状态，未同步重置外层页面滚动容器，因此用户从底部分页切到新页后仍停留在父容器底部。
+- 涉及文件：
+  - `src/renderer/pages/BooruPage.tsx`
+  - `tests/renderer/pages/BooruPage.loadingPagination.test.tsx`
+  - `src/renderer/pages/BooruPostDetailsPage.tsx`
+  - `tests/renderer/pages/BooruPostDetailsPage.imageLoading.test.tsx`
+- 处理建议：
+  - 在主 Booru 列表分页请求入口识别最近的可滚动父容器，并在分页来源请求开始时执行 `scrollTop = 0`。
+  - 保留详情页右侧面板的帖子切换滚动重置，覆盖详情弹窗内的独立滚动场景。
+  - 滚动重置应只作用于分页切换，不影响普通刷新、站点切换过程中的其他状态恢复逻辑。
+- 修复摘要：
+  - `BooruPage` 分页请求来源为 `pagination` 时，会沿 `contentRef` 查找最近的 `overflowY: auto/scroll/overlay` 父容器并重置滚动位置。
+  - 新增回归测试：模拟外层页面容器停在底部后点击底部分页，断言父容器 `scrollTop` 回到顶部。
+  - 详情滚动容器已增加稳定标识和 `ref`。
+  - 当前帖子切换、站点切换或详情重新打开后会重置详情滚动到顶部。
+- 验证方式：
+  - 回归测试：模拟主 Booru 页外层滚动容器停在底部，点击底部分页，断言切换请求发起时滚动位置回到顶部。
+  - 回归测试：模拟详情容器滚动到底部，触发详情页上一张 / 下一张，断言切换后滚动位置回到顶部。
+  - 手动验证：在 Booru 图片浏览列表滚到底部后连续点击上一页 / 下一页，新页面应从顶部显示。
+
+### Bug2：Booru 我的收藏页缺少收藏总数且分页不显示尾页
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈；截图页面路径为 `Booru / 我的收藏`
+- 现象：我的收藏页面当前只显示站点筛选、刷新、评级筛选、图片网格和分页；页面上没有明显位置展示当前收藏图总数。分页区域当前表现为 `1 2 3 ...`，只提示后面还有页，但不显示尾页页码。
+- 预期：
+  - 页面需要有一个位置显示收藏图片总数，例如“共 N 张收藏图”。
+  - 分页逻辑应显示尾页页码，形如 `1 2 3 ... xxx`，其中 `xxx` 是尾页。
+- 实际：
+  - 收藏总数不可见。
+  - 分页只显示 `1 2 3 ...`，用户无法直接看到总页数 / 尾页。
+- 影响范围：Booru 我的收藏页面的浏览反馈和分页导航；收藏数量较多时，用户无法快速判断收藏规模，也无法直接跳转到尾页附近。
+- 查证结果：
+  - `booruService.getFavorites(siteId, page, limit, groupId)` 当前只返回当前页数组，没有返回 `total`、`totalPages` 或分页元数据。
+  - IPC 处理器 `BOORU_GET_FAVORITES` 也只把数组返回给渲染层。
+  - preload 的 `getFavorites` 只是透传 IPC 返回值，没有补类型或总数。
+  - `PaginationControl` 当前通过 `currentCount >= itemsPerPage` 推断是否还有下一页；未知总页数时只能显示 `1 2 3 ...` 这类近似分页，无法显示真实尾页。
+- 根因判断：收藏页数据链路没有总数查询，分页组件也没有已知总页数模式，所以 UI 无法展示“共 N 张收藏图”和尾页页码。
+- 涉及文件：
+  - `src/main/services/booruService.ts`
+  - `src/main/ipc/handlers/booruHandlers.ts`
+  - `src/preload/shared/createBooruApi.ts`
+  - `src/renderer/pages/BooruFavoritesPage.tsx`
+  - `src/renderer/components/PaginationControl.tsx`
+  - `src/shared/types.ts`（如新增共享分页类型）
+- 处理建议：
+  - 主进程收藏查询补 `COUNT(*)`，返回 `{ items, total, page, limit }` 或兼容式分页结构。
+  - preload / IPC 类型同步更新，避免渲染层猜测总数。
+  - `PaginationControl` 新增可选 `total` / `totalPages` 入参：有总数时显示真实尾页；无总数时保留当前“是否有下一页”的兼容逻辑。
+  - 收藏页在标题区域或工具栏附近展示“共 N 张收藏图”；该数字应跟随站点、分组、评级筛选更新。
+- 修复摘要：
+  - 收藏查询链路已返回分页元数据和总数，收藏页显示“共 N 张收藏图”。
+  - 分页组件已支持已知总页数模式，显示尾页页码并保留未知总数兼容逻辑。
+- 验证方式：
+  - 服务层测试：不同 `siteId`、`groupId`、评级筛选组合下总数正确。
+  - 渲染层测试：收藏页渲染“共 N 张收藏图”；总页数已知时分页显示尾页页码，如 `1 2 3 ... 20`。
+  - 兼容测试：没有传入 `total` 的其他 Booru 页面分页行为不回退。
+
+### Bug3：Booru 图片浏览翻页被图片加载阻塞
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈
+- 现象：在图片浏览界面点击“下一页”后，需要等待新页面图片加载出来，才可以再次切换页面。
+- 预期：页码切换 / 上一页下一页操作不应被图片加载完成状态阻塞。用户点击下一页后，即使当前页图片还在加载，也应能继续触发下一次翻页；图片加载应作为当前目标页的异步结果独立处理。
+- 实际：翻页后在图片加载完成前，用户无法继续切换页面，浏览节奏被网络或缩略图加载速度卡住。
+- 影响范围：Booru 图片浏览页的连续翻页体验；网络慢、图片较多或站点响应慢时更明显。
+- 查证结果：
+  - `BooruPage` 已有 `pendingPage` 显示目标页，但 `handlePreviousPage`、`handleNextPage`、`handlePageChange` 会在 `loading` 或 `paginationRequestInFlightRef.current` 为真时直接返回。
+  - `BooruPage` 在加载中仍渲染分页控件，但会把分页控件设为 `disabled`。
+  - `BooruFavoritesPage` 和 `BooruTagSearchPage` 在 `loading` 时渲染骨架屏，分页控件只在 `!loading && posts.length > 0` 时存在，因此加载期间无法继续翻页。
+- 根因判断：当前分页交互和请求完成状态被同一个 loading / in-flight 状态绑定；用户切到下一页后必须等请求返回、图片列表落地，才能再次切换目标页。
+- 涉及文件：
+  - `src/renderer/pages/BooruPage.tsx`
+  - `src/renderer/pages/BooruFavoritesPage.tsx`
+  - `src/renderer/pages/BooruTagSearchPage.tsx`
+  - `src/renderer/components/PaginationControl.tsx`
+  - `tests/renderer/pages/BooruPage.loadingPagination.test.tsx`
+- 处理建议：
+  - 将“目标页状态”和“图片数据加载状态”拆开：分页控件应基于目标页立即响应，图片网格独立显示加载占位。
+  - 允许加载中的连续页码切换；后一次请求应成为当前有效请求，早返回的旧请求不得覆盖最新目标页。
+  - 收藏页 / 标签搜索页加载期间保留分页区域，不应因为骨架屏卸载分页控件。
+  - 可用 request id / AbortController / active request token 管理过期响应。
+- 修复摘要：
+  - Booru 主列表、我的收藏和标签搜索页已允许加载期间继续翻页。
+  - 新增请求序号守卫，旧请求晚返回时不会覆盖当前目标页结果。
+- 验证方式：
+  - 回归测试：第一次下一页请求保持 pending 时，继续点击下一页应发起新的目标页请求。
+  - 回归测试：第 2 次请求先返回时应显示第 2 次目标页；第 1 次请求随后返回不得回写旧页。
+  - 手动验证：慢网速下连续点击下一页 / 上一页，页码反馈应立即变化，图片加载只影响网格内容。
+
+### Bug4：Booru 我的收藏页需要一键下载收藏图
+
+- 状态：已修复（当前筛选条件下的全部收藏）
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈
+- 现象：我的收藏页面目前缺少“一键下载”入口，用户无法从当前收藏列表直接批量下载收藏图片。
+- 预期：
+  - 在 `Booru / 我的收藏` 页面增加“一键下载”按钮。
+  - 下载时在当前下载目录下创建一个固定名称的独立文件夹，用于保存“我的收藏”下载结果；不能每次下载都生成带时间戳的新文件夹。
+  - 该固定下载目录应同时出现在本地图集列表中；如果目录对应图集不存在，应在创建目录后自动添加“收藏图集”。
+  - 每次执行一键下载时都应忽略已下载文件，避免重复下载或重复创建任务。
+- 实际：当前页面没有对应的一键下载能力；用户需要逐张下载或通过其他下载入口手动组织任务。
+- 影响范围：Booru 我的收藏页面的批量下载效率；收藏数量较多时，手动下载成本高，也容易重复下载。
+- 查证结果：
+  - `BooruFavoritesPage` 当前只有单张图片动作，下载入口走 `window.electronAPI.booru.addToDownload(postId, siteId)`。
+  - `booruService.addToDownloadQueue` 会在已有队列任务为 `completed` 时重新置为 `pending`，这与“一键下载每次忽略已下载文件”的需求冲突。
+  - 现有 `bulkDownloadService` 支持 `skipIfExists`，会同时检查 `booru_posts.downloaded = 1` 和目标文件是否存在；但当前批量任务模型是按站点 + 标签搜索 + 路径创建，不是按“我的收藏”列表创建。
+  - 现有批量下载会话的 `originType` 目前只声明了 `favoriteTag`，还没有“我的收藏”来源。
+- 根因判断：收藏页缺少批量入口；单张下载队列不适合直接循环调用，因为已完成任务会被重新下载。更合适的方向是复用批量下载的 `skipIfExists`、记录、进度和会话能力，但需要新增“收藏列表来源”的任务 / 会话入口。
+- 待明确设计点：
+  - 下载范围建议默认为当前收藏页筛选条件下的全部收藏，而不是仅当前页；筛选条件至少包括站点、收藏分组和评级筛选。
+  - 独立文件夹固定为当前下载目录下的 `<站点名>_favorites`，站点名按文件系统安全规则清理；不追加时间戳或随机后缀，确保后续一键下载能复用同一目标目录。
+  - 固定目录创建后应检查 `galleries.folderPath` 是否已有对应图集；没有则新建 `<站点名> 收藏图集`，已有则复用，避免重复图集。
+  - “忽略已下载文件”应同时参考数据库 `booru_posts.downloaded/localPath`、批量下载记录 / 队列状态，以及磁盘目标文件存在性。
+- 涉及文件：
+  - `src/renderer/pages/BooruFavoritesPage.tsx`
+  - `src/renderer/hooks/useBooruPostActions.ts`
+  - `src/main/services/booruService.ts`
+  - `src/main/services/bulkDownloadService.ts`
+  - `src/main/ipc/handlers/booruHandlers.ts`
+  - `src/main/ipc/channels.ts`
+  - `src/preload/shared/createBooruApi.ts`
+  - `src/shared/types.ts`
+- 处理建议：
+  - 新增收藏批量下载 IPC / preload API，例如 `startFavoritesBulkDownload({ siteId, groupId, rating, targetPath, skipIfExists })`。
+  - 服务层先解析当前筛选条件下的收藏帖子集合，再创建批量下载会话；下载记录生成阶段复用 `bulkDownloadService` 的 `skipIfExists` 判断与进度事件。
+  - 为批量下载来源扩展共享类型，例如 `originType: 'favoriteTag' | 'favorites'`，便于下载页展示来源和后续重试。
+  - UI 上在收藏页工具栏增加“一键下载”按钮，并明确按钮作用范围。
+- 修复摘要：
+  - 已新增 `startFavoritesBulkDownload` 主进程服务、IPC 和 preload API。
+  - 收藏页增加“一键下载”按钮，按当前站点、分组和评级筛选下载全部收藏，并默认跳过已下载 / 已存在文件。
+  - 收藏一键下载目录已修正为固定站点收藏目录，例如 `Yande__Unsafe_favorites`；不再创建 `*_favorites_<时间戳>_<随机后缀>` 目录。
+  - 固定收藏下载目录会自动注册为本地图集，例如 `Yande:/Unsafe 收藏图集`；目录已有图集时不重复创建。
+- 验证方式：
+  - 主进程测试：已下载数据库记录、目标文件已存在、队列已有任务三种情况都不会重复加入本次下载。
+  - 主进程测试：目标路径落在固定独立收藏文件夹内，且文件夹不存在时会自动创建。
+  - 主进程测试：创建固定收藏目录后会自动添加对应收藏图集，且图集创建发生在目录创建之后。
+  - 渲染层测试：点击收藏页一键下载会调用新增 API，并在 loading / 成功 / 失败状态下给出明确反馈。
+  - 文件系统相关测试使用临时目录，避免固定真实下载路径在 Windows 下造成清理失败或权限干扰。
+
+### Bug5：图集图片预览按文件名排序时未按加载批次拆分布局
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈
+- 现象：图集图片预览中，按时间排序时拆分机制正常；但按文件名称排序时，没有按图片数量拆分。继续加载新图片后，瀑布流会把已经显示的图片一起完整重新布局，导致已有图片位置变化，预览体验不稳定。
+- 补充现象：向下加载多批后，当前详情页可能已缓存 / 展示约 1000 张图片；此时切换排序方式会明显卡顿，疑似一次性重新排序和重渲染已加载的全部图片。
+- 背景：
+  - 当前图集预览存在拆分机制：一类按时间拆分，另一类按图片数量拆分。
+  - 图片数量拆分默认按每次加载数量拆分，目前默认是 200 张。
+  - 该机制的目的，是避免瀑布流在追加新图片时整体重排；每次新加载的图片应作为新的分块追加，已显示分块保持原排布。
+- 预期：
+  - 按时间排序时保持当前行为。
+  - 按文件名称排序时，也应按每次加载批次 / 默认 200 张图片拆分。
+  - 每次加载新图片后，只追加新分块；已经显示的图片分块不应重新参与完整瀑布流排版。
+  - 拆分后的批次之间应保留清晰间隔，避免两个批次视觉上贴得太近。
+  - 图集详情排序需要支持升序 / 降序切换。
+  - 切换排序字段或升降序时，应直接回到页面顶部，并只处理首批 200 张；后续图片由用户继续加载。
+- 实际：按文件名称排序时未按图片数量拆分，导致新加载图片触发完整重新布局，已显示图片位置发生变化。
+- 影响范围：本地图集图片预览 / 瀑布流布局；图集图片数量较多、持续懒加载、按文件名称排序时更明显。
+- 查证结果：
+  - `ImageGrid` 已有 `batchSize = 200` 默认值，并在 `groupBy !== 'none'` 时先按 `batchSize` 切批次，再在每个批次内按时间分组。
+  - `ImageGrid` 在 `groupBy === 'none'` 时会直接返回 `{ '__all__': sorted }`，也就是所有可见图片进入同一个瀑布流容器。
+  - 图集详情页传参为 `groupBy={gallerySort === 'time' ? 'day' : 'none'}`。因此按时间排序会进入批次 + 时间分组路径；按文件名排序会进入 `groupBy="none"` 路径，完全绕过批次拆分。
+  - `LazyLoadFooter` 每次把 `galleryVisibleCount` 增加 200，但由于文件名排序下所有可见图片仍是单个瀑布流输入，新增 200 张会导致旧图片一起参与完整重排。
+  - 切换排序字段时，旧实现没有重置 `galleryVisibleCount`；如果用户已经加载到 1000 张，排序切换会继续把 1000 张作为当前可见输入。
+- 根因判断：批次拆分能力在组件内存在，但被绑定到了时间分组路径；文件名排序为了不显示时间分组把 `groupBy` 设为 `none`，同时也关闭了批次拆分。
+- 涉及文件：
+  - `src/renderer/components/ImageGrid.tsx`
+  - `src/renderer/pages/GalleryPage.tsx`
+  - `tests/renderer/components/ImageGrid.domainEvents.test.tsx` 或新增 `ImageGrid` 分组测试
+  - `tests/renderer/pages/GalleryPage.test.tsx`
+- 处理建议：
+  - 将“稳定批次拆分”和“显示时间分组标题”解耦。
+  - 文件名排序时仍按 `batchSize` 切分为多个渲染块，但不显示时间标题；每个批次单独形成瀑布流容器，避免追加批次时旧批次重新排版。
+  - 可在 `ImageGrid` 增加类似 `stableBatching` / `batchGrouping` 的显式开关，或调整 `groupBy="none"` 时也支持按批次返回 `batch-1`、`batch-2` 等内部分组。
+  - 图集详情页应明确传入 `batchSize={200}` 或复用统一常量，避免未来默认值漂移。
+  - 图集详情页排序字段 / 排序顺序变化时，统一执行“可见数量重置为 200 + 滚动到顶部”。
+- 修复摘要：
+  - `ImageGrid` 已在 `groupBy="none"` 时按加载批次形成独立渲染块。
+  - 文件名排序追加新图片时，新批次独立追加，已显示批次不再重新参与完整排布。
+  - 时间排序保持全局排序后再切批次；文件名排序保持批次成员稳定后在批内排序，以兼顾时间线语义和文件名排序下的瀑布流稳定性。
+  - 无时间分组的批次间距已调整为 `spacing['4xl']`（40px），比普通卡片间距更容易识别批次边界。
+  - `ImageGrid` 新增 `sortOrder`，支持按时间或文件名升序 / 降序排序；未显式传入时保持旧默认：时间倒序、文件名升序。
+  - 图集详情排序控件新增升序 / 降序切换按钮，并将详情图片排序顺序独立持久化为 `galleryDetailSortOrder`，不复用图集列表排序顺序。
+  - 切换排序字段或升降序按钮时，会把 `galleryVisibleCount` 重置为 200 并滚回顶部，避免对已经向下加载出的 1000 张图片整体重排。
+- 验证方式：
+  - 组件测试：`sortBy="name"` 且启用稳定批次时，401 张图片应形成 3 个批次，而不是单个 `__all__` 分组。
+  - 页面测试：图集详情按文件名排序后点击加载更多，第 1 批 200 张仍保留在原批次容器，第 2 批作为新容器追加。
+  - 组件测试：`groupBy="none"` 的批次容器应有 40px 底部间距。
+  - 组件测试：`sortOrder="asc" | "desc"` 应影响文件名排序方向。
+  - 组件测试：时间排序在跨多个批次时仍保持全局升序 / 降序，而不是每个批次各自排序。
+  - 页面测试：图集详情加载到 1000 张后切换排序字段或排序顺序，应回到顶部且 `ImageListWrapper` 只接收首批 200 张图片。
+  - 手动验证：按文件名排序连续加载更多，已显示区域不应整体跳动或重新排布。
+
+### Bug6：收藏标签页标签名点击行为与搜索按钮重复
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈；截图页面路径为 `Booru / 标签管理 / 收藏标签`
+- 现象：收藏标签页面中，操作列已经有搜索按钮；同时标签名本身也可点击，并且点击后也是执行搜索。
+- 预期：
+  - 操作列搜索按钮继续保留搜索功能。
+  - 标签名点击不再触发搜索，改为复制该标签名到剪切板。
+  - 复制成功 / 失败应有明确反馈。
+- 实际：
+  - 标签名列和操作列搜索按钮都是搜索入口，功能重复。
+  - 用户想复制标签名时没有直接入口。
+- 影响范围：收藏标签管理页的交互效率；标签数量较多时，重复搜索入口占用了更高频的“复制标签名”操作。
+- 查证结果：
+  - `FavoriteTagsPage` 中 `handleTagClick(tag)` 当前通过 `onTagClick(tag.tagName, tag.siteId)` 打开标签搜索。
+  - 标签名列 render 使用 `<a onClick={() => handleTagClick(record)}>` 包裹蓝色 `Tag`。
+  - 操作列的搜索按钮也调用 `handleTagClick(record)`，因此两个入口实际完全重复。
+  - 渲染层其他位置已有 `navigator.clipboard.writeText(...)` 用法，语言包也已有 `common.copySuccess` / `common.copyFailed` 文案可复用。
+- 根因判断：标签名点击最初被设计成搜索快捷入口，但后续操作列已经提供显式搜索按钮，导致同一行存在两个搜索入口，缺少复制标签名的高频操作。
+- 涉及文件：
+  - `src/renderer/pages/FavoriteTagsPage.tsx`
+  - `src/renderer/locales/zh-CN.ts`
+  - `src/renderer/locales/en-US.ts`
+  - `tests/renderer/pages/FavoriteTagsPage.render.test.tsx`
+  - `tests/renderer/pages/FavoriteTagsPage.component.contract.test.ts`
+- 处理建议：
+  - 保留 `handleTagClick` 给操作列搜索按钮使用，避免影响当前“搜索标签”入口。
+  - 新增 `handleCopyTagName(tagName)`，标签名列点击时调用 `navigator.clipboard.writeText(tagName)`。
+  - 复制内容建议使用原始标签名，例如 `watagashi_yui`，不要复制展示用的 `watagashi yui`，避免破坏 Booru 标签格式。
+  - 标签名 Tooltip / 可访问性文案应改为“复制标签名”，减少用户误判。
+  - 失败时使用 `message.error(t('common.copyFailed'))`；成功时使用 `message.success(t('common.copySuccess'))` 或更具体的“已复制标签名”。
+- 修复摘要：
+  - 标签名点击已改为复制原始 `tagName` 到剪切板。
+  - 操作列搜索按钮仍保留原搜索行为。
+- 验证方式：
+  - 渲染层测试：点击标签名调用 `navigator.clipboard.writeText`，参数为原始 `tagName`。
+  - 渲染层测试：点击操作列搜索按钮仍调用 `onTagClick(tagName, siteId)`。
+  - 手动验证：点击标签名后剪切板得到原始标签，点击放大镜按钮仍打开标签搜索。
+
+### Bug7：批量下载页刷新按钮会自动闪烁，像被点击了一样
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈；截图页面路径为 `Booru / 下载 / 批量下载`
+- 现象：批量下载界面的刷新按钮有时会自动闪烁，看起来像按钮被点击或进入 loading 状态，但用户实际没有点击。
+- 预期：
+  - 用户未点击刷新按钮时，按钮不应表现得像被点击。
+  - 后台自动刷新可以继续执行，但应使用静默刷新或独立状态，避免误导用户。
+- 实际：
+  - 下载任务活跃或后台事件触发时，刷新按钮可能短暂进入 loading / 闪烁状态。
+  - 用户会误以为发生了自动点击或误触。
+- 影响范围：Booru 批量下载页的状态感知；下载任务运行中、跳过大量已存在文件、或文件完成/失败事件密集时更明显。
+- 查证结果：
+  - 截图中存在两个刷新按钮：页面顶部工具栏刷新按钮，以及每个批量下载会话卡片右侧刷新按钮。
+  - 页面顶部刷新按钮位于 `BooruBulkDownloadPage`，其 `loading` 绑定页面级 `loading` 状态。
+  - `loadSessions()` 每次执行都会 `setLoading(true)`，结束后再 `setLoading(false)`。
+  - `loadSessions()` 不只由用户点击触发，还会被初次进入页面、批量下载事件、定时轮询、任务创建 / 启动后的自动刷新触发。
+  - 页面监听 `bulk-download:sessions-changed`、`bulk-download:tasks-changed`、`bulk-download:records-changed`、`favorite-tag-download:created`；其中 `records-changed` 在每个文件完成 / 失败时都会触发，页面已有 200ms 防抖和 1000ms maxWait 兜底。
+  - 会话卡片内的刷新按钮位于 `BulkDownloadSessionCard`，点击时调用 `loadStats()`；当前 `loadStats()` 不会设置该卡片的 `loading`，因此自动统计轮询本身不应让卡片刷新按钮 loading。若用户看到的是卡片按钮，还需要结合实际复现继续确认是否是父级重渲染或其他按钮 loading 造成的视觉误判。
+- 根因判断：页面顶部刷新按钮复用了全局 `loading` 状态，而这个状态同时表示“手动刷新中”和“后台自动刷新会话中”。当后台事件或轮询自动调用 `loadSessions()` 时，按钮也进入 loading 视觉状态，造成“像被自动点击”的闪烁。
+- 涉及文件：
+  - `src/renderer/pages/BooruBulkDownloadPage.tsx`
+  - `src/renderer/components/BulkDownloadSessionCard.tsx`
+  - `src/main/services/bulkDownloadService.ts`
+  - `tests/renderer/pages/BooruBulkDownloadPage.test.tsx`
+- 处理建议：
+  - 将手动刷新状态和后台刷新状态拆开，例如 `manualRefreshing` 与 `backgroundRefreshing`。
+  - 顶部刷新按钮只绑定手动刷新状态；事件驱动、轮询、任务状态同步等后台刷新不应让按钮显示 loading。
+  - 保留现有事件防抖和 maxWait 逻辑，避免下载记录事件风暴导致列表不更新。
+  - 如果需要显示后台同步状态，应放在低干扰位置，例如小型文本 / 状态点，而不是复用按钮点击动画。
+  - 可顺手修正卡片内刷新按钮语义：手动点击 `loadStats()` 时如需反馈，应使用独立的 `statsRefreshing`，不要复用启动 / 暂停 / 删除的 `loading`。
+- 修复摘要：
+  - 顶部刷新按钮已使用手动刷新专用状态。
+  - 后台事件、轮询和任务状态同步仍会刷新列表，但不再驱动按钮 loading 动画。
+- 验证方式：
+  - 渲染层测试：触发 `bulk-download:records-changed` 后自动刷新会话，但顶部刷新按钮不出现 loading。
+  - 渲染层测试：用户点击顶部刷新按钮时，按钮才显示 loading。
+  - 渲染层测试：5 秒定时轮询触发 `loadSessions()` 时，刷新按钮不闪烁。
+  - 手动验证：下载任务运行中等待自动状态更新，页面数据可刷新，但顶部刷新按钮不再像被点击。
+
+### Bug8：Booru 原图缓存管理入口重复出现在全局设置和 Booru 设置
+
+- 状态：已修复
+- 修复版本：待发布（v0.1.4）
+- 来源：v0.1.3 使用反馈；截图页面路径为 `设置` 和 `Booru / 站点配置 / 缓存设置`
+- 现象：缓存管理配置现在同时出现在两个地方：全局设置页和 Booru 设置页。
+- 预期：
+  - Booru 原图缓存相关配置应只放在 Booru 设置中。
+  - 全局设置不应展示只作用于 Booru 原图缓存的“缓存占用 / 清除缓存”入口，避免误解成全应用缓存管理。
+- 实际：
+  - 全局设置页的“缓存管理”展示缓存占用和清除缓存按钮。
+  - Booru 设置页也展示缓存上限配置和缓存统计。
+  - 两处都读取同一个 Booru 原图缓存统计，不是两套不同缓存。
+- 影响范围：设置页信息架构和用户理解；用户容易误以为全局设置的缓存管理会清理本地图库缩略图、标签缓存或其他应用缓存。
+- 查证结果：
+  - 全局设置页 `CacheManagementGroup` 调用 `window.electronAPI.booru.getCacheStats()` 获取缓存占用，调用 `window.electronAPI.booru.clearCache()` 清除缓存。
+  - Booru 设置页 `CacheStatsDisplay` 同样调用 `window.electronAPI.booru.getCacheStats()`，并在同一区块配置 `maxCacheSizeMB`。
+  - preload / IPC 暴露的 `booru.getCacheStats` 和 `booru.clearCache` 最终落到 `imageCacheService.getCacheStats()` / `imageCacheService.clearAllCache()`。
+  - `imageCacheService` 明确用于缓存 Booru 图片原图，目录来自 `getCachePath()`，即运行数据目录下的 `cache`。
+  - 本地图库缩略图缓存走 `thumbnailService` 和 `getThumbnailsPath()`，目录是 `thumbnails`，不在这个缓存统计 / 清理范围内。
+  - Booru 标签缓存位于数据库 `booru_tags`，有单独的 `getTagCacheStats()` / `cleanExpiredTags()`，也不在这个磁盘缓存统计 / 清理范围内。
+- 根因判断：全局设置复用了 Booru 原图缓存管理组件，导致“只管理 Booru 原图缓存”的能力被放进全局设置，语义范围比实际能力更大。
+- 涉及文件：
+  - `src/renderer/pages/SettingsPage.tsx`
+  - `src/renderer/pages/BooruSettingsPage.tsx`
+  - `src/main/services/imageCacheService.ts`
+  - `src/main/services/config.ts`
+  - `tests/renderer/pages/SettingsPage.test.tsx`
+  - `tests/renderer/pages/BooruSettingsPage.test.tsx`
+- 处理建议：
+  - 从全局设置页移除 `CacheManagementGroup`，包括“缓存占用”和“清除缓存”两项。
+  - 保留 Booru 设置页中的缓存设置：`maxCacheSizeMB`、当前缓存状态、刷新统计。
+  - 如需要清理入口，应在 Booru 设置页补充“清除 Booru 原图缓存”按钮，而不是放在全局设置。
+  - 文案统一为“Booru 原图缓存”或“Booru 图片缓存”，不要再用泛化的“缓存管理”。
+- 修复摘要：
+  - 全局设置页已移除 Booru 原图缓存管理入口和对应全局文案。
+  - Booru 设置页保留缓存上限与统计，并明确标注为“Booru 原图缓存”。
+- 验证方式：
+  - 渲染层测试：全局设置页不再渲染“缓存占用 / 清除缓存”相关行。
+  - 渲染层测试：Booru 设置页仍能展示缓存上限和当前缓存状态。
+  - 手动验证：进入全局设置不再看到缓存管理；进入 Booru 设置仍可查看 Booru 原图缓存统计。
+
+## 条目模板
+
+### BugX：标题
+
+- 状态：待查证
+- 来源：
+- 现象：
+- 预期：
+- 实际：
+- 影响范围：
+- 待查证方向：
+- 涉及文件：
+- 处理建议：
+- 验证方式：

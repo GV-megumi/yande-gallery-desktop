@@ -1,4 +1,13 @@
-import { describe, it, expect } from 'vitest';
+/** @vitest-environment jsdom */
+
+import React from 'react';
+import { cleanup, render, screen } from '@testing-library/react';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import { PaginationControl } from '../../../src/renderer/components/PaginationControl';
+
+afterEach(() => {
+  cleanup();
+});
 
 /**
  * PaginationControl 纯函数测试
@@ -219,5 +228,87 @@ describe('pageButtonStyle', () => {
     expect(pageButtonStyle(true).height).toBe(32);
     expect(pageButtonStyle(false).width).toBe(32);
     expect(pageButtonStyle(false).height).toBe(32);
+  });
+});
+
+describe('PaginationControl 已知总数', () => {
+  it('第一页应显示尾页页码', () => {
+    render(
+      React.createElement(PaginationControl as any, {
+        currentPage: 1,
+        currentCount: 20,
+        itemsPerPage: 20,
+        total: 320,
+        paginationPosition: 'both',
+        position: 'top',
+        onPrevious: vi.fn(),
+        onNext: vi.fn(),
+        onPageChange: vi.fn(),
+      })
+    );
+
+    expect(screen.getByText('16')).toBeTruthy();
+  });
+
+  it('尾页应禁用下一页且不显示超出总页数的页码', () => {
+    render(
+      React.createElement(PaginationControl as any, {
+        currentPage: 16,
+        currentCount: 20,
+        itemsPerPage: 20,
+        total: 320,
+        paginationPosition: 'both',
+        position: 'top',
+        onPrevious: vi.fn(),
+        onNext: vi.fn(),
+        onPageChange: vi.fn(),
+      })
+    );
+
+    expect(screen.getByText('14')).toBeTruthy();
+    expect(screen.getByText('15')).toBeTruthy();
+    expect(screen.getByText('16')).toBeTruthy();
+    expect(screen.queryByText('18')).toBeNull();
+    expect((screen.getByLabelText('下一页') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('总数为 0 时应只显示第 1 页并禁用前后翻页', () => {
+    render(
+      React.createElement(PaginationControl as any, {
+        currentPage: 1,
+        currentCount: 0,
+        itemsPerPage: 20,
+        total: 0,
+        paginationPosition: 'both',
+        position: 'top',
+        onPrevious: vi.fn(),
+        onNext: vi.fn(),
+        onPageChange: vi.fn(),
+      })
+    );
+
+    expect(screen.getByText('1')).toBeTruthy();
+    expect(screen.queryByText('2')).toBeNull();
+    expect((screen.getByLabelText('上一页') as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByLabelText('下一页') as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('非正 itemsPerPage 应按 1 处理并显示有限尾页', () => {
+    render(
+      React.createElement(PaginationControl as any, {
+        currentPage: 1,
+        currentCount: 0,
+        itemsPerPage: 0,
+        total: 3,
+        paginationPosition: 'both',
+        position: 'top',
+        onPrevious: vi.fn(),
+        onNext: vi.fn(),
+        onPageChange: vi.fn(),
+      })
+    );
+
+    expect(screen.getByText('3')).toBeTruthy();
+    expect((screen.getByLabelText('下一页') as HTMLButtonElement).disabled).toBe(false);
   });
 });

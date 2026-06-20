@@ -930,6 +930,7 @@ describe('config 模块纯函数测试', () => {
                 gallerySortOrder: 'asc',
                 selectedGalleryId: 9,
                 gallerySort: 'name',
+                galleryDetailSortOrder: 'asc',
               },
             },
           },
@@ -981,6 +982,7 @@ describe('config 模块纯函数测试', () => {
             gallerySortOrder: 'desc',
             selectedGalleryId: 12,
             gallerySort: 'name',
+            galleryDetailSortOrder: 'asc',
           },
         },
         appShell: {

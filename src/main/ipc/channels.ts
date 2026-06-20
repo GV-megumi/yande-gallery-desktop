@@ -202,6 +202,7 @@ export const IPC_CHANNELS = {
   BOORU_UPSERT_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:upsert-favorite-tag-download-binding',
   BOORU_REMOVE_FAVORITE_TAG_DOWNLOAD_BINDING: 'booru:remove-favorite-tag-download-binding',
   BOORU_START_FAVORITE_TAG_BULK_DOWNLOAD: 'booru:start-favorite-tag-bulk-download',
+  BOORU_START_FAVORITES_BULK_DOWNLOAD: 'booru:start-favorites-bulk-download',
 
   // 收藏标签分组管理
   BOORU_GET_FAVORITE_TAG_LABELS: 'booru:get-favorite-tag-labels',

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import React from 'react';
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ImageGrid } from '../../../src/renderer/components/ImageGrid';
 import type { RendererAppEvent } from '../../../src/shared/types';
@@ -40,6 +40,14 @@ function image(id: number, filename: string) {
     format: 'jpg',
     createdAt: '2026-06-09T00:00:00.000Z',
     updatedAt: '2026-06-09T00:00:00.000Z',
+  };
+}
+
+function timedImage(id: number, filename: string, updatedAt: string) {
+  return {
+    ...image(id, filename),
+    createdAt: updatedAt,
+    updatedAt,
   };
 }
 
@@ -138,5 +146,161 @@ describe('ImageGrid domain events', () => {
     });
     expect(screen.getByAltText('b.jpg')).toBeTruthy();
     expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps name-sorted waterfall batches stable when more images become visible', async () => {
+    const baseProps = {
+      onReload,
+      groupBy: 'none' as const,
+      sortBy: 'name' as const,
+      batchSize: 2,
+      groupKeyPrefix: 'stable-name',
+    };
+    const { rerender } = render(
+      <ImageGrid
+        {...baseProps}
+        images={[image(1, 'm.jpg'), image(2, 'z.jpg')]}
+      />
+    );
+
+    const firstBatch = await waitFor(() => {
+      const node = document.getElementById('stable-name__batch-1');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+    await within(firstBatch).findByAltText('m.jpg');
+    expect(within(firstBatch).getByAltText('z.jpg')).toBeTruthy();
+    expect(firstBatch.style.marginBottom).toBe('40px');
+
+    rerender(
+      <ImageGrid
+        {...baseProps}
+        images={[
+          image(1, 'm.jpg'),
+          image(2, 'z.jpg'),
+          image(3, 'a.jpg'),
+          image(4, 'b.jpg'),
+        ]}
+      />
+    );
+
+    const updatedFirstBatch = document.getElementById('stable-name__batch-1') as HTMLElement;
+    const secondBatch = await waitFor(() => {
+      const node = document.getElementById('stable-name__batch-2');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+
+    expect(within(updatedFirstBatch).getByAltText('m.jpg')).toBeTruthy();
+    expect(within(updatedFirstBatch).getByAltText('z.jpg')).toBeTruthy();
+    expect(within(updatedFirstBatch).queryByAltText('a.jpg')).toBeNull();
+    expect(within(updatedFirstBatch).queryByAltText('b.jpg')).toBeNull();
+    expect(await within(secondBatch).findByAltText('a.jpg')).toBeTruthy();
+    expect(within(secondBatch).getByAltText('b.jpg')).toBeTruthy();
+  });
+
+  it('sorts images by requested ascending or descending order', async () => {
+    const baseProps = {
+      onReload,
+      groupBy: 'none' as const,
+      sortBy: 'name' as const,
+      batchSize: 4,
+      groupKeyPrefix: 'sort-order',
+    };
+    const images = [
+      image(1, 'm.jpg'),
+      image(2, 'a.jpg'),
+      image(3, 'z.jpg'),
+    ];
+
+    const { rerender } = render(
+      <ImageGrid
+        {...baseProps}
+        sortOrder="desc"
+        images={images}
+      />
+    );
+
+    const batch = await waitFor(() => {
+      const node = document.getElementById('sort-order__batch-1');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+    await within(batch).findByAltText('z.jpg');
+    expect(
+      within(batch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+    ).toEqual(['z.jpg', 'm.jpg', 'a.jpg']);
+
+    rerender(
+      <ImageGrid
+        {...baseProps}
+        sortOrder="asc"
+        images={images}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        within(batch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+      ).toEqual(['a.jpg', 'm.jpg', 'z.jpg']);
+    });
+  });
+
+  it('keeps time sort order global before splitting waterfall batches', async () => {
+    const baseProps = {
+      onReload,
+      groupBy: 'day' as const,
+      sortBy: 'time' as const,
+      batchSize: 2,
+      groupKeyPrefix: 'time-order',
+    };
+    const images = [
+      timedImage(1, 'three.jpg', '2026-06-09T00:03:00.000Z'),
+      timedImage(2, 'one.jpg', '2026-06-09T00:01:00.000Z'),
+      timedImage(3, 'four.jpg', '2026-06-09T00:04:00.000Z'),
+      timedImage(4, 'two.jpg', '2026-06-09T00:02:00.000Z'),
+    ];
+
+    const { rerender } = render(
+      <ImageGrid
+        {...baseProps}
+        sortOrder="asc"
+        images={images}
+      />
+    );
+
+    const firstAscBatch = await waitFor(() => {
+      const node = document.getElementById('time-order__batch-1__2026年06月09日');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+    const secondAscBatch = await waitFor(() => {
+      const node = document.getElementById('time-order__batch-2__2026年06月09日');
+      expect(node).toBeTruthy();
+      return node as HTMLElement;
+    });
+    expect(
+      within(firstAscBatch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+    ).toEqual(['one.jpg', 'two.jpg']);
+    expect(
+      within(secondAscBatch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+    ).toEqual(['three.jpg', 'four.jpg']);
+
+    rerender(
+      <ImageGrid
+        {...baseProps}
+        sortOrder="desc"
+        images={images}
+      />
+    );
+
+    await waitFor(() => {
+      expect(
+        within(firstAscBatch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+      ).toEqual(['four.jpg', 'three.jpg']);
+    });
+    expect(
+      within(secondAscBatch).getAllByRole('img').map((node) => node.getAttribute('alt')).filter(Boolean),
+    ).toEqual(['two.jpg', 'one.jpg']);
   });
 });

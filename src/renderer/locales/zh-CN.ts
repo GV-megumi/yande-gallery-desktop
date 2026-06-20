@@ -501,11 +501,6 @@ const zhCN = {
     googleSuccess: 'Google 连接成功！状态码: {status}',
     googleFailed: 'Google 连接失败',
     saveAll: '保存所有设置',
-    cacheManagement: '缓存管理',
-    cacheSize: '缓存占用',
-    cacheFiles: '个文件',
-    clearCache: '清除缓存',
-    clearCacheDesc: '清除所有已缓存的图片文件，释放磁盘空间',
     // bug9：通知 / 桌面行为
     notifications: '通知',
     notificationsFooter: '通知分三级判断：总开关 AND 状态类别 AND 任务级 notifications；关闭任一都不会弹出。',

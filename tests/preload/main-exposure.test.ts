@@ -126,6 +126,17 @@ describe('main preload 暴露面', () => {
     expect(ipcRendererMock.invoke).toHaveBeenCalledWith('api-service:get-logs', query);
   });
 
+  it('主窗口 booru 域暴露收藏一键下载入口', async () => {
+    await import('../../src/preload/index');
+    const api = exposed.electronAPI as any;
+    const input = { siteId: 3, groupId: null, rating: 'safe' };
+
+    expect(typeof api.booru.startFavoritesBulkDownload).toBe('function');
+    await api.booru.startFavoritesBulkDownload(input);
+
+    expect(ipcRendererMock.invoke).toHaveBeenCalledWith('booru:start-favorites-bulk-download', input);
+  });
+
   it('Window.electronAPI.config desktop 类型声明包含 hardwareAcceleration', () => {
     const preloadSource = fs.readFileSync(
       new URL('../../src/preload/index.ts', import.meta.url),
@@ -134,5 +145,6 @@ describe('main preload 暴露面', () => {
 
     expect(preloadSource).toMatch(/getDesktop:[\s\S]*hardwareAcceleration: boolean/);
     expect(preloadSource).toMatch(/setDesktop:[\s\S]*hardwareAcceleration\?: boolean/);
+    expect(preloadSource).toMatch(/startFavoritesBulkDownload:[\s\S]*siteId: number[\s\S]*groupId\?: number \| null[\s\S]*rating\?: 'safe' \| 'questionable' \| 'explicit' \| 'all'/);
   });
 });
