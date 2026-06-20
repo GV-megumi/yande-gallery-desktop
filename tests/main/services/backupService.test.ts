@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { IPC_CHANNELS } from '../../../src/main/ipc/channels.js';
+import { getGalleryRootsSnapshot, loadGalleryRoots } from '../../../src/main/services/galleryRootRegistry.js';
 import {
   mergeSensitiveConfig,
   normalizeConfigSaveInput,
@@ -258,6 +259,48 @@ describe('restoreAppBackupData', () => {
       ([channel]) => channel === IPC_CHANNELS.CONFIG_CHANGED,
     );
     expect(destroyedLegacyCalls).toHaveLength(0);
+  });
+
+  it('恢复成功后应从 DB 重新装载图库根登记表，避免 app:// 白名单过期导致图库图片加载失败', async () => {
+    const backupData = createBackupPayload();
+
+    const allMock = vi.fn(async (_db: unknown, sql: string) => {
+      // 恢复成功后 backupService 会用这条 SQL 重建登记表
+      if (sql === 'SELECT folderPath FROM galleries') {
+        return [{ folderPath: 'M:/restored-a' }, { folderPath: 'M:/restored-b' }];
+      }
+      return [];
+    });
+
+    vi.doMock('../../../src/main/services/config.js', () => ({
+      getConfig: vi.fn(() => ({})),
+      saveConfig: vi.fn(async () => ({ success: true })),
+      toRendererSafeUiConfig,
+    }));
+
+    vi.doMock('../../../src/main/services/database.js', () => ({
+      getDatabase: vi.fn(async () => ({})),
+      all: allMock,
+      run: vi.fn(async () => undefined),
+      runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+    }));
+
+    // 先 import backupService（会拉入对应的 galleryRootRegistry 实例），
+    // 再从同一模块缓存中取 galleryRootRegistry，确保 loadGalleryRoots / getGalleryRootsSnapshot
+    // 操作的是同一个 Set 单例，而不是 afterEach resetModules 后分裂出的不同实例。
+    const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
+    const registry = await import('../../../src/main/services/galleryRootRegistry.js');
+
+    // 模拟恢复前登记表里的旧根（已在内存中，但恢复后应被替换）
+    registry.loadGalleryRoots(['M:/stale-old']);
+
+    await restoreAppBackupData(backupData, { mode: 'replace' });
+
+    // 旧的 stale-old 应被替换，恢复进来的两个根应已装载
+    expect(registry.getGalleryRootsSnapshot().sort()).toEqual(['M:/restored-a', 'M:/restored-b']);
+
+    // 用例自理：复位登记表，避免跨用例单例污染其他测试
+    registry.loadGalleryRoots([]);
   });
 });
 
