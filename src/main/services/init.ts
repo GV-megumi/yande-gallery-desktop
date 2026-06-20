@@ -1,6 +1,7 @@
 import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir } from './config.js';
 import { initDatabase, closeDatabase } from './database.js';
 import { createGallery, getGalleries } from './galleryService.js';
+import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { normalizePath } from '../utils/path.js';
 import { downloadManager } from './downloadManager.js';
 import * as bulkDownloadService from './bulkDownloadService.js';
@@ -146,50 +147,58 @@ function resumeDownloadsInBackground(): void {
 }
 
 /**
- * 从配置文件读取初始图库（懒加载模式）
- * - 只创建图库记录，不扫描文件夹
- * - 点击图库后才触发扫描
+ * 启动时一次性迁移 + 装载图库根登记表（懒加载模式）
+ * - 历史遗留：旧版把图库根写在 config.galleries.folders；现已归一到 DB galleries 表。
+ *   这里仅在 DB 为空时把旧字段迁移进 DB，并从内存配置剥离该 key，避免后续回写再持久化。
+ * - 不论是否迁移，最后都从 DB 装载 galleryRootRegistry，供 app:// 白名单同步读取。
  */
-async function initGalleriesFromConfig(): Promise<void> {
+export async function initGalleriesFromConfig(): Promise<void> {
   try {
-    const config = getConfig();
+    // 旧字段已从 AppConfig 类型移除；老 yaml 可能仍残留该 key，故防御式读取
+    const config = getConfig() as unknown as {
+      galleries?: { folders?: Array<{ path: string; name: string; autoScan?: boolean; recursive?: boolean; extensions?: string[] }> };
+    };
 
-    // 检查是否已有图库
     const existingResult = await getGalleries();
+    const dbEmpty = !(existingResult.success && existingResult.data && existingResult.data.length > 0);
 
-    if (existingResult.success && existingResult.data && existingResult.data.length > 0) {
-      console.log(`📊 已有 ${existingResult.data.length} 个图库，跳过初始化`);
-      return;
-    }
-
-    console.log('📂 从配置创建初始图库...');
-
-    let createdCount = 0;
-
-    for (const folderConfig of config.galleries.folders) {
-      try {
-        // 规范化路径（支持相对路径和绝对路径）
-        const folderPath = normalizePath(folderConfig.path);
-
-        // 创建图库（不触发扫描）
-        const result = await createGallery({
-          folderPath,
-          name: folderConfig.name,
-          isWatching: folderConfig.autoScan,
-          recursive: folderConfig.recursive,
-          extensions: folderConfig.extensions
-        });
-
-        if (result.success) {
-          createdCount++;
-          console.log(`✅ 创建图库: ${folderConfig.name} (${folderPath})`);
+    const legacyFolders = config.galleries?.folders ?? [];
+    if (dbEmpty && legacyFolders.length > 0) {
+      console.log('📂 检测到旧 config.galleries.folders，一次性迁移进数据库...');
+      let createdCount = 0;
+      for (const folderConfig of legacyFolders) {
+        try {
+          const folderPath = normalizePath(folderConfig.path);
+          const result = await createGallery({
+            folderPath,
+            name: folderConfig.name,
+            isWatching: folderConfig.autoScan,
+            recursive: folderConfig.recursive,
+            extensions: folderConfig.extensions,
+          });
+          if (result.success) {
+            createdCount++;
+            console.log(`✅ 迁移图库: ${folderConfig.name} (${folderPath})`);
+          }
+        } catch (error) {
+          console.error(`❌ 迁移图库失败: ${folderConfig.name}`, error);
         }
-      } catch (error) {
-        console.error(`❌ 创建图库失败: ${folderConfig.name}`, error);
       }
+      console.log(`📝 共迁移 ${createdCount} 个图库`);
     }
 
-    console.log(`📝 共创建 ${createdCount} 个图库`);
+    // 迁移完成后剥离旧 key，避免 config 回写时再次持久化
+    if (config.galleries !== undefined) {
+      delete config.galleries;
+    }
+
+    // 从 DB 装载图库根登记表（app:// 白名单的同步来源）
+    const galleriesResult = await getGalleries();
+    const roots = galleriesResult.success && galleriesResult.data
+      ? galleriesResult.data.map(g => g.folderPath).filter(Boolean)
+      : [];
+    loadGalleryRoots(roots);
+    console.log(`[init] 图库根登记表已装载，共 ${roots.length} 个根`);
   } catch (error) {
     console.error('❌ 初始化图库失败:', error);
   }
