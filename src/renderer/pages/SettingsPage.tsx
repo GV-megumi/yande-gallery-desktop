@@ -14,12 +14,15 @@ import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
 
 const { Option } = Select;
 
-interface GalleryFolder {
-  path: string;
+interface GalleryRow {
+  id?: number;          // DB 图库 id
+  path: string;         // 对应 DB folderPath
   name: string;
   autoScan: boolean;
   recursive: boolean;
   extensions: string[];
+  imageCount?: number;
+  isWatching?: boolean;
 }
 
 const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
@@ -152,7 +155,7 @@ export const SettingsPage: React.FC = () => {
   // antd v5 上下文化提示，替代静态 message / Modal（App.tsx 已包 <App>）
   const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
-  const [folders, setFolders] = useState<GalleryFolder[]>([]);
+  const [folders, setFolders] = useState<GalleryRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [scanning, setScanning] = useState<string | null>(null);
   const [proxyForm] = Form.useForm();
@@ -404,7 +407,22 @@ export const SettingsPage: React.FC = () => {
       if (result.success && result.data) {
         const config = result.data;
         console.log('[SettingsPage] 配置加载成功');
-        setFolders(config.galleries?.folders || []);
+        // 图库列表从 DB 拉取（Task 5：归一到数据库）
+        const galleriesResult = await window.electronAPI.gallery.getGalleries();
+        if (galleriesResult.success && Array.isArray(galleriesResult.data)) {
+          setFolders(
+            galleriesResult.data.map((g: any) => ({
+              id: g.id,
+              path: g.folderPath,
+              name: g.name,
+              autoScan: Boolean(g.isWatching),
+              recursive: Boolean(g.recursive),
+              extensions: Array.isArray(g.extensions) ? g.extensions : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
+              imageCount: g.imageCount,
+              isWatching: Boolean(g.isWatching),
+            }))
+          );
+        }
         const dp = config.downloads?.path || './downloads';
         const ts = config.thumbnails?.maxWidth || 800;
         const tq = config.thumbnails?.quality || 92;
@@ -466,18 +484,20 @@ export const SettingsPage: React.FC = () => {
       const folderPath = result.data;
       if (folders.some(f => f.path === folderPath)) { message.warning('该文件夹已存在'); return; }
       const folderName = folderPath.split(/[/\\]/).pop() || '未命名文件夹';
-      const newFolder: GalleryFolder = {
-        path: folderPath, name: folderName, autoScan: true, recursive: true,
-        extensions: ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']
-      };
-      const updatedFolders = [...folders, newFolder];
-      setFolders(updatedFolders);
-      await saveFoldersConfig(updatedFolders);
+      const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+      const createResult = await window.electronAPI.gallery.createGallery({
+        folderPath, name: folderName, isWatching: true, recursive: true, extensions,
+      });
+      if (!createResult.success) {
+        message.error(createResult.error || '创建图库失败');
+        return;
+      }
+      await loadConfig(); // 重新从 DB 拉列表
       modal.confirm({
         title: '扫描子文件夹',
         content: `是否立即扫描 "${folderName}" 下的所有子文件夹并创建图集？`,
         okText: '立即扫描', cancelText: '稍后扫描',
-        onOk: () => { void scanSubfolders(folderPath, newFolder.extensions); }
+        onOk: () => { void scanSubfolders(folderPath, extensions); }
       });
     } catch (error) {
       console.error('Failed to add folder:', error);
@@ -504,22 +524,38 @@ export const SettingsPage: React.FC = () => {
     }
   };
 
-  // 删除文件夹：确认由列表行的 Popconfirm 负责，这里直接执行删除
-  const handleDeleteFolder = async (index: number) => {
-    const updated = folders.filter((_, i) => i !== index);
-    setFolders(updated);
-    await saveFoldersConfig(updated);
-    message.success('已删除文件夹');
+  // 删除图库：modal.confirm 做确认，「彻底删除」清记录+缩略图（磁盘原图保留）
+  const handleDeleteFolder = (index: number) => {
+    const target = folders[index];
+    if (target?.id === undefined) {
+      // 无 DB id（迁移前遗留），直接从本地 state 移除
+      setFolders(folders.filter((_, i) => i !== index));
+      return;
+    }
+    const galleryId = target.id;
+    modal.confirm({
+      title: `删除图库 "${target.name}"`,
+      content: '「彻底删除」会清除该图库的图片记录与缩略图缓存（磁盘原图保留）；如只想保留数据、关闭自动同步，请改用列表中的「停止监视」。',
+      okText: '彻底删除',
+      okButtonProps: { danger: true },
+      cancelText: '取消',
+      onOk: async () => {
+        const result = await window.electronAPI.gallery.deleteGallery(galleryId);
+        if (!result.success) { message.error(result.error || '删除失败'); return; }
+        message.success('已删除图库');
+        await loadConfig();
+      },
+    });
   };
 
-  const saveFoldersConfig = async (foldersToSave: GalleryFolder[]) => {
-    if (!window.electronAPI) return;
-    try {
-      const result = await window.electronAPI.config.updateGalleryFolders(foldersToSave);
-      if (!result.success) message.error(result.error || '保存配置失败');
-    } catch (error) {
-      message.error('保存配置失败');
-    }
+  // 停止监视：保留全部数据，仅关闭自动同步
+  const handleStopWatching = async (index: number) => {
+    const target = folders[index];
+    if (target?.id === undefined) return;
+    const result = await window.electronAPI.gallery.updateGallery(target.id, { isWatching: false });
+    if (!result.success) { message.error(result.error || '操作失败'); return; }
+    message.success('已停止监视该图库（数据保留）');
+    await loadConfig();
   };
 
   const handleSelectDownloadPath = async () => {
@@ -695,21 +731,26 @@ export const SettingsPage: React.FC = () => {
                         >
                           {t('settings.scanFolder')}
                         </Button>
-                        <Popconfirm
-                          title={t('settings.deleteFolderConfirm')}
-                          onConfirm={() => handleDeleteFolder(index)}
-                          okText="删除"
-                          cancelText="取消"
-                        >
+                        {item.isWatching && (
                           <Button
                             type="text"
                             size="small"
-                            icon={<DeleteOutlined />}
-                            danger
+                            icon={<StopOutlined />}
+                            onClick={() => handleStopWatching(index)}
+                            title="保留数据，仅关闭自动同步"
                           >
-                            {t('settings.deleteFolder')}
+                            停止监视
                           </Button>
-                        </Popconfirm>
+                        )}
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<DeleteOutlined />}
+                          danger
+                          onClick={() => handleDeleteFolder(index)}
+                        >
+                          {t('settings.deleteFolder')}
+                        </Button>
                       </Space>
                     }
                   />

@@ -26,6 +26,10 @@ const openExternal = vi.fn();
 const testBaidu = vi.fn();
 const testGoogle = vi.fn();
 const scanSubfolders = vi.fn();
+const getGalleries = vi.fn();
+const createGallery = vi.fn();
+const updateGallery = vi.fn();
+const deleteGallery = vi.fn();
 const getSites = vi.fn();
 const addSite = vi.fn();
 const updateSite = vi.fn();
@@ -247,6 +251,10 @@ beforeEach(() => {
   setDesktop.mockResolvedValue({ success: true });
   getCacheStats.mockResolvedValue({ success: true, data: { sizeMB: 0, fileCount: 0 } });
   checkForUpdate.mockResolvedValue({ success: false, error: 'skip' });
+  getGalleries.mockResolvedValue({ success: true, data: [] });
+  createGallery.mockResolvedValue({ success: true, data: { id: 1 } });
+  updateGallery.mockResolvedValue({ success: true });
+  deleteGallery.mockResolvedValue({ success: true });
   getSites.mockResolvedValue({ success: true, data: [] });
   addSite.mockResolvedValue({ success: true });
   updateSite.mockResolvedValue({ success: true });
@@ -336,6 +344,10 @@ beforeEach(() => {
     },
     gallery: {
       scanSubfolders,
+      getGalleries,
+      createGallery,
+      updateGallery,
+      deleteGallery,
     },
     apiService: {
       getConfig: getApiServiceConfig,
