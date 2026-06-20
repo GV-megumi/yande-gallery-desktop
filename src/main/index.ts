@@ -11,10 +11,10 @@ import {
   getDataDir,
   getDesktopConfig,
   getDownloadsPath,
-  getGalleryFolders,
   getStartupHardwareAccelerationEnabled,
   getThumbnailsPath,
 } from './services/config.js';
+import { getGalleryRootsSnapshot } from './services/galleryRootRegistry.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -88,7 +88,7 @@ function isPathWithinRoot(targetPath: string, rootPath: string): boolean {
 
 function getControlledAppProtocolRoots(): string[] {
   const roots = [
-    ...getGalleryFolders().map(folder => folder.path),
+    ...getGalleryRootsSnapshot(),
     getDownloadsPath(),
     getDataDir(),
     getCachePath(),
