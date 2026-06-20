@@ -9,14 +9,14 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock 所有外部依赖
 const mockInitPaths = vi.fn().mockResolvedValue(undefined);
 const mockLoadConfig = vi.fn().mockResolvedValue(undefined);
-const mockGetConfig = vi.fn().mockReturnValue({
+const mockGetConfig = vi.fn().mockImplementation(() => ({
   galleries: {
     folders: [
       { path: '/test/folder1', name: 'Gallery1', autoScan: true, recursive: true, extensions: ['.jpg', '.png'] },
       { path: '/test/folder2', name: 'Gallery2', autoScan: false, recursive: false, extensions: ['.jpg'] },
     ]
   }
-});
+}));
 const mockGetDatabasePath = vi.fn().mockReturnValue('/test/data/gallery.db');
 const mockEnsureDataDirectories = vi.fn().mockResolvedValue(undefined);
 const mockGetConfigDir = vi.fn().mockReturnValue('/test/config');
