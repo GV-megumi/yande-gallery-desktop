@@ -27,7 +27,7 @@ const mockSetupWindowIPC = vi.fn();
 const mockSetupIPC = vi.fn();
 const mockInitializeApp = vi.fn(() => new Promise<{ success: boolean }>(() => {}));
 const mockShutdownAppResources = vi.fn().mockResolvedValue(undefined);
-const mockGetGalleryFolders = vi.fn();
+const mockGetGalleryRootsSnapshot = vi.fn();
 const mockGetDownloadsPath = vi.fn();
 const mockGetDataDir = vi.fn();
 const mockGetCachePath = vi.fn();
@@ -86,12 +86,15 @@ vi.mock('../../src/main/services/init.js', () => ({
 }));
 
 vi.mock('../../src/main/services/config.js', () => ({
-  getGalleryFolders: mockGetGalleryFolders,
   getDownloadsPath: mockGetDownloadsPath,
   getDataDir: mockGetDataDir,
   getCachePath: mockGetCachePath,
   getThumbnailsPath: mockGetThumbnailsPath,
   getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
+}));
+
+vi.mock('../../src/main/services/galleryRootRegistry.js', () => ({
+  getGalleryRootsSnapshot: mockGetGalleryRootsSnapshot,
 }));
 
 describe('main index app protocol containment', () => {
@@ -119,7 +122,7 @@ describe('main index app protocol containment', () => {
     mockInitializeApp.mockImplementation(() => new Promise<{ success: boolean }>(() => {}));
     mockShutdownAppResources.mockReset();
     mockShutdownAppResources.mockResolvedValue(undefined);
-    mockGetGalleryFolders.mockReset();
+    mockGetGalleryRootsSnapshot.mockReset();
     mockGetDownloadsPath.mockReset();
     mockGetDataDir.mockReset();
     mockGetCachePath.mockReset();
@@ -139,9 +142,7 @@ describe('main index app protocol containment', () => {
       },
     }));
 
-    mockGetGalleryFolders.mockReturnValue([
-      { path: 'M:\\gallery', name: '图库', autoScan: true, recursive: true, extensions: ['.jpg'] },
-    ]);
+    mockGetGalleryRootsSnapshot.mockReturnValue(['M:\\gallery']);
     mockGetDownloadsPath.mockReturnValue('M:\\downloads');
     mockGetDataDir.mockReturnValue('M:\\appdata');
     mockGetCachePath.mockReturnValue('M:\\appdata\\cache');
