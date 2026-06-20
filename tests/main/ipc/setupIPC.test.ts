@@ -776,14 +776,12 @@ describe('setupIPC config IPC boundary behavior', () => {
 
   it('CONFIG_GET 应返回去敏后的 safe config', async () => {
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -792,14 +790,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-      booru: {
+      },      booru: {
         appearance: {
           gridSize: 360,
           previewQuality: 'high',
@@ -843,18 +834,12 @@ describe('setupIPC config IPC boundary behavior', () => {
             port: 7890,
           },
         },
-        google: {
-          clientId: 'client-id',
-          drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-          photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-        },
       }),
     });
 
     const result = await getHandler({}) as { success: boolean; data: any };
     expect(result.data.network.proxy).not.toHaveProperty('username');
     expect(result.data.network.proxy).not.toHaveProperty('password');
-    expect(result.data.google).not.toHaveProperty('clientSecret');
     expect(result.data.ui).toEqual({
       pagePreferences: {
         favoriteTags: { keyword: 'keep-me' },
@@ -931,14 +916,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     getAllWindowsMock.mockReturnValue([windowA, windowB]);
     saveConfigMock.mockResolvedValue({ success: true });
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -947,14 +930,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
 
     const { saveHandler } = await registerAndGetConfigHandlers();
     const payload = { ui: { pagePreferences: { favoriteTags: { keyword: 'hello' } } } };
@@ -1025,14 +1001,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     getAllWindowsMock.mockReturnValue([windowA]);
     saveConfigMock.mockResolvedValue({ success: true });
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -1041,14 +1015,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
 
     const { saveFavoriteTagsPreferencesHandler } = await registerAndGetConfigHandlers();
     const preferences = {
@@ -1126,14 +1093,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     getAllWindowsMock.mockReturnValue([windowA]);
     saveConfigMock.mockResolvedValue({ success: true });
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -1142,14 +1107,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
 
     const { saveBlacklistedTagsPreferencesHandler } = await registerAndGetConfigHandlers();
     const preferences = {
@@ -1243,14 +1201,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     getAllWindowsMock.mockReturnValue([windowA]);
     saveConfigMock.mockResolvedValue({ success: true });
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -1259,14 +1215,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
 
     const { saveGalleryPreferencesHandler } = await registerAndGetConfigHandlers();
     const preferences = {
@@ -1348,14 +1297,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     getAllWindowsMock.mockReturnValue([windowA]);
     saveConfigMock.mockResolvedValue({ success: true });
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -1364,14 +1311,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
 
     const { saveAppShellPreferencesHandler } = await registerAndGetConfigHandlers();
     const preferences = {
@@ -1404,14 +1344,12 @@ describe('setupIPC config IPC boundary behavior', () => {
     const windowA = { webContents: { send: vi.fn() } };
     getAllWindowsMock.mockReturnValue([windowA]);
     getConfigMock.mockReturnValue({
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: {
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: {
         proxy: {
           enabled: true,
           protocol: 'http',
@@ -1420,14 +1358,7 @@ describe('setupIPC config IPC boundary behavior', () => {
           username: 'secret-user',
           password: 'secret-pass',
         },
-      },
-      google: {
-        clientId: 'client-id',
-        clientSecret: 'client-secret',
-        drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-        photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-      },
-    });
+      },    });
     saveConfigMock.mockResolvedValue({ success: true });
 
     const { saveAppShellPreferencesHandler } = await registerAndGetConfigHandlers();

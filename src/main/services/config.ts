@@ -137,12 +137,9 @@ export interface AppConfig {
 
   database: {
     path: string;
-    logging: boolean;
   };
   downloads: {
     path: string;
-    createSubfolders: boolean;
-    subfolderFormat: string[];
   };
   galleries: {
     folders: GalleryFolder[];
@@ -156,25 +153,10 @@ export interface AppConfig {
     effort: number;
   };
   app: {
-    recentImagesCount: number;
-    pageSize: number;
-    defaultViewMode: 'grid' | 'list';
-    showImageInfo: boolean;
     autoScan: boolean;
-    autoScanInterval: number;
   };
   yande: {
-    apiUrl: string;
-    pageSize: number;
-    downloadTimeout: number;
     maxConcurrentDownloads: number;
-  };
-  logging: {
-    level: 'debug' | 'info' | 'warn' | 'error';
-    filePath: string;
-    consoleOutput: boolean;
-    maxFileSize: number;
-    maxFiles: number;
   };
   network: {
     proxy: {
@@ -184,22 +166,6 @@ export interface AppConfig {
       port: number;
       username?: string;
       password?: string;
-    };
-  };
-  google?: {
-    clientId: string;
-    clientSecret: string;
-    drive: {
-      enabled: boolean;
-      defaultViewMode: 'grid' | 'list';
-      imageOnly: boolean;
-      downloadPath: string;
-    };
-    photos: {
-      enabled: boolean;
-      downloadPath: string;
-      uploadAlbumName: string;
-      thumbnailSize: number;
     };
   };
   ui?: UIConfig;
@@ -271,15 +237,13 @@ export interface GalleryFolder {
 export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
 
 export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
-export type RendererSafeGoogleConfig = Omit<NonNullable<AppConfig['google']>, 'clientSecret'>;
 export type RendererSafeApiServiceConfig = Omit<ApiServiceConfig, 'apiKey'> & {
   hasApiKey: boolean;
 };
-export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'google' | 'apiService'> & {
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'apiService'> & {
   network: {
     proxy: RendererSafeProxyConfig;
   };
-  google?: RendererSafeGoogleConfig;
   apiService?: RendererSafeApiServiceConfig;
 };
 
@@ -299,13 +263,10 @@ export type ApiServiceConfigPatch = DeepPartial<ApiServiceConfig>;
 const DEFAULT_CONFIG: AppConfig = {
   dataPath: 'data',
   database: {
-    path: 'gallery.db',
-    logging: true
+    path: 'gallery.db'
   },
   downloads: {
-    path: 'downloads',
-    createSubfolders: true,
-    subfolderFormat: ['tags', 'date']
+    path: 'downloads'
   },
   galleries: {
     // 默认无图库，由用户通过设置页添加
@@ -320,25 +281,10 @@ const DEFAULT_CONFIG: AppConfig = {
     effort: 3
   },
   app: {
-    recentImagesCount: 100,
-    pageSize: 50,
-    defaultViewMode: 'grid',
-    showImageInfo: true,
-    autoScan: true,
-    autoScanInterval: 30
+    autoScan: true
   },
   yande: {
-    apiUrl: 'https://yande.re/post.json',
-    pageSize: 20,
-    downloadTimeout: 60,
     maxConcurrentDownloads: 5
-  },
-  logging: {
-    level: 'info',
-    filePath: 'app.log',
-    consoleOutput: true,
-    maxFileSize: 10,
-    maxFiles: 5
   },
   network: {
     proxy: {
@@ -593,16 +539,6 @@ export async function ensureDataDirectories(): Promise<void> {
     getCachePath(),             // Booru 图片缓存目录
   ];
 
-  // 日志文件目录
-  try {
-    const config = getConfig();
-    if (config.logging?.filePath) {
-      dirs.push(path.dirname(resolveDataPath(config.logging.filePath)));
-    }
-  } catch {
-    // config 可能尚未加载，跳过日志目录
-  }
-
   for (const dir of dirs) {
     await fs.mkdir(dir, { recursive: true });
   }
@@ -702,11 +638,6 @@ function migrateOldPaths(rawConfig: any): void {
   if (rawConfig.thumbnails?.cachePath?.startsWith('data/')) {
     console.log('[config] 迁移旧路径: thumbnails.cachePath', rawConfig.thumbnails.cachePath, '→', rawConfig.thumbnails.cachePath.replace('data/', ''));
     rawConfig.thumbnails.cachePath = rawConfig.thumbnails.cachePath.replace('data/', '');
-  }
-  // logging.filePath: 'data/app.log' → 'app.log'
-  if (rawConfig.logging?.filePath?.startsWith('data/')) {
-    console.log('[config] 迁移旧路径: logging.filePath', rawConfig.logging.filePath, '→', rawConfig.logging.filePath.replace('data/', ''));
-    rawConfig.logging.filePath = rawConfig.logging.filePath.replace('data/', '');
   }
 }
 
@@ -939,34 +870,6 @@ function sanitizeRendererSafeProxyConfig(
   };
 }
 
-function sanitizeRendererSafeGoogleConfig(
-  incomingGoogle?: DeepPartial<NonNullable<AppConfig['google']>>
-): DeepPartial<NonNullable<AppConfig['google']>> | undefined {
-  if (!incomingGoogle) {
-    return undefined;
-  }
-
-  return {
-    clientId: incomingGoogle.clientId,
-    drive: incomingGoogle.drive
-      ? {
-          enabled: incomingGoogle.drive.enabled,
-          defaultViewMode: incomingGoogle.drive.defaultViewMode,
-          imageOnly: incomingGoogle.drive.imageOnly,
-          downloadPath: incomingGoogle.drive.downloadPath,
-        }
-      : undefined,
-    photos: incomingGoogle.photos
-      ? {
-          enabled: incomingGoogle.photos.enabled,
-          downloadPath: incomingGoogle.photos.downloadPath,
-          uploadAlbumName: incomingGoogle.photos.uploadAlbumName,
-          thumbnailSize: incomingGoogle.photos.thumbnailSize,
-        }
-      : undefined,
-  };
-}
-
 function rebuildProxyConfig(
   currentProxy: AppConfig['network']['proxy'],
   incomingProxy?: Partial<AppConfig['network']['proxy']>
@@ -978,36 +881,6 @@ function rebuildProxyConfig(
     port: incomingProxy?.port ?? currentProxy.port,
     username: currentProxy.username,
     password: currentProxy.password,
-  };
-}
-
-function rebuildGoogleConfig(
-  currentGoogle: AppConfig['google'],
-  incomingGoogle?: DeepPartial<NonNullable<AppConfig['google']>>
-): AppConfig['google'] {
-  if (!currentGoogle && !incomingGoogle) {
-    return undefined;
-  }
-
-  if (!incomingGoogle) {
-    return currentGoogle;
-  }
-
-  return {
-    clientId: incomingGoogle.clientId ?? currentGoogle?.clientId ?? '',
-    clientSecret: currentGoogle?.clientSecret ?? '',
-    drive: {
-      enabled: incomingGoogle.drive?.enabled ?? currentGoogle?.drive.enabled ?? false,
-      defaultViewMode: incomingGoogle.drive?.defaultViewMode ?? currentGoogle?.drive.defaultViewMode ?? 'grid',
-      imageOnly: incomingGoogle.drive?.imageOnly ?? currentGoogle?.drive.imageOnly ?? true,
-      downloadPath: incomingGoogle.drive?.downloadPath ?? currentGoogle?.drive.downloadPath ?? '',
-    },
-    photos: {
-      enabled: incomingGoogle.photos?.enabled ?? currentGoogle?.photos.enabled ?? false,
-      downloadPath: incomingGoogle.photos?.downloadPath ?? currentGoogle?.photos.downloadPath ?? '',
-      uploadAlbumName: incomingGoogle.photos?.uploadAlbumName ?? currentGoogle?.photos.uploadAlbumName ?? '',
-      thumbnailSize: incomingGoogle.photos?.thumbnailSize ?? currentGoogle?.photos.thumbnailSize ?? 256,
-    },
   };
 }
 
@@ -1162,13 +1035,6 @@ export function toRendererSafeConfig(source: AppConfig): RendererSafeAppConfig {
         port: source.network.proxy.port,
       },
     },
-    google: source.google
-      ? {
-          clientId: source.google.clientId,
-          drive: source.google.drive,
-          photos: source.google.photos,
-        }
-      : undefined,
   };
 }
 
@@ -1179,7 +1045,6 @@ export function mergeSensitiveConfig(currentConfig: AppConfig, incomingConfig: A
       ...incomingConfig.network,
       proxy: rebuildProxyConfig(currentConfig.network.proxy, incomingConfig.network?.proxy),
     },
-    google: rebuildGoogleConfig(currentConfig.google, incomingConfig.google),
   };
 }
 
@@ -1268,12 +1133,9 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
     dataPath: input.dataPath ?? currentConfig.dataPath,
     database: {
       path: input.database?.path ?? currentConfig.database.path,
-      logging: input.database?.logging ?? currentConfig.database.logging,
     },
     downloads: {
       path: input.downloads?.path ?? currentConfig.downloads.path,
-      createSubfolders: input.downloads?.createSubfolders ?? currentConfig.downloads.createSubfolders,
-      subfolderFormat: input.downloads?.subfolderFormat ?? currentConfig.downloads.subfolderFormat,
     },
     galleries: {
       folders: input.galleries?.folders ?? currentConfig.galleries.folders,
@@ -1287,30 +1149,14 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       effort: input.thumbnails?.effort ?? currentConfig.thumbnails.effort,
     },
     app: {
-      recentImagesCount: input.app?.recentImagesCount ?? currentConfig.app.recentImagesCount,
-      pageSize: input.app?.pageSize ?? currentConfig.app.pageSize,
-      defaultViewMode: input.app?.defaultViewMode ?? currentConfig.app.defaultViewMode,
-      showImageInfo: input.app?.showImageInfo ?? currentConfig.app.showImageInfo,
       autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
-      autoScanInterval: input.app?.autoScanInterval ?? currentConfig.app.autoScanInterval,
     },
     yande: {
-      apiUrl: input.yande?.apiUrl ?? currentConfig.yande.apiUrl,
-      pageSize: input.yande?.pageSize ?? currentConfig.yande.pageSize,
-      downloadTimeout: input.yande?.downloadTimeout ?? currentConfig.yande.downloadTimeout,
       maxConcurrentDownloads: input.yande?.maxConcurrentDownloads ?? currentConfig.yande.maxConcurrentDownloads,
-    },
-    logging: {
-      level: input.logging?.level ?? currentConfig.logging.level,
-      filePath: input.logging?.filePath ?? currentConfig.logging.filePath,
-      consoleOutput: input.logging?.consoleOutput ?? currentConfig.logging.consoleOutput,
-      maxFileSize: input.logging?.maxFileSize ?? currentConfig.logging.maxFileSize,
-      maxFiles: input.logging?.maxFiles ?? currentConfig.logging.maxFiles,
     },
     network: {
       proxy: rebuildProxyConfig(currentConfig.network.proxy, sanitizeRendererSafeProxyConfig(input.network?.proxy)),
     },
-    google: rebuildGoogleConfig(currentConfig.google, sanitizeRendererSafeGoogleConfig(input.google)),
     ui: input.ui
       ? {
           menuOrder: {
@@ -1536,35 +1382,11 @@ export function getCachePath(): string {
 }
 
 /**
- * 获取日志文件路径
- */
-export function getLogFilePath(): string {
-  const cfg = getConfig();
-  return resolveDataPath(cfg.logging.filePath);
-}
-
-/**
  * 获取图库目录列表
  */
 export function getGalleryFolders(): GalleryFolder[] {
   const cfg = getConfig();
   return cfg.galleries.folders;
-}
-
-/**
- * 获取应用配置
- */
-export function getAppConfig() {
-  const cfg = getConfig();
-  return cfg.app;
-}
-
-/**
- * 获取网络配置（包含代理设置）
- */
-export function getNetworkConfig() {
-  const cfg = getConfig();
-  return cfg.network;
 }
 
 /**

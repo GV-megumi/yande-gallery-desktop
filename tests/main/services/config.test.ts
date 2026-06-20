@@ -72,7 +72,6 @@ describe('config 模块纯函数测试', () => {
       expect(configModule.getDataDir()).toBe(path.join('M:/test-config-root', 'data'));
       expect(configModule.getDownloadsPath()).toBe(path.join('M:/test-config-root', 'data', 'downloads'));
       expect(configModule.getThumbnailsPath()).toBe(path.join('M:/test-config-root', 'data', 'thumbnails'));
-      expect(configModule.getLogFilePath()).toBe(path.join('M:/test-config-root', 'data', 'app.log'));
 
       const result = await configModule.saveConfig({
         dataPath: 'runtime-data',
@@ -82,7 +81,6 @@ describe('config 模块纯函数测试', () => {
       expect(configModule.getDataDir()).toBe(path.join('M:/test-config-root', 'runtime-data'));
       expect(configModule.getDownloadsPath()).toBe(path.join('M:/test-config-root', 'runtime-data', 'downloads'));
       expect(configModule.getThumbnailsPath()).toBe(path.join('M:/test-config-root', 'runtime-data', 'thumbnails'));
-      expect(configModule.getLogFilePath()).toBe(path.join('M:/test-config-root', 'runtime-data', 'app.log'));
       expect(mockedFs.writeFile).toHaveBeenCalledWith(
         'M:/test-config-root/config.yaml.tmp.1',
         'mocked yaml',
@@ -103,7 +101,6 @@ describe('config 模块纯函数测试', () => {
       const originalDataDir = configModule.getDataDir();
       const originalDownloadsPath = configModule.getDownloadsPath();
       const originalThumbnailsPath = configModule.getThumbnailsPath();
-      const originalLogFilePath = configModule.getLogFilePath();
 
       mockedFs.writeFile.mockRejectedValueOnce(new Error('disk full'));
 
@@ -115,7 +112,6 @@ describe('config 模块纯函数测试', () => {
       expect(configModule.getDataDir()).toBe(originalDataDir);
       expect(configModule.getDownloadsPath()).toBe(originalDownloadsPath);
       expect(configModule.getThumbnailsPath()).toBe(originalThumbnailsPath);
-      expect(configModule.getLogFilePath()).toBe(originalLogFilePath);
     });
 
     it('并发保存时后发请求应基于前一次结果继续合并，不能被先发慢请求回写覆盖', async () => {
@@ -322,14 +318,12 @@ describe('config 模块纯函数测试', () => {
 
       mockedYaml.load.mockReturnValueOnce({
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -338,14 +332,7 @@ describe('config 模块纯函数测试', () => {
             username: 'user',
             password: 'secret',
           },
-        },
-        google: {
-          clientId: 'client-id',
-          clientSecret: 'top-secret',
-          drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-          photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-        },
-      });
+        },      });
 
       await configModule.initPaths();
       await configModule.loadConfig('M:/test-config-root/config.yaml');
@@ -361,10 +348,6 @@ describe('config 模块纯函数测试', () => {
             password: 'stolen',
           },
         },
-        google: {
-          clientId: 'new-client-id',
-          clientSecret: 'leaked-secret',
-        },
       } as any, 'M:/test-config-root/config.yaml');
 
       expect(result).toEqual({ success: true });
@@ -372,8 +355,6 @@ describe('config 模块纯函数测试', () => {
       expect(configModule.getConfig().network.proxy.host).toBe('10.0.0.2');
       expect(configModule.getConfig().network.proxy.username).toBe('user');
       expect(configModule.getConfig().network.proxy.password).toBe('secret');
-      expect(configModule.getConfig().google?.clientId).toBe('new-client-id');
-      expect(configModule.getConfig().google?.clientSecret).toBe('top-secret');
     });
 
     it('旧保存在最新结果 finalize 后仍能读取结果且不依赖多版本终态缓存', async () => {
@@ -482,18 +463,16 @@ describe('config 模块纯函数测试', () => {
   });
 
   describe('toRendererSafeConfig', () => {
-    it('应移除 google.clientSecret 和代理认证信息，但保留其余可公开配置', async () => {
+    it('应移除代理认证信息，但保留其余可公开配置', async () => {
       const { toRendererSafeConfig } = await import('../../../src/main/services/config.js');
       const source: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -502,14 +481,7 @@ describe('config 模块纯函数测试', () => {
             username: 'user',
             password: 'secret',
           },
-        },
-        google: {
-          clientId: 'client-id',
-          clientSecret: 'top-secret',
-          drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-          photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-        },
-        booru: {
+        },        booru: {
           appearance: {
             gridSize: 330,
             previewQuality: 'auto',
@@ -547,8 +519,6 @@ describe('config 模块纯函数测试', () => {
 
       const result = toRendererSafeConfig(source);
 
-      expect(result.google?.clientId).toBe('client-id');
-      expect(result.google).not.toHaveProperty('clientSecret');
       expect(result.network.proxy).toEqual({
         enabled: true,
         protocol: 'http',
@@ -627,12 +597,12 @@ describe('config 模块纯函数测试', () => {
   describe('mergeSensitiveConfig', () => {
     const current: AppConfig = {
       dataPath: 'data',
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },
       logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
       network: {
         proxy: {
@@ -652,7 +622,7 @@ describe('config 模块纯函数测试', () => {
       },
     };
 
-    it('保存配置时应保留现有的 google.clientSecret 和代理认证信息', async () => {
+    it('保存配置时应保留现有的代理认证信息', async () => {
       const { mergeSensitiveConfig } = await import('../../../src/main/services/config.js');
       const incoming: AppConfig = {
         ...current,
@@ -665,34 +635,26 @@ describe('config 模块纯函数测试', () => {
             port: 7890,
           },
         },
-        google: {
-          clientId: 'client-id',
-          drive: current.google!.drive,
-          photos: current.google!.photos,
-        } as AppConfig['google'],
       };
 
       const result = mergeSensitiveConfig(current, incoming);
 
       expect(result.network.proxy.username).toBe('user');
       expect(result.network.proxy.password).toBe('secret');
-      expect(result.google?.clientSecret).toBe('top-secret');
       expect(result.downloads.path).toBe('D:/downloads');
     });
 
-    it('传入缺少 google 或 network.proxy section 时应保留现有 section 并保留必填字段', async () => {
+    it('传入缺少 network.proxy section 时应保留现有 section 并保留必填字段', async () => {
       const { mergeSensitiveConfig } = await import('../../../src/main/services/config.js');
       const incoming = {
         ...current,
         thumbnails: { ...current.thumbnails, quality: 95 },
         network: {} as AppConfig['network'],
-        google: undefined,
       } as AppConfig;
 
       const result = mergeSensitiveConfig(current, incoming);
 
       expect(result.network.proxy).toEqual(current.network.proxy);
-      expect(result.google).toEqual(current.google);
       expect(result.thumbnails.quality).toBe(95);
     });
   });
@@ -702,14 +664,12 @@ describe('config 模块纯函数测试', () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -718,14 +678,7 @@ describe('config 模块纯函数测试', () => {
             username: 'user',
             password: 'secret',
           },
-        },
-        google: {
-          clientId: 'client-id',
-          clientSecret: 'top-secret',
-          drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-          photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-        },
-      };
+        },      };
 
       const result = normalizeConfigSaveInput(current, {
         downloads: { path: 'D:/downloads' },
@@ -734,9 +687,6 @@ describe('config 模块纯函数测试', () => {
             enabled: false,
             host: '10.0.0.2',
           },
-        },
-        google: {
-          clientId: 'new-client-id',
         },
         extraTopLevel: true,
       } as any);
@@ -781,12 +731,6 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
-        google: {
-          clientId: 'new-client-id',
-          clientSecret: 'top-secret',
-          drive: current.google!.drive,
-          photos: current.google!.photos,
-        },
         // bug9：normalizeConfigSaveInput 会为未传入的 notifications / desktop 填充默认值
         notifications: {
           enabled: true,
@@ -809,14 +753,12 @@ describe('config 模块纯函数测试', () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -878,14 +820,12 @@ describe('config 模块纯函数测试', () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -1003,14 +943,12 @@ describe('config 模块纯函数测试', () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',
@@ -1079,14 +1017,12 @@ describe('config 模块纯函数测试', () => {
       const { normalizeConfigSaveInput } = await import('../../../src/main/services/config.js');
       const current: AppConfig = {
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-        logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-        network: {
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
             enabled: true,
             protocol: 'http',

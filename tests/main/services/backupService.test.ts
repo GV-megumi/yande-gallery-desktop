@@ -23,14 +23,12 @@ function createBackupPayload(): AppBackupData {
     exportedAt: '2026-03-15T00:00:00.000Z',
     config: {
       dataPath: 'restored-data',
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'restored-downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'restored-downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
       booru: {
         appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
         download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
@@ -70,14 +68,12 @@ describe('isValidBackupData', () => {
     exportedAt: '2026-03-15T00:00:00.000Z',
     config: {
       dataPath: 'data',
-      database: { path: 'gallery.db', logging: true },
-      downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+      database: { path: 'gallery.db' },
+      downloads: { path: 'downloads' },
       galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-      yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
-      logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
-      network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
+      app: { autoScan: true },
+      yande: { maxConcurrentDownloads: 5 },      network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
       booru: {
         appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
         download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
@@ -290,12 +286,12 @@ describe('booru_sites backup column sanitization', () => {
     vi.doMock('../../../src/main/services/config.js', () => ({
       getConfig: vi.fn(() => ({
         dataPath: 'data',
-        database: { path: 'gallery.db', logging: true },
-        downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+        database: { path: 'gallery.db' },
+        downloads: { path: 'downloads' },
         galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-        app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
-        yande: { apiUrl: 'https://yande.re/post.json', pageSize: 20, downloadTimeout: 60, maxConcurrentDownloads: 5 },
+        app: { autoScan: true },
+        yande: { maxConcurrentDownloads: 5 },
         logging: { level: 'info', filePath: 'app.log', consoleOutput: true, maxFileSize: 10, maxFiles: 5 },
         network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
         booru: {
@@ -404,8 +400,8 @@ describe('booru_sites backup column sanitization', () => {
 describe('backup config sanitization', () => {
   const sourceConfig = {
     dataPath: 'data',
-    database: { path: 'gallery.db', logging: true },
-    downloads: { path: 'downloads', createSubfolders: true, subfolderFormat: ['tags'] },
+    database: { path: 'gallery.db' },
+    downloads: { path: 'downloads' },
     galleries: { folders: [] },
     thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
     app: { recentImagesCount: 100, pageSize: 50, defaultViewMode: 'grid', showImageInfo: true, autoScan: true, autoScanInterval: 30 },
@@ -420,14 +416,7 @@ describe('backup config sanitization', () => {
         username: 'user',
         password: 'secret',
       },
-    },
-    google: {
-      clientId: 'client-id',
-      clientSecret: 'top-secret',
-      drive: { enabled: true, defaultViewMode: 'grid', imageOnly: true, downloadPath: 'drive' },
-      photos: { enabled: true, downloadPath: 'photos', uploadAlbumName: 'album', thumbnailSize: 256 },
-    },
-    booru: {
+    },    booru: {
       appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
       download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
     },
@@ -455,15 +444,9 @@ describe('backup config sanitization', () => {
       host: '127.0.0.1',
       port: 7890,
     });
-    expect(result.google).toEqual({
-      clientId: 'client-id',
-      drive: sourceConfig.google.drive,
-      photos: sourceConfig.google.photos,
-    });
     expect(result.downloads).toEqual(sourceConfig.downloads);
     expect(result.network.proxy).not.toHaveProperty('username');
     expect(result.network.proxy).not.toHaveProperty('password');
-    expect(result.google).not.toHaveProperty('clientSecret');
     expect(result.ui).toEqual({
       pagePreferences: {
         favoriteTags: { keyword: 'keep-me' },
@@ -487,10 +470,6 @@ describe('backup config sanitization', () => {
           password: 'leak',
         },
       },
-      google: {
-        ...createBackupSafeConfig(sourceConfig).google!,
-        clientSecret: 'should-not-pass-through',
-      },
     } as any;
 
     const result = sanitizeImportedBackupConfig(importedConfig);
@@ -503,7 +482,6 @@ describe('backup config sanitization', () => {
     });
     expect(result.network?.proxy).not.toHaveProperty('username');
     expect(result.network?.proxy).not.toHaveProperty('password');
-    expect(result.google).not.toHaveProperty('clientSecret');
   });
 
   it('导入安全备份时应保留当前已有敏感值，同时应用非敏感配置变更', () => {
@@ -519,10 +497,6 @@ describe('backup config sanitization', () => {
           password: 'kept-pass',
         },
       },
-      google: {
-        ...sourceConfig.google,
-        clientSecret: 'kept-secret',
-      },
     };
 
     const importedSafeConfig = sanitizeImportedBackupConfig({
@@ -531,19 +505,13 @@ describe('backup config sanitization', () => {
         ...sourceConfig.downloads,
         path: 'D:/restored-downloads',
       },
-      google: {
-        ...createBackupSafeConfig(sourceConfig).google!,
-        clientId: 'restored-client-id',
-      },
     });
 
     const normalized = normalizeConfigSaveInput(currentConfig, importedSafeConfig);
     const merged = mergeSensitiveConfig(currentConfig, normalized);
 
     expect(merged.downloads.path).toBe('D:/restored-downloads');
-    expect(merged.google?.clientId).toBe('restored-client-id');
     expect(merged.network.proxy.username).toBe('kept-user');
     expect(merged.network.proxy.password).toBe('kept-pass');
-    expect(merged.google?.clientSecret).toBe('kept-secret');
   });
 });

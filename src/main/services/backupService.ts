@@ -99,7 +99,6 @@ function projectBackupSafeConfig(config: {
   thumbnails: AppConfig['thumbnails'];
   app: AppConfig['app'];
   yande: AppConfig['yande'];
-  logging: AppConfig['logging'];
   network: {
     proxy: {
       enabled: boolean;
@@ -107,11 +106,6 @@ function projectBackupSafeConfig(config: {
       host: string;
       port: number;
     };
-  };
-  google?: {
-    clientId: string;
-    drive: NonNullable<AppConfig['google']>['drive'];
-    photos: NonNullable<AppConfig['google']>['photos'];
   };
   ui?: AppConfig['ui'];
   booru?: AppConfig['booru'];
@@ -124,7 +118,6 @@ function projectBackupSafeConfig(config: {
     thumbnails: config.thumbnails,
     app: config.app,
     yande: config.yande,
-    logging: config.logging,
     network: {
       proxy: {
         enabled: config.network.proxy.enabled,
@@ -133,13 +126,6 @@ function projectBackupSafeConfig(config: {
         port: config.network.proxy.port,
       },
     },
-    google: config.google
-      ? {
-          clientId: config.google.clientId,
-          drive: config.google.drive,
-          photos: config.google.photos,
-        }
-      : undefined,
     ui: toRendererSafeUiConfig(config.ui),
     booru: config.booru,
   };

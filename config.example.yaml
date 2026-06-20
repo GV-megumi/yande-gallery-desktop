@@ -12,17 +12,16 @@
 #     data/                        运行数据目录（由下方 dataPath 指定）
 #       thumbnails/                缩略图缓存（WebP 格式）
 #       cache/                     Booru 图片缓存
-#       app.log                    应用日志
 #
 # 路径规则:
 #   - database.path    相对于 CONFIG_DIR
 #   - dataPath         相对于 CONFIG_DIR
-#   - thumbnails / logging 等  相对于 dataPath
+#   - thumbnails 等    相对于 dataPath
 #   - downloads.path / galleries.folders[].path  建议使用绝对路径
 #   - 所有路径字段均支持绝对路径，绝对路径时忽略基准目录
 # ============================================================
 
-# 运行数据目录（缩略图、缓存、日志等）
+# 运行数据目录（缩略图、缓存等）
 # 支持绝对路径和相对路径（相对于 CONFIG_DIR）
 dataPath: data
 
@@ -30,16 +29,11 @@ dataPath: data
 database:
   # 相对于 CONFIG_DIR（与 config.yaml 同级）
   path: gallery.db
-  logging: true
 
 # -------- 下载 --------
 downloads:
   # 建议使用绝对路径，如 M:\downloads 或 /home/user/downloads
   path: ./downloads
-  createSubfolders: true
-  subfolderFormat:
-    - tags
-    - date
 
 # -------- 图库 --------
 galleries:
@@ -60,74 +54,51 @@ galleries:
 thumbnails:
   # 相对于 dataPath
   cachePath: thumbnails
-  maxWidth: 1000
-  maxHeight: 1000
-  quality: 95
+  maxWidth: 800
+  maxHeight: 800
+  quality: 92
   effort: 3
   format: webp
 
 # -------- 应用 --------
+# 注：当前仅 autoScan 生效（其余历史字段已移除）
 app:
-  recentImagesCount: 100
-  pageSize: 50
-  defaultViewMode: grid     # grid | list
-  showImageInfo: true
   autoScan: true
-  autoScanInterval: 30      # 自动扫描间隔（分钟）
 
-# -------- Yande.re API --------
+# -------- 单图下载并发（历史命名 yande）--------
+# 注：当前仅 maxConcurrentDownloads 生效（Booru 逐张下载并发上限）
 yande:
-  apiUrl: https://yande.re/post.json
-  pageSize: 20
-  downloadTimeout: 60       # 单文件下载超时（秒）
   maxConcurrentDownloads: 5
-
-# -------- 日志 --------
-logging:
-  # 相对于 dataPath
-  filePath: app.log
-  level: info               # debug | info | warn | error
-  consoleOutput: true
-  maxFileSize: 10            # 单文件最大大小（MB）
-  maxFiles: 5                # 最多保留文件数
 
 # -------- 网络/代理 --------
 network:
   proxy:
-    # true: use this custom proxy first; false: fall back to system proxy, then direct
+    # true: 优先使用此自定义代理；false: 回退到系统代理，再直连
     enabled: false
     protocol: http           # http | https | socks5
     host: 127.0.0.1
-    port: '7890'
+    port: 7890
     username: ''
     password: ''
-
-# -------- 桌面行为 --------
-desktop:
-  closeAction: hide-to-tray   # hide-to-tray | quit | ask
-  autoLaunch: false
-  startMinimized: false
-  # true: 下次启动时启用 Chromium/Electron GPU 硬件加速
-  hardwareAcceleration: false
 
 # -------- Booru 浏览与下载 --------
 booru:
   appearance:
-    gridSize: 300            # 图片网格大小（像素）
-    previewQuality: original # auto | low | medium | high | original
+    gridSize: 330            # 图片网格大小（像素）
+    previewQuality: auto     # auto | low | medium | high | original
     itemsPerPage: 60
     paginationPosition: both # top | bottom | both
     pageMode: pagination     # pagination | infinite
     spacing: 16              # 间距（像素）
     borderRadius: 8          # 圆角（像素）
     margin: 24               # 边距（像素）
-    maxCacheSizeMB: 3000     # 图片缓存上限（MB）
+    maxCacheSizeMB: 500      # 图片缓存上限（MB）
   download:
     # 文件名模板，支持的 token:
     #   {id} {md5} {md5:maxlength=8} {extension}
     #   {width} {height} {rating} {score} {site}
-    #   {tags:maxlength=50} {source}
-    filenameTemplate: '{id}_{md5:maxlength=8}.{extension}'
+    #   {tags:maxlength=50} {source} {artist} {character} {copyright} {date}
+    filenameTemplate: '{site}_{id}_{md5}.{extension}'
     # Token 默认选项：命名模板中未显式指定时的后备策略
     # 可选键：limit / maxlength / case / delimiter / unsafe / format /
     #         single_letter / pad_left / sort:{attribute,order}
@@ -191,15 +162,36 @@ notifications:
 
 # -------- 桌面行为 --------
 desktop:
-  closeAction: hide-to-tray  # 点 X 时行为：hide-to-tray | quit | ask
-  autoLaunch: false          # 开机自启
-  startMinimized: false      # 自启时隐藏到托盘
+  closeAction: hide-to-tray   # 点 X 时行为：hide-to-tray | quit | ask
+  autoLaunch: false           # 开机自启
+  startMinimized: false       # 自启时隐藏到托盘
+  hardwareAcceleration: false # 下次启动时启用 Chromium/Electron GPU 硬件加速
 
-# -------- UI 偏好 --------
-ui:
-  menuOrder:
-    # 各菜单区域的排列顺序，留空则使用默认顺序
-    # 可在界面中长按菜单项拖拽调整，自动写入此处
-    main:    []              # gallery | booru
-    gallery: []              # recent | all | galleries
-    booru:   []              # posts | popular | pools | favorites | server-favorites | ...
+# -------- 本机 API 服务（可选）--------
+apiService:
+  enabled: false
+  mode: localhost            # localhost | lan
+  port: 38947
+  apiKey: ''                 # 留空则由界面生成；敏感，勿外泄
+  permissions:
+    galleryRead: true
+    imageRead: true
+    imageBinary: false
+    booruRead: true
+    booruWrite: false
+    favoriteTagsRead: true
+    favoriteTagsWrite: false
+    downloadsRead: true
+    downloadsControl: false
+    eventsSubscribe: false
+    apiLogsRead: false
+  logs:
+    enabled: false
+    visibleInUi: false
+    retentionDays: 14
+    maxEntries: 1000
+
+# -------- UI 偏好（运行时自动写入，一般无需手改）--------
+# ui.pagePreferences.* 由应用在交互中自动维护：
+#   菜单拖拽顺序、固定页、快捷访问、侧边栏宽度、各页排序/筛选/页码记忆。
+# 故此处不展开示例。
