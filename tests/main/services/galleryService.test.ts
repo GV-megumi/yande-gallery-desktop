@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import path from 'path';
 
 /**
@@ -386,5 +386,105 @@ describe('galleryService - syncGalleryFolder 错误分支', () => {
     expect(result.data?.skipped).toBe(47);
     expect(result.data?.imageCount).toBe(50);
     expect(result.data?.lastScannedAt).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// galleryService 同步维护 galleryRootRegistry
+// ---------------------------------------------------------------------------
+// 这一组用例直接 import 真实 galleryService，用 vi.mock 替换全部外部依赖，
+// 验证 createGallery/deleteGallery 调用成功后会正确维护 galleryRootRegistry。
+// ---------------------------------------------------------------------------
+
+vi.mock('../../../src/main/services/database.js', () => {
+  const mockDb = {};
+  return {
+    getDatabase: vi.fn().mockResolvedValue(mockDb),
+    get: vi.fn(),
+    all: vi.fn(),
+    run: vi.fn().mockResolvedValue(undefined),
+    runInTransaction: vi.fn().mockImplementation(async (_db: any, fn: () => Promise<void>) => {
+      await fn();
+    }),
+  };
+});
+
+vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
+  emitGalleryGalleriesChanged: vi.fn(),
+  emitGalleryIgnoredFoldersChanged: vi.fn(),
+}));
+
+vi.mock('../../../src/main/services/rendererEventBus.js', () => ({
+  emitBuiltRendererAppEvent: vi.fn(),
+}));
+
+vi.mock('../../../src/main/services/imageService.js', () => ({
+  scanAndImportFolder: vi.fn().mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } }),
+}));
+
+vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deleteThumbnail: vi.fn().mockResolvedValue(undefined),
+}));
+
+// mock fs/promises 以便 createGallery 的文件夹存在检查可以通过
+vi.mock('fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('fs/promises')>();
+  return {
+    ...actual,
+    access: vi.fn().mockResolvedValue(undefined),
+  };
+});
+
+import {
+  getGalleryRootsSnapshot,
+  loadGalleryRoots,
+} from '../../../src/main/services/galleryRootRegistry.js';
+import * as dbModule from '../../../src/main/services/database.js';
+
+describe('galleryService 同步维护 galleryRootRegistry', () => {
+  // 规范化路径，与 galleryService 内 normalizePath(path.normalize(...)) 行为一致
+  const normalizedCreate = path.normalize('M:/reg-create');
+  const normalizedDel = path.normalize('M:/reg-del');
+
+  beforeEach(() => {
+    loadGalleryRoots([]);
+    vi.clearAllMocks();
+    // clearAllMocks 会清除调用记录但保留实现；为安全起见重新设置关键 mock
+    (dbModule.runInTransaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (_db: any, fn: () => Promise<void>) => { await fn(); }
+    );
+    (dbModule.run as ReturnType<typeof vi.fn>).mockResolvedValue(undefined);
+    (dbModule.getDatabase as ReturnType<typeof vi.fn>).mockResolvedValue({});
+  });
+
+  it('createGallery 成功后把 folderPath 加入登记表', async () => {
+    // get：第一次 null（gallery 不存在），第二次 {id:1}（last_insert_rowid）
+    (dbModule.get as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({ id: 1 });
+
+    const { createGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await createGallery({ folderPath: 'M:/reg-create', name: 'reg' });
+
+    expect(result.success).toBe(true);
+    expect(getGalleryRootsSnapshot()).toContain(normalizedCreate);
+  });
+
+  it('deleteGallery 成功后把 folderPath 移出登记表', async () => {
+    loadGalleryRoots([normalizedDel]);
+
+    // get：返回 gallery 行
+    (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      id: 1,
+      folderPath: normalizedDel,
+      recursive: 1,
+    });
+    // all：图片列表为空（跳过缩略图清理）
+    (dbModule.all as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+
+    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+    await deleteGallery(1);
+
+    expect(getGalleryRootsSnapshot()).not.toContain(normalizedDel);
   });
 });
