@@ -179,7 +179,8 @@ describe('IPC_CHANNELS', () => {
     // 失败记录单删新增 1：BOORU_DELETE_DOWNLOAD_RECORD
     // Phase 1 API service adds 7 API_SERVICE_* channels.
     // Task 5 收藏一键下载新增 1：BOORU_START_FAVORITES_BULK_DOWNLOAD
-    expect(keys.length).toBe(197);
+    // 图库归一到数据库后移除 1：CONFIG_UPDATE_GALLERY_FOLDERS（197→196）
+    expect(keys.length).toBe(196);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {
