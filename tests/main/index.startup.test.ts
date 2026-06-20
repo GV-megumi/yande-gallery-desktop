@@ -86,9 +86,12 @@ vi.mock('../../src/main/services/config.js', () => ({
     startMinimized: false,
   })),
   getDownloadsPath: vi.fn(() => 'M:/data/downloads'),
-  getGalleryFolders: vi.fn(() => []),
   getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
   getThumbnailsPath: vi.fn(() => 'M:/data/thumbnails'),
+}));
+
+vi.mock('../../src/main/services/galleryRootRegistry.js', () => ({
+  getGalleryRootsSnapshot: vi.fn(() => []),
 }));
 
 describe('main index startup sequencing', () => {

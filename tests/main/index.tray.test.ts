@@ -110,7 +110,6 @@ vi.mock('../../src/main/services/init.js', () => ({
 }));
 
 vi.mock('../../src/main/services/config.js', () => ({
-  getGalleryFolders: vi.fn(() => []),
   getDownloadsPath: vi.fn(() => 'M:/downloads'),
   getDataDir: vi.fn(() => 'M:/data'),
   getCachePath: vi.fn(() => 'M:/data/cache'),
@@ -123,6 +122,10 @@ vi.mock('../../src/main/services/config.js', () => ({
     hardwareAcceleration: false,
   })),
   getStartupHardwareAccelerationEnabled: mockGetStartupHardwareAccelerationEnabled,
+}));
+
+vi.mock('../../src/main/services/galleryRootRegistry.js', () => ({
+  getGalleryRootsSnapshot: vi.fn(() => []),
 }));
 
 describe('main index tray wiring', () => {
