@@ -23,6 +23,7 @@ import type {
   FavoriteTagImportRecord,
   FavoriteTagLabelImportRecord,
   ListQueryParams,
+  StartFavoritesBulkDownloadInput,
 } from '../../../shared/types.js';
 
 function toRendererSafeBooruSite(site: BooruSiteRecord | null): BooruSite | null {
@@ -708,14 +709,14 @@ export function setupBooruHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20, groupId?: number | null) => {
-    console.log('[IPC] 获取Booru收藏列表，站点:', siteId, 'groupId:', groupId);
+  ipcMain.handle(IPC_CHANNELS.BOORU_GET_FAVORITES, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1, limit: number = 20, groupId?: number | null, rating?: 'safe' | 'questionable' | 'explicit' | 'all') => {
+    console.log('[IPC] 获取Booru收藏列表，站点:', siteId, 'groupId:', groupId, 'rating:', rating);
     try {
       // 快速修复 isFavorited 标志不一致（纯 SQL，很快）
       await booruService.repairFavoritesConsistency(siteId);
 
       // 先返回已有数据
-      const favorites = await booruService.getFavorites(siteId, page, limit, groupId);
+      const favorites = await booruService.getFavorites(siteId, page, limit, groupId, rating);
 
       // 异步补全缺失帖子数据（不阻塞返回）
       const missingIds = await booruService.getMissingFavoritePostIds(siteId);
@@ -1153,6 +1154,17 @@ export function setupBooruHandlers() {
       return { success: true, data: result };
     } catch (error) {
       console.error('[IPC] 启动收藏标签批量下载失败:', error);
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.BOORU_START_FAVORITES_BULK_DOWNLOAD, async (_event: IpcMainInvokeEvent, input: StartFavoritesBulkDownloadInput) => {
+    console.log('[IPC] 启动收藏一键下载:', input);
+    try {
+      const result = await booruService.startFavoritesBulkDownload(input);
+      return { success: true, data: result };
+    } catch (error) {
+      console.error('[IPC] 启动收藏一键下载失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });

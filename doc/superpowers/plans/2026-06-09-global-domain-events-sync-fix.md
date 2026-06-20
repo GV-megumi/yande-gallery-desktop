@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修复 `doc/Bug记录.md` Bug5 以及 `doc/全局领域事件与跨窗口状态同步缺陷审查.md` 记录的全局领域事件 / 跨窗口状态同步缺陷，并把领域事件能力沉淀成可复用模块。
+**Goal:** 修复 `doc/done/Bug记录.md` Bug5 以及 `doc/全局领域事件与跨窗口状态同步缺陷审查.md` 记录的全局领域事件 / 跨窗口状态同步缺陷，并把领域事件能力沉淀成可复用模块。
 
 **Architecture:** 新增共享事件契约模块、主进程发布器模块、renderer 订阅 hook 三层边界。所有数据库、配置、主进程内存服务或外部站点权威状态变更都在 service 层发布轻量领域事件，renderer 通过常驻订阅 hook 做局部 patch、标脏和必要 reload，API SSE 继续由 `rendererEventBus` 桥接。
 
@@ -1826,7 +1826,7 @@ Implemented in this workspace:
 - Added system events for `config:changed`, `app:data-restored`, and `api-service:status-changed`; connected App and Settings consumers.
 - Migrated `BooruBulkDownloadPage` and `FavoriteTagsPage` from page-level `system.onAppEvent` subscriptions to `useRendererAppEvent`; high-frequency record progress/status remains on dedicated raw channels.
 - Added active gating for `ImageGrid` domain-event consumption so suspended Gallery caches do not reload from hidden component subscriptions.
-- Updated docs: `doc/Bug记录.md`, `doc/Renderer API 文档.md`, `doc/Booru功能实现文档.md`, `doc/图库功能文档.md`, `doc/开发与配置指南.md`, `doc/全局领域事件与跨窗口状态同步缺陷审查.md`, and this spec/plan pair.
+- Updated docs: `doc/done/Bug记录.md`, `doc/Renderer API 文档.md`, `doc/Booru功能实现文档.md`, `doc/图库功能文档.md`, `doc/开发与配置指南.md`, `doc/全局领域事件与跨窗口状态同步缺陷审查.md`, and this spec/plan pair.
 
 Verification completed:
 

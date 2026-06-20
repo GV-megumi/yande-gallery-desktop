@@ -1,7 +1,7 @@
 # 全局领域事件与跨窗口状态同步设计规格
 
 - **日期**：2026-06-09
-- **对应缺陷**：`doc/Bug记录.md` Bug5
+- **对应缺陷**：`doc/done/Bug记录.md` Bug5
 - **对应审查**：`doc/全局领域事件与跨窗口状态同步缺陷审查.md`
 - **对应执行计划**：`doc/superpowers/plans/2026-06-09-global-domain-events-sync-fix.md`
 - **范围**：Electron 主进程权威状态变更、跨窗口广播、API SSE、renderer 跨页面状态消费

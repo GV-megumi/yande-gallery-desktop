@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
 import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
-import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined } from '@ant-design/icons';
+import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
 import { ImageSearchBar } from '../components/ImageSearchBar';
@@ -22,6 +22,13 @@ const RECENT_VISIBLE_BATCH_SIZE = 200;
 const RECENT_NEW_SEGMENT_SIZE = 20;
 const RECENT_NEW_CHECK_LIMIT = 200;
 const RECENT_TOP_AUTO_APPLY_THRESHOLD = 120;
+const GALLERY_VISIBLE_BATCH_SIZE = 200;
+
+type GalleryImageSort = 'time' | 'name';
+type SortOrder = 'asc' | 'desc';
+
+const getDefaultGalleryDetailSortOrder = (sort: GalleryImageSort): SortOrder =>
+  sort === 'name' ? 'asc' : 'desc';
 
 interface RecentNewSegment {
   id: string;
@@ -126,10 +133,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [selectedGallery, setSelectedGallery] = useState<any | null>(null);
   // 最近图片懒加载：当前可见数量
   const [recentVisibleCount, setRecentVisibleCount] = useState(200);
-  const [gallerySort, setGallerySort] = useState<'time' | 'name'>('time');
+  const [gallerySort, setGallerySort] = useState<GalleryImageSort>('time');
+  const [galleryDetailSortOrder, setGalleryDetailSortOrder] = useState<SortOrder>('desc');
   const [allPage, setAllPage] = useState(1);
   const [allHasMore, setAllHasMore] = useState(true);
-  const [galleryVisibleCount, setGalleryVisibleCount] = useState(200);
+  const [galleryVisibleCount, setGalleryVisibleCount] = useState(GALLERY_VISIBLE_BATCH_SIZE);
   const [loading, setLoading] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
@@ -295,6 +303,32 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     } else {
       scrollContainer.scrollTop = 0;
     }
+  };
+
+  const scrollGalleryDetailToTop = () => {
+    const scrollContainer = findScrollContainer();
+    if (!scrollContainer) return;
+    scrollContainer.scrollTop = 0;
+    if (typeof scrollContainer.scrollTo === 'function') {
+      scrollContainer.scrollTo({ top: 0, behavior: 'auto' });
+    }
+  };
+
+  const resetGalleryDetailVisibleWindow = () => {
+    setGalleryVisibleCount(GALLERY_VISIBLE_BATCH_SIZE);
+    scrollGalleryDetailToTop();
+  };
+
+  const handleGalleryDetailSortChange = (nextSort: GalleryImageSort) => {
+    if (nextSort === gallerySort) return;
+    resetGalleryDetailVisibleWindow();
+    setGallerySort(nextSort);
+    setGalleryDetailSortOrder(getDefaultGalleryDetailSortOrder(nextSort));
+  };
+
+  const handleGalleryDetailSortOrderToggle = () => {
+    resetGalleryDetailVisibleWindow();
+    setGalleryDetailSortOrder((current) => (current === 'asc' ? 'desc' : 'asc'));
   };
 
   const getRecentTopCursor = () => {
@@ -687,7 +721,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     setLoading(true);
     try {
       // 每次加载新图集时重置可见数量
-      setGalleryVisibleCount(200);
+      setGalleryVisibleCount(GALLERY_VISIBLE_BATCH_SIZE);
       const galleryResult = await window.electronAPI.gallery.getGallery(galleryId);
       if (!isLatestRequest()) {
         return;
@@ -1026,10 +1060,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           }
         } else if (subTab === 'galleries') {
           console.log('[GalleryPage] 初始化"图集"模式');
+          const nextGalleryImageSort = galleriesPreferences?.gallerySort ?? 'time';
           setGallerySearchQuery(galleriesPreferences?.gallerySearchQuery ?? '');
           setGallerySortKey(galleriesPreferences?.gallerySortKey ?? 'updatedAt');
           setGallerySortOrder(galleriesPreferences?.gallerySortOrder ?? 'desc');
-          setGallerySort(galleriesPreferences?.gallerySort ?? 'time');
+          setGallerySort(nextGalleryImageSort);
+          setGalleryDetailSortOrder(
+            galleriesPreferences?.galleryDetailSortOrder ?? getDefaultGalleryDetailSortOrder(nextGalleryImageSort)
+          );
           console.log('[GalleryPage] 清空其他模式的数据');
           galleryDetailRequestRunIdRef.current += 1;
           galleryInfoRequestRunIdRef.current += 1;
@@ -1119,6 +1157,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           gallerySearchQuery,
           gallerySortKey,
           gallerySortOrder,
+          galleryDetailSortOrder,
           selectedGalleryId: selectedGallery?.id,
           gallerySort,
         },
@@ -1156,7 +1195,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence, suspended]);
+  }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, galleryDetailSortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence, suspended]);
 
   // 当图集查询或排序参数改变时，重新派生图集列表
   useEffect(() => {
@@ -1606,6 +1645,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                             gallerySearchQuery,
                             gallerySortKey,
                             gallerySortOrder,
+                            galleryDetailSortOrder,
                             gallerySort,
                             selectedGalleryId: null,
                           },
@@ -1625,12 +1665,21 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       <Segmented
                         size="small"
                         value={gallerySort}
-                        onChange={(val) => setGallerySort(val as 'time' | 'name')}
+                        onChange={(val) => handleGalleryDetailSortChange(val as GalleryImageSort)}
                         options={[
                           { label: '按时间', value: 'time' },
                           { label: '按文件名', value: 'name' }
                         ]}
                       />
+                      <Tooltip title={`当前${galleryDetailSortOrder === 'asc' ? '升序' : '降序'}，点击切换为${galleryDetailSortOrder === 'asc' ? '降序' : '升序'}`}>
+                        <Button
+                          size="small"
+                          type="text"
+                          aria-label={`切换为${galleryDetailSortOrder === 'asc' ? '降序' : '升序'}`}
+                          icon={galleryDetailSortOrder === 'asc' ? <SortAscendingOutlined /> : <SortDescendingOutlined />}
+                          onClick={handleGalleryDetailSortOrderToggle}
+                        />
+                      </Tooltip>
                     </Space>
                   </div>
                   <Space>
@@ -1734,6 +1783,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                 onReload={() => loadGalleryImages(selectedGallery.id)}
                 groupBy={gallerySort === 'time' ? 'day' : 'none'}
                 sortBy={gallerySort}
+                sortOrder={galleryDetailSortOrder}
+                batchSize={GALLERY_VISIBLE_BATCH_SIZE}
                 layout="waterfall"
                 onSetCover={handleSetCover}
                 currentGallery={selectedGallery}
@@ -1743,7 +1794,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   total={galleryImages.length}
                   onLoadMore={() =>
                     setGalleryVisibleCount((prev) =>
-                      Math.min(prev + 200, galleryImages.length)
+                      Math.min(prev + GALLERY_VISIBLE_BATCH_SIZE, galleryImages.length)
                     )
                   }
                 />

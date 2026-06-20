@@ -30,12 +30,13 @@ export const ImageListWrapper: React.FC<ImageListWrapperProps> = React.memo(({
       layout: imageGridProps.layout,
       groupBy: imageGridProps.groupBy,
       sortBy: imageGridProps.sortBy,
+      sortOrder: imageGridProps.sortOrder,
       showTimeline: imageGridProps.showTimeline,
       hasOnSetCover: !!imageGridProps.onSetCover,
       hasCurrentGallery: !!imageGridProps.currentGallery,
       allProps: imageGridProps
     });
-  }, [images.length, loading, emptyDescription, imageGridProps.layout, imageGridProps.groupBy, imageGridProps.sortBy, imageGridProps.showTimeline, imageGridProps.onSetCover, imageGridProps.currentGallery]);
+  }, [images.length, loading, emptyDescription, imageGridProps.layout, imageGridProps.groupBy, imageGridProps.sortBy, imageGridProps.sortOrder, imageGridProps.showTimeline, imageGridProps.onSetCover, imageGridProps.currentGallery]);
 
   useEffect(() => {
     if (!loading && images.length > 0) {
@@ -43,10 +44,11 @@ export const ImageListWrapper: React.FC<ImageListWrapperProps> = React.memo(({
         imagesCount: images.length,
         layout: imageGridProps.layout,
         groupBy: imageGridProps.groupBy,
-        sortBy: imageGridProps.sortBy
+        sortBy: imageGridProps.sortBy,
+        sortOrder: imageGridProps.sortOrder,
       });
     }
-  }, [images.length, loading, imageGridProps.layout, imageGridProps.groupBy, imageGridProps.sortBy]);
+  }, [images.length, loading, imageGridProps.layout, imageGridProps.groupBy, imageGridProps.sortBy, imageGridProps.sortOrder]);
 
   // 早期返回必须在所有 hooks 之后
   if (loading) {

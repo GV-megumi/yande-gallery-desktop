@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Button, Empty, App, Typography, notification, Input, Modal, Popconfirm, Tooltip } from 'antd';
-import { BookOutlined, PlusOutlined, EditOutlined, DeleteOutlined, FolderOutlined } from '@ant-design/icons';
+import { BookOutlined, PlusOutlined, EditOutlined, DeleteOutlined, FolderOutlined, DownloadOutlined } from '@ant-design/icons';
 import { BooruGridLayout } from '../components/BooruGridLayout';
 import { BooruPageToolbar, RatingFilter } from '../components/BooruPageToolbar';
 import { PaginationControl } from '../components/PaginationControl';
@@ -33,9 +33,12 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   const [sites, setSites] = useState<BooruSite[]>([]);
   const [selectedSiteId, setSelectedSiteId] = useState<number | null>(null);
   const [posts, setPosts] = useState<BooruPost[]>([]);
+  const [favoriteTotal, setFavoriteTotal] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [bulkDownloading, setBulkDownloading] = useState(false);
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pendingPage, setPendingPage] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const contentRef = useRef<HTMLDivElement>(null);
 
@@ -58,6 +61,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   // 用 ref 持有最新页码，防抖定时器触发时读取最新值
   const currentPageRef = useRef(currentPage);
   currentPageRef.current = currentPage;
+  const targetPageRef = useRef(currentPage);
 
   // 收藏状态管理（在收藏页面中，取消收藏会从列表移除）
   const { favorites, setFavorites, toggleFavorite } = useFavorite({
@@ -66,6 +70,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       if (!isFavorited) {
         // 取消收藏：从列表中移除
         setPosts(prevPosts => prevPosts.filter(p => p.postId !== postId));
+        setFavoriteTotal(prevTotal => Math.max(0, prevTotal - 1));
         message.success('已取消收藏');
         // 如果当前页没有图片了，加载上一页（使用 ref 避免闭包过期）
         if (postsLengthRef.current === 1 && currentPage > 1) {
@@ -75,6 +80,17 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     },
     logPrefix: '[BooruFavoritesPage]'
   });
+
+  const clearLoadedFavorites = () => {
+    setPosts([]);
+    setFavoriteTotal(0);
+    setFavorites(new Set());
+    targetPageRef.current = 1;
+    currentPageRef.current = 1;
+    setPendingPage(null);
+    setCurrentPage(1);
+    setHasMore(true);
+  };
 
   // Post 操作（下载、服务端收藏/取消收藏）统一走 useBooruPostActions
   const postActions = useBooruPostActions({
@@ -144,6 +160,7 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         } else {
           setSelectedSiteId(null);
           setPosts([]);
+          setFavoriteTotal(0);
           setGroups([]);
           setFavorites(new Set());
           setCurrentPage(1);
@@ -200,6 +217,45 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
   };
 
+  // 将当前分组筛选转换为后端参数：undefined=全部，null=未分组，number=指定分组
+  const getSelectedGroupIdParam = () => selectedGroupId === 'all' ? undefined
+    : selectedGroupId === 'ungrouped' ? null
+    : selectedGroupId;
+
+  const handleStartFavoritesBulkDownload = async () => {
+    if (!selectedSiteId) {
+      message.warning('请先选择站点');
+      return;
+    }
+    if (favoriteTotal <= 0) {
+      message.info('当前筛选没有收藏图');
+      return;
+    }
+    if (!window.electronAPI?.booru?.startFavoritesBulkDownload) {
+      message.error('当前版本不支持收藏一键下载');
+      return;
+    }
+
+    setBulkDownloading(true);
+    try {
+      const result = await window.electronAPI.booru.startFavoritesBulkDownload({
+        siteId: selectedSiteId,
+        groupId: getSelectedGroupIdParam(),
+        rating: ratingFilter,
+      });
+      if (result.success) {
+        message.success(result.data?.deduplicated ? '收藏下载任务已存在' : '已创建收藏下载任务');
+      } else {
+        message.error('创建收藏下载任务失败: ' + (result.error || '未知错误'));
+      }
+    } catch (error) {
+      console.error('[BooruFavoritesPage] 创建收藏批量下载失败:', error);
+      message.error('创建收藏下载任务失败');
+    } finally {
+      setBulkDownloading(false);
+    }
+  };
+
   // 加载收藏列表
   const loadFavorites = async (page: number = 1) => {
     if (!selectedSiteId) {
@@ -208,35 +264,47 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     }
 
     // 计算 groupId 参数
-    const groupIdParam = selectedGroupId === 'all' ? undefined
-      : selectedGroupId === 'ungrouped' ? null
-      : selectedGroupId;
+    const groupIdParam = getSelectedGroupIdParam();
 
-    console.log(`[BooruFavoritesPage] 加载收藏列表，站点: ${selectedSiteId}, 页码: ${page}, 分组: ${selectedGroupId}`);
+    console.log(`[BooruFavoritesPage] 加载收藏列表，站点: ${selectedSiteId}, 页码: ${page}, 分组: ${selectedGroupId}, 评级: ${ratingFilter}`);
     // 请求序号守卫：后发请求会使先发请求的响应失效，防止乱序覆盖
     const requestId = loadFavoritesRequestIdRef.current + 1;
     loadFavoritesRequestIdRef.current = requestId;
+    targetPageRef.current = page;
+    setPendingPage(page);
     setLoading(true);
 
     try {
       if (!window.electronAPI) {
-        setLoading(false);
         return;
       }
 
-      const result = await window.electronAPI.booru.getFavorites(selectedSiteId, page, appearanceConfig.itemsPerPage, groupIdParam);
+      const result = await window.electronAPI.booru.getFavorites(selectedSiteId, page, appearanceConfig.itemsPerPage, groupIdParam, ratingFilter);
       // 丢弃过期响应（期间已发起更新的加载请求）
       if (loadFavoritesRequestIdRef.current !== requestId) {
         console.log('[BooruFavoritesPage] 丢弃过期收藏响应，requestId:', requestId, 'current:', loadFavoritesRequestIdRef.current);
         return;
       }
       if (result.success) {
-        const data = result.data || [];
-        console.log('[BooruFavoritesPage] 加载收藏成功:', data.length, '张图片');
+        const rawData = result.data;
+        const data = Array.isArray(rawData) ? rawData : rawData?.items || [];
+        const total = Array.isArray(rawData) ? data.length : rawData?.total ?? data.length;
+        const itemsPerPage = Math.max(1, appearanceConfig.itemsPerPage);
+        const totalPages = Math.max(1, Math.ceil(total / itemsPerPage));
+        console.log('[BooruFavoritesPage] 加载收藏成功:', data.length, '张图片，总数:', total);
+
+        if (total > 0 && page > totalPages) {
+          console.log('[BooruFavoritesPage] 当前页超出总页数，重载尾页:', { page, totalPages, total });
+          loadFavorites(totalPages);
+          return;
+        }
 
         setPosts(data);
+        setFavoriteTotal(total);
+        targetPageRef.current = page;
+        currentPageRef.current = page;
         setCurrentPage(page);
-        setHasMore(data.length >= appearanceConfig.itemsPerPage);
+        setHasMore(page < totalPages);
 
         // 所有收藏的图片都是已收藏状态
         const favoriteIds = new Set(data.map(p => p.id));
@@ -253,6 +321,8 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     } finally {
       // 仅当前最新请求负责收尾 loading 状态，过期请求不得干扰
       if (loadFavoritesRequestIdRef.current === requestId) {
+        targetPageRef.current = currentPageRef.current;
+        setPendingPage(null);
         setLoading(false);
       }
     }
@@ -303,8 +373,17 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
     console.log('[BooruFavoritesPage] 切换站点:', siteId);
     setSelectedSiteId(siteId);
     setPosts([]);
+    setFavoriteTotal(0);
+    targetPageRef.current = 1;
+    currentPageRef.current = 1;
+    setPendingPage(null);
     setCurrentPage(1);
     setHasMore(true);
+  };
+
+  const handleRatingChange = (rating: RatingFilter) => {
+    setRatingFilter(rating);
+    setCurrentPage(1);
   };
 
   // 处理收藏切换（委托给 useFavorite Hook）
@@ -386,22 +465,46 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
   // 当选中分组变化时，重新加载收藏
   useEffect(() => {
     if (selectedSiteId) {
+      clearLoadedFavorites();
       loadFavorites(1);
     }
   }, [selectedGroupId]);
 
+  // 当评级筛选变化时，重新加载收藏。评级过滤由后端完成，确保 total 与列表一致。
+  useEffect(() => {
+    if (selectedSiteId) {
+      clearLoadedFavorites();
+      loadFavorites(1);
+    }
+  }, [ratingFilter]);
+
   const selectedSite = sites.find(s => s.id === selectedSiteId);
+  const displayPage = pendingPage ?? currentPage;
+  const paginationCurrentCount = loading ? appearanceConfig.itemsPerPage : posts.length;
+  const showPagination = posts.length > 0 || favoriteTotal > 0 || pendingPage !== null;
+  const getPaginationTargetPage = () => targetPageRef.current ?? pendingPage ?? currentPage;
+
+  const handlePreviousPage = () => {
+    loadFavorites(Math.max(1, getPaginationTargetPage() - 1));
+  };
+
+  const handleNextPage = () => {
+    loadFavorites(getPaginationTargetPage() + 1);
+  };
+
+  const handlePageChange = (page: number) => {
+    loadFavorites(page);
+  };
 
   // 按 ID 倒序排序（最新的在前）
   const sortedPosts = useMemo(() => {
     return [...posts].sort((a, b) => b.postId - a.postId);
   }, [posts]);
 
-  // 排序后再按评级筛选
+  // 评级筛选已下推到后端，这里只保留排序结果，避免分页 total 与本地二次过滤不一致。
   const filteredSortedPosts = useMemo(() => {
-    if (ratingFilter === 'all') return sortedPosts;
-    return sortedPosts.filter(post => post.rating === ratingFilter);
-  }, [sortedPosts, ratingFilter]);
+    return sortedPosts;
+  }, [sortedPosts]);
 
   // 创建/编辑分组的弹窗
   const GroupModal = (
@@ -455,6 +558,9 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
       <div style={{ marginBottom: spacing.xl }}>
         <Title level={3} style={{ margin: 0 }}>
           <BookOutlined /> 我的收藏
+          <span style={{ marginLeft: spacing.sm, fontSize: 14, fontWeight: 400, color: colors.textSecondary }}>
+            共 {favoriteTotal} 张收藏图
+          </span>
         </Title>
       </div>
 
@@ -527,6 +633,18 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         >
           新建分组
         </Button>
+        <Tooltip title="下载当前筛选下的全部收藏">
+          <Button
+            type="default"
+            size="small"
+            icon={<DownloadOutlined />}
+            loading={bulkDownloading}
+            disabled={!selectedSiteId || favoriteTotal === 0}
+            onClick={handleStartFavoritesBulkDownload}
+          >
+            一键下载
+          </Button>
+        </Tooltip>
       </div>
 
       {/* 工具栏 */}
@@ -536,12 +654,26 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
         loading={loading}
         ratingFilter={ratingFilter}
         onSiteChange={handleSiteChange}
-        onRatingChange={setRatingFilter}
+        onRatingChange={handleRatingChange}
         onRefresh={() => loadFavorites(currentPage)}
       />
 
       {/* 图片列表 */}
       <div>
+        {showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCurrentCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            total={favoriteTotal}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="top"
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
+        )}
+
         {loading && (
           <SkeletonGrid count={12} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
         )}
@@ -563,17 +695,6 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
 
         {!loading && posts.length > 0 && (
           <>
-            <PaginationControl
-              currentPage={currentPage}
-              currentCount={posts.length}
-              itemsPerPage={appearanceConfig.itemsPerPage}
-              paginationPosition={appearanceConfig.paginationPosition}
-              position="top"
-              onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
-              onNext={() => loadFavorites(currentPage + 1)}
-              onPageChange={(page) => loadFavorites(page)}
-            />
-
             {/* 当前页有数据但被评级筛选过滤为空时，给出轻量提示而非空白网格 */}
             {filteredSortedPosts.length === 0 ? (
               <Empty
@@ -600,18 +721,21 @@ export const BooruFavoritesPage: React.FC<BooruFavoritesPageProps> = ({
                 serverFavorites={postActions.serverFavorites}
               />
             )}
-
-            <PaginationControl
-              currentPage={currentPage}
-              currentCount={posts.length}
-              itemsPerPage={appearanceConfig.itemsPerPage}
-              paginationPosition={appearanceConfig.paginationPosition}
-              position="bottom"
-              onPrevious={() => loadFavorites(Math.max(1, currentPage - 1))}
-              onNext={() => loadFavorites(currentPage + 1)}
-              onPageChange={(page) => loadFavorites(page)}
-            />
           </>
+        )}
+
+        {showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCurrentCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            total={favoriteTotal}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="bottom"
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
         )}
       </div>
 

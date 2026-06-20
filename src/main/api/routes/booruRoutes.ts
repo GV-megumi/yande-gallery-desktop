@@ -39,6 +39,7 @@ const MAX_LIMIT = 200;
 const VALID_SORT_KEYS = new Set(['tagName', 'galleryName', 'lastDownloadedAt']);
 const VALID_SORT_ORDERS = new Set(['asc', 'desc']);
 const VALID_QUERY_TYPES = new Set(['tag', 'raw', 'list']);
+const VALID_FAVORITE_RATINGS = new Set(['safe', 'questionable', 'explicit', 'all']);
 const FAVORITE_TAG_PATCH_KEYS = new Set([
   'tagName',
   'labels',
@@ -71,6 +72,7 @@ const BINDING_INPUT_KEYS = new Set([
 ]);
 
 type JsonObject = Record<string, unknown>;
+type FavoriteRatingQuery = 'safe' | 'questionable' | 'explicit' | 'all';
 type ServiceControlResult = { success: boolean; queued?: boolean; error?: string };
 type FavoriteTagUpdate = Partial<Pick<
   FavoriteTag,
@@ -185,6 +187,18 @@ function optionalNullableNumberQuery(context: ApiRequestContext, name: string): 
   }
 
   return numberParam(value, name);
+}
+
+function optionalFavoriteRatingQuery(context: ApiRequestContext): FavoriteRatingQuery | undefined {
+  const value = context.query.get('rating');
+  if (value == null || value === '') {
+    return undefined;
+  }
+  if (!VALID_FAVORITE_RATINGS.has(value)) {
+    validationError('Invalid rating');
+  }
+
+  return value as FavoriteRatingQuery;
 }
 
 function nullableNumberBody(value: unknown, name: string, defaultValue: number | null): number | null {
@@ -544,9 +558,10 @@ export function createBooruRoutes(): ApiRoute[] {
         const page = requiredPageQuery(context, 1);
         const limit = requiredLimitQuery(context, 20);
         const groupId = optionalNullableNumberQuery(context, 'groupId');
+        const rating = optionalFavoriteRatingQuery(context);
 
         return callService(
-          () => getFavorites(siteId, page, limit, groupId),
+          () => getFavorites(siteId, page, limit, groupId, rating),
           'Failed to load favorites',
         );
       },

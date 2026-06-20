@@ -503,11 +503,6 @@ const enUS: LocaleMessages = {
     googleSuccess: 'Google connected! Status: {status}',
     googleFailed: 'Google connection failed',
     saveAll: 'Save All Settings',
-    cacheManagement: 'Cache Management',
-    cacheSize: 'Cache Size',
-    cacheFiles: 'files',
-    clearCache: 'Clear Cache',
-    clearCacheDesc: 'Delete all cached image files to free up disk space',
     // bug9: notifications / desktop
     notifications: 'Notifications',
     notificationsFooter: 'Three-level gate: global switch AND status category AND task-level. Any disabled level blocks the notification.',

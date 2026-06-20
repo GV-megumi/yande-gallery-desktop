@@ -101,11 +101,6 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.language': '语言',
         'settings.languageZh': '中文',
         'settings.languageEn': 'English',
-        'settings.cacheManagement': '缓存管理',
-        'settings.cacheSize': '缓存大小',
-        'settings.cacheFiles': '个文件',
-        'settings.clearCache': '清理缓存',
-        'settings.clearCacheDesc': '清理缓存说明',
         'settings.hardwareAcceleration': '启用硬件加速',
         'settings.hardwareAccelerationDesc': '使用 GPU 加速窗口渲染和媒体显示，重启后生效。',
         'settings.advanced': '高级',
@@ -362,7 +357,7 @@ describe('SettingsPage general tab behavior', () => {
   it('接收 config:changed 后应按受影响 section 重新加载配置', async () => {
     render(<App><SettingsPage /></App>);
 
-    await screen.findByText('缓存管理');
+    await screen.findByText('图库文件夹');
     await waitFor(() => {
       expect(getConfig).toHaveBeenCalledTimes(1);
     });
@@ -476,6 +471,18 @@ describe('SettingsPage general tab behavior', () => {
     expect(screen.queryByText('自动生成')).toBeNull();
   });
 
+  it('全局设置页不展示 Booru 原图缓存管理入口', async () => {
+    render(<App><SettingsPage /></App>);
+
+    await screen.findByText('备份与恢复');
+
+    expect(screen.queryByText('缓存管理')).toBeNull();
+    expect(screen.queryByText('缓存大小')).toBeNull();
+    expect(screen.queryByText('清理缓存')).toBeNull();
+    expect(getCacheStats).not.toHaveBeenCalled();
+    expect(clearCache).not.toHaveBeenCalled();
+  });
+
   it('不展示误导性的页面模式伪设置', async () => {
     render(
       <App>
@@ -508,6 +515,10 @@ describe('SettingsPage general tab behavior', () => {
     await waitFor(() => {
       expect(getAppearancePreference).toHaveBeenCalledTimes(1);
     });
+
+    expect(await screen.findByText('Booru 原图缓存设置')).not.toBeNull();
+    expect(screen.getByText('Booru 原图缓存目录最大大小')).not.toBeNull();
+    expect(screen.getByText('当前 Booru 原图缓存状态')).not.toBeNull();
 
     expect(getConfig).toHaveBeenCalledTimes(1);
 
@@ -553,7 +564,7 @@ describe('SettingsPage general tab behavior', () => {
   it('不展示仅提示开发中的高级伪操作', async () => {
     render(<App><SettingsPage /></App>);
 
-    await screen.findByText('缓存管理');
+    await screen.findByText('备份与恢复');
 
     expect(screen.queryByText('高级')).toBeNull();
     expect(screen.queryByText('重建索引')).toBeNull();

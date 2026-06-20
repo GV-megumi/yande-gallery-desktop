@@ -526,7 +526,7 @@ describe('bulkDownloadService abort semantics', () => {
     const { startBulkDownloadSession, pauseBulkDownloadSession, state, send, inFlightGetCountRef, sessionId } = await loadModule('pause');
 
     await expect(startBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
-    await waitFor(() => state.records.some(record => record.status === 'downloading'));
+    await waitFor(() => state.records.some(record => record.status === 'downloading') && inFlightGetCountRef.current > 0);
     expect(inFlightGetCountRef.current).toBeGreaterThan(0);
 
     await expect(pauseBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
@@ -547,7 +547,7 @@ describe('bulkDownloadService abort semantics', () => {
     const { startBulkDownloadSession, cancelBulkDownloadSession, state, send, inFlightGetCountRef, sessionId } = await loadModule('cancel');
 
     await expect(startBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
-    await waitFor(() => state.records.some(record => record.status === 'downloading'));
+    await waitFor(() => state.records.some(record => record.status === 'downloading') && inFlightGetCountRef.current > 0);
     expect(inFlightGetCountRef.current).toBeGreaterThan(0);
 
     await expect(cancelBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
@@ -588,7 +588,7 @@ describe('bulkDownloadService abort semantics', () => {
     const { startBulkDownloadSession, cancelBulkDownloadSession, state, send, inFlightGetCountRef, sessionId } = await loadModule('cancel-code');
 
     await expect(startBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
-    await waitFor(() => state.records.some(record => record.status === 'downloading'));
+    await waitFor(() => state.records.some(record => record.status === 'downloading') && inFlightGetCountRef.current > 0);
     expect(inFlightGetCountRef.current).toBeGreaterThan(0);
 
     await expect(cancelBulkDownloadSession(sessionId)).resolves.toEqual({ success: true });
@@ -645,6 +645,8 @@ describe('bulkDownloadService abort semantics', () => {
       url: state.records[0].url,
       status: 'failed',
     }));
+
+    await waitFor(() => state.records[0]?.status === 'completed');
   });
 
   it('暂停后继续前应等待旧 worker 彻底退出，即使旧循环已先结束', async () => {
@@ -680,6 +682,8 @@ describe('bulkDownloadService abort semantics', () => {
 
     expect(state.session.status).not.toBe('failed');
     expect(state.records.every(record => record.status !== 'failed')).toBe(true);
+
+    await waitFor(() => state.records.length === 2 && state.records.every(record => record.status === 'completed'));
   });
 
   it('真实下载错误仍应把记录标记并广播为 failed', async () => {

@@ -13,10 +13,14 @@ import {
   FavoriteTagDownloadRuntimeProgress,
   FavoriteTagWithDownloadState,
   UpsertFavoriteTagDownloadBindingInput,
+  BulkDownloadRecord,
+  BulkDownloadSession,
   BulkDownloadSessionStatus,
+  BulkDownloadTask,
   FavoriteTagDownloadDisplayStatus,
   ListQueryParams,
   PaginatedResult,
+  StartFavoritesBulkDownloadInput,
   FavoriteTagImportRecord,
   FavoriteTagLabelImportRecord,
   FavoriteTagsImportPickFileResult,
@@ -26,11 +30,13 @@ import {
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 import { createGallery, getGallery, updateGalleryStats } from './galleryService.js';
 import { scanAndImportFolder } from './imageService.js';
-import { getConfig, resolveConfigPath } from './config.js';
+import { getConfig, getDownloadsPath, resolveConfigPath } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { dialog } from 'electron';
+import { sanitizeFileName } from './filenameGenerator.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import {
   emitBooruBlacklistTagsChanged,
@@ -75,6 +81,8 @@ type BulkDownloadRuntimeStatsRow = {
   total: number;
   completedAt?: string | null;
 };
+
+type FavoriteRatingFilter = 'safe' | 'questionable' | 'explicit' | 'all';
 
 function emitFavoriteTagsChanged(payload: {
   action:
@@ -246,7 +254,11 @@ async function syncGalleryAfterDownload(galleryId: number, downloadPath: string)
   }
 }
 
-async function updateBulkDownloadSessionOrigin(sessionId: string, originType: 'favoriteTag', originId: number): Promise<void> {
+async function updateBulkDownloadSessionOrigin(
+  sessionId: string,
+  originType: NonNullable<BulkDownloadSession['originType']>,
+  originId: number | null
+): Promise<void> {
   const db = await getDatabase();
   await run(db, `
     UPDATE bulk_download_sessions
@@ -1140,45 +1152,70 @@ export async function removeFromFavorites(apiPostId: number, siteId: number): Pr
 /**
  * 获取收藏列表
  */
-export async function getFavorites(siteId: number, page: number = 1, limit: number = 20, groupId?: number | null): Promise<any[]> {
-  console.log('[booruService] 获取收藏列表:', { siteId, page, limit, groupId });
+function mapFavoritePostRow(post: any): BooruPost & { favoriteGroupId?: number | null } {
+  return {
+    ...post,
+    downloaded: Boolean(post.downloaded),
+    isFavorited: Boolean(post.isFavorited),
+    isLiked: post.isLiked == null ? undefined : Boolean(post.isLiked),
+    favoriteGroupId: post.favoriteGroupId ?? null,
+  };
+}
+
+export async function getFavorites(
+  siteId: number,
+  page: number = 1,
+  limit: number = 20,
+  groupId?: number | null,
+  rating?: FavoriteRatingFilter,
+): Promise<PaginatedResult<BooruPost>> {
+  console.log('[booruService] 获取收藏列表:', { siteId, page, limit, groupId, rating });
   try {
     const db = await getDatabase();
-    const offset = (page - 1) * limit;
-
-    // 构建 groupId 过滤条件
-    let groupFilter = '';
+    const offset = Math.max(0, (page - 1) * limit);
+    const where = ['f.siteId = ?'];
     const params: any[] = [siteId];
+
     if (groupId === null) {
-      // null = 未分组
-      groupFilter = 'AND f.groupId IS NULL';
+      where.push('f.groupId IS NULL');
     } else if (groupId != null) {
-      groupFilter = 'AND f.groupId = ?';
+      where.push('f.groupId = ?');
       params.push(groupId);
     }
-    params.push(limit, offset);
+
+    if (rating && rating !== 'all') {
+      where.push('p.rating = ?');
+      params.push(rating);
+    }
+
+    const whereSql = where.join(' AND ');
+    const countRow = await get<{ total: number }>(
+      db,
+      `
+        SELECT COUNT(*) as total FROM booru_posts p
+        INNER JOIN booru_favorites f ON p.id = f.postId
+        WHERE ${whereSql}
+      `,
+      params
+    );
 
     const posts = await all<any>(
       db,
       `
         SELECT p.*, f.groupId as favoriteGroupId FROM booru_posts p
         INNER JOIN booru_favorites f ON p.id = f.postId
-        WHERE f.siteId = ? ${groupFilter}
+        WHERE ${whereSql}
         ORDER BY f.createdAt DESC
         LIMIT ? OFFSET ?
       `,
-      params
+      [...params, limit, offset]
     );
 
-    // 转换布尔值
-    const result = posts.map(post => ({
-      ...post,
-      downloaded: Boolean(post.downloaded),
-      isFavorited: Boolean(post.isFavorited)
-    }));
+    const items = posts.map(mapFavoritePostRow);
+    const total = Number(countRow?.total ?? 0);
 
-    console.log('[booruService] 获取到', result.length, '个收藏');
-    return result;
+    console.log('[booruService] 获取到', items.length, '个收藏，总数:', total);
+    return { items, total };
   } catch (error) {
     console.error('[booruService] 获取收藏列表失败:', error);
     throw error;
@@ -2620,6 +2657,211 @@ export async function getGallerySourceFavoriteTags(galleryId: number): Promise<F
   return sourceTags.filter(tag => tag.downloadBinding?.galleryId === galleryId);
 }
 
+function normalizeFavoritesBulkRating(rating?: StartFavoritesBulkDownloadInput['rating']): FavoriteRatingFilter {
+  if (!rating || rating === 'all') {
+    return 'all';
+  }
+  if (rating === 'safe' || rating === 'questionable' || rating === 'explicit') {
+    return rating;
+  }
+  throw new Error('无效的收藏分级筛选');
+}
+
+function buildFavoritesBulkDownloadFolderName(siteName: string): string {
+  const safeName = sanitizeFileName(`${siteName}_favorites`);
+  return safeName || 'favorites';
+}
+
+function buildFavoritesGalleryName(siteName: string): string {
+  const trimmed = siteName.trim();
+  return trimmed ? `${trimmed} 收藏图集` : '收藏图集';
+}
+
+async function ensureFavoritesGallery(downloadPath: string, siteName: string): Promise<number | null> {
+  const existingGallery = await findGalleryByFolderPath(downloadPath);
+  if (existingGallery) {
+    return existingGallery.id;
+  }
+
+  const created = await createGallery({
+    folderPath: downloadPath,
+    name: buildFavoritesGalleryName(siteName),
+    isWatching: true,
+    recursive: true,
+  });
+
+  if (!created.success || !created.data) {
+    throw new Error(created.error || '创建收藏图集失败');
+  }
+
+  return created.data;
+}
+
+function getFileExtensionFromUrl(fileUrl: string, fallback?: string | null): string {
+  try {
+    const parsed = new URL(fileUrl);
+    const ext = path.extname(parsed.pathname).slice(1);
+    return ext || fallback || 'jpg';
+  } catch {
+    const ext = path.extname(fileUrl).slice(1);
+    return ext || fallback || 'jpg';
+  }
+}
+
+function toBulkDownloadPost(post: BooruPost): any {
+  const ratingCode: Record<string, string> = {
+    safe: 's',
+    questionable: 'q',
+    explicit: 'e',
+  };
+
+  return {
+    id: post.postId,
+    md5: post.md5,
+    file_url: post.fileUrl,
+    sample_url: post.sampleUrl,
+    preview_url: post.previewUrl,
+    width: post.width,
+    height: post.height,
+    rating: post.rating ? ratingCode[post.rating] : undefined,
+    score: post.score,
+    tags: post.tags,
+    source: post.source,
+  };
+}
+
+async function getFavoritePostsForBulkDownload(input: {
+  siteId: number;
+  groupId?: number | null;
+  rating: FavoriteRatingFilter;
+}): Promise<Array<BooruPost & { favoriteGroupId?: number | null }>> {
+  const db = await getDatabase();
+  const where = ['f.siteId = ?'];
+  const params: any[] = [input.siteId];
+
+  if (input.groupId === null) {
+    where.push('f.groupId IS NULL');
+  } else if (input.groupId !== undefined) {
+    where.push('f.groupId = ?');
+    params.push(input.groupId);
+  }
+
+  if (input.rating !== 'all') {
+    where.push('p.rating = ?');
+    params.push(input.rating);
+  }
+
+  const rows = await all<any>(
+    db,
+    `
+      SELECT p.*, f.groupId as favoriteGroupId FROM booru_posts p
+      INNER JOIN booru_favorites f ON p.id = f.postId
+      WHERE ${where.join(' AND ')}
+      ORDER BY f.createdAt DESC
+    `,
+    params
+  );
+
+  return rows.map(mapFavoritePostRow);
+}
+
+export async function startFavoritesBulkDownload(
+  input: StartFavoritesBulkDownloadInput
+): Promise<{ taskId: string; sessionId: string; deduplicated?: boolean }> {
+  console.log('[booruService] 启动收藏一键下载:', input);
+  if (!Number.isInteger(input.siteId) || input.siteId <= 0) {
+    throw new Error('站点 ID 无效');
+  }
+
+  const rating = normalizeFavoritesBulkRating(input.rating);
+  const site = await getBooruSiteById(input.siteId);
+  if (!site) {
+    throw new Error('站点不存在');
+  }
+
+  const downloadRoot = getDownloadsPath();
+  const downloadPath = path.join(downloadRoot, buildFavoritesBulkDownloadFolderName(site.name));
+  await fs.mkdir(downloadPath, { recursive: true });
+  await ensureFavoritesGallery(downloadPath, site.name);
+
+  const bulkDownloadService = await import('./bulkDownloadService.js');
+  const taskResult = await bulkDownloadService.createBulkDownloadTask({
+    siteId: input.siteId,
+    path: downloadPath,
+    tags: [],
+    notifications: true,
+    skipIfExists: true,
+  });
+
+  if (!taskResult.success || !taskResult.data) {
+    throw new Error(taskResult.error || '创建收藏批量下载任务失败');
+  }
+
+  const task = taskResult.data as BulkDownloadTask;
+  const sessionResult = await bulkDownloadService.createBulkDownloadSession(task.id);
+  if (!sessionResult.success || !sessionResult.data) {
+    throw new Error(sessionResult.error || '创建收藏批量下载会话失败');
+  }
+
+  const sessionId = sessionResult.data.id;
+  await updateBulkDownloadSessionOrigin(sessionId, 'favorites', input.siteId);
+
+  const favoritePosts = await getFavoritePostsForBulkDownload({
+    siteId: input.siteId,
+    groupId: input.groupId,
+    rating,
+  });
+
+  const records: Omit<BulkDownloadRecord, 'createdAt'>[] = [];
+  for (let i = 0; i < favoritePosts.length; i++) {
+    const post = favoritePosts[i];
+    if (post.downloaded || post.localPath) {
+      continue;
+    }
+
+    const fileUrl = post.fileUrl || post.sampleUrl || post.previewUrl;
+    if (!fileUrl) {
+      continue;
+    }
+
+    const bulkPost = toBulkDownloadPost(post);
+    const fileName = await bulkDownloadService.generateBulkDownloadFileName(bulkPost, task, site.name);
+    if (fsSync.existsSync(path.join(downloadPath, fileName))) {
+      continue;
+    }
+
+    records.push({
+      url: fileUrl,
+      sessionId,
+      status: 'pending',
+      page: 1,
+      pageIndex: i,
+      fileName,
+      extension: getFileExtensionFromUrl(fileUrl, post.fileExt),
+      thumbnailUrl: post.previewUrl || post.sampleUrl,
+      sourceUrl: post.source,
+    });
+  }
+
+  if (records.length > 0) {
+    await bulkDownloadService.createBulkDownloadRecords(records);
+  }
+
+  const startResult = await bulkDownloadService.startBulkDownloadSession(sessionId);
+  if (!startResult.success) {
+    throw new Error(startResult.error || '启动收藏批量下载会话失败');
+  }
+
+  const result: { taskId: string; sessionId: string; deduplicated?: boolean } = {
+    taskId: task.id,
+    sessionId,
+  };
+  if (sessionResult.deduplicated) {
+    result.deduplicated = true;
+  }
+  return result;
+}
+
 export async function startFavoriteTagBulkDownload(favoriteTagId: number): Promise<{ taskId: string; sessionId: string; deduplicated?: boolean }> {
   console.log('[booruService] 启动收藏标签批量下载:', favoriteTagId);
   const favoriteTag = await getFavoriteTagById(favoriteTagId);
@@ -3756,6 +3998,7 @@ export default {
   addToFavorites,
   removeFromFavorites,
   getFavorites,
+  startFavoritesBulkDownload,
   isFavorited,
   setPostLiked,
   syncPostLikedStates,

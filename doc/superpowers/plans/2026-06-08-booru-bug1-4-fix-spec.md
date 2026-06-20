@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 修复 `doc/Bug记录.md` 中 Bug1-Bug4：黑名单菜单状态、详情页旧图残留、列表 loading 分页消失、原图缓存完成后偶发不刷新。
+**Goal:** 修复 `doc/done/Bug记录.md` 中 Bug1-Bug4：黑名单菜单状态、详情页旧图残留、列表 loading 分页消失、原图缓存完成后偶发不刷新。
 
 **Architecture:** 保持小范围修复，不把 Bug5 的全局事件重构混入本轮。Renderer 侧用本页状态、request id 和稳定占位修复可见问题；main 侧用临时文件 + 原子 rename 建立缓存完整性边界；测试以 Vitest 定向覆盖每个回归点。
 
@@ -740,7 +740,7 @@ git commit -m "fix: 保留Booru加载期间分页"
 ### Task 5: 全量回归和文档收口
 
 **Files:**
-- Modify: `doc/Bug记录.md`
+- Modify: `doc/done/Bug记录.md`
 - Modify when cache/display behavior docs change: `doc/Booru功能实现文档.md`
 
 - [ ] **Step 1: 运行四个 bug 的定向测试集合**
@@ -784,7 +784,7 @@ Expected: `build:main`、`build:preload`、`build:renderer` 全部完成，exit 
 
 - [ ] **Step 4: 更新 bug 文档状态**
 
-在 `doc/Bug记录.md` 中把 Bug1-Bug4 的状态从 `已确认` 改为 `已修复`，并在每条 `验证方式` 后追加实际通过的测试命令名。示例：
+在 `doc/done/Bug记录.md` 中把 Bug1-Bug4 的状态从 `已确认` 改为 `已修复`，并在每条 `验证方式` 后追加实际通过的测试命令名。示例：
 
 ```md
 - 状态：已修复
@@ -796,7 +796,7 @@ Expected: `build:main`、`build:preload`、`build:renderer` 全部完成，exit 
 - [ ] **Step 5: 最终提交**
 
 ```bash
-git add doc/Bug记录.md doc/Booru功能实现文档.md
+git add doc/done/Bug记录.md doc/Booru功能实现文档.md
 git commit -m "docs: 更新Booru缺陷修复记录"
 ```
 

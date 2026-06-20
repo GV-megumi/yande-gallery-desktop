@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { type ApiServiceConfigPatch, type AppShellPagePreference, type BlacklistedTagsPagePreference, type BooruAppearancePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab, type RendererSafeAppConfig } from '../main/services/config.js';
-import type { ApiLogEntry, ApiLogQuery, ApiServiceConfig, ApiServiceStatus, BooruForumPost, BooruForumTopic, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, RendererAppEvent } from '../shared/types.js';
+import type { ApiLogEntry, ApiLogQuery, ApiServiceConfig, ApiServiceStatus, BooruForumPost, BooruForumTopic, BooruPost, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, PaginatedResult, RendererAppEvent } from '../shared/types.js';
 import { IPC_CHANNELS } from '../main/ipc/channels.js';
 import { createWindowApi } from './shared/createWindowApi.js';
 import { createBooruApi } from './shared/createBooruApi.js';
@@ -228,7 +228,10 @@ declare global {
         getPosts: (siteId: number, page?: number, tags?: string[], limit?: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         getPost: (siteId: number, postId: number) => Promise<{ success: boolean; data?: any; error?: string }>;
         searchPosts: (siteId: number, tags: string[], page?: number, limit?: number, fetchTagCategories?: boolean) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        getFavorites: (siteId: number, page?: number, limit?: number, groupId?: number | null) => Promise<{ success: boolean; data?: any[]; error?: string }>;
+        getFavorites: {
+          (siteId: number): Promise<{ success: boolean; data?: BooruPost[]; error?: string }>;
+          (siteId: number, page: number, limit?: number, groupId?: number | null, rating?: 'safe' | 'questionable' | 'explicit' | 'all'): Promise<{ success: boolean; data?: PaginatedResult<BooruPost>; error?: string }>;
+        };
         addFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; data?: number; error?: string }>;
         onFavoritesRepairDone: (callback: (data: { siteId: number; repairedCount: number; deletedCount: number; deletedIds: number[] }) => void) => () => void;
         removeFavorite: (postId: number, siteId: number, syncToServer?: boolean) => Promise<{ success: boolean; error?: string }>;
@@ -278,6 +281,7 @@ declare global {
         upsertFavoriteTagDownloadBinding: (input: any) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagDownloadBinding: (favoriteTagId: number) => Promise<{ success: boolean; error?: string }>;
         startFavoriteTagBulkDownload: (favoriteTagId: number) => Promise<{ success: boolean; data?: { taskId: string; sessionId: string; deduplicated?: boolean }; error?: string }>;
+        startFavoritesBulkDownload: (input: { siteId: number; groupId?: number | null; rating?: 'safe' | 'questionable' | 'explicit' | 'all' }) => Promise<{ success: boolean; data?: { taskId: string; sessionId: string; deduplicated?: boolean }; error?: string }>;
         getFavoriteTagLabels: () => Promise<{ success: boolean; data?: any[]; error?: string }>;
         addFavoriteTagLabel: (name: string, color?: string) => Promise<{ success: boolean; data?: any; error?: string }>;
         removeFavoriteTagLabel: (id: number) => Promise<{ success: boolean; error?: string }>;

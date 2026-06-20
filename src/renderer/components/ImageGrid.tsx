@@ -19,6 +19,8 @@ export interface ImageGridProps {
   groupBy?: 'none' | 'day' | 'month' | 'year';
   // 排序方式：按时间（修改时间优先）或按文件名
   sortBy?: 'time' | 'name';
+  // 排序顺序；未传时沿用旧行为：时间倒序、文件名升序
+  sortOrder?: 'asc' | 'desc';
   // 是否显示右侧时间刻度（仅对按时间分组时生效）
   showTimeline?: boolean;
   // 布局方式：'waterfall' 瀑布流（默认），'grid' 网格
@@ -56,6 +58,8 @@ const getDateGroupKey = (image: any, mode: 'day' | 'month' | 'year'): string => 
 
 const getBatchGroupKey = (batchIndex: number, timeKey: string): string =>
   `batch-${batchIndex + 1}${batchGroupSeparator}${timeKey}`;
+
+const getBatchOnlyGroupKey = (batchIndex: number): string => `batch-${batchIndex + 1}`;
 
 const getGroupDisplayTitle = (key: string): string => {
   const separatorIndex = key.indexOf(batchGroupSeparator);
@@ -308,6 +312,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
   active = true,
   groupBy = 'none',
   sortBy = 'time',
+  sortOrder,
   showTimeline = false,
   layout = 'waterfall',
   onSetCover,
@@ -587,35 +592,44 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
 
   // 先按批次分组，再在每个批次内按时间分组
   const groupedImages = useMemo(() => {
-    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${visibleImages.length}, 分组: ${groupBy}, 排序: ${sortBy}, 批次大小: ${batchSize}`);
-    const sorted = [...visibleImages].sort((a, b) => {
+    const effectiveSortOrder = sortOrder ?? (sortBy === 'name' ? 'asc' : 'desc');
+    console.log(`[ImageGrid] 重新计算图片分组和排序，图片数量: ${visibleImages.length}, 分组: ${groupBy}, 排序: ${sortBy}, 顺序: ${effectiveSortOrder}, 批次大小: ${batchSize}`);
+    const sortImages = (items: any[]) => [...items].sort((a, b) => {
       if (sortBy === 'name') {
-        return (a.filename || '').localeCompare(b.filename || '');
+        const diff = (a.filename || '').localeCompare(b.filename || '');
+        return effectiveSortOrder === 'asc' ? diff : -diff;
       }
-      // 默认按修改时间倒序（最近的在前）
-      return (
-        new Date(b.updatedAt || b.createdAt || 0).getTime() -
-        new Date(a.updatedAt || a.createdAt || 0).getTime()
+      const diff = (
+        new Date(a.updatedAt || a.createdAt || 0).getTime() -
+        new Date(b.updatedAt || b.createdAt || 0).getTime()
       );
+      return effectiveSortOrder === 'asc' ? diff : -diff;
     });
 
-    if (groupBy === 'none') {
-      console.log('[ImageGrid] 不分组，直接返回所有图片');
-      return { '__all__': sorted };
-    }
+    // 时间排序保持全局顺序；文件名排序保持批次成员稳定，避免追加图片时旧瀑布流批次重排。
+    const imagesForBatching = sortBy === 'time' ? sortImages(visibleImages) : visibleImages;
 
     // 先按批次分组
     const batches: any[][] = [];
-    for (let i = 0; i < sorted.length; i += batchSize) {
-      batches.push(sorted.slice(i, i + batchSize));
+    const effectiveBatchSize = Math.max(1, batchSize);
+    for (let i = 0; i < imagesForBatching.length; i += effectiveBatchSize) {
+      batches.push(imagesForBatching.slice(i, i + effectiveBatchSize));
     }
     console.log(`[ImageGrid] 分为 ${batches.length} 个批次`);
+
+    if (groupBy === 'none') {
+      const batchGroups: Record<string, any[]> = {};
+      batches.forEach((batch, batchIndex) => {
+        batchGroups[getBatchOnlyGroupKey(batchIndex)] = sortImages(batch);
+      });
+      return batchGroups;
+    }
 
     // 在每个批次内按时间分组
     const finalGroups: Record<string, any[]> = {};
     batches.forEach((batch, batchIndex) => {
       const batchGroups: Record<string, any[]> = {};
-      for (const img of batch) {
+      for (const img of sortImages(batch)) {
         const timeKey = getDateGroupKey(img, groupBy);
         if (!batchGroups[timeKey]) batchGroups[timeKey] = [];
         batchGroups[timeKey].push(img);
@@ -631,7 +645,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
     const groupKeys = Object.keys(finalGroups);
     console.log(`[ImageGrid] 分组完成，分组数量: ${groupKeys.length}, 分组键: ${groupKeys.join(', ')}`);
     return finalGroups;
-  }, [visibleImages, groupBy, sortBy, batchSize]);
+  }, [visibleImages, groupBy, sortBy, sortOrder, batchSize]);
 
 
 
@@ -657,7 +671,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
               const groupDomId = groupKeyPrefix ? `${groupKeyPrefix}${batchGroupSeparator}${key}` : key;
 
               return (
-                <div key={key} style={{ marginBottom: groupBy === 'none' ? 0 : spacing.xxl }} id={groupDomId}>
+                <div key={key} style={{ marginBottom: groupBy === 'none' ? spacing['4xl'] : spacing.xxl }} id={groupDomId}>
                   {groupBy !== 'none' && (
                     <div
                       style={{

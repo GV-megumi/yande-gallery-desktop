@@ -454,7 +454,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     }
   };
 
-  const handleTagClick = (tag: FavoriteTag) => {
+  const handleTagSearch = (tag: FavoriteTag) => {
     try {
       if (!onTagClick) {
         message.error(t('common.failed'));
@@ -466,6 +466,16 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       });
     } catch (error) {
       console.error('[FavoriteTagsPage] 打开标签搜索失败:', error);
+      message.error(t('common.failed'));
+    }
+  };
+
+  const handleTagNameCopy = async (tagName: string) => {
+    try {
+      await navigator.clipboard.writeText(tagName);
+      message.success(`已复制: ${tagName}`);
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 复制收藏标签失败:', error);
       message.error(t('common.failed'));
     }
   };
@@ -764,7 +774,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       dataIndex: 'tagName',
       key: 'tagName',
       render: (tagName: string, record: FavoriteTagWithDownloadState) => (
-        <a onClick={() => handleTagClick(record)} style={{ cursor: 'pointer' }}>
+        <a onClick={() => handleTagNameCopy(tagName)} title="复制标签名" style={{ cursor: 'pointer' }}>
           <Tag color="blue" style={{ cursor: 'pointer', fontSize: '14px', padding: '2px 8px' }}>
             {tagName.replace(/_/g, ' ')}
           </Tag>
@@ -856,7 +866,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       render: (_: unknown, record: FavoriteTagWithDownloadState) => (
         <Space wrap size={[0, 4]} style={{ width: '100%', justifyContent: 'flex-start' }}>
           <Tooltip title={t('favoriteTags.searchTag')}>
-            <Button type="link" size="small" icon={<SearchOutlined />} onClick={() => handleTagClick(record)} />
+            <Button
+              type="link"
+              size="small"
+              icon={<SearchOutlined />}
+              aria-label={t('favoriteTags.searchTag')}
+              onClick={() => handleTagSearch(record)}
+            />
           </Tooltip>
           <Tooltip title={getDownloadDisabledReason(record) || t('favoriteTags.download')}>
             <span>

@@ -224,6 +224,33 @@ describe('BooruPostDetailsPage image loading', () => {
     expect(getCachedImageUrl).toHaveBeenCalledTimes(1);
   });
 
+  it('resets the details panel scroll position when switching posts', async () => {
+    const postA = post({ postId: 201, md5: 'scroll-a', fileUrl: 'https://cdn.example.test/scroll-a.jpg' });
+    const postB = post({ postId: 202, md5: 'scroll-b', fileUrl: 'https://cdn.example.test/scroll-b.jpg' });
+
+    getCachedImageUrl.mockResolvedValue({ success: true, data: 'app://cache/current.jpg' });
+
+    const view = renderDetails(postA);
+
+    const detailsPanel = await waitFor(() => {
+      const el = view.baseElement.querySelector('[data-testid="booru-details-scroll-panel"]') as HTMLDivElement | null;
+      if (!el) throw new Error('details panel not rendered');
+      return el;
+    });
+
+    Object.defineProperty(detailsPanel, 'scrollTop', {
+      value: 560,
+      writable: true,
+      configurable: true,
+    });
+
+    rerenderDetails(view, postB);
+
+    await waitFor(() => {
+      expect(detailsPanel.scrollTop).toBe(0);
+    });
+  });
+
   it('does not render notes overlay while a switched post image is still loading', async () => {
     const postA = post({ postId: 181, md5: 'a', fileUrl: 'https://cdn.example.test/a.jpg' });
     const postB = post({ postId: 182, md5: 'b', fileUrl: 'https://cdn.example.test/b.jpg' });

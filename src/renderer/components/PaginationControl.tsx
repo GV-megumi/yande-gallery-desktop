@@ -18,6 +18,8 @@ interface PaginationControlProps {
   onNext: () => void;
   /** 跳转到指定页码（可选，不提供时仅支持上下页） */
   onPageChange?: (page: number) => void;
+  /** 已知总数。未提供时保持旧的未知总数分页行为 */
+  total?: number;
   disabled?: boolean;
 }
 
@@ -44,7 +46,31 @@ const pageButtonStyle = (active: boolean): React.CSSProperties => ({
 });
 
 /** 生成要显示的页码列表 */
-function getPageNumbers(current: number, hasNext: boolean): number[] {
+function getPageNumbers(current: number, hasNext: boolean, totalPages?: number): number[] {
+  if (totalPages !== undefined) {
+    const total = Math.max(1, totalPages);
+    const pages: number[] = [];
+    const range = new Set<number>();
+
+    range.add(1);
+    range.add(total);
+
+    for (let i = Math.max(2, current - 2); i <= Math.min(total - 1, current + 2); i++) {
+      range.add(i);
+    }
+
+    const sorted = Array.from(range).sort((a, b) => a - b);
+
+    for (let i = 0; i < sorted.length; i++) {
+      if (i > 0 && sorted[i] - sorted[i - 1] > 1) {
+        pages.push(-1);
+      }
+      pages.push(sorted[i]);
+    }
+
+    return pages;
+  }
+
   // 估算总页数：如果 hasNext 则至少 current+1，否则就是 current
   const total = hasNext ? Math.max(current + 1, current + 5) : current;
 
@@ -89,6 +115,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
   onPrevious,
   onNext,
   onPageChange,
+  total,
   disabled = false
 }) => {
   // 跳页输入框：记录被点击省略号的索引，只在对应位置渲染输入框
@@ -109,11 +136,16 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
 
   const isTop = position === 'top';
   const hasPrev = currentPage > 1;
-  const hasNext = currentCount >= itemsPerPage;
+  const knownTotalPages = typeof total === 'number' && Number.isFinite(total)
+    ? Math.max(1, Math.ceil(total / Math.max(1, itemsPerPage)))
+    : undefined;
+  const hasNext = knownTotalPages !== undefined
+    ? currentPage < knownTotalPages
+    : currentCount >= itemsPerPage;
 
   const handleJump = () => {
     if (disabled) return;
-    if (jumpValue && jumpValue >= 1 && jumpValue !== currentPage && onPageChange) {
+    if (jumpValue && jumpValue >= 1 && jumpValue !== currentPage && (!knownTotalPages || jumpValue <= knownTotalPages) && onPageChange) {
       onPageChange(jumpValue);
     }
     setJumpInputIndex(null);
@@ -132,7 +164,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
     }
   };
 
-  const pageNumbers = getPageNumbers(currentPage, hasNext);
+  const pageNumbers = getPageNumbers(currentPage, hasNext, knownTotalPages);
 
   const arrowBtnStyle: React.CSSProperties = {
     width: 32, height: 32,
@@ -171,6 +203,7 @@ export const PaginationControl: React.FC<PaginationControlProps> = React.memo(({
               ref={inputRef as any}
               size="small"
               min={1}
+              max={knownTotalPages}
               value={jumpValue}
               onChange={(v) => setJumpValue(v)}
               onPressEnter={handleJump}

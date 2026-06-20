@@ -359,8 +359,8 @@ describe('FavoriteTagDownloadBinding 数据验证', () => {
 describe('BulkDownloadSession 来源字段验证', () => {
   function validateBulkDownloadSessionOrigin(session: Record<string, any>): string[] {
     const errors: string[] = [];
-    if (session.originType !== undefined && session.originType !== 'favoriteTag') {
-      errors.push('originType 必须是 favoriteTag 或 undefined');
+    if (session.originType !== undefined && session.originType !== 'favoriteTag' && session.originType !== 'favorites') {
+      errors.push('originType 必须是 favoriteTag、favorites 或 undefined');
     }
     if (session.originId !== undefined && session.originId !== null && (typeof session.originId !== 'number' || session.originId <= 0)) {
       errors.push('originId 必须是正整数或 undefined');
@@ -372,8 +372,12 @@ describe('BulkDownloadSession 来源字段验证', () => {
     expect(validateBulkDownloadSessionOrigin({ originType: 'favoriteTag', originId: 3 })).toEqual([]);
   });
 
+  it('favorites 来源元数据应通过验证', () => {
+    expect(validateBulkDownloadSessionOrigin({ originType: 'favorites', originId: null })).toEqual([]);
+  });
+
   it('未知 originType 应报错', () => {
-    expect(validateBulkDownloadSessionOrigin({ originType: 'manual', originId: 3 })).toContain('originType 必须是 favoriteTag 或 undefined');
+    expect(validateBulkDownloadSessionOrigin({ originType: 'manual', originId: 3 })).toContain('originType 必须是 favoriteTag、favorites 或 undefined');
   });
 });
 

@@ -794,7 +794,7 @@ export async function updateBulkDownloadSession(
           taskId: string;
           siteId: number | null;
           status: BulkDownloadSessionStatus;
-          originType?: 'favoriteTag' | null;
+          originType?: BulkDownloadSession['originType'] | null;
           originId?: number | null;
         }>(
           db,
@@ -1339,15 +1339,23 @@ export async function startBulkDownloadSession(
         return { success: true, queued: true };
       }
 
-      // 执行 Dry Run：扫描所有页面并创建记录
-      const dryRunResult = await performDryRun(sessionId, task);
-      if (!dryRunResult.success) {
-        await updateBulkDownloadSession(sessionId, {
-          status: 'failed',
-          error: dryRunResult.error
-        });
-        promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
-        return { success: false, error: dryRunResult.error };
+      const usesPreGeneratedRecords = sessionRow.originType === 'favorites';
+      let totalPages = 1;
+
+      if (usesPreGeneratedRecords) {
+        console.log('[bulkDownloadService] 收藏下载会话使用预生成记录，跳过 Dry Run:', sessionId);
+      } else {
+        // 执行 Dry Run：扫描所有页面并创建记录
+        const dryRunResult = await performDryRun(sessionId, task);
+        if (!dryRunResult.success) {
+          await updateBulkDownloadSession(sessionId, {
+            status: 'failed',
+            error: dryRunResult.error
+          });
+          promoteNextQueued().catch(err => console.error('[bulkDownloadService] promoteNextQueued failed:', err));
+          return { success: false, error: dryRunResult.error };
+        }
+        totalPages = dryRunResult.totalPages ?? 1;
       }
 
       // 等待旧下载循环在暂停/取消后完全退出，避免快速继续时旧循环的中止结果污染新一轮状态
@@ -1368,7 +1376,7 @@ export async function startBulkDownloadSession(
       sessionStopReasons.delete(sessionId);
       await updateBulkDownloadSession(sessionId, {
         status: 'running',
-        totalPages: dryRunResult.totalPages
+        totalPages
       });
 
       // 开始下载
@@ -1599,7 +1607,7 @@ async function performDryRun(
 /**
  * 生成批量下载文件名
  */
-async function generateBulkDownloadFileName(
+export async function generateBulkDownloadFileName(
   post: any,
   task: BulkDownloadTask,
   siteName: string
@@ -2171,14 +2179,16 @@ async function downloadRecord(
           response.data.on('close', async () => {
             // 流关闭时检查是否完成
             if (!finished) {
-              cleanup();
               // 如果流提前关闭，可能是中断了
               if (downloadedBytes === 0) {
+                cleanup();
                 reject(new Error('Stream closed before any data received'));
               } else if (expectedSize && downloadedBytes < expectedSize) {
+                cleanup();
                 reject(new Error(`Download incomplete: ${downloadedBytes}/${expectedSize} bytes`));
               } else {
-                // 没有预期大小，但已下载了一些数据，检查文件是否完整
+                // 数据流 close 可能早于 writer finish；此时不能 cleanup，
+                // 否则会移除 writer 的 finish/error 监听器并让下载 promise 悬挂。
                 try {
                   // 等待一下让文件系统同步
                   await new Promise(resolve => setTimeout(resolve, 200));
@@ -2186,6 +2196,7 @@ async function downloadRecord(
                   if (currentSize > 0 && currentSize === downloadedBytes) {
                     // 文件大小匹配，可能已经完成，直接 resolve
                     // 注意：这里 resolve 后，外层代码会验证文件并更新状态
+                    cleanup();
                     resolve();
                   } else {
                     // 文件大小不匹配，等待 finish 事件或超时
@@ -2498,7 +2509,7 @@ export async function deleteBulkDownloadSession(
       taskId: string;
       siteId: number | null;
       status: BulkDownloadSessionStatus;
-      originType?: 'favoriteTag' | null;
+      originType?: BulkDownloadSession['originType'] | null;
       originId?: number | null;
     }>(
       db,

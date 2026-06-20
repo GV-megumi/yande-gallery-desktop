@@ -100,6 +100,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
 }));
 vi.mock('../../../src/main/services/config.js', () => ({
   getConfig: vi.fn(() => ({ downloads: { path: '/tmp' } })),
+  getDownloadsPath: vi.fn(() => '/tmp'),
   resolveConfigPath: vi.fn((p: string) => p),
 }));
 vi.mock('electron', () => ({

@@ -70,10 +70,15 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   const [searchTag, setSearchTag] = useState(initialTag);
   const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all');
   const [currentPage, setCurrentPage] = useState(1);
+  const [pendingPage, setPendingPage] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [selectedPost, setSelectedPost] = useState<BooruPost | null>(null);
   const [detailsPageOpen, setDetailsPageOpen] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const searchRequestIdRef = useRef(0);
+  const targetPageRef = useRef(currentPage);
+  const currentPageRef = useRef(currentPage);
+  currentPageRef.current = currentPage;
   // 挂起时保存/恢复详情弹窗状态（导航栈机制）
 
   // 收藏状态管理
@@ -337,6 +342,8 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
   };
 
+  const isActiveSearchRequest = (requestId: number) => searchRequestIdRef.current === requestId;
+
   // 搜索标签
   const searchTagPosts = async (tag: string, page: number) => {
     if (!selectedSiteId) {
@@ -356,44 +363,61 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
     }
 
     console.log(`[BooruTagSearchPage] 搜索标签图片，站点: ${site.name}, 标签: "${tag}", 页码: ${page}`);
+    const requestId = searchRequestIdRef.current + 1;
+    searchRequestIdRef.current = requestId;
+    targetPageRef.current = page;
+    setPendingPage(page);
     setLoading(true);
+    let completedPage: number | null = null;
 
     try {
       if (!window.electronAPI) {
-        setLoading(false);
         return;
       }
 
       const result = await window.electronAPI.booru.searchPosts(selectedSiteId, [tag], page, appearanceConfig.itemsPerPage);
+      if (!isActiveSearchRequest(requestId)) {
+        console.log('[BooruTagSearchPage] 丢弃过期搜索响应，requestId:', requestId, 'current:', searchRequestIdRef.current);
+        return;
+      }
       if (result.success) {
         const data = result.data || [];
         console.log('[BooruTagSearchPage] 搜索成功:', data.length, '张图片');
         
         setPosts(data);
         setServerFavorites(new Set(data.filter((p: any) => p.isLiked).map((p: any) => p.postId)));
+        targetPageRef.current = page;
+        currentPageRef.current = page;
         setCurrentPage(page);
+        completedPage = page;
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态
-        await loadFavoritesFromServer();
+        await loadFavoritesFromServer(requestId);
       } else {
         console.error('[BooruTagSearchPage] 搜索失败:', result.error);
         message.error('搜索失败: ' + result.error);
       }
     } catch (error) {
+      if (!isActiveSearchRequest(requestId)) return;
       console.error('[BooruTagSearchPage] 搜索失败:', error);
       message.error('搜索失败');
     } finally {
-      setLoading(false);
+      if (isActiveSearchRequest(requestId)) {
+        targetPageRef.current = completedPage ?? currentPageRef.current;
+        setPendingPage(null);
+        setLoading(false);
+      }
     }
   };
 
   // 加载收藏状态（从服务端获取完整收藏列表）
-  const loadFavoritesFromServer = async () => {
+  const loadFavoritesFromServer = async (requestId?: number) => {
     if (!selectedSiteId || !window.electronAPI) return;
 
     try {
       const result = await window.electronAPI.booru.getFavorites(selectedSiteId);
+      if (requestId !== undefined && !isActiveSearchRequest(requestId)) return;
       if (result.success && result.data) {
         const favoriteIds = new Set(result.data.map((f: any) => f.postId));
         setFavorites(favoriteIds);
@@ -407,6 +431,7 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
         );
       }
     } catch (error) {
+      if (requestId !== undefined && !isActiveSearchRequest(requestId)) return;
       console.error('[BooruTagSearchPage] 加载收藏状态失败:', error);
     }
   };
@@ -440,8 +465,13 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   // 处理站点切换
   const handleSiteChange = (siteId: number) => {
     console.log('[BooruTagSearchPage] 切换站点:', siteId);
+    searchRequestIdRef.current += 1;
     setSelectedSiteId(siteId);
     setPosts([]);
+    targetPageRef.current = 1;
+    currentPageRef.current = 1;
+    setPendingPage(null);
+    setLoading(false);
     setCurrentPage(1);
     setHasMore(true);
     // 重置搜索标记，让自动搜索 effect 重新触发
@@ -543,6 +573,22 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
   }, [sitesLoaded, selectedSiteId, canonicalSearchTag, suspended]);
 
   const selectedSite = sites.find(s => s.id === selectedSiteId);
+  const displayPage = pendingPage ?? currentPage;
+  const paginationCurrentCount = loading ? appearanceConfig.itemsPerPage : posts.length;
+  const showPagination = posts.length > 0 || pendingPage !== null;
+  const getPaginationTargetPage = () => targetPageRef.current ?? pendingPage ?? currentPage;
+
+  const handlePreviousPage = () => {
+    searchTagPosts(canonicalSearchTag, Math.max(1, getPaginationTargetPage() - 1));
+  };
+
+  const handleNextPage = () => {
+    searchTagPosts(canonicalSearchTag, getPaginationTargetPage() + 1);
+  };
+
+  const handlePageChange = (page: number) => {
+    searchTagPosts(canonicalSearchTag, page);
+  };
 
   // 按 ID 倒序排序（最新的在前）
   const sortedPosts = useMemo(() => {
@@ -667,6 +713,19 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
 
       {/* 图片列表 */}
       <div>
+        {showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCurrentCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="top"
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
+        )}
+
         {loading && (
           <SkeletonGrid count={12} cardWidth={appearanceConfig.gridSize} gap={appearanceConfig.spacing} />
         )}
@@ -688,17 +747,6 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
 
         {!loading && posts.length > 0 && (
           <>
-            <PaginationControl
-              currentPage={currentPage}
-              currentCount={posts.length}
-              itemsPerPage={appearanceConfig.itemsPerPage}
-              paginationPosition={appearanceConfig.paginationPosition}
-              position="top"
-              onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
-              onNext={() => searchTagPosts(canonicalSearchTag, currentPage + 1)}
-              onPageChange={(page) => searchTagPosts(canonicalSearchTag, page)}
-            />
-
             {/* 当前页有数据但被评级筛选过滤为空时，给出轻量提示而非空白网格 */}
             {filteredSortedPosts.length === 0 ? (
               <Empty
@@ -725,18 +773,20 @@ export const BooruTagSearchPage: React.FC<BooruTagSearchPageProps> = ({
                 serverFavorites={serverFavorites}
               />
             )}
-
-            <PaginationControl
-              currentPage={currentPage}
-              currentCount={posts.length}
-              itemsPerPage={appearanceConfig.itemsPerPage}
-              paginationPosition={appearanceConfig.paginationPosition}
-              position="bottom"
-              onPrevious={() => searchTagPosts(searchTag, Math.max(1, currentPage - 1))}
-              onNext={() => searchTagPosts(canonicalSearchTag, currentPage + 1)}
-              onPageChange={(page) => searchTagPosts(canonicalSearchTag, page)}
-            />
           </>
+        )}
+
+        {showPagination && (
+          <PaginationControl
+            currentPage={displayPage}
+            currentCount={paginationCurrentCount}
+            itemsPerPage={appearanceConfig.itemsPerPage}
+            paginationPosition={appearanceConfig.paginationPosition}
+            position="bottom"
+            onPrevious={handlePreviousPage}
+            onNext={handleNextPage}
+            onPageChange={handlePageChange}
+          />
         )}
       </div>
 

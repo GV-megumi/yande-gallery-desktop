@@ -1,4 +1,155 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
+
+const db = {};
+const getMock = vi.fn();
+const allMock = vi.fn();
+
+const favoriteState = {
+  posts: [] as Array<Record<string, any>>,
+  favorites: [] as Array<{ id: number; postId: number; siteId: number; groupId: number | null; createdAt: string }>,
+};
+
+function selectFavoriteRows(sql: string, params: any[] = []) {
+  let paramIndex = 0;
+  const siteId = params[paramIndex++];
+  let rows = favoriteState.favorites
+    .filter(favorite => favorite.siteId === siteId)
+    .map(favorite => {
+      const post = favoriteState.posts.find(item => item.id === favorite.postId);
+      return post ? { ...post, favoriteGroupId: favorite.groupId, favoriteCreatedAt: favorite.createdAt } : null;
+    })
+    .filter((row): row is Record<string, any> => row !== null);
+
+  if (sql.includes('f.groupId IS NULL')) {
+    rows = rows.filter(row => row.favoriteGroupId == null);
+  } else if (sql.includes('f.groupId = ?')) {
+    const groupId = params[paramIndex++];
+    rows = rows.filter(row => row.favoriteGroupId === groupId);
+  }
+
+  if (sql.includes('p.rating = ?')) {
+    const rating = params[paramIndex++];
+    rows = rows.filter(row => row.rating === rating);
+  }
+
+  return { rows: rows.sort((a, b) => String(b.favoriteCreatedAt).localeCompare(String(a.favoriteCreatedAt))), nextParamIndex: paramIndex };
+}
+
+vi.mock('electron', () => ({
+  dialog: {
+    showOpenDialog: vi.fn(),
+  },
+}));
+
+vi.mock('../../../src/main/services/database.js', () => ({
+  getDatabase: vi.fn(async () => db),
+  get: (...args: any[]) => getMock(...args),
+  all: (...args: any[]) => allMock(...args),
+  run: vi.fn(),
+  runWithChanges: vi.fn(),
+  runInTransaction: async (_db: any, fn: () => Promise<any>) => fn(),
+}));
+
+vi.mock('../../../src/main/services/galleryService.js', () => ({
+  createGallery: vi.fn(),
+  getGallery: vi.fn(),
+  updateGalleryStats: vi.fn(),
+}));
+
+vi.mock('../../../src/main/services/imageService.js', () => ({
+  scanAndImportFolder: vi.fn(),
+}));
+
+vi.mock('../../../src/main/services/config.js', () => ({
+  getConfig: vi.fn(() => ({ downloads: { path: 'D:/downloads' } })),
+  getDownloadsPath: vi.fn(() => 'D:/downloads'),
+  resolveConfigPath: (value: string) => value,
+}));
+
+vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
+  emitBooruBlacklistTagsChanged: vi.fn(),
+  emitBooruFavoriteGroupsChanged: vi.fn(),
+  emitBooruPostDownloadStateChanged: vi.fn(),
+  emitBooruPostFavoriteChanged: vi.fn(),
+  emitBooruPostServerFavoriteChanged: vi.fn(),
+  emitBooruPostVoteChanged: vi.fn(),
+  emitBooruSavedSearchesChanged: vi.fn(),
+  emitBooruSearchHistoryChanged: vi.fn(),
+  emitBooruSitesChanged: vi.fn(),
+}));
+
+beforeEach(() => {
+  favoriteState.posts = [
+    {
+      id: 1,
+      siteId: 1,
+      postId: 101,
+      fileUrl: 'https://mock/101.jpg',
+      previewUrl: 'https://mock/101-preview.jpg',
+      tags: 'safe_tag',
+      rating: 'safe',
+      downloaded: 0,
+      isFavorited: 1,
+      isLiked: 1,
+      createdAt: '2026-01-01',
+      updatedAt: '2026-01-01',
+    },
+    {
+      id: 2,
+      siteId: 1,
+      postId: 102,
+      fileUrl: 'https://mock/102.jpg',
+      previewUrl: 'https://mock/102-preview.jpg',
+      tags: 'explicit_tag',
+      rating: 'explicit',
+      downloaded: 1,
+      isFavorited: 1,
+      isLiked: 0,
+      createdAt: '2026-01-02',
+      updatedAt: '2026-01-02',
+    },
+    {
+      id: 3,
+      siteId: 2,
+      postId: 201,
+      fileUrl: 'https://mock/201.jpg',
+      previewUrl: 'https://mock/201-preview.jpg',
+      tags: 'other_site',
+      rating: 'safe',
+      downloaded: 0,
+      isFavorited: 1,
+      isLiked: 0,
+      createdAt: '2026-01-03',
+      updatedAt: '2026-01-03',
+    },
+  ];
+  favoriteState.favorites = [
+    { id: 1, postId: 1, siteId: 1, groupId: null, createdAt: '2026-02-01' },
+    { id: 2, postId: 2, siteId: 1, groupId: 7, createdAt: '2026-02-02' },
+    { id: 3, postId: 3, siteId: 2, groupId: null, createdAt: '2026-02-03' },
+  ];
+
+  getMock.mockReset();
+  getMock.mockImplementation(async (_db, sql: string, params?: any[]) => {
+    if (sql.includes('COUNT(*)') && sql.includes('FROM booru_posts p') && sql.includes('booru_favorites f')) {
+      const { rows } = selectFavoriteRows(sql, params ?? []);
+      return { total: rows.length, count: rows.length, cnt: rows.length };
+    }
+    return undefined;
+  });
+
+  allMock.mockReset();
+  allMock.mockImplementation(async (_db, sql: string, params?: any[]) => {
+    if (sql.includes('FROM booru_posts p') && sql.includes('booru_favorites f')) {
+      const list = params ?? [];
+      const { rows, nextParamIndex } = selectFavoriteRows(sql, list);
+      const limit = Number(list[nextParamIndex] ?? Number.POSITIVE_INFINITY);
+      const offset = Number(list[nextParamIndex + 1] ?? 0);
+      return rows.slice(offset, offset + limit);
+    }
+    return [];
+  });
+});
 
 /**
  * booruService 纯逻辑测试
@@ -42,6 +193,27 @@ describe('booruService - 布尔值转换', () => {
     const result = convertSiteBooleans(site);
     expect(result.favoriteSupport).toBe(true);
     expect(result.active).toBe(false);
+  });
+});
+
+describe('booruService - 收藏分页统计', () => {
+  it('getFavorites 应返回当前过滤条件下的 total 和当前页 items', async () => {
+    const service = await import('../../../src/main/services/booruService.js');
+
+    const firstPage = await service.getFavorites(1, 1, 1);
+    expect(firstPage.total).toBe(2);
+    expect(firstPage.items).toHaveLength(1);
+    expect(firstPage.items[0]).toMatchObject({
+      postId: 102,
+      favoriteGroupId: 7,
+      downloaded: true,
+      isFavorited: true,
+      isLiked: false,
+    });
+
+    const safeOnly = await (service.getFavorites as any)(1, 1, 10, undefined, 'safe');
+    expect(safeOnly.total).toBe(1);
+    expect(safeOnly.items.map((post: any) => post.postId)).toEqual([101]);
   });
 });
 

@@ -138,6 +138,8 @@
 - `gallery.get()` / `gallery.save(preferences)`：存储形态为 `GalleryPagePreferencesBySubTab`，按子 Tab（recent / all / galleries / invalid-images）分别记忆
 - `appShell.get()` / `appShell.save(preferences)`：应用外壳偏好。字段：`menuOrder`（各级菜单排序）、`pinnedItems`（固定/保活页面，数量不限）、`quickAccessItems`（底部快捷访问入口）、`sidebarWidth`（侧边栏宽度）。`save` 为字段级合并，可只传变更字段
 
+`GalleryPagePreferencesBySubTab.galleries` 中的排序字段分两类：`gallerySortKey` / `gallerySortOrder` 只用于图集列表排序；`gallerySort` / `galleryDetailSortOrder` 只用于已打开图集内的图片排序。两者不能复用同一个状态，否则图集列表排序会污染图片预览排序。
+
 使用这些偏好时须同时参考 `doc/注意事项/导航缓存与页面偏好持久化.md`，避免"用户返回后被自动还原"这类交互 bug。
 
 ## `image`
@@ -170,7 +172,7 @@
 
 ### 收藏与服务端喜欢
 
-- `getFavorites(siteId, page?, limit?, groupId?)`
+- `getFavorites(siteId, page?, limit?, groupId?, rating?)`：返回 `PaginatedResult<BooruPost>`，`rating` 取 `'safe' | 'questionable' | 'explicit' | 'all'`；调用方应优先使用 `items / total / page / limit` 展示总数和尾页，旧数组形态只作为兼容分支处理
 - `addFavorite(postId, siteId, syncToServer?)`
 - `removeFavorite(postId, syncToServer?)`
 - `serverFavorite(siteId, postId)`
@@ -198,8 +200,8 @@
 
 - `getCachedImageUrl(md5, extension)`
 - `cacheImage(url, md5, extension)`
-- `getCacheStats()`
-- `clearCache()`
+- `getCacheStats()`：只统计 Booru 原图缓存目录，不统计本地图库缩略图或数据库标签缓存
+- `clearCache()`：只清理 Booru 原图缓存目录；标签缓存清理由 `cleanExpiredTags()` 负责
 - `getTagCacheStats()`
 - `cleanExpiredTags(expireDays?)`
 
@@ -241,6 +243,7 @@
 - `upsertFavoriteTagDownloadBinding(input)`：创建或更新收藏标签的下载绑定
 - `removeFavoriteTagDownloadBinding(favoriteTagId)`：删除收藏标签的下载绑定
 - `startFavoriteTagBulkDownload(favoriteTagId)`：基于收藏标签启动批量下载，返回 `{ taskId, sessionId, deduplicated? }`；会话创建后即返回，扫描 / dryRun 在后台继续；当检测到重复任务且已有存活会话时 `deduplicated` 为 `true`
+- `startFavoritesBulkDownload(input)`：基于“我的收藏”当前过滤条件启动批量下载，`input` 包含 `{ siteId, groupId?, rating? }`；目标目录固定为当前下载目录下的站点收藏目录，主进程会跳过已下载 / 已存在文件，并确保目录对应本地图集存在
 - `getFavoriteTagLabels()`
 - `addFavoriteTagLabel(name, color?)`
 - `removeFavoriteTagLabel(id)`

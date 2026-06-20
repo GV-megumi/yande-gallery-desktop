@@ -35,6 +35,12 @@ vi.mock('../../../src/renderer/locales', () => ({
 beforeEach(() => {
   vi.clearAllMocks();
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+  Object.defineProperty(navigator, 'clipboard', {
+    configurable: true,
+    value: {
+      writeText: vi.fn().mockResolvedValue(undefined),
+    },
+  });
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: vi.fn().mockImplementation((query: string) => ({
@@ -158,6 +164,35 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(screen.getByText('favoriteTags.completed')).toBeTruthy();
     expect(screen.getByText('common.export')).toBeTruthy();
     expect(screen.getByText('common.import')).toBeTruthy();
+  });
+
+  it('点击标签名应复制标签，操作列搜索按钮仍打开搜索', async () => {
+    const onTagClick = vi.fn();
+    const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: 'D:/downloads/default',
+      },
+    ]);
+
+    render(<FavoriteTagsPage onTagClick={onTagClick} />);
+
+    const tagName = await screen.findByText('tag a');
+    fireEvent.click(tagName);
+
+    await waitFor(() => {
+      expect(navigator.clipboard.writeText).toHaveBeenCalledWith('tag_a');
+      expect(successSpy).toHaveBeenCalled();
+    });
+    expect(onTagClick).not.toHaveBeenCalled();
+
+    const row = tagName.closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.searchTag' }));
+
+    expect(onTagClick).toHaveBeenCalledWith('tag_a', 1);
   });
 
   it('图集绑定不一致时应显示 warning 提示', async () => {

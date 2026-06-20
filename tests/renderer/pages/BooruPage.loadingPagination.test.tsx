@@ -216,7 +216,7 @@ function setupElectronApi() {
 describe('BooruPage loading pagination', () => {
   beforeEach(() => {
     cleanup();
-    vi.clearAllMocks();
+    vi.resetAllMocks();
     toolbarHooks.afterSiteChange = null;
     appEventCallback = undefined;
 
@@ -309,9 +309,12 @@ describe('BooruPage loading pagination', () => {
     });
   });
 
-  it('keeps pagination and skeleton visible while getPosts is pending, then swaps to the grid after posts resolve', async () => {
-    const pendingPosts = deferred<{ success: true; data: BooruPost[] }>();
-    getPosts.mockReturnValue(pendingPosts.promise);
+  it('keeps loading pagination enabled and starts the next page request while getPosts is pending', async () => {
+    const initialPage = deferred<{ success: true; data: BooruPost[] }>();
+    const nextPage = deferred<{ success: true; data: BooruPost[] }>();
+    getPosts
+      .mockReturnValueOnce(initialPage.promise)
+      .mockReturnValueOnce(nextPage.promise);
 
     render(
       <AntApp>
@@ -327,8 +330,8 @@ describe('BooruPage loading pagination', () => {
 
     const topPagination = screen.getByTestId('pagination-top') as HTMLButtonElement;
     const bottomPagination = screen.getByTestId('pagination-bottom') as HTMLButtonElement;
-    expect(topPagination.disabled).toBe(true);
-    expect(bottomPagination.disabled).toBe(true);
+    expect(topPagination.disabled).toBe(false);
+    expect(bottomPagination.disabled).toBe(false);
     expect(topPagination.dataset.currentPage).toBe('1');
     expect(skeleton.dataset.count).toBe('60');
     expect(skeleton.dataset.cardWidth).toBe('240');
@@ -337,15 +340,33 @@ describe('BooruPage loading pagination', () => {
     expect(screen.queryByTestId('booru-grid')).toBeNull();
 
     fireEvent.click(screen.getByTestId('pagination-top'));
-    expect(getPosts).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(getPosts).toHaveBeenCalledWith(1, 2, [], 60);
+    });
+    expect(getPosts).toHaveBeenCalledTimes(2);
 
-    pendingPosts.resolve({
-      success: true,
-      data: [makePost({ postId: 1002 }), makePost({ postId: 1001 })],
+    await act(async () => {
+      initialPage.resolve({
+        success: true,
+        data: [makePost({ postId: 1002 }), makePost({ postId: 1001 })],
+      });
+      await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('skeleton-grid')).toBeTruthy();
+    expect(screen.queryByTestId('booru-grid')).toBeNull();
+
+    await act(async () => {
+      nextPage.resolve({
+        success: true,
+        data: [makePost({ postId: 2001 })],
+      });
+      await Promise.resolve();
     });
 
     expect(await screen.findByTestId('booru-grid')).toBeTruthy();
-    expect(screen.getByTestId('booru-card-1002')).toBeTruthy();
+    expect(screen.getByTestId('booru-card-2001')).toBeTruthy();
+    expect(screen.queryByTestId('booru-card-1002')).toBeNull();
     expect(screen.queryByTestId('skeleton-grid')).toBeNull();
     expect((screen.getByTestId('pagination-top') as HTMLButtonElement).disabled).toBe(false);
   });
@@ -615,14 +636,16 @@ describe('BooruPage loading pagination', () => {
     expect(screen.queryByTestId('booru-card-1001')).toBeNull();
   });
 
-  it('starts only one next-page request for rapid pagination double click', async () => {
-    const nextPage = deferred<{ success: true; data: BooruPost[] }>();
+  it('advances target pages synchronously for rapid next clicks and keeps the newest response', async () => {
+    const page2 = deferred<{ success: true; data: BooruPost[] }>();
+    const page3 = deferred<{ success: true; data: BooruPost[] }>();
     getPosts
       .mockResolvedValueOnce({
         success: true,
         data: [makePost({ postId: 1001 }), makePost({ postId: 1002 })],
       })
-      .mockReturnValue(nextPage.promise);
+      .mockReturnValueOnce(page2.promise)
+      .mockReturnValueOnce(page3.promise);
 
     render(
       <AntApp>
@@ -634,15 +657,66 @@ describe('BooruPage loading pagination', () => {
 
     fireEvent.click(screen.getByTestId('pagination-double-next-top'));
 
-    const nextPageCalls = getPosts.mock.calls.filter((call) => call[1] === 2);
-    expect(nextPageCalls).toHaveLength(1);
+    await waitFor(() => {
+      expect(getPosts).toHaveBeenCalledWith(1, 2, [], 60);
+      expect(getPosts).toHaveBeenCalledWith(1, 3, [], 60);
+    });
 
     await act(async () => {
-      nextPage.resolve({
+      page3.resolve({
+        success: true,
+        data: [makePost({ postId: 3001 })],
+      });
+      await Promise.resolve();
+    });
+
+    expect(await screen.findByTestId('booru-card-3001')).toBeTruthy();
+
+    await act(async () => {
+      page2.resolve({
         success: true,
         data: [makePost({ postId: 2001 })],
       });
       await Promise.resolve();
+    });
+
+    expect(screen.getByTestId('booru-card-3001')).toBeTruthy();
+    expect(screen.queryByTestId('booru-card-2001')).toBeNull();
+  });
+
+  it('scrolls the outer page container to top when changing pages from the bottom pagination', async () => {
+    getPosts
+      .mockResolvedValueOnce({
+        success: true,
+        data: [makePost({ postId: 1001 }), makePost({ postId: 1002 })],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [makePost({ postId: 2001 })],
+      });
+
+    render(
+      <AntApp>
+        <div data-testid="page-scroll-host" style={{ height: 200, overflowY: 'auto' }}>
+          <BooruPage />
+        </div>
+      </AntApp>
+    );
+
+    expect(await screen.findByTestId('booru-grid')).toBeTruthy();
+
+    const scrollHost = screen.getByTestId('page-scroll-host') as HTMLDivElement;
+    Object.defineProperty(scrollHost, 'scrollTop', {
+      value: 640,
+      writable: true,
+      configurable: true,
+    });
+
+    fireEvent.click(screen.getByTestId('pagination-bottom'));
+
+    expect(scrollHost.scrollTop).toBe(0);
+    await waitFor(() => {
+      expect(getPosts).toHaveBeenCalledWith(1, 2, [], 60);
     });
   });
 });

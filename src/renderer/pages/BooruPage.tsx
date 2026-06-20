@@ -29,6 +29,32 @@ interface BooruPageProps {
 
 type BooruRequestSource = 'manual' | 'pagination';
 
+const SCROLLABLE_OVERFLOW_VALUES = new Set(['auto', 'scroll', 'overlay']);
+
+const isScrollableOverflow = (value: string) => SCROLLABLE_OVERFLOW_VALUES.has(value);
+
+const scrollNearestScrollableAncestorToTop = (element: HTMLElement | null) => {
+  let current = element?.parentElement ?? null;
+  while (current) {
+    const style = window.getComputedStyle(current);
+    if (
+      isScrollableOverflow(style.overflowY)
+      || isScrollableOverflow(style.overflow)
+    ) {
+      current.scrollTop = 0;
+      current.scrollLeft = 0;
+      return;
+    }
+    current = current.parentElement;
+  }
+
+  const scrollingElement = document.scrollingElement as HTMLElement | null;
+  if (scrollingElement) {
+    scrollingElement.scrollTop = 0;
+    scrollingElement.scrollLeft = 0;
+  }
+};
+
 export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick, onCharacterClick, suspended = false }) => {
   const { message } = App.useApp();
   const [sites, setSites] = useState<BooruSite[]>([]);
@@ -54,6 +80,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   // 请求计数器：用于丢弃快速切换站点时的过期响应
   const loadRequestIdRef = useRef(0);
   const paginationRequestInFlightRef = useRef(false);
+  const targetPageRef = useRef(1);
+  const currentPageRef = useRef(1);
   const blacklistRequestIdRef = useRef(0);
 
   useEffect(() => {
@@ -264,7 +292,11 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
   const beginBooruRequest = (page: number, source: BooruRequestSource) => {
     const requestId = ++loadRequestIdRef.current;
+    targetPageRef.current = page;
     paginationRequestInFlightRef.current = source === 'pagination';
+    if (source === 'pagination') {
+      scrollNearestScrollableAncestorToTop(contentRef.current);
+    }
     setPendingPage(page);
     setLoading(true);
     return requestId;
@@ -272,8 +304,9 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
   const isActiveBooruRequest = (requestId: number) => requestId === loadRequestIdRef.current;
 
-  const finishBooruRequest = (requestId: number) => {
+  const finishBooruRequest = (requestId: number, finalTargetPage = currentPageRef.current) => {
     if (!isActiveBooruRequest(requestId)) return false;
+    targetPageRef.current = finalTargetPage;
     paginationRequestInFlightRef.current = false;
     setPendingPage(null);
     setLoading(false);
@@ -282,6 +315,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
 
   const invalidateBooruRequests = () => {
     loadRequestIdRef.current += 1;
+    targetPageRef.current = currentPageRef.current;
     paginationRequestInFlightRef.current = false;
     setPendingPage(null);
     setLoading(false);
@@ -295,6 +329,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     if (!site) return;
 
     const requestId = beginBooruRequest(page, source);
+    let completedPage: number | null = null;
 
     console.log(`[BooruPage] 加载Booru图片，站点: ${site.name}, 页码: ${page}`);
 
@@ -319,7 +354,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         const data = result.data || [];
         console.log('[BooruPage] 图片加载成功:', data.length, '张图片');
         setPosts(data);
+        targetPageRef.current = page;
+        currentPageRef.current = page;
         setCurrentPage(page);
+        completedPage = page;
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态（从当前图片数据中提取）
@@ -335,7 +373,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       console.error('[BooruPage] 加载图片失败:', error);
       message.error('加载图片失败');
     } finally {
-      if (finishBooruRequest(requestId)) {
+      if (finishBooruRequest(requestId, completedPage ?? currentPageRef.current)) {
         console.log('[BooruPage] 图片加载完成');
       }
     }
@@ -362,6 +400,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     if (!site) return;
 
     const requestId = beginBooruRequest(page, source);
+    let completedPage: number | null = null;
 
     console.log(`[BooruPage] 搜索Booru图片，站点: ${site.name}, 查询: "${query}", 页码: ${page}`);
     setIsSearchMode(true);
@@ -384,7 +423,10 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
         const data = result.data || [];
         console.log('[BooruPage] 搜索成功:', data.length, '张图片');
         setPosts(data);
+        targetPageRef.current = page;
+        currentPageRef.current = page;
         setCurrentPage(page);
+        completedPage = page;
         setHasMore(data.length >= appearanceConfig.itemsPerPage);
 
         // 加载收藏状态（从当前图片数据中提取）
@@ -405,7 +447,7 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
       console.error('[BooruPage] 搜索失败:', error);
       message.error('搜索失败');
     } finally {
-      finishBooruRequest(requestId);
+      finishBooruRequest(requestId, completedPage ?? currentPageRef.current);
     }
   };
 
@@ -415,6 +457,8 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
     invalidateBooruRequests();
     setSelectedSiteId(siteId);
     setPosts([]);
+    targetPageRef.current = 1;
+    currentPageRef.current = 1;
     setCurrentPage(1);
     setHasMore(true);
     setIsSearchMode(false);
@@ -697,21 +741,19 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
   const displayPage = pendingPage ?? currentPage;
   const paginationCount = loading ? appearanceConfig.itemsPerPage : posts.length;
   const showPagination = posts.length > 0 || (loading && pendingPage !== null);
+  const getPaginationTargetPage = () => targetPageRef.current ?? pendingPage ?? currentPage;
 
   const handlePreviousPage = () => {
-    if (loading || paginationRequestInFlightRef.current) return;
-    const next = Math.max(1, currentPage - 1);
+    const next = Math.max(1, getPaginationTargetPage() - 1);
     isSearchMode ? searchPosts(searchQuery, next, undefined, 'pagination') : loadPosts(next, 'pagination');
   };
 
   const handleNextPage = () => {
-    if (loading || paginationRequestInFlightRef.current) return;
-    const next = currentPage + 1;
+    const next = getPaginationTargetPage() + 1;
     isSearchMode ? searchPosts(searchQuery, next, undefined, 'pagination') : loadPosts(next, 'pagination');
   };
 
   const handlePageChange = (page: number) => {
-    if (loading || paginationRequestInFlightRef.current) return;
     isSearchMode ? searchPosts(searchQuery, page, undefined, 'pagination') : loadPosts(page, 'pagination');
   };
 
@@ -934,7 +976,6 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
             itemsPerPage={appearanceConfig.itemsPerPage}
             paginationPosition={appearanceConfig.paginationPosition}
             position="top"
-            disabled
             onPrevious={handlePreviousPage}
             onNext={handleNextPage}
             onPageChange={handlePageChange}
@@ -952,7 +993,6 @@ export const BooruPage: React.FC<BooruPageProps> = ({ onTagClick, onArtistClick,
             itemsPerPage={appearanceConfig.itemsPerPage}
             paginationPosition={appearanceConfig.paginationPosition}
             position="bottom"
-            disabled
             onPrevious={handlePreviousPage}
             onNext={handleNextPage}
             onPageChange={handlePageChange}
