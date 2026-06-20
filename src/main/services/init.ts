@@ -1,4 +1,4 @@
-import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir } from './config.js';
+import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir, saveConfig } from './config.js';
 import { initDatabase, closeDatabase } from './database.js';
 import { createGallery, getGalleries } from './galleryService.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
@@ -39,7 +39,7 @@ export async function initializeApp(): Promise<{ success: boolean; error?: strin
     }
     console.log('[init] 数据库初始化成功');
 
-    // 3. 从配置初始化图库
+    // 3. 增量迁移旧图库配置（兼容 0.1.x，TODO(0.2) 移除）并装载图库根登记表
     console.log('[init] 初始化图库...');
     await initGalleriesFromConfig();
     console.log('[init] 图库初始化完成');
@@ -147,10 +147,19 @@ function resumeDownloadsInBackground(): void {
 }
 
 /**
- * 启动时一次性迁移 + 装载图库根登记表（懒加载模式）
- * - 历史遗留：旧版把图库根写在 config.galleries.folders；现已归一到 DB galleries 表。
- *   这里仅在 DB 为空时把旧字段迁移进 DB，并从内存配置剥离该 key，避免后续回写再持久化。
- * - 不论是否迁移，最后都从 DB 装载 galleryRootRegistry，供 app:// 白名单同步读取。
+ * 启动时增量迁移旧图库配置 + 装载图库根登记表（懒加载模式）
+ *
+ * 历史遗留：旧版把图库根写在 config.galleries.folders；现已归一到 DB galleries 表。
+ * 迁移策略（增量、幂等）：
+ *   1. 只要检测到 config.galleries.folders 残留就逐个增量迁入 DB——已存在的图库（按归一化
+ *      folderPath 匹配）跳过，仅补建缺失的，因此 DB 非空时也会补迁新增条目。
+ *   2. 只要 config.galleries 这个旧 key 存在，迁移后就从内存删除并落盘剥离：saveConfig 经
+ *      normalizeConfigSaveInput 重建时不含该未知字段，从而把它真正从 config.yaml 中删除，
+ *      使下次启动不再触发迁移。
+ *   3. 不论是否迁移，最后都从 DB 装载 galleryRootRegistry，供 app:// 白名单同步读取。
+ *
+ * TODO(0.2)[移除启动迁移]：config.galleries.folders 已无任何写入方，本迁移仅为兼容 0.1.x 旧
+ *   配置而存在；计划在 0.2 版本整体删除本迁移逻辑（连同防御式读取与 saveConfig 剥离）。
  */
 export async function initGalleriesFromConfig(): Promise<void> {
   try {
@@ -159,16 +168,29 @@ export async function initGalleriesFromConfig(): Promise<void> {
       galleries?: { folders?: Array<{ path: string; name: string; autoScan?: boolean; recursive?: boolean; extensions?: string[] }> };
     };
 
-    const existingResult = await getGalleries();
-    const dbEmpty = !(existingResult.success && existingResult.data && existingResult.data.length > 0);
-
+    const hasLegacyKey = config.galleries !== undefined;
     const legacyFolders = config.galleries?.folders ?? [];
-    if (dbEmpty && legacyFolders.length > 0) {
-      console.log('📂 检测到旧 config.galleries.folders，一次性迁移进数据库...');
+
+    if (legacyFolders.length > 0) {
+      console.log('📂 检测到旧 config.galleries.folders，开始增量迁移进数据库...');
+
+      // 取现有图库的归一化 folderPath 集合，用于"存在则跳过"的增量判断
+      const existingResult = await getGalleries();
+      const existingPaths = new Set<string>(
+        existingResult.success && existingResult.data
+          ? existingResult.data.map(g => normalizePath(g.folderPath)).filter(Boolean)
+          : []
+      );
+
       let createdCount = 0;
+      let skippedCount = 0;
       for (const folderConfig of legacyFolders) {
+        const folderPath = normalizePath(folderConfig.path);
+        if (existingPaths.has(folderPath)) {
+          skippedCount++;
+          continue;
+        }
         try {
-          const folderPath = normalizePath(folderConfig.path);
           const result = await createGallery({
             folderPath,
             name: folderConfig.name,
@@ -177,19 +199,29 @@ export async function initGalleriesFromConfig(): Promise<void> {
             extensions: folderConfig.extensions,
           });
           if (result.success) {
+            existingPaths.add(folderPath);
             createdCount++;
             console.log(`✅ 迁移图库: ${folderConfig.name} (${folderPath})`);
+          } else {
+            console.warn(`⚠️ 迁移图库未建库: ${folderConfig.name} (${folderPath}) - ${result.error}`);
           }
         } catch (error) {
           console.error(`❌ 迁移图库失败: ${folderConfig.name}`, error);
         }
       }
-      console.log(`📝 共迁移 ${createdCount} 个图库`);
+      console.log(`📝 迁移完成：新增 ${createdCount} 个，跳过 ${skippedCount} 个已存在`);
     }
 
-    // 迁移完成后剥离旧 key，避免 config 回写时再次持久化
-    if (config.galleries !== undefined) {
+    // 只要旧 key 存在就剥离：内存删除 + 落盘（saveConfig 重建时不含未知字段），
+    // 真正从 config.yaml 删除该字段，下次启动不再触发迁移
+    if (hasLegacyKey) {
       delete config.galleries;
+      const saveResult = await saveConfig({});
+      if (saveResult.success) {
+        console.log('🧹 已从 config.yaml 移除旧 galleries 字段');
+      } else {
+        console.warn('⚠️ 移除 config.yaml 旧 galleries 字段失败:', saveResult.error);
+      }
     }
 
     // 从 DB 装载图库根登记表（app:// 白名单的同步来源）
