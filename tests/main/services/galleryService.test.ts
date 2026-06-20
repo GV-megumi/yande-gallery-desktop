@@ -394,6 +394,12 @@ describe('galleryService - syncGalleryFolder 错误分支', () => {
 // ---------------------------------------------------------------------------
 // 这一组用例直接 import 真实 galleryService，用 vi.mock 替换全部外部依赖，
 // 验证 createGallery/deleteGallery 调用成功后会正确维护 galleryRootRegistry。
+//
+// ⚠ 注意：下面这些 vi.mock(...) 会被 Vitest 提升到文件顶部、对【整个测试文件】
+//    生效，而不仅仅是这个 describe。本文件上方的 35 个用例都是自包含的纯逻辑测试、
+//    并不 import 这些真实模块，所以不受影响。但今后若在本文件新增需要真实实现
+//    （而非这里 mock 版本）的用例，务必留意：这些 mock 是文件级的，无法被某个
+//    describe 单独绕过；如有冲突，请把那类用例拆到独立测试文件中。
 // ---------------------------------------------------------------------------
 
 vi.mock('../../../src/main/services/database.js', () => {
@@ -449,7 +455,10 @@ describe('galleryService 同步维护 galleryRootRegistry', () => {
   beforeEach(() => {
     loadGalleryRoots([]);
     vi.clearAllMocks();
-    // clearAllMocks 会清除调用记录但保留实现；为安全起见重新设置关键 mock
+    // clearAllMocks 只清调用历史（mock.calls/results 等），不重置已设的实现。
+    // 但每个用例用 mockResolvedValueOnce 排队的返回值会随调用被逐个消耗掉，
+    // 所以这里在每个用例前重新把这几个常驻 mock 的实现/返回值落实一遍，
+    // 保证 get/all 的一次性排队从干净状态开始、且事务回调始终会被执行。
     (dbModule.runInTransaction as ReturnType<typeof vi.fn>).mockImplementation(
       async (_db: any, fn: () => Promise<void>) => { await fn(); }
     );
