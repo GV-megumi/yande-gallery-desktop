@@ -27,7 +27,6 @@ function baseConfigWithGalleryId(selectedGalleryId: number = 42): AppConfig {
     dataPath: 'data',
     database: { path: 'gallery.db' },
     downloads: { path: 'downloads' },
-    galleries: { folders: [] },
     thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
     app: { autoScan: true },
     yande: { maxConcurrentDownloads: 5 },

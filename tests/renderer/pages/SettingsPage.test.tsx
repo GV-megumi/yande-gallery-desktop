@@ -163,7 +163,6 @@ beforeEach(() => {
     data: {
       downloads: { path: 'D:/downloads', createSubfolders: true, subfolderFormat: ['tags'] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
-      galleries: { folders: [] },
       network: {
         proxy: {
           enabled: true,
