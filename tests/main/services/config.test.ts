@@ -320,7 +320,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -469,7 +468,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -599,7 +597,6 @@ describe('config 模块纯函数测试', () => {
       dataPath: 'data',
       database: { path: 'gallery.db' },
       downloads: { path: 'downloads' },
-      galleries: { folders: [] },
       thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
       app: { autoScan: true },
       yande: { maxConcurrentDownloads: 5 },
@@ -754,7 +751,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -821,7 +817,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -944,7 +939,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -1018,7 +1012,6 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        galleries: { folders: [] },
         thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
@@ -1406,116 +1399,4 @@ describe('config 模块纯函数测试', () => {
     });
   });
 
-  describe('validateConfig 逻辑', () => {
-    // 测试配置验证的核心逻辑
-    function validateConfig(config: any): string[] {
-      const errors: string[] = [];
-      if (!config.database?.path) {
-        errors.push('database.path 不能为空');
-      }
-      if (!config.downloads?.path) {
-        errors.push('downloads.path 不能为空');
-      }
-      if (!config.galleries?.folders || config.galleries.folders.length === 0) {
-        errors.push('galleries.folders 不能为空');
-      }
-      if (config.galleries?.folders) {
-        config.galleries.folders.forEach((folder: any, index: number) => {
-          if (!folder.path) {
-            errors.push(`galleries.folders[${index}].path 不能为空`);
-          }
-          if (!folder.name) {
-            errors.push(`galleries.folders[${index}].name 不能为空`);
-          }
-          if (!folder.extensions || folder.extensions.length === 0) {
-            errors.push(`galleries.folders[${index}].extensions 不能为空`);
-          }
-        });
-      }
-      return errors;
-    }
-
-    it('完整配置不应有错误', () => {
-      const config = {
-        database: { path: 'data/gallery.db' },
-        downloads: { path: 'downloads' },
-        galleries: {
-          folders: [
-            { path: '/images', name: 'default', extensions: ['.jpg', '.png'] },
-          ],
-        },
-      };
-      expect(validateConfig(config)).toEqual([]);
-    });
-
-    it('缺少 database.path 应报错', () => {
-      const config = {
-        database: {},
-        downloads: { path: 'downloads' },
-        galleries: {
-          folders: [
-            { path: '/images', name: 'default', extensions: ['.jpg'] },
-          ],
-        },
-      };
-      const errors = validateConfig(config);
-      expect(errors).toContain('database.path 不能为空');
-    });
-
-    it('缺少 downloads.path 应报错', () => {
-      const config = {
-        database: { path: 'db.sqlite' },
-        downloads: {},
-        galleries: {
-          folders: [
-            { path: '/images', name: 'default', extensions: ['.jpg'] },
-          ],
-        },
-      };
-      const errors = validateConfig(config);
-      expect(errors).toContain('downloads.path 不能为空');
-    });
-
-    it('空的 galleries.folders 应报错', () => {
-      const config = {
-        database: { path: 'db.sqlite' },
-        downloads: { path: 'downloads' },
-        galleries: { folders: [] },
-      };
-      const errors = validateConfig(config);
-      expect(errors).toContain('galleries.folders 不能为空');
-    });
-
-    it('图库文件夹缺少必填字段应报错', () => {
-      const config = {
-        database: { path: 'db.sqlite' },
-        downloads: { path: 'downloads' },
-        galleries: {
-          folders: [
-            { path: '', name: '', extensions: [] },
-          ],
-        },
-      };
-      const errors = validateConfig(config);
-      expect(errors).toContain('galleries.folders[0].path 不能为空');
-      expect(errors).toContain('galleries.folders[0].name 不能为空');
-      expect(errors).toContain('galleries.folders[0].extensions 不能为空');
-    });
-
-    it('多个图库文件夹应各自验证', () => {
-      const config = {
-        database: { path: 'db.sqlite' },
-        downloads: { path: 'downloads' },
-        galleries: {
-          folders: [
-            { path: '/valid', name: 'ok', extensions: ['.jpg'] },
-            { path: '', name: 'missing_path', extensions: ['.png'] },
-          ],
-        },
-      };
-      const errors = validateConfig(config);
-      expect(errors).toHaveLength(1);
-      expect(errors[0]).toContain('folders[1].path');
-    });
-  });
 });
