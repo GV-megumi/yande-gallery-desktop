@@ -48,7 +48,6 @@ vi.mock('../../../src/main/services/config.js', async () => {
       margin: 24,
     }),
     saveConfig: saveConfigMock,
-    updateGalleryFolders: vi.fn(),
     reloadConfig: vi.fn(),
   };
 });
@@ -307,7 +306,6 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("GALLERY_CLEAR_INVALID_IMAGES: 'gallery:clear-invalid-images'");
     expect(channelsSource).toContain("CONFIG_GET: 'config:get'");
     expect(channelsSource).toContain("CONFIG_SAVE: 'config:save'");
-    expect(channelsSource).toContain("CONFIG_UPDATE_GALLERY_FOLDERS: 'config:update-gallery-folders'");
     expect(channelsSource).toContain("CONFIG_RELOAD: 'config:reload'");
     expect(channelsSource).toContain("CONFIG_CHANGED: 'config:changed'");
     expect(channelsSource).toContain("BOORU_FAVORITES_REPAIR_DONE: 'booru:favorites-repair-done'");

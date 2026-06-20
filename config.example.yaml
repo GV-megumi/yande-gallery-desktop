@@ -17,7 +17,7 @@
 #   - database.path    相对于 CONFIG_DIR
 #   - dataPath         相对于 CONFIG_DIR
 #   - thumbnails 等    相对于 dataPath
-#   - downloads.path / galleries.folders[].path  建议使用绝对路径
+#   - downloads.path  建议使用绝对路径
 #   - 所有路径字段均支持绝对路径，绝对路径时忽略基准目录
 # ============================================================
 
@@ -36,19 +36,8 @@ downloads:
   path: ./downloads
 
 # -------- 图库 --------
-galleries:
-  folders:
-    - path: /path/to/your/images    # 绝对路径
-      name: my_gallery
-      autoScan: true
-      recursive: true
-      extensions:
-        - .jpg
-        - .jpeg
-        - .png
-        - .gif
-        - .webp
-        - .bmp
+# 注：本地图库已归一到数据库（gallery.db 的 galleries 表），通过应用「设置 → 图库文件夹」管理，
+#     不再在此配置；旧版的 galleries.folders 会在首次启动时自动迁移进数据库。
 
 # -------- 缩略图 --------
 thumbnails:

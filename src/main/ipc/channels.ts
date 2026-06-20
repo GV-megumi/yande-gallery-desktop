@@ -41,7 +41,6 @@ export const IPC_CHANNELS = {
   // 配置操作
   CONFIG_GET: 'config:get',
   CONFIG_SAVE: 'config:save',
-  CONFIG_UPDATE_GALLERY_FOLDERS: 'config:update-gallery-folders',
   CONFIG_RELOAD: 'config:reload',
   CONFIG_CHANGED: 'config:changed',
   API_SERVICE_GET_CONFIG: 'api-service:get-config',

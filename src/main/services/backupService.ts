@@ -24,6 +24,7 @@ export const BACKUP_TABLES = [
   'booru_favorite_tags',
   'booru_blacklisted_tags',
   'booru_saved_searches',
+  'galleries',
 ] as const;
 
 export const BACKUP_RESTORE_ORDER = [...BACKUP_TABLES];
@@ -95,7 +96,6 @@ function projectBackupSafeConfig(config: {
   dataPath?: AppConfig['dataPath'];
   database: AppConfig['database'];
   downloads: AppConfig['downloads'];
-  galleries: AppConfig['galleries'];
   thumbnails: AppConfig['thumbnails'];
   app: AppConfig['app'];
   yande: AppConfig['yande'];
@@ -114,7 +114,6 @@ function projectBackupSafeConfig(config: {
     dataPath: config.dataPath,
     database: config.database,
     downloads: config.downloads,
-    galleries: config.galleries,
     thumbnails: config.thumbnails,
     app: config.app,
     yande: config.yande,

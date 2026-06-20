@@ -60,6 +60,10 @@ describe('backupService constants', () => {
     expect(BACKUP_TABLES).toContain('booru_saved_searches');
     expect(BACKUP_TABLES).toContain('booru_favorite_groups');
   });
+
+  it('备份表应包含 galleries（图库已归一到数据库）', () => {
+    expect(BACKUP_TABLES).toContain('galleries');
+  });
 });
 
 describe('isValidBackupData', () => {

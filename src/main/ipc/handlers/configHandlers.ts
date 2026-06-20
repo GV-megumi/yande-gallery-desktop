@@ -11,7 +11,6 @@ import {
   getConfig,
   getBooruAppearancePreference,
   saveConfig,
-  updateGalleryFolders,
   reloadConfig,
   toRendererSafeConfig,
   getNotificationsConfig,
@@ -380,18 +379,6 @@ export function setupConfigHandlers() {
       });
       if (result.success) {
         broadcastConfigChanged(['ui.pagePreferences.appShell']);
-      }
-      return result;
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  ipcMain.handle(IPC_CHANNELS.CONFIG_UPDATE_GALLERY_FOLDERS, async (_event: IpcMainInvokeEvent, folders: any[]) => {
-    try {
-      const result = await updateGalleryFolders(folders);
-      if (result.success) {
-        broadcastConfigChanged(['galleries']);
       }
       return result;
     } catch (error) {
