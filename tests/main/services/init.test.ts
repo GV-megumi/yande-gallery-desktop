@@ -21,6 +21,8 @@ const mockGetDatabasePath = vi.fn().mockReturnValue('/test/data/gallery.db');
 const mockEnsureDataDirectories = vi.fn().mockResolvedValue(undefined);
 const mockGetConfigDir = vi.fn().mockReturnValue('/test/config');
 const mockGetDataDir = vi.fn().mockReturnValue('/test/data');
+// 增量迁移会在剥离旧 galleries 字段后调用 saveConfig 落盘，需一并 mock
+const mockSaveConfig = vi.fn().mockResolvedValue({ success: true });
 
 vi.mock('../../../src/main/services/config.js', () => ({
   initPaths: mockInitPaths,
@@ -30,6 +32,7 @@ vi.mock('../../../src/main/services/config.js', () => ({
   ensureDataDirectories: mockEnsureDataDirectories,
   getConfigDir: mockGetConfigDir,
   getDataDir: mockGetDataDir,
+  saveConfig: mockSaveConfig,
 }));
 
 const mockInitDatabase = vi.fn().mockResolvedValue({ success: true });
@@ -177,12 +180,21 @@ describe('initGalleriesFromConfig 逻辑', () => {
     vi.useRealTimers();
   });
 
-  it('已有图库时应跳过创建', async () => {
-    mockGetGalleries.mockResolvedValueOnce({ success: true, data: [{ id: 1 }] });
+  it('config 文件夹已存在于数据库时应跳过创建，但仍剥离旧配置（增量迁移）', async () => {
+    // 现有图库的 folderPath 覆盖了 config 里的两个文件夹 → 全部"存在则跳过"
+    mockGetGalleries.mockResolvedValueOnce({
+      success: true,
+      data: [
+        { id: 1, folderPath: '/test/folder1' },
+        { id: 2, folderPath: '/test/folder2' },
+      ],
+    });
     const { initializeApp } = await import('../../../src/main/services/init.js');
     await initializeApp();
 
     expect(mockCreateGallery).not.toHaveBeenCalled();
+    // 即便无需建库，只要旧 galleries 字段存在就应落盘剥离
+    expect(mockSaveConfig).toHaveBeenCalledTimes(1);
   });
 
   it('无图库时应为每个配置文件夹创建图库', async () => {

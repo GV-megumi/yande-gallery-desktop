@@ -446,6 +446,7 @@ import {
   loadGalleryRoots,
 } from '../../../src/main/services/galleryRootRegistry.js';
 import * as dbModule from '../../../src/main/services/database.js';
+import * as fsPromises from 'fs/promises';
 
 describe('galleryService 同步维护 galleryRootRegistry', () => {
   // 规范化路径，与 galleryService 内 normalizePath(path.normalize(...)) 行为一致
@@ -495,5 +496,57 @@ describe('galleryService 同步维护 galleryRootRegistry', () => {
     await deleteGallery(1);
 
     expect(getGalleryRootsSnapshot()).not.toContain(normalizedDel);
+  });
+
+  // ---- 失败路径：登记表不应被改动 ----
+  // addGalleryRoot/removeGalleryRoot 都排在各自成功守卫之后；这些用例锁死
+  // “失败时登记表不变”，防止将来有人把它们挪到守卫前而悄悄扩大 app:// 白名单。
+
+  it('createGallery 因图库已存在而失败时不应加入登记表', async () => {
+    // get 第一次返回已存在的行 → 在 addGalleryRoot 之前提前 return
+    (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({ id: 99 });
+
+    const { createGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await createGallery({ folderPath: 'M:/reg-create', name: 'reg' });
+
+    expect(result.success).toBe(false);
+    expect(getGalleryRootsSnapshot()).not.toContain(normalizedCreate);
+    expect(getGalleryRootsSnapshot()).toEqual([]);
+  });
+
+  it('createGallery 因文件夹不存在而失败时不应加入登记表', async () => {
+    // get 返回 null（无重复），但 fs.access 拒绝 → 在 addGalleryRoot 之前提前 return
+    (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    (fsPromises.access as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('ENOENT'));
+
+    const { createGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await createGallery({ folderPath: 'M:/reg-create', name: 'reg' });
+
+    expect(result.success).toBe(false);
+    expect(getGalleryRootsSnapshot()).toEqual([]);
+  });
+
+  it('createGallery 中途抛错时不应加入登记表', async () => {
+    // get 返回 null、fs.access 通过，但 INSERT 抛错 → 落入 catch，addGalleryRoot 不执行
+    (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+    (dbModule.run as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('insert failed'));
+
+    const { createGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await createGallery({ folderPath: 'M:/reg-create', name: 'reg' });
+
+    expect(result.success).toBe(false);
+    expect(getGalleryRootsSnapshot()).toEqual([]);
+  });
+
+  it('deleteGallery 因目标不存在而失败时不应移除登记表中的根', async () => {
+    loadGalleryRoots([normalizedDel]);
+    // get 返回 null（图集不存在）→ 在 removeGalleryRoot 之前提前 return
+    (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
+
+    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+    const result = await deleteGallery(123);
+
+    expect(result.success).toBe(false);
+    expect(getGalleryRootsSnapshot()).toContain(normalizedDel);
   });
 });
