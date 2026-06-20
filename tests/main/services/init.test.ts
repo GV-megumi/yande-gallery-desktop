@@ -161,7 +161,7 @@ describe('getAppInfo', () => {
 });
 
 describe('initGalleriesFromConfig 逻辑', () => {
-  // 由于 initGalleriesFromConfig 是私有函数，通过 initializeApp 间接测试
+  // initGalleriesFromConfig 现已导出，可直接调用；此处仍通过 initializeApp 覆盖其在启动流程中的集成行为
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
