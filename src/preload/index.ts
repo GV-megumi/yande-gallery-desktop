@@ -70,7 +70,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   config: {
     get: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET),
     save: (newConfig: ConfigSaveInput) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_SAVE, newConfig),
-    updateGalleryFolders: (folders: any[]) => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_UPDATE_GALLERY_FOLDERS, folders),
     reload: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_RELOAD),
     // bug9：通知 / 桌面行为分域 getter / setter
     getNotifications: () => ipcRenderer.invoke(IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS),
@@ -414,7 +413,6 @@ declare global {
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
         save: (newConfig: ConfigSaveInput) => Promise<{ success: boolean; error?: string; syncError?: string }>;
-        updateGalleryFolders: (folders: any[]) => Promise<{ success: boolean; error?: string }>;
         reload: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
         onConfigChanged: (callback: (config: RendererSafeAppConfig, summary: ConfigChangedSummary) => void) => () => void;
         // bug9：通知 / 桌面行为分域

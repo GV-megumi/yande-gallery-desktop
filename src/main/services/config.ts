@@ -141,9 +141,6 @@ export interface AppConfig {
   downloads: {
     path: string;
   };
-  galleries: {
-    folders: GalleryFolder[];
-  };
   thumbnails: {
     cachePath: string;
     maxWidth: number;
@@ -226,14 +223,6 @@ export interface AppConfig {
   apiService?: ApiServiceConfig;
 }
 
-export interface GalleryFolder {
-  path: string;
-  name: string;
-  autoScan: boolean;
-  recursive: boolean;
-  extensions: string[];
-}
-
 export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
 
 export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'username' | 'password'>;
@@ -267,10 +256,6 @@ const DEFAULT_CONFIG: AppConfig = {
   },
   downloads: {
     path: 'downloads'
-  },
-  galleries: {
-    // 默认无图库，由用户通过设置页添加
-    folders: []
   },
   thumbnails: {
     cachePath: 'thumbnails',
@@ -819,29 +804,11 @@ async function saveDefaultConfig(configPath: string): Promise<void> {
 
 /**
  * 验证配置
- * 顶层字段（database.path / downloads.path / galleries.folders）不再强制要求用户提供，
- * loadConfig 已保证与 DEFAULT_CONFIG 合并并回写。这里只负责检查用户自定义的图库条目是否完整。
+ * 顶层字段（database.path / downloads.path）不再强制要求用户提供，
+ * loadConfig 已保证与 DEFAULT_CONFIG 合并并回写。
  */
-function validateConfig(config: AppConfig): void {
-  const errors: string[] = [];
-
-  // 仅当用户提供了图库条目时，才要求条目内字段齐全（空数组属于合法的"未配置"）
-  config.galleries?.folders?.forEach((folder, index) => {
-    if (!folder.path) {
-      errors.push(`galleries.folders[${index}].path 不能为空`);
-    }
-    if (!folder.name) {
-      errors.push(`galleries.folders[${index}].name 不能为空`);
-    }
-    if (!folder.extensions || folder.extensions.length === 0) {
-      errors.push(`galleries.folders[${index}].extensions 不能为空`);
-    }
-  });
-
-  if (errors.length > 0) {
-    console.warn('[config] 配置验证警告:');
-    errors.forEach(err => console.warn('  -', err));
-  }
+function validateConfig(_config: AppConfig): void {
+  // 图库已归一到数据库（galleries 表），不再在此校验 galleries.folders。
 }
 
 /**
@@ -1137,9 +1104,6 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
     downloads: {
       path: input.downloads?.path ?? currentConfig.downloads.path,
     },
-    galleries: {
-      folders: input.galleries?.folders ?? currentConfig.galleries.folders,
-    },
     thumbnails: {
       cachePath: input.thumbnails?.cachePath ?? currentConfig.thumbnails.cachePath,
       maxWidth: input.thumbnails?.maxWidth ?? currentConfig.thumbnails.maxWidth,
@@ -1323,26 +1287,6 @@ export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string
   return savePromise;
 }
 
-/**
- * 更新图库文件夹配置
- */
-export async function updateGalleryFolders(folders: GalleryFolder[]): Promise<{ success: boolean; error?: string }> {
-  try {
-    const currentConfig = getConfig();
-    const newConfig: AppConfig = {
-      ...currentConfig,
-      galleries: {
-        folders
-      }
-    };
-
-    return await saveConfig(newConfig);
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    return { success: false, error: errorMessage };
-  }
-}
-
 // ============= 路径获取快捷方法 =============
 
 /**
@@ -1379,14 +1323,6 @@ export function getThumbnailsPath(): string {
  */
 export function getCachePath(): string {
   return path.join(getDataDir(), 'cache');
-}
-
-/**
- * 获取图库目录列表
- */
-export function getGalleryFolders(): GalleryFolder[] {
-  const cfg = getConfig();
-  return cfg.galleries.folders;
 }
 
 /**
