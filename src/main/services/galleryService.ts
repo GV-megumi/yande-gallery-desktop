@@ -1,6 +1,6 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
-import { getDatabase, run, get, all, runInTransaction } from './database.js';
+import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
@@ -438,6 +438,51 @@ export async function updateGalleryStats(
     console.error('Error updating gallery stats:', errorMessage);
     return { success: false, error: errorMessage };
   }
+}
+
+/**
+ * 写入某文件夹范围内的图片成员到 gallery_images（按 recursive 感知前缀匹配）。
+ *
+ * Phase 2A：所有写路径都要保证 gallery_images 成员与现状（folderPath 前缀匹配）一致，
+ * 以便后续把读路径切到成员表时数据齐全。本函数是这一致性的统一入口。
+ *
+ * 前缀匹配规则必须与 galleryService.deleteGallery / database.backfillGalleryImages
+ * 字面一致（normalized = normalizePath(folderPath)，likePrefix = normalized + path.sep）：
+ *   - recursive=true ：filepath LIKE likePrefix+'%' OR filepath = normalized
+ *   - recursive=false：filepath LIKE likePrefix+'%' AND filepath NOT LIKE likePrefix+'%'+sep+'%'
+ *
+ * 用单条集合式 INSERT OR IGNORE ... SELECT 完成，幂等（成员复合主键 + OR IGNORE）。
+ * 注：path.sep 在 SQLite LIKE 里无 escape 语义，按字面字符参与匹配即可。
+ *
+ * @returns 本次新写入的成员行数（changes）。重复执行时已存在的成员被 OR IGNORE，返回 0。
+ */
+export async function ensureMembershipForFolder(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  galleryId: number,
+  folderPath: string,
+  recursive: boolean
+): Promise<number> {
+  const normalized = normalizePath(folderPath);
+  const likePrefix = normalized + path.sep;
+  const now = new Date().toISOString();
+
+  const result = recursive
+    ? await runWithChanges(
+        db,
+        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
+           SELECT ?, id, ? FROM images
+            WHERE filepath LIKE ? OR filepath = ?`,
+        [galleryId, now, likePrefix + '%', normalized]
+      )
+    : await runWithChanges(
+        db,
+        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
+           SELECT ?, id, ? FROM images
+            WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
+        [galleryId, now, likePrefix + '%', likePrefix + '%' + path.sep + '%']
+      );
+
+  return result.changes;
 }
 
 /**
