@@ -154,8 +154,18 @@ async function scanSite(
 
   const collisions: string[] = [];
   if (site.isUnique) {
+    // seenTargets：本批已经"占用"的改写目标。用于拦截批内多源→同一目标
+    //（例如 src1\dup 与 src2\dup 都改写为 D:\dst\dup）——这种重复两行都在被改写集合内，
+    // 撞既有非改写行的检查发现不了，必须靠批内去重，否则只能等 apply 期撞 SQLITE_CONSTRAINT。
+    const seenTargets = new Set<string>();
     for (const m of matched) {
       const targetKey = toCompareKey(normalizePath(m.newPath));
+      // 批内已有另一被改写行映射到同一目标 → 第二个起即为冲突。
+      if (seenTargets.has(targetKey)) {
+        collisions.push(m.newPath);
+        continue;
+      }
+      seenTargets.add(targetKey);
       // 改写目标撞上某个既有行，且那个既有行自身不在被改写集合内 → UNIQUE 冲突。
       // （若既有行也会被改写走，则改写后不再占用该路径，不算冲突。）
       if (existingKeys.has(targetKey) && !matchedKeys.has(targetKey)) {
