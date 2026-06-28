@@ -201,10 +201,12 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
     // 规范化路径
     const folderPath = normalizePath(galleryData.folderPath);
 
-    // 检查是否已存在
-    const existing = await get<{ id: number }>(
+    // 检查是否已存在：以真实绑定（gallery_folders）为准——一个文件夹「被占用」当且仅当它已被某图集绑定。
+    // 旧实现查 galleries.folderPath 旧列，会被「陈旧旧列 / 重定位后残留」误判；gallery_folders 才是真相。
+    // 注：下方事务里 galleries.folderPath UNIQUE 的 INSERT 仍是过渡期的硬兜底，此处只是把「决策」前移到绑定表。
+    const existing = await get<{ galleryId: number }>(
       db,
-      'SELECT id FROM galleries WHERE folderPath = ?',
+      'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',
       [folderPath]
     );
 
@@ -962,9 +964,11 @@ export async function scanSubfoldersAndCreateGalleries(
     let totalImported = 0;
     let totalImageSkipped = 0;
 
-    // 预先获取所有已存在的图集路径，避免递归中逐个查询
+    // 预先获取所有已被绑定的文件夹路径，避免递归中逐个查询。
+    // 改查 gallery_folders（真实绑定集合）而非 galleries 旧列：后者只反映图集创建时的原始单文件夹，
+    // 不含 bindFolder 追加 / changeFolderPath 重定位的文件夹，会把已绑定文件夹误判为「未存在」而重复建集。
     const db = await getDatabase();
-    const existingGalleries = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM galleries');
+    const existingGalleries = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM gallery_folders');
     const existingPaths = new Set(existingGalleries.map(g => g.folderPath));
     // 预先获取所有已存在的图集名称，用于快速检查重名
     const existingNames = await all<{ name: string }>(db, 'SELECT name FROM galleries');
