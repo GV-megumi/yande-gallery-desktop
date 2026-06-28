@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, vi, afterEach } from 'vitest';
-import { act, render, screen, waitFor, cleanup } from '@testing-library/react';
+import { act, render, screen, waitFor, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { App } from 'antd';
 import { SettingsPage } from '../../../src/renderer/pages/SettingsPage';
@@ -30,6 +30,10 @@ const getGalleries = vi.fn();
 const createGallery = vi.fn();
 const updateGallery = vi.fn();
 const deleteGallery = vi.fn();
+const planScanFolder = vi.fn();
+const applyScanPlan = vi.fn();
+const previewRelocateRoot = vi.fn();
+const applyRelocateRoot = vi.fn();
 const getSites = vi.fn();
 const addSite = vi.fn();
 const updateSite = vi.fn();
@@ -254,6 +258,16 @@ beforeEach(() => {
   createGallery.mockResolvedValue({ success: true, data: { id: 1 } });
   updateGallery.mockResolvedValue({ success: true });
   deleteGallery.mockResolvedValue({ success: true });
+  planScanFolder.mockResolvedValue({
+    success: true,
+    data: { newFolders: [], collisions: [], skipped: [] },
+  });
+  applyScanPlan.mockResolvedValue({
+    success: true,
+    data: { created: 0, merged: 0, imported: 0, skipped: 0 },
+  });
+  previewRelocateRoot.mockResolvedValue({ success: true, data: { affected: [], collisions: [] } });
+  applyRelocateRoot.mockResolvedValue({ success: true, data: { affected: [] } });
   getSites.mockResolvedValue({ success: true, data: [] });
   addSite.mockResolvedValue({ success: true });
   updateSite.mockResolvedValue({ success: true });
@@ -347,6 +361,10 @@ beforeEach(() => {
       createGallery,
       updateGallery,
       deleteGallery,
+      planScanFolder,
+      applyScanPlan,
+      previewRelocateRoot,
+      applyRelocateRoot,
     },
     apiService: {
       getConfig: getApiServiceConfig,
@@ -595,6 +613,83 @@ describe('SettingsPage general tab behavior', () => {
     await waitFor(() => {
       expect(setDesktop).toHaveBeenCalledWith({ hardwareAcceleration: true });
     });
+  });
+
+  it('不再展示按图库逐条列出的旧列表（图集列表已迁至图库页）', async () => {
+    getGalleries.mockResolvedValue({
+      success: true,
+      data: [
+        { id: 1, folderPath: 'D:/pics/a', name: '图集A', recursive: true, extensions: ['.jpg'], imageCount: 3, isWatching: true },
+      ],
+    });
+
+    render(<App><SettingsPage /></App>);
+
+    await screen.findByText('图库文件夹');
+    // 旧的逐条列表与其行内操作不再出现
+    expect(screen.queryByText('图集A')).toBeNull();
+    expect(screen.queryByText('停止监视')).toBeNull();
+    expect(screen.queryByText('删除文件夹')).toBeNull();
+  });
+
+  it('扫描文件夹无碰撞时直接 applyScanPlan 并带上 planScanFolder 返回的 newFolders', async () => {
+    selectFolder.mockResolvedValue({ success: true, data: 'D:/pics/root' });
+    planScanFolder.mockResolvedValue({
+      success: true,
+      data: {
+        newFolders: [
+          { folderPath: 'D:/pics/root/a', name: 'a' },
+          { folderPath: 'D:/pics/root/b', name: 'b' },
+        ],
+        collisions: [],
+        skipped: [],
+      },
+    });
+
+    render(<App><SettingsPage /></App>);
+
+    const scanButton = await screen.findByRole('button', { name: /扫描文件夹/ });
+    await userEvent.click(scanButton);
+
+    await waitFor(() => {
+      expect(planScanFolder).toHaveBeenCalledWith('D:/pics/root');
+    });
+    await waitFor(() => {
+      expect(applyScanPlan).toHaveBeenCalledWith({
+        create: [
+          { folderPath: 'D:/pics/root/a', name: 'a' },
+          { folderPath: 'D:/pics/root/b', name: 'b' },
+        ],
+        merge: [],
+      });
+    });
+  });
+
+  it('扫描文件夹用户取消选择目录时不规划也不应用', async () => {
+    selectFolder.mockResolvedValue({ success: false });
+
+    render(<App><SettingsPage /></App>);
+
+    const scanButton = await screen.findByRole('button', { name: /扫描文件夹/ });
+    await userEvent.click(scanButton);
+
+    await waitFor(() => {
+      expect(selectFolder).toHaveBeenCalled();
+    });
+    expect(planScanFolder).not.toHaveBeenCalled();
+    expect(applyScanPlan).not.toHaveBeenCalled();
+  });
+
+  it('点击重定位根目录可打开重定位维护弹窗', async () => {
+    render(<App><SettingsPage /></App>);
+
+    const relocateEntry = await screen.findByRole('button', { name: /重定位根目录/ });
+    await userEvent.click(relocateEntry);
+
+    // 弹窗（dialog）出现后，在其作用域内断言说明文案与预览按钮，避免与行内 tooltip 文案冲突
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/跨机器迁移/)).toBeTruthy();
+    expect(within(dialog).getByRole('button', { name: /预\s*览/ })).toBeTruthy();
   });
 });
 

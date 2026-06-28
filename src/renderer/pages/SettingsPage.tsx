@@ -2,8 +2,8 @@
  * 设置页面 — iOS Grouped Inset 风格
  */
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Switch, Select, Spin, Segmented, Space, Popconfirm, App, Alert, Empty, Tooltip } from 'antd';
-import { SaveOutlined, FolderOutlined, PlusOutlined, DeleteOutlined, ScanOutlined, BulbOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Switch, Select, Spin, Segmented, Space, Popconfirm, App, Alert, Tooltip } from 'antd';
+import { SaveOutlined, FolderOutlined, ScanOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined, SwapOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 import { useLocale, type LocaleType } from '../locales';
@@ -11,18 +11,10 @@ import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { ApiLogEntry, ApiServiceConfig, ApiServicePermissionKey, ApiServiceStatus, UpdateCheckResult } from '../../shared/types';
 import pkgJson from '../../../package.json';
 import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
+import { ScanCollisionModal, type ScanResolution, type ScanPlanNewFolder, type ScanPlanCollision, type ScanPlanSkipped } from '../components/ScanCollisionModal';
+import { RelocateRootModal } from '../components/RelocateRootModal';
 
 const { Option } = Select;
-
-interface GalleryRow {
-  id?: number;          // DB 图库 id
-  path: string;         // 对应 DB folderPath
-  name: string;
-  recursive: boolean;
-  extensions: string[];
-  imageCount?: number;
-  isWatching?: boolean;
-}
 
 const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
   galleryRead: '图集读取',
@@ -154,10 +146,19 @@ export const SettingsPage: React.FC = () => {
   // antd v5 上下文化提示，替代静态 message / Modal（App.tsx 已包 <App>）
   const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
-  const [folders, setFolders] = useState<GalleryRow[]>([]);
   const [loading, setLoading] = useState(false);
-  const [scanning, setScanning] = useState<string | null>(null);
   const [proxyForm] = Form.useForm();
+
+  // Phase 7A：扫描文件夹（plan→碰撞解决→apply）与重定位根目录维护
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanApplying, setScanApplying] = useState(false);
+  // 同名碰撞解决弹窗的暂存计划（仅在存在碰撞时打开）
+  const [scanPlan, setScanPlan] = useState<{
+    newFolders: ScanPlanNewFolder[];
+    collisions: ScanPlanCollision[];
+    skipped: ScanPlanSkipped[];
+  } | null>(null);
+  const [relocateOpen, setRelocateOpen] = useState(false);
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
   const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'api' | 'about'>('general');
@@ -406,24 +407,7 @@ export const SettingsPage: React.FC = () => {
       if (result.success && result.data) {
         const config = result.data;
         console.log('[SettingsPage] 配置加载成功');
-        // 图库列表从 DB 拉取（Task 5：归一到数据库）
-        const galleriesResult = await window.electronAPI.gallery.getGalleries();
-        if (galleriesResult.success && Array.isArray(galleriesResult.data)) {
-          setFolders(
-            galleriesResult.data.map((g: any) => ({
-              id: g.id,
-              path: g.folderPath,
-              name: g.name,
-              recursive: Boolean(g.recursive),
-              extensions: Array.isArray(g.extensions) ? g.extensions : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
-              imageCount: g.imageCount,
-              isWatching: Boolean(g.isWatching),
-            }))
-          );
-        } else {
-          console.error('[SettingsPage] 加载图库列表失败', galleriesResult.error);
-          message.error(galleriesResult.error || '加载图库列表失败');
-        }
+        // Phase 7A：图集列表已迁至图库页，设置页不再在此拉取 gallery 列表。
         const dp = config.downloads?.path || './downloads';
         const ts = config.thumbnails?.maxWidth || 800;
         const tq = config.thumbnails?.quality || 92;
@@ -477,86 +461,66 @@ export const SettingsPage: React.FC = () => {
     }
   });
 
-  const handleAddFolder = async () => {
+  // applyScanPlan 的成功结果 → 统一汇总提示
+  const toastScanSummary = (data?: { created: number; merged: number; imported: number; skipped: number }) => {
+    const created = data?.created ?? 0;
+    const merged = data?.merged ?? 0;
+    const skipped = data?.skipped ?? 0;
+    message.success(`新增 ${created} 个图集，合并 ${merged} 个，跳过 ${skipped} 个`);
+  };
+
+  // 扫描文件夹：选目录 → 规划 → 无碰撞直接应用 / 有碰撞打开解决弹窗
+  const handleScanFolder = async () => {
     if (!window.electronAPI) { message.error('系统功能不可用'); return; }
+    setScanLoading(true);
     try {
-      const result = await window.electronAPI.system.selectFolder();
-      if (!result.success || !result.data) return;
-      const folderPath = result.data;
-      if (folders.some(f => f.path === folderPath)) { message.warning('该文件夹已存在'); return; }
-      const folderName = folderPath.split(/[/\\]/).pop() || '未命名文件夹';
-      const extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-      const createResult = await window.electronAPI.gallery.createGallery({
-        folderPath, name: folderName, isWatching: true, recursive: true, extensions,
-      });
-      if (!createResult.success) {
-        message.error(createResult.error || '创建图库失败');
+      const picked = await window.electronAPI.system.selectFolder();
+      if (!picked.success || !picked.data) return; // 用户取消
+      const rootPath = picked.data;
+      const planRes = await window.electronAPI.gallery.planScanFolder(rootPath);
+      if (!planRes.success || !planRes.data) {
+        message.error(planRes.error || '扫描规划失败');
         return;
       }
-      await loadConfig(); // 重新从 DB 拉列表
-      modal.confirm({
-        title: '扫描子文件夹',
-        content: `是否立即扫描 "${folderName}" 下的所有子文件夹并创建图集？`,
-        okText: '立即扫描', cancelText: '稍后扫描',
-        onOk: () => { void scanSubfolders(folderPath, extensions); }
-      });
+      const { newFolders, collisions, skipped } = planRes.data;
+      if (collisions.length === 0) {
+        // 无同名冲突：直接以全部 newFolders 入库
+        const applyRes = await window.electronAPI.gallery.applyScanPlan({ create: newFolders, merge: [] });
+        if (applyRes.success) {
+          toastScanSummary(applyRes.data);
+        } else {
+          message.error(applyRes.error || '应用扫描计划失败');
+        }
+        return;
+      }
+      // 存在同名冲突：暂存计划并打开解决弹窗
+      setScanPlan({ newFolders, collisions, skipped });
     } catch (error) {
-      console.error('Failed to add folder:', error);
-      message.error('添加文件夹失败');
+      console.error('[SettingsPage] 扫描文件夹失败:', error);
+      message.error('扫描文件夹失败');
+    } finally {
+      setScanLoading(false);
     }
   };
 
-  const scanSubfolders = async (rootPath: string, extensions: string[]) => {
-    if (!window.electronAPI) return;
+  // 碰撞解决弹窗确认 → 应用决议
+  const handleApplyScanResolution = async (resolution: ScanResolution) => {
+    if (!window.electronAPI) { message.error('系统功能不可用'); return; }
+    setScanApplying(true);
     try {
-      setScanning(rootPath);
-      message.loading({ content: '正在后台扫描子文件夹...', key: 'scanning', duration: 0 });
-      const result = await window.electronAPI.gallery.scanSubfolders(rootPath, extensions);
-      if (result.success && result.data) {
-        const d: any = result.data;
-        message.success({ content: `扫描完成：创建图集 ${d.created} 个，跳过 ${d.skipped} 个，导入图片 ${d.imported ?? 0} 张`, key: 'scanning', duration: 5 });
+      const applyRes = await window.electronAPI.gallery.applyScanPlan(resolution);
+      if (applyRes.success) {
+        toastScanSummary(applyRes.data);
+        setScanPlan(null);
       } else {
-        message.error({ content: result.error || '扫描失败', key: 'scanning', duration: 3 });
+        message.error(applyRes.error || '应用扫描计划失败');
       }
     } catch (error) {
-      message.error({ content: '扫描失败', key: 'scanning', duration: 3 });
+      console.error('[SettingsPage] 应用扫描计划失败:', error);
+      message.error('应用扫描计划失败');
     } finally {
-      setScanning(null);
+      setScanApplying(false);
     }
-  };
-
-  // 删除图库：modal.confirm 做确认，「彻底删除」清记录+缩略图（磁盘原图保留）
-  const handleDeleteFolder = (index: number) => {
-    const target = folders[index];
-    if (target?.id == null) {
-      // 无 DB id（迁移前遗留），直接从本地 state 移除
-      setFolders(folders.filter((_, i) => i !== index));
-      return;
-    }
-    const galleryId = target.id;
-    modal.confirm({
-      title: `删除图库 "${target.name}"`,
-      content: '「彻底删除」会清除该图库的图片记录与缩略图缓存（磁盘原图保留）；如只想保留数据、关闭自动同步，请改用列表中的「停止监视」。',
-      okText: '彻底删除',
-      okButtonProps: { danger: true },
-      cancelText: '取消',
-      onOk: async () => {
-        const result = await window.electronAPI.gallery.deleteGallery(galleryId);
-        if (!result.success) { message.error(result.error || '删除失败'); return; }
-        message.success('已删除图库');
-        await loadConfig();
-      },
-    });
-  };
-
-  // 停止监视：保留全部数据，仅关闭自动同步
-  const handleStopWatching = async (index: number) => {
-    const target = folders[index];
-    if (target?.id == null) return;
-    const result = await window.electronAPI.gallery.updateGallery(target.id, { isWatching: false });
-    if (!result.success) { message.error(result.error || '操作失败'); return; }
-    message.success('已停止监视该图库（数据保留）');
-    await loadConfig();
   };
 
   const handleSelectDownloadPath = async () => {
@@ -696,83 +660,50 @@ export const SettingsPage: React.FC = () => {
       {/* ===== 通用配置 ===== */}
       {activeTab === 'general' && (
         <>
-          {/* 图库文件夹 */}
+          {/* 图库文件夹 — Phase 7A：移除逐条图集列表，改为扫描文件夹 + 重定位根目录维护动作。
+              图集列表（重命名 / 删除 / 停止监视等）已迁至图库页。 */}
           <SettingsGroup
             title={t('settings.galleryFolders')}
-            footer={t('settings.galleryFoldersFooter')}
+            footer="选择一个文件夹后会扫描其一级子文件夹并按需创建图集；同名时可选择合并或新建。重定位根目录用于跨机器迁移后整体改写路径前缀。"
           >
-            <Spin spinning={loading}>
-              {folders.length === 0 ? (
-                <div style={{ padding: `${spacing.xxl}px` }}>
-                  <Empty
-                    image={Empty.PRESENTED_IMAGE_SIMPLE}
-                    description={t('settings.noFolders')}
+            <SettingsRow
+              label="扫描文件夹"
+              description="选择目录扫描子文件夹并创建图集"
+              extra={
+                <Button
+                  type="primary"
+                  size="small"
+                  icon={<ScanOutlined />}
+                  loading={scanLoading}
+                  onClick={() => void handleScanFolder()}
+                >
+                  扫描文件夹
+                </Button>
+              }
+            />
+            <SettingsRow
+              isLast
+              label="重定位根目录"
+              description="跨机器迁移后整体改写图库路径前缀（无损、不重扫）"
+              extra={
+                <Tooltip title="跨机器迁移：文件随库一起搬到新位置后，把旧路径前缀整体改写为新前缀，无损、不重扫">
+                  <Button
+                    size="small"
+                    icon={<SwapOutlined />}
+                    onClick={() => setRelocateOpen(true)}
                   >
-                    <Button type="primary" icon={<PlusOutlined />} onClick={handleAddFolder}>
-                      {t('settings.addFolder')}
-                    </Button>
-                  </Empty>
-                </div>
-              ) : (
-                folders.map((item, index) => (
-                  <SettingsRow
-                    key={item.path}
-                    label={item.name}
-                    description={item.path}
-                    isLast={index === folders.length - 1}
-                    extra={
-                      <Space size={spacing.sm}>
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<ScanOutlined />}
-                          loading={scanning === item.path}
-                          onClick={() => scanSubfolders(item.path, item.extensions)}
-                          style={{ color: colors.primary }}
-                        >
-                          {t('settings.scanFolder')}
-                        </Button>
-                        {item.isWatching && (
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={<StopOutlined />}
-                            onClick={() => handleStopWatching(index)}
-                            title="保留数据，仅关闭自动同步"
-                          >
-                            停止监视
-                          </Button>
-                        )}
-                        <Button
-                          type="text"
-                          size="small"
-                          icon={<DeleteOutlined />}
-                          danger
-                          onClick={() => handleDeleteFolder(index)}
-                        >
-                          {t('settings.deleteFolder')}
-                        </Button>
-                      </Space>
-                    }
-                  />
-                ))
-              )}
-            </Spin>
+                    重定位根目录
+                  </Button>
+                </Tooltip>
+              }
+            />
             <div style={{
               display: 'flex',
               alignItems: 'center',
-              justifyContent: 'space-between',
+              justifyContent: 'flex-end',
               padding: `${spacing.sm}px ${spacing.lg}px`,
               borderTop: `0.5px solid ${colors.separator}`,
             }}>
-              <Button
-                type="link"
-                icon={<PlusOutlined />}
-                onClick={handleAddFolder}
-                style={{ padding: 0, color: colors.primary, fontWeight: 500 }}
-              >
-                {t('settings.addFolder')}
-              </Button>
               <Button
                 type="link"
                 icon={<StopOutlined />}
@@ -785,6 +716,31 @@ export const SettingsPage: React.FC = () => {
           </SettingsGroup>
 
           <IgnoredFoldersModal open={ignoredModalOpen} onClose={() => setIgnoredModalOpen(false)} />
+
+          {/* 同名碰撞解决弹窗：仅在 planScanFolder 返回 collisions 时挂载 */}
+          {scanPlan && (
+            <ScanCollisionModal
+              open={Boolean(scanPlan)}
+              newFolders={scanPlan.newFolders}
+              collisions={scanPlan.collisions}
+              skipped={scanPlan.skipped}
+              confirming={scanApplying}
+              onCancel={() => setScanPlan(null)}
+              onConfirm={handleApplyScanResolution}
+            />
+          )}
+
+          {/* 重定位根目录维护弹窗 */}
+          <RelocateRootModal
+            open={relocateOpen}
+            onCancel={() => setRelocateOpen(false)}
+            onPreview={(mappings) => window.electronAPI.gallery.previewRelocateRoot(mappings)}
+            onApply={(mappings) => window.electronAPI.gallery.applyRelocateRoot(mappings)}
+            onPickFolder={async () => {
+              const res = await window.electronAPI.system.selectFolder();
+              return res.success ? res.data : undefined;
+            }}
+          />
 
           {/* 下载设置 */}
           <SettingsGroup title={t('settings.download')}>
