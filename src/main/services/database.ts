@@ -1019,3 +1019,19 @@ export async function backfillGalleryImages(database: sqlite3.Database): Promise
     }
   }
 }
+
+/**
+ * 解耦迁移编排（幂等）。在 initDatabase 末尾调用。
+ * - 先建两张关联表（始终执行）。
+ * - 仅当 galleries 仍是旧结构（含 folderPath 列）时回填 folders/images；
+ *   contract 阶段删列后该判断为 false，回填自动跳过。
+ */
+export async function migrateGalleryFolderDecoupling(database: sqlite3.Database): Promise<void> {
+  await ensureDecouplingTables(database);
+
+  if (await columnExists(database, 'galleries', 'folderPath')) {
+    await backfillGalleryFolders(database);
+    await backfillGalleryImages(database);
+    console.log('[database] 图集解耦迁移：gallery_folders / gallery_images 回填完成');
+  }
+}
