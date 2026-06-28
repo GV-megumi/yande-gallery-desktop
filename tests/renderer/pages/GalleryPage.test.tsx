@@ -14,6 +14,14 @@ const getImagesByGallery = vi.fn();
 const getThumbnail = vi.fn();
 const deleteGallery = vi.fn();
 const getGallerySourceFavoriteTags = vi.fn();
+// Phase 7B：GalleryFolderManagerDialog 与进入图集自动扫描、卡片缺失标记所需的新 mock
+const getGalleryFolders = vi.fn();
+const getMissingGalleryFolders = vi.fn();
+const bindFolder = vi.fn();
+const unbindFolder = vi.fn();
+const changeFolderPath = vi.fn();
+const updateGallery = vi.fn();
+const syncGalleryFolder = vi.fn();
 const getImages = vi.fn();
 const searchImages = vi.fn();
 const getRecentImages = vi.fn();
@@ -218,6 +226,17 @@ describe('GalleryPage gallery delete action', () => {
         },
       ],
     });
+    // Phase 7B 默认 mock：多文件夹对话框 + 缺失集合 + 文件夹操作 + 自动扫描
+    getGalleryFolders.mockResolvedValue({
+      success: true,
+      data: [{ folderPath: 'D:/gallery/test', recursive: true, extensions: ['.jpg'] }],
+    });
+    getMissingGalleryFolders.mockResolvedValue([]);
+    bindFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } });
+    unbindFolder.mockResolvedValue({ success: true });
+    changeFolderPath.mockResolvedValue({ success: true });
+    updateGallery.mockResolvedValue({ success: true });
+    syncGalleryFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0, imageCount: 3, lastScannedAt: 'x' } });
 
     (window as any).electronAPI = {
       gallery: {
@@ -228,6 +247,13 @@ describe('GalleryPage gallery delete action', () => {
         getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
+        getGalleryFolders,
+        getMissingGalleryFolders,
+        bindFolder,
+        unbindFolder,
+        changeFolderPath,
+        updateGallery,
+        syncGalleryFolder,
       },
       image: {
         getThumbnail,
@@ -440,20 +466,25 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.queryByText('source_tag')).toBeNull();
   });
 
-  it('详情请求晚到时不应覆盖当前信息弹窗的来源收藏标签', async () => {
+  it('打开信息对话框后再进入详情，详情视图不再拉取来源收藏标签，对话框标签不被污染', async () => {
+    // Phase 7B：来源收藏标签只在 GalleryFolderManagerDialog 中展示，详情视图（返回按钮那屏）
+    // 不再拉取/显示来源标签。这里验证：对话框展示自己的 modal_tag；随后进入详情视图
+    // 不会触发对详情的二次来源标签拉取，对话框里的 modal_tag 不被覆盖。
     const modalTags = createDeferred<{ success: true; data: any[] }>();
-    const detailTags = createDeferred<{ success: true; data: any[] }>();
     const detailImages = createDeferred<{ success: true; data: any[] }>();
 
-    getGallerySourceFavoriteTags
-      .mockImplementationOnce(() => modalTags.promise)
-      .mockImplementationOnce(() => detailTags.promise);
+    getGallerySourceFavoriteTags.mockImplementationOnce(() => modalTags.promise);
     getImagesByGallery.mockImplementationOnce(() => detailImages.promise);
 
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
     expect(await screen.findByText('图集信息')).toBeTruthy();
+
+    // 对话框只调一次来源标签接口（不再有详情视图的第二次调用）
+    await waitFor(() => {
+      expect(getGallerySourceFavoriteTags).toHaveBeenCalledTimes(1);
+    });
 
     const galleryNameEntries = await screen.findAllByText('测试图集');
     await userEvent.click(galleryNameEntries[0]);
@@ -466,16 +497,13 @@ describe('GalleryPage gallery delete action', () => {
 
     expect(await screen.findByText('modal_tag')).toBeTruthy();
 
-    detailTags.resolve({
-      success: true,
-      data: [{ id: 301, tagName: 'detail_tag', downloadBinding: { lastStatus: 'completed' } }],
-    });
     detailImages.resolve({ success: true, data: [] });
 
+    // 进入详情视图不应再对来源标签接口发起第二次调用
     await waitFor(() => {
       expect(screen.getByText('modal_tag')).toBeTruthy();
     });
-    expect(screen.queryByText('detail_tag')).toBeNull();
+    expect(getGallerySourceFavoriteTags).toHaveBeenCalledTimes(1);
   });
 
   it('打开图集信息弹窗后切到 recent 时应清空旧 modal 标签且返回 galleries 后弹窗不应残留', async () => {
@@ -1040,8 +1068,9 @@ describe('GalleryPage gallery delete action', () => {
       data: [{ id: 202, tagName: 'fresh_tag', downloadBinding: { lastStatus: 'completed' } }],
     });
 
+    // Phase 7B：详情加载不再先 await 来源收藏标签（对话框自取），因此进入第二个图集会直接
+    // 调 getImagesByGallery(2)；这里断言确实带 (2,1,1000) 取了第二个图集（不再耦合旧的「只调 1 次」时序）。
     await waitFor(() => {
-      expect(getImagesByGallery).toHaveBeenCalledTimes(1);
       expect(getImagesByGallery).toHaveBeenCalledWith(2, 1, 1000);
     });
 
@@ -1283,6 +1312,81 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.queryByRole('button', { name: /返\s*回/ })).toBeNull();
     expect(screen.getByTestId('image-list-wrapper').getAttribute('data-loading')).toBe('true');
   });
+
+  // ===== Phase 7B：图集信息多文件夹管理对话框接入 + 进入图集自动扫描 + 卡片缺失标记 =====
+
+  it('Phase 7B：点击卡片信息图标应打开多文件夹管理对话框并按 getGalleryFolders 列出文件夹', async () => {
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByRole('button', { name: '封面' }));
+
+    // 新对话框标题「图集信息」，并通过 getGalleryFolders 拉取绑定文件夹
+    expect(await screen.findByText('图集信息')).toBeTruthy();
+    await waitFor(() => {
+      expect(getGalleryFolders).toHaveBeenCalledWith(1);
+    });
+    expect(await screen.findByText('D:/gallery/test')).toBeTruthy();
+  });
+
+  it('Phase 7B：进入 isWatching=true 的图集应自动扫描一次（syncGalleryFolder）', async () => {
+    getGalleries.mockResolvedValue({
+      success: true,
+      data: [{
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        isWatching: true,
+      }],
+    });
+    getGallery.mockResolvedValue({
+      success: true,
+      data: {
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        isWatching: true,
+      },
+    });
+
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('自动扫描图集'));
+    expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(syncGalleryFolder).toHaveBeenCalledWith(7);
+    });
+  });
+
+  it('Phase 7B：进入 isWatching=false 的图集不应自动扫描', async () => {
+    // 默认 getGalleries/getGallery 返回 isWatching:false 的「测试图集」(id=1)
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('测试图集'));
+    expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
+
+    // 给足够时间让任何潜在自动扫描触发；isWatching=false 时不应调用
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(syncGalleryFolder).not.toHaveBeenCalled();
+  });
+
+  it('Phase 7B：getMissingGalleryFolders 命中的图集卡片应显示「文件夹丢失」标记', async () => {
+    getMissingGalleryFolders.mockResolvedValue([{ galleryId: 1, folderPath: 'D:/gallery/test' }]);
+
+    renderGalleriesPage();
+
+    expect(await screen.findByText('测试图集')).toBeTruthy();
+    await waitFor(() => {
+      expect(getMissingGalleryFolders).toHaveBeenCalled();
+    });
+    expect(await screen.findByText('文件夹丢失')).toBeTruthy();
+  });
 });
 
 describe('GalleryPage app event refresh', () => {
@@ -1322,6 +1426,13 @@ describe('GalleryPage app event refresh', () => {
     saveConfig.mockResolvedValue({ success: true });
     getGalleryPagePreferences.mockResolvedValue({ success: true, data: undefined });
     saveGalleryPagePreferences.mockResolvedValue({ success: true });
+    getGalleryFolders.mockResolvedValue({ success: true, data: [] });
+    getMissingGalleryFolders.mockResolvedValue([]);
+    bindFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } });
+    unbindFolder.mockResolvedValue({ success: true });
+    changeFolderPath.mockResolvedValue({ success: true });
+    updateGallery.mockResolvedValue({ success: true });
+    syncGalleryFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0, imageCount: 0, lastScannedAt: 'x' } });
 
     (window as any).electronAPI = {
       gallery: {
@@ -1332,6 +1443,13 @@ describe('GalleryPage app event refresh', () => {
         getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
+        getGalleryFolders,
+        getMissingGalleryFolders,
+        bindFolder,
+        unbindFolder,
+        changeFolderPath,
+        updateGallery,
+        syncGalleryFolder,
       },
       image: {
         getThumbnail,

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Popover, Descriptions, Modal, Tooltip, Dropdown, Form } from 'antd';
+import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Modal, Tooltip, Dropdown, Form } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
@@ -8,6 +8,7 @@ import { ImageSearchBar } from '../components/ImageSearchBar';
 import { LazyLoadFooter } from '../components/LazyLoadFooter';
 import { GalleryCoverImage } from '../components/GalleryCoverImage';
 import { SkeletonGrid } from '../components/SkeletonGrid';
+import { GalleryFolderManagerDialog } from '../components/GalleryFolderManagerDialog';
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
@@ -142,9 +143,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [allGalleries, setAllGalleries] = useState<any[]>([]);
+  // Phase 7B：图集信息升级为多文件夹管理对话框。该状态非空即打开 GalleryFolderManagerDialog，
+  // 对话框自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签（不再由本页维护 modal/detail 的只读快照）。
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
-  const [detailSourceFavoriteTags, setDetailSourceFavoriteTags] = useState<any[]>([]);
-  const [modalSourceFavoriteTags, setModalSourceFavoriteTags] = useState<any[]>([]);
+  // Phase 7B：磁盘上已缺失绑定文件夹的图集 id 集合，用于在图集卡片上打「文件夹丢失」标记
+  const [missingFolderGalleryIds, setMissingFolderGalleryIds] = useState<Set<number>>(new Set());
   // 内容容器 ref，用于监听滚动和判断缓存恢复时是否可直接插入新增块
   const contentRef = useRef<HTMLDivElement>(null);
   const recentRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -169,6 +172,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
+  // Phase 7B：进入图集时按 isWatching 自动扫描一次的「已扫描」守卫，避免每次渲染重复触发
+  const autoScannedGalleryIdsRef = useRef<Set<number>>(new Set());
   const visibleRecentImages = useMemo(
     () => recentImages.slice(0, recentVisibleCount),
     [recentImages, recentVisibleCount]
@@ -257,12 +262,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               galleryDetailRequestRunIdRef.current += 1;
               setSelectedGallery(null);
               setGalleryImages([]);
-              setDetailSourceFavoriteTags([]);
             }
             if (selectedGalleryInfo?.id === gallery.id) {
               galleryInfoRequestRunIdRef.current += 1;
               setSelectedGalleryInfo(null);
-              setModalSourceFavoriteTags([]);
             }
             await loadGalleries();
           } else {
@@ -517,7 +520,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             galleryDetailRequestRunIdRef.current += 1;
             setSelectedGallery(null);
             setGalleryImages([]);
-            setDetailSourceFavoriteTags([]);
           } else {
             const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
             if (result.success && result.data) {
@@ -529,8 +531,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           if (payload.action === 'deleted') {
             galleryInfoRequestRunIdRef.current += 1;
             setSelectedGalleryInfo(null);
-            setModalSourceFavoriteTags([]);
           } else {
+            // 图集元信息变化时刷新对话框使用的图集对象（对话框内部会按 gallery.id 重新拉取文件夹/标签）
             const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
             if (result.success && result.data) {
               setSelectedGalleryInfo(result.data);
@@ -642,6 +644,18 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         console.log(`[GalleryPage] 图集列表加载成功，共 ${galleryList.length} 个图集`);
         setAllGalleries(galleryList);
         setGalleries(filterAndSortGalleries(galleryList, nextQuery, nextSortKey, nextSortOrder));
+
+        // Phase 7B：加载磁盘缺失绑定文件夹集合，用于在图集卡片上打「文件夹丢失」标记。
+        // getMissingGalleryFolders 直接返回裸数组（非 {success} 包裹），可能抛错 → try/catch 兜底。
+        try {
+          const missing = await window.electronAPI.gallery.getMissingGalleryFolders();
+          const ids = new Set<number>(
+            (Array.isArray(missing) ? missing : []).map((m) => m.galleryId)
+          );
+          setMissingFolderGalleryIds(ids);
+        } catch (missingError) {
+          console.warn('[GalleryPage] 加载缺失文件夹集合失败:', missingError);
+        }
       } else {
         console.error('[GalleryPage] 加载图集失败:', result.error);
         message.error('加载图集失败: ' + result.error);
@@ -709,6 +723,28 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     handleSearch(value, 1, 50);
   };
 
+  // Phase 7B：进入图集后的一次性自动扫描（在首屏渲染后异步执行，不阻塞首屏）。
+  // 扫描全部绑定文件夹；若确有新增（imported>0）且用户仍停留在该图集详情（detailRunId 未被新请求顶替），
+  // 则重新拉取图片回灌新图。detailRunId 由调用方（loadGalleryImages）在发起时捕获并透传，
+  // 避免用闭包里的 selectedGallery（首次进入时可能尚未提交）误判归属。
+  const autoScanGalleryOnEnter = async (galleryId: number, detailRunId: number) => {
+    try {
+      const result = await window.electronAPI.gallery.syncGalleryFolder(galleryId);
+      if (result.success && result.data && result.data.imported > 0) {
+        console.log(
+          `[GalleryPage] 进入图集自动扫描完成：导入 ${result.data.imported}，跳过 ${result.data.skipped}`
+        );
+        // 仅当用户仍停留在发起本次扫描的那次图集详情请求时刷新图片，避免污染已切走/已切换的视图
+        if (galleryDetailRequestRunIdRef.current === detailRunId) {
+          await loadGalleryImages(galleryId);
+        }
+        await loadGalleries();
+      }
+    } catch (error) {
+      console.warn('[GalleryPage] 进入图集自动扫描失败:', error);
+    }
+  };
+
   // 加载图集图片
   const loadGalleryImages = async (galleryId: number) => {
     if (!window.electronAPI) return;
@@ -728,19 +764,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       }
       if (galleryResult.success && galleryResult.data) {
         const gallery = galleryResult.data;
-        const sourceResult = await window.electronAPI.booru.getGallerySourceFavoriteTags(galleryId);
-        if (!isLatestRequest()) {
-          return;
-        }
-        if (sourceResult.success && sourceResult.data) {
-          setDetailSourceFavoriteTags(sourceResult.data);
-        } else {
-          setDetailSourceFavoriteTags([]);
-        }
-        const folderPath = gallery.folderPath;
-        console.log(`[GalleryPage] 图集 "${gallery.name}" 路径: ${folderPath}`);
         // 图集详情读取改用 gallery_images 成员表（Phase 2B）：按 galleryId 显式取成员，
-        // 不再依赖 folderPath 前缀匹配。单个图集一次性加载较多图片（例如 1000 张），方便浏览。
+        // 不再依赖 folderPath 前缀匹配（Phase 7B 已移除渲染层对 gallery.folderPath 的读取）。
+        // 单个图集一次性加载较多图片（例如 1000 张），方便浏览。
         const result = await window.electronAPI.gallery.getImagesByGallery(galleryId, 1, 1000);
         if (!isLatestRequest()) {
           return;
@@ -749,6 +775,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           const data = result.data || [];
           console.log(`[GalleryPage] 图集图片加载成功，数量: ${data.length}`);
           setGalleryImages(data); // 存储到galleryImages
+
+          // Phase 7B 进入图集自动扫描：若 gallery.isWatching（UI 称「自动扫描」）开启，
+          // 在首屏渲染后异步扫描全部绑定文件夹一次并回灌新图。用 ref 守卫保证每个图集仅触发一次，
+          // 不阻塞首屏渲染（不 await，扫描完成后再静默刷新图片）。
+          if (gallery.isWatching && !autoScannedGalleryIdsRef.current.has(galleryId)) {
+            autoScannedGalleryIdsRef.current.add(galleryId);
+            void autoScanGalleryOnEnter(galleryId, requestRunId);
+          }
 
           // 如果没有封面且有图片，自动设置第一张图为封面
           if (!gallery.coverImageId && data.length > 0 && data[0].id) {
@@ -1024,7 +1058,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           galleryDetailRequestRunIdRef.current += 1;
           galleryInfoRequestRunIdRef.current += 1;
           setSelectedGalleryInfo(null);
-          setModalSourceFavoriteTags([]);
           setRecentVisibleCount(RECENT_VISIBLE_BATCH_SIZE);
           setIsSearchMode(false);
           setSearchQuery('');
@@ -1037,7 +1070,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           galleryDetailRequestRunIdRef.current += 1;
           galleryInfoRequestRunIdRef.current += 1;
           setSelectedGalleryInfo(null);
-          setModalSourceFavoriteTags([]);
           const nextSearchQuery = allPreferences?.searchQuery ?? '';
           const nextIsSearchMode = allPreferences?.isSearchMode ?? false;
           const nextAllPage = allPreferences?.allPage ?? 1;
@@ -1078,8 +1110,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           setAllImages([]);
           setGalleryImages([]);
           setSelectedGallery(null);
-          setDetailSourceFavoriteTags([]);
-          setModalSourceFavoriteTags([]);
+          setSelectedGalleryInfo(null);
           await loadGalleries({
             query: galleriesPreferences?.gallerySearchQuery ?? '',
             sortKey: galleriesPreferences?.gallerySortKey ?? 'updatedAt',
@@ -1636,7 +1667,6 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       galleryDetailRequestRunIdRef.current += 1;
                       setSelectedGallery(null);
                       setGalleryImages([]);
-                      setDetailSourceFavoriteTags([]);
                       // 显式同步落盘 selectedGalleryId=null，绕过 useEffect 中 250ms 防抖：
                       // 用户返回后可能立刻切二级菜单，防抖会被 clearTimeout 取消，
                       // 磁盘上旧的 selectedGalleryId 残留会导致下次进入"图集"时再次自动打开旧详情（Bug10）。
@@ -1706,74 +1736,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         style={{ fontSize: 16 }}
                       />
                     </Tooltip>
-                    <Popover
-                      content={
-                        <Descriptions bordered column={1} size="small" style={{ maxWidth: 400 }}>
-                          <Descriptions.Item label="图集名称">{selectedGallery.name}</Descriptions.Item>
-                          <Descriptions.Item label="文件夹路径">
-                            <span 
-                              style={{ color: colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
-                              onClick={() => {
-                                if (selectedGallery.folderPath && window.electronAPI) {
-                                  window.electronAPI.system.showItem(selectedGallery.folderPath);
-                                }
-                              }}
-                              title="点击在资源管理器中打开"
-                            >
-                              {selectedGallery.folderPath}
-                            </span>
-                          </Descriptions.Item>
-                          <Descriptions.Item label="图片数量">{selectedGallery.imageCount}</Descriptions.Item>
-                          {selectedGallery.lastScannedAt && (
-                            <Descriptions.Item label="最后扫描">
-                              {new Date(selectedGallery.lastScannedAt).toLocaleString()}
-                            </Descriptions.Item>
-                          )}
-                          <Descriptions.Item label="创建时间">
-                            {new Date(selectedGallery.createdAt).toLocaleString()}
-                          </Descriptions.Item>
-                          <Descriptions.Item label="更新时间">
-                            {new Date(selectedGallery.updatedAt).toLocaleString()}
-                          </Descriptions.Item>
-                          <Descriptions.Item label="递归扫描">{selectedGallery.recursive ? '是' : '否'}</Descriptions.Item>
-                          <Descriptions.Item label="监视目录">{selectedGallery.isWatching ? '是' : '否'}</Descriptions.Item>
-                          {selectedGallery.extensions && selectedGallery.extensions.length > 0 && (
-                            <Descriptions.Item label="支持格式">
-                              {selectedGallery.extensions.join(', ')}
-                            </Descriptions.Item>
-                          )}
-                          <Descriptions.Item label="来源收藏标签">
-                            {detailSourceFavoriteTags.length > 0
-                              ? detailSourceFavoriteTags.map((tag: any) => (
-                                  <Tooltip key={tag.id} title={
-                                    <div>
-                                      <div>状态: {tag.downloadBinding?.lastStatus || '未配置'}</div>
-                                      {tag.downloadBinding?.lastCompletedAt && (
-                                        <div>上次下载: {new Date(tag.downloadBinding.lastCompletedAt).toLocaleString()}</div>
-                                      )}
-                                    </div>
-                                  }>
-                                    <Tag
-                                      color={tag.downloadBinding?.lastStatus === 'completed' ? 'success' : tag.downloadBinding?.lastStatus === 'failed' ? 'error' : 'blue'}
-                                    >
-                                      {tag.tagName}
-                                    </Tag>
-                                  </Tooltip>
-                                ))
-                              : '-'}
-                          </Descriptions.Item>
-                        </Descriptions>
-                      }
-                      title="图集详细信息"
-                      trigger="click"
-                      placement="bottomRight"
-                    >
+                    <Tooltip title="图集信息">
                       <Button
                         type="text"
+                        aria-label="图集信息"
                         icon={<QuestionCircleOutlined />}
                         style={{ fontSize: 16 }}
+                        onClick={() => setSelectedGalleryInfo(selectedGallery)}
                       />
-                    </Popover>
+                    </Tooltip>
                   </Space>
                 </div>
               <ImageListWrapper
@@ -1876,33 +1847,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         coverImage={gallery.coverImage}
                         thumbnailPath={coverThumbnails[gallery.id]}
                         getImageUrl={getImageUrl}
-                        onInfoClick={async () => {
-                        const requestRunId = galleryInfoRequestRunIdRef.current + 1;
-                        galleryInfoRequestRunIdRef.current = requestRunId;
-                        const isLatestRequest = () => galleryInfoRequestRunIdRef.current === requestRunId;
-
-                        console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
-                        setSelectedGalleryInfo(gallery);
-                        setModalSourceFavoriteTags([]);
-                        try {
-                          const sourceResult = await window.electronAPI.booru.getGallerySourceFavoriteTags(gallery.id);
-                          if (!isLatestRequest()) {
-                            return;
-                          }
-                          if (sourceResult.success && sourceResult.data) {
-                            setModalSourceFavoriteTags(sourceResult.data);
-                          } else {
-                            setModalSourceFavoriteTags([]);
-                          }
-                        } catch (error) {
-                          if (!isLatestRequest()) {
-                            return;
-                          }
-                          console.error('[GalleryPage] 加载图集来源收藏标签失败:', error);
-                          setModalSourceFavoriteTags([]);
-                        }
-                      }}
+                        onInfoClick={() => {
+                          // Phase 7B：点击信息图标打开多文件夹管理对话框（GalleryFolderManagerDialog
+                          // 内部自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签，无需本页预取）。
+                          console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
+                          galleryInfoRequestRunIdRef.current += 1;
+                          setSelectedGalleryInfo(gallery);
+                        }}
                       />
+                      {/* Phase 7B：磁盘缺失绑定文件夹时在卡片上打「文件夹丢失」标记 */}
+                      {missingFolderGalleryIds.has(gallery.id) && (
+                        <div style={{ textAlign: 'center', marginTop: spacing.xs / 2 }}>
+                          <Tag color="error" style={{ marginInlineEnd: 0 }}>文件夹丢失</Tag>
+                        </div>
+                      )}
                       {/* 文字区域 */}
                       <div
                         style={{
@@ -1947,83 +1905,27 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     <div ref={contentRef} style={{ padding: spacing.xl }}>
       {renderContent()}
       
-      {/* 图集信息模态框 */}
+      {/* Phase 7B：图集信息多文件夹管理对话框（取代旧的只读 Modal 与详情头部 Popover）。
+          对话框自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签；onChanged 回调里刷新图集列表，
+          并在该图集正处于详情视图时重新加载其图片。 */}
       {selectedGalleryInfo && (
-        <Modal
+        <GalleryFolderManagerDialog
+          key={selectedGalleryInfo.id}
+          gallery={selectedGalleryInfo}
           open
-          title="图集信息"
-          closable
-          maskClosable
-          keyboard
-          footer={
-            <Button onClick={() => { console.log('[GalleryPage] 关闭图集信息模态框'); galleryInfoRequestRunIdRef.current += 1; setSelectedGalleryInfo(null); setModalSourceFavoriteTags([]); }}>
-              关闭
-            </Button>
-          }
-          onCancel={() => {
-            console.log('[GalleryPage] 关闭图集信息模态框');
+          onClose={() => {
             galleryInfoRequestRunIdRef.current += 1;
             setSelectedGalleryInfo(null);
-            setModalSourceFavoriteTags([]);
           }}
-          width={600}
-        >
-          <Descriptions bordered column={1}>
-            <Descriptions.Item label="图集名称">{selectedGalleryInfo.name}</Descriptions.Item>
-            <Descriptions.Item label="文件夹路径">
-              <span
-                style={{ color: colors.primary, cursor: 'pointer', textDecoration: 'underline' }}
-                onClick={() => {
-                  if (selectedGalleryInfo.folderPath && window.electronAPI) {
-                    window.electronAPI.system.showItem(selectedGalleryInfo.folderPath);
-                  }
-                }}
-                title="点击在资源管理器中打开"
-              >
-                {selectedGalleryInfo.folderPath}
-              </span>
-            </Descriptions.Item>
-            <Descriptions.Item label="图片数量">{selectedGalleryInfo.imageCount}</Descriptions.Item>
-            {selectedGalleryInfo.lastScannedAt && (
-              <Descriptions.Item label="最后扫描">
-                {new Date(selectedGalleryInfo.lastScannedAt).toLocaleString()}
-              </Descriptions.Item>
-            )}
-            <Descriptions.Item label="创建时间">
-              {new Date(selectedGalleryInfo.createdAt).toLocaleString()}
-            </Descriptions.Item>
-            <Descriptions.Item label="更新时间">
-              {new Date(selectedGalleryInfo.updatedAt).toLocaleString()}
-            </Descriptions.Item>
-            <Descriptions.Item label="递归扫描">{selectedGalleryInfo.recursive ? '是' : '否'}</Descriptions.Item>
-            <Descriptions.Item label="监视目录">{selectedGalleryInfo.isWatching ? '是' : '否'}</Descriptions.Item>
-            {selectedGalleryInfo.extensions && selectedGalleryInfo.extensions.length > 0 && (
-              <Descriptions.Item label="支持格式">
-                {selectedGalleryInfo.extensions.join(', ')}
-              </Descriptions.Item>
-            )}
-            <Descriptions.Item label="来源收藏标签">
-              {modalSourceFavoriteTags.length > 0
-                ? modalSourceFavoriteTags.map((tag: any) => (
-                    <Tooltip key={tag.id} title={
-                      <div>
-                        <div>状态: {tag.downloadBinding?.lastStatus || '未配置'}</div>
-                        {tag.downloadBinding?.lastCompletedAt && (
-                          <div>上次下载: {new Date(tag.downloadBinding.lastCompletedAt).toLocaleString()}</div>
-                        )}
-                      </div>
-                    }>
-                      <Tag
-                        color={tag.downloadBinding?.lastStatus === 'completed' ? 'success' : tag.downloadBinding?.lastStatus === 'failed' ? 'error' : 'blue'}
-                      >
-                        {tag.tagName}
-                      </Tag>
-                    </Tooltip>
-                  ))
-                : '-'}
-            </Descriptions.Item>
-          </Descriptions>
-        </Modal>
+          onChanged={() => {
+            const changedId = selectedGalleryInfo.id;
+            void loadGalleries();
+            if (selectedGallery?.id === changedId) {
+              // 绑定/解绑/扫描可能改变图集成员，详情视图需重新拉取图片
+              void loadGalleryImages(changedId);
+            }
+          }}
+        />
       )}
 
       {/* 编辑图集模态框 */}
