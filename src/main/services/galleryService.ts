@@ -702,36 +702,16 @@ export async function scanSubfoldersAndCreateGalleries(
                   usedNames.add(galleryName);
                   console.log(`Gallery created: name=${galleryName}, folder=${fullPath}`);
 
-                  // 同步导入该文件夹下的图片到数据库
-                  const importResult = await scanAndImportFolder(fullPath, extensions, false);
+                  // Phase 2A：子文件夹图集走统一入口 scanFolderIntoGallery（扫描导入 +
+                  // 写 gallery_images 成员 + 更新统计 + 发事件）。recursive=false 不变，
+                  // 全树 walk 由下方 scanSubfolders(fullPath) 继续负责（扫描深度修复留待后续阶段）。
+                  const importResult = await scanFolderIntoGallery(galleryId, fullPath, false, extensions);
                   if (importResult.success && importResult.data) {
                     totalImported += importResult.data.imported;
                     totalImageSkipped += importResult.data.skipped;
                     console.log(
                       `Images imported: folder=${fullPath}, imported=${importResult.data.imported}, skipped=${importResult.data.skipped}`
                     );
-
-                    // 更新图集统计信息中的图片数量和最后扫描时间
-                    await updateGalleryStats(
-                      galleryId,
-                      importResult.data.imported,
-                      new Date().toISOString()
-                    );
-                    if (importResult.data.imported > 0) {
-                      emitBuiltRendererAppEvent({
-                        type: 'gallery:images-imported',
-                        source: 'galleryService',
-                        payload: {
-                          folderPath: fullPath,
-                          galleryId,
-                          imported: importResult.data.imported,
-                          skipped: importResult.data.skipped,
-                          recursive: false,
-                          imageCount: importResult.data.imported,
-                          reason: 'scanSubfolders',
-                        },
-                      });
-                    }
                   } else if (!importResult.success) {
                     console.warn(
                       `Import images failed: folder=${fullPath}, error=${importResult.error}`
