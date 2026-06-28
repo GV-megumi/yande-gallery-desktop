@@ -186,23 +186,30 @@ function getFavoriteTagDefaultDownloadPath(tagName: string): string {
   return path.join(baseDownloadPath, normalizeFavoriteTagFolderName(tagName));
 }
 
-async function getGallerySnapshotById(id: number): Promise<{ id: number; name: string; folderPath: string } | null> {
+// Phase 8A：galleries 已无 folderPath 列；仅取存在性快照（id/name）。
+// 导出供契约回归测试直接对真实 contracted schema 验证（无生产其它调用方，仅本模块内部使用）。
+export async function getGallerySnapshotById(id: number): Promise<{ id: number; name: string } | null> {
   const db = await getDatabase();
-  const row = await get<{ id: number; name: string; folderPath: string }>(
+  const row = await get<{ id: number; name: string }>(
     db,
-    'SELECT id, name, folderPath FROM galleries WHERE id = ?',
+    'SELECT id, name FROM galleries WHERE id = ?',
     [id]
   );
 
   return row || null;
 }
 
-async function findGalleryByFolderPath(folderPath: string): Promise<{ id: number; name: string; folderPath: string } | null> {
+// Phase 8A：folderPath 已从 galleries 移到 gallery_folders（绑定文件夹的 source of truth）。
+// 按文件夹反查所属图集 → 查 gallery_folders（folderPath 全局 UNIQUE）；输入先归一化，
+// 与 createGallery 去重检查（galleryService.createGallery）一致。调用方只用 id，返回 { id }。
+// 导出供契约回归测试直接对真实 contracted schema 验证。
+export async function findGalleryByFolderPath(folderPath: string): Promise<{ id: number } | null> {
   const db = await getDatabase();
-  const row = await get<{ id: number; name: string; folderPath: string }>(
+  const normalized = normalizePath(folderPath);
+  const row = await get<{ id: number }>(
     db,
-    'SELECT id, name, folderPath FROM galleries WHERE folderPath = ?',
-    [folderPath]
+    'SELECT galleryId AS id FROM gallery_folders WHERE folderPath = ?',
+    [normalized]
   );
 
   return row || null;
@@ -2541,11 +2548,13 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
     }
 
     const galleryIds = Array.from(new Set(bindingRows.map(row => row.galleryId).filter((id): id is number => id !== null)));
-    const galleriesById = new Map<number, { id: number; folderPath: string; name: string }>();
+    // Phase 8A：galleries 已无 folderPath 列；一致性判定改用下方 gallery_folders 绑定路径，
+    // 此处仅取 id/name（folderPath 在此已是死字段）。
+    const galleriesById = new Map<number, { id: number; name: string }>();
     if (galleryIds.length > 0) {
       const galleryPlaceholders = galleryIds.map(() => '?').join(',');
-      const galleries = await all<{ id: number; folderPath: string; name: string }>(db, `
-        SELECT id, folderPath, name
+      const galleries = await all<{ id: number; name: string }>(db, `
+        SELECT id, name
         FROM galleries
         WHERE id IN (${galleryPlaceholders})
       `, galleryIds);
