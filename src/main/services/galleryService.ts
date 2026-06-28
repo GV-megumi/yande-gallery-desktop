@@ -10,6 +10,9 @@ import {
 } from './appEventPublisher.js';
 import { addGalleryRoot, removeGalleryRoot } from './galleryRootRegistry.js';
 
+// 默认图片扩展名（绑定/扫描未显式指定 extensions 时的回退值）
+const DEFAULT_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+
 // 图库类型
 export interface Gallery {
   id: number;
@@ -651,6 +654,71 @@ export async function scanFolderIntoGallery(
       imageCount,
     },
   };
+}
+
+/**
+ * 给已存在的图集加绑一个文件夹并扫描入成员（Phase 3：「+添加文件夹」/同名合并）。
+ *
+ * - 归一化 folderPath；
+ * - 若该 folderPath 已存在于 gallery_folders（全局 UNIQUE）→ 拒绝，给出清晰 error
+ *   （一个文件夹只能属于一个图集）；
+ * - 事务内：插入 gallery_folders 行 → scanFolderIntoGallery（扫描导入 + 写 gallery_images
+ *   成员 + 以成员表 COUNT 更新统计）。scanFolderIntoGallery 内部不开事务，
+ *   所有写都参与本事务，整体原子；
+ * - addGalleryRoot(folderPath)（app:// 白名单增量维护）；
+ * - emit gallery:galleries-changed{action:'updated'}。
+ */
+export async function bindFolder(
+  galleryId: number,
+  folderPath: string,
+  recursive: boolean = true,
+  extensions?: string[]
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const normalized = normalizePath(folderPath);
+    const effectiveExtensions = extensions ?? DEFAULT_IMAGE_EXTENSIONS;
+
+    // 全局唯一校验：一个文件夹只能绑定到一个图集
+    const existing = await get<{ galleryId: number }>(
+      db,
+      'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',
+      [normalized]
+    );
+    if (existing) {
+      return {
+        success: false,
+        error: `文件夹已被图集 ${existing.galleryId} 绑定，无法重复绑定: ${normalized}`,
+      };
+    }
+
+    // 事务内：插入绑定行 + 扫描导入并写成员/更新统计（scanFolderIntoGallery 不自开事务，安全）
+    const now = new Date().toISOString();
+    await runInTransaction(db, async () => {
+      await run(
+        db,
+        `INSERT INTO gallery_folders
+           (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [galleryId, normalized, recursive ? 1 : 0, JSON.stringify(effectiveExtensions), now, now]
+      );
+
+      const scanResult = await scanFolderIntoGallery(galleryId, normalized, recursive, effectiveExtensions);
+      if (!scanResult.success) {
+        // 抛错触发 ROLLBACK，撤销刚插入的绑定行
+        throw new Error(scanResult.error || '扫描文件夹失败');
+      }
+    });
+
+    addGalleryRoot(normalized);
+    emitGalleryGalleriesChanged({ galleryId, action: 'updated' });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 绑定文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
 }
 
 /**
