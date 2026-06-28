@@ -1032,11 +1032,16 @@ export async function backfillGalleryImages(database: sqlite3.Database): Promise
  *   contract 阶段删列后该判断为 false，回填自动跳过。
  */
 export async function migrateGalleryFolderDecoupling(database: sqlite3.Database): Promise<void> {
-  await ensureDecouplingTables(database);
+  await ensureDecouplingTables(database);                 // DDL 留在事务外（避免隐式提交干扰事务）
 
   if (await columnExists(database, 'galleries', 'folderPath')) {
-    await backfillGalleryFolders(database);
-    await backfillGalleryImages(database);
+    // 回填可能涉及大量行；与 deleteGallery 一致包进单事务，避免逐行 autocommit 在
+    // 大图库启动时产生数千次 WAL 提交。幂等保证（INSERT OR IGNORE + 唯一/主键约束）
+    // 不变：事务整体失败回滚后重启可安全重跑。
+    await runInTransaction(database, async () => {
+      await backfillGalleryFolders(database);
+      await backfillGalleryImages(database);
+    });
     console.log('[database] 图集解耦迁移：gallery_folders / gallery_images 回填完成');
   }
 }
