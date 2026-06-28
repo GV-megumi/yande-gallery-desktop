@@ -1096,7 +1096,21 @@ async function checkFolderHasImages(folderPath: string, extensions: string[]): P
 }
 
 /**
- * 同步图集文件夹：重新扫描指定图集的文件夹，导入新增图片并更新统计信息
+ * 同步图集文件夹：重新扫描指定图集**全部绑定文件夹**，导入新增图片并更新统计信息。
+ *
+ * Phase 4：扫描源从 galleries 旧列 folderPath（= 图集原始单文件夹）切到 gallery_folders 的
+ * 全部绑定行——否则 bindFolder 追加 / changeFolderPath 重定位的文件夹永远不会被同步进来。
+ *
+ * 行为：
+ *   1. 校验图集存在（保留"图集不存在"错误契约）；
+ *   2. 读 gallery_folders 该图集的全部绑定行（folderPath / recursive / extensions）；
+ *   3. 逐个 scanFolderIntoGallery（各自的 recursive / extensions），累加 imported / skipped；
+ *      每个文件夹由 scanFolderIntoGallery 各自发一条 gallery:images-imported 事件（不再额外补发）；
+ *   4. 以成员表 COUNT(gallery_images) 为准统计 imageCount（多文件夹取并集）；
+ *   5. 无任何绑定文件夹（无文件夹图集）→ 返回零导入 + 当前 imageCount，不报错。
+ *
+ * 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }。
+ *
  * @param id 图集ID
  * @returns 同步结果（新导入数、跳过数、当前图片总数、扫描时间）
  */
@@ -1107,39 +1121,81 @@ export async function syncGalleryFolder(id: number): Promise<{
 }> {
   console.log('[galleryService] 同步图集文件夹:', id);
 
-  // 1. 获取图集信息
+  // 1. 校验图集存在（保留原"图集不存在"错误契约）
   const galleryResult = await getGallery(id);
   if (!galleryResult.success || !galleryResult.data) {
     return { success: false, error: galleryResult.error || '图集不存在' };
   }
 
-  const gallery = galleryResult.data;
-
-  // 2. 使用图集配置的扩展名，无配置时使用默认值
-  const extensions = gallery.extensions && gallery.extensions.length > 0
-    ? gallery.extensions
-    : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
-
-  // 3. Phase 2A：走统一入口 scanFolderIntoGallery（扫描导入 + 写 gallery_images 成员
-  //    + 以成员表 COUNT 更新统计 + 发 gallery:images-imported 事件）。
-  //    imageCount 改以成员表为准，非递归图集不再把子目录文件计入。
+  const db = await getDatabase();
   const lastScannedAt = new Date().toISOString();
-  const scanResult = await scanFolderIntoGallery(id, gallery.folderPath, gallery.recursive ?? true, extensions);
-  if (!scanResult.success || !scanResult.data) {
-    return { success: false, error: scanResult.error || '同步失败' };
+
+  // 2. 读该图集全部绑定文件夹（绑定表是当前文件夹集合的 source of truth）
+  const folderRows = await all<{ folderPath: string; recursive: number; extensions: string | null }>(
+    db,
+    'SELECT folderPath, recursive, extensions FROM gallery_folders WHERE galleryId = ?',
+    [id]
+  );
+
+  // 5. 无文件夹图集：不扫描、不报错，仅以当前成员表 COUNT 回报
+  if (folderRows.length === 0) {
+    const countRow = await get<{ cnt: number }>(
+      db,
+      'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
+      [id]
+    );
+    const imageCount = countRow?.cnt ?? 0;
+    console.log(`[galleryService] 同步完成（无绑定文件夹）: galleryId=${id}, imageCount=${imageCount}`);
+    return { success: true, data: { imported: 0, skipped: 0, imageCount, lastScannedAt } };
   }
 
+  // 3. 逐个绑定文件夹扫描导入并累加（scanFolderIntoGallery 各自写成员/更新统计/发事件）
+  const defaultExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+  let totalImported = 0;
+  let totalSkipped = 0;
+  for (const folder of folderRows) {
+    const isRecursive = folder.recursive === 1 || (folder.recursive as unknown as boolean) === true;
+    // 绑定行 extensions 存的是 JSON 字符串；解析失败或为空时回退默认扩展名
+    let folderExtensions = defaultExtensions;
+    if (folder.extensions) {
+      try {
+        const parsed = JSON.parse(folder.extensions);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          folderExtensions = parsed;
+        }
+      } catch {
+        // 损坏的 extensions JSON：回退默认，仅记录告警
+        console.warn(`[galleryService] 绑定文件夹 extensions 解析失败，回退默认: ${folder.folderPath}`);
+      }
+    }
+
+    const scanResult = await scanFolderIntoGallery(id, folder.folderPath, isRecursive, folderExtensions);
+    if (!scanResult.success || !scanResult.data) {
+      return { success: false, error: scanResult.error || '同步失败' };
+    }
+    totalImported += scanResult.data.imported;
+    totalSkipped += scanResult.data.skipped;
+  }
+
+  // 4. 以成员表 COUNT 为准统计当前图片总数（多文件夹并集）
+  const countRow = await get<{ cnt: number }>(
+    db,
+    'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
+    [id]
+  );
+  const imageCount = countRow?.cnt ?? 0;
+
   console.log(
-    `[galleryService] 同步完成: galleryId=${id}, imported=${scanResult.data.imported}, skipped=${scanResult.data.skipped}, imageCount=${scanResult.data.imageCount}`
+    `[galleryService] 同步完成: galleryId=${id}, folders=${folderRows.length}, imported=${totalImported}, skipped=${totalSkipped}, imageCount=${imageCount}`
   );
 
   // 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }
   return {
     success: true,
     data: {
-      imported: scanResult.data.imported,
-      skipped: scanResult.data.skipped,
-      imageCount: scanResult.data.imageCount,
+      imported: totalImported,
+      skipped: totalSkipped,
+      imageCount,
       lastScannedAt,
     },
   };
