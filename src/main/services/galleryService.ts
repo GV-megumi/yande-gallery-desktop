@@ -687,13 +687,16 @@ export async function scanFolderIntoGallery(
  *   所有写都参与本事务，整体原子；
  * - addGalleryRoot(folderPath)（app:// 白名单增量维护）；
  * - emit gallery:galleries-changed{action:'updated'}。
+ *
+ * 返回 data.imported/skipped 为本次绑定扫描导入计数（供 applyScanPlan 等批量入口累加；
+ * 历史调用方只读 success/error，新增可选 data 字段不破坏其契约）。
  */
 export async function bindFolder(
   galleryId: number,
   folderPath: string,
   recursive: boolean = true,
   extensions?: string[]
-): Promise<{ success: boolean; error?: string }> {
+): Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }> {
   try {
     const db = await getDatabase();
     const normalized = normalizePath(folderPath);
@@ -714,6 +717,8 @@ export async function bindFolder(
 
     // 事务内：插入绑定行 + 扫描导入并写成员/更新统计（scanFolderIntoGallery 不自开事务，安全）
     const now = new Date().toISOString();
+    let imported = 0;
+    let skipped = 0;
     await runInTransaction(db, async () => {
       await run(
         db,
@@ -728,12 +733,14 @@ export async function bindFolder(
         // 抛错触发 ROLLBACK，撤销刚插入的绑定行
         throw new Error(scanResult.error || '扫描文件夹失败');
       }
+      imported = scanResult.data?.imported ?? 0;
+      skipped = scanResult.data?.skipped ?? 0;
     });
 
     addGalleryRoot(normalized);
     emitGalleryGalleriesChanged({ galleryId, action: 'updated' });
 
-    return { success: true };
+    return { success: true, data: { imported, skipped } };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryService] 绑定文件夹失败:', errorMessage);
@@ -1199,6 +1206,107 @@ export async function planScanFolder(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryService] planScanFolder 失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+// applyScanPlan 的入参决议类型（Phase 6B）
+export interface ApplyScanResolution {
+  // 新建图集：每项新建一个 recursive=true 的图集并扫描该文件夹入成员
+  create: Array<{ folderPath: string; name: string }>;
+  // 合并到现有图集：每项把文件夹加绑到指定图集并扫描入成员
+  merge: Array<{ folderPath: string; galleryId: number }>;
+  extensions?: string[];
+}
+
+/**
+ * 应用「扫描入库」决议（Phase 6B plan→apply 的第二步）。
+ *
+ * 按 planScanFolder 给出、并经用户在碰撞对话框确认的决议逐项执行：
+ *   - create：createGallery({folderPath,name,isWatching:true,recursive:true,extensions})
+ *     → scanFolderIntoGallery(newId, folderPath, true, extensions)。recursive=true 是深度修复的关键：
+ *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skipped；
+ *   - merge：bindFolder(galleryId, folderPath, true, extensions)（加绑文件夹 + 扫描入成员，
+ *     bindFolder 透传扫描计数）。累加 merged + imported/skipped。
+ *
+ * 单项失败收集并继续，不因一个坏文件夹中止整批（失败项计入 skipped，good 项仍落库）。
+ * 整体返回 success:true（除非发生非预期异常）；逐项失败通过 skipped 计数反映。
+ *
+ * @returns { created, merged, imported, skipped }。
+ */
+export async function applyScanPlan(
+  resolution: ApplyScanResolution
+): Promise<{ success: boolean; data?: { created: number; merged: number; imported: number; skipped: number }; error?: string }> {
+  try {
+    const extensions = resolution.extensions ?? DEFAULT_IMAGE_EXTENSIONS;
+
+    let created = 0;
+    let merged = 0;
+    let imported = 0;
+    let skipped = 0;
+
+    // create：逐项新建图集（recursive=true）+ 扫描入成员；单项失败收集并继续
+    for (const item of resolution.create ?? []) {
+      try {
+        const createResult = await createGallery({
+          folderPath: item.folderPath,
+          name: item.name,
+          isWatching: true,
+          recursive: true,
+          extensions,
+        });
+        if (!createResult.success || !createResult.data) {
+          console.warn(`[galleryService] applyScanPlan 新建图集失败: ${item.folderPath}, error=${createResult.error}`);
+          skipped++;
+          continue;
+        }
+
+        const newId = createResult.data;
+        const scanResult = await scanFolderIntoGallery(newId, item.folderPath, true, extensions);
+        if (!scanResult.success || !scanResult.data) {
+          // 图集已建但扫描失败：仍计 created，导入计 0，并告警
+          console.warn(`[galleryService] applyScanPlan 新图集扫描失败: ${item.folderPath}, error=${scanResult.error}`);
+          created++;
+          continue;
+        }
+
+        created++;
+        imported += scanResult.data.imported;
+        skipped += scanResult.data.skipped;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[galleryService] applyScanPlan 新建项异常: ${item.folderPath}, ${msg}`);
+        skipped++;
+      }
+    }
+
+    // merge：逐项加绑到现有图集 + 扫描入成员；单项失败收集并继续
+    for (const item of resolution.merge ?? []) {
+      try {
+        const bindResult = await bindFolder(item.galleryId, item.folderPath, true, extensions);
+        if (!bindResult.success) {
+          console.warn(`[galleryService] applyScanPlan 合并绑定失败: ${item.folderPath}, error=${bindResult.error}`);
+          skipped++;
+          continue;
+        }
+        merged++;
+        imported += bindResult.data?.imported ?? 0;
+        skipped += bindResult.data?.skipped ?? 0;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`[galleryService] applyScanPlan 合并项异常: ${item.folderPath}, ${msg}`);
+        skipped++;
+      }
+    }
+
+    console.log(
+      `[galleryService] applyScanPlan 完成: created=${created}, merged=${merged}, imported=${imported}, skipped=${skipped}`
+    );
+
+    return { success: true, data: { created, merged, imported, skipped } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] applyScanPlan 失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }
