@@ -64,7 +64,6 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   searchTags: vi.fn(),
   getRecentImages: vi.fn(),
   getRecentImagesAfter: vi.fn(),
-  getImagesByFolder: vi.fn(),
   getImagesByGallery: vi.fn(),
   getAllFolders: vi.fn(),
   scanAndImportFolder: vi.fn(),
@@ -79,7 +78,6 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
   setGalleryCover: vi.fn(),
   updateGalleryStats: vi.fn(),
   syncGalleryFolder: vi.fn(),
-  scanSubfoldersAndCreateGalleries: vi.fn(),
 }));
 
 vi.mock('../../../src/main/services/moebooruClient.js', () => ({
@@ -296,11 +294,9 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("GALLERY_DELETE_GALLERY: 'gallery:delete-gallery'");
     expect(channelsSource).toContain("GALLERY_SET_GALLERY_COVER: 'gallery:set-gallery-cover'");
     expect(channelsSource).toContain("GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats'");
-    expect(channelsSource).toContain("GALLERY_GET_IMAGES_BY_FOLDER: 'gallery:get-images-by-folder'");
     expect(channelsSource).toContain("GALLERY_GET_IMAGES_BY_GALLERY: 'gallery:get-images-by-gallery'");
     expect(channelsSource).toContain("GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder'");
     expect(channelsSource).toContain("GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder'");
-    expect(channelsSource).toContain("GALLERY_SCAN_SUBFOLDERS: 'gallery:scan-subfolders'");
     expect(channelsSource).toContain("GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image'");
     expect(channelsSource).toContain("GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images'");
     expect(channelsSource).toContain("GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count'");

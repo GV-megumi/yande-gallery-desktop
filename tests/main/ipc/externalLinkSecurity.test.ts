@@ -38,7 +38,6 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   searchTags: vi.fn(),
   getRecentImages: vi.fn(),
   getRecentImagesAfter: vi.fn(),
-  getImagesByFolder: vi.fn(),
   getImagesByGallery: vi.fn(),
   getAllFolders: vi.fn(),
   scanAndImportFolder: vi.fn(),
@@ -53,7 +52,6 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
   setGalleryCover: vi.fn(),
   updateGalleryStats: vi.fn(),
   syncGalleryFolder: vi.fn(),
-  scanSubfoldersAndCreateGalleries: vi.fn(),
 }));
 
 vi.mock('../../../src/main/services/moebooruClient.js', () => ({

@@ -564,80 +564,11 @@ export async function getRecentImagesAfter(
 }
 
 /**
- * 按文件夹获取图片
- * @param folderPath 文件夹路径
- * @param page 页码
- * @param pageSize 每页数量
- */
-export async function getImagesByFolder(
-  folderPath: string,
-  page: number = 1,
-  pageSize: number = 50
-): Promise<{ success: boolean; data?: Image[]; total?: number; error?: string }> {
-  try {
-    const db = await getDatabase();
-    const offset = (page - 1) * pageSize;
-
-    // 定义SQL查询结果的临时类型
-    interface ImageQueryResult extends Omit<Image, 'tags'> {
-      tags?: string;
-    }
-
-    // 查询该文件夹下的图片（包含子目录）
-    const images = await all<ImageQueryResult>(
-      db,
-      `
-        SELECT
-          i.*,
-          GROUP_CONCAT(t.name) as tags
-        FROM images i
-        LEFT JOIN image_tags it ON i.id = it.imageId
-        LEFT JOIN tags t ON it.tagId = t.id
-        WHERE i.filepath LIKE ?
-        GROUP BY i.id
-        ORDER BY i.updatedAt DESC
-        LIMIT ? OFFSET ?
-      `,
-      [`${folderPath}%`, pageSize, offset]
-    );
-
-    // 查询总数
-    const countResult = await get<{ count: number }>(
-      db,
-      'SELECT COUNT(*) as count FROM images WHERE filepath LIKE ?',
-      [`${folderPath}%`]
-    );
-    const total = countResult?.count || 0;
-
-    // 转换tags字符串为Tag数组（简化处理）
-    const result = images.map(image => {
-      const tagsArray = (image.tags && typeof image.tags === 'string' ? image.tags.split(',') : [])
-        .map((tag: string) => ({
-          id: 0,
-          name: tag,
-          createdAt: image.createdAt
-        }));
-      return {
-        ...image,
-        tags: tagsArray
-      };
-    });
-
-    return { success: true, data: result, total };
-  } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('Error getting images by folder:', errorMessage);
-    return { success: false, error: errorMessage };
-  }
-}
-
-/**
  * 按图集成员表读取图片（Phase 2B）
  *
- * 与 getImagesByFolder 行为一致（同样的 row→Image 映射、同样的返回形状），
- * 区别仅在于图片归属来源：不再用 filepath 前缀匹配，而是显式 join gallery_images
- * 成员表。成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），因此结果与
- * 旧前缀读取一致，但语义更准确（图集与文件夹解耦后不依赖路径形态）。
+ * 图片归属来源是显式 join gallery_images 成员表（不用 filepath 前缀匹配）。
+ * 成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），语义更准确
+ * （图集与文件夹解耦后不依赖路径形态）。row→Image 映射与分页返回形状与其它图片读取一致。
  *
  * @param galleryId 图集 ID
  * @param page 页码

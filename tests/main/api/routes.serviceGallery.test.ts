@@ -5,7 +5,7 @@ import { createGalleryRoutes } from '../../../src/main/api/routes/galleryRoutes.
 import { createServiceRoutes } from '../../../src/main/api/routes/serviceRoutes.js';
 import { getApiServiceConfig } from '../../../src/main/services/config.js';
 import { getGalleries, getGallery } from '../../../src/main/services/galleryService.js';
-import { getImageById, getImages, getImagesByFolder, getImagesByGallery } from '../../../src/main/services/imageService.js';
+import { getImageById, getImages, getImagesByGallery } from '../../../src/main/services/imageService.js';
 import { generateThumbnail } from '../../../src/main/services/thumbnailService.js';
 import { createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -28,7 +28,6 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
 vi.mock('../../../src/main/services/imageService.js', () => ({
   getImages: vi.fn(),
   getImageById: vi.fn(),
-  getImagesByFolder: vi.fn(),
   getImagesByGallery: vi.fn(),
 }));
 
@@ -49,7 +48,6 @@ const mockGetGalleries = vi.mocked(getGalleries);
 const mockGetGallery = vi.mocked(getGallery);
 const mockGetImages = vi.mocked(getImages);
 const mockGetImageById = vi.mocked(getImageById);
-const mockGetImagesByFolder = vi.mocked(getImagesByFolder);
 const mockGetImagesByGallery = vi.mocked(getImagesByGallery);
 const mockGenerateThumbnail = vi.mocked(generateThumbnail);
 const mockCreateReadStream = vi.mocked(createReadStream);
@@ -248,7 +246,6 @@ describe('gallery and image API routes', () => {
     expect(mockGetGallery).toHaveBeenCalledWith(7);
     // 成员读取改用 getImagesByGallery，按 galleryId 取成员（不再用 folderPath 前缀）
     expect(mockGetImagesByGallery).toHaveBeenCalledWith(7, 3, 25);
-    expect(mockGetImagesByFolder).not.toHaveBeenCalled();
   });
 
   it('uses default pagination for gallery images', async () => {

@@ -4,13 +4,12 @@ import sqlite3 from 'sqlite3';
 /**
  * Phase 2B — getImagesByGallery（按 gallery_images 成员读取）
  *
- * 图集详情读取从 folderPath 前缀匹配（getImagesByFolder）切换到显式成员表 join：
+ * 图集详情读取用显式成员表 join（不再用 folderPath 前缀匹配）：
  *   SELECT i.*, GROUP_CONCAT(t.name) FROM gallery_images gi
  *     JOIN images i ON i.id = gi.imageId
  *     LEFT JOIN image_tags it ...
  *   WHERE gi.galleryId = ?
- * 返回形状与 getImagesByFolder 一致：{ success, data, total, error }，
- * data 中 tags 由 GROUP_CONCAT 解析为 Tag[]。
+ * 返回形状 { success, data, total, error }，data 中 tags 由 GROUP_CONCAT 解析为 Tag[]。
  *
  * 真实 :memory: sqlite 验证：只返回成员图片（不返回非成员），分页/total 正确。
  */
