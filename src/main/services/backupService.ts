@@ -9,6 +9,7 @@ import {
 } from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
+import { getAllGalleryFolderPaths } from './galleryService.js';
 import { emitAppDataRestored, emitConfigChanged } from './appEventPublisher.js';
 import { IPC_CHANNELS } from '../ipc/channels.js';
 import type { ConfigChangedSummary } from '../../shared/types.js';
@@ -315,10 +316,11 @@ export async function restoreAppBackupData(
     await run(db, 'PRAGMA foreign_keys = ON');
   }
 
-  // 恢复直接改写了 galleries 表，但 galleryRootRegistry 是进程内同步缓存（app:// 文件白名单来源），
+  // 恢复直接改写了表，但 galleryRootRegistry 是进程内同步缓存（app:// 文件白名单来源），
   // 不会自动跟随 SQL 改写刷新。这里从 DB 重新装载，避免恢复后图库图片因白名单过期而无法通过 app:// 加载。
-  const restoredGalleryRows = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM galleries');
-  loadGalleryRoots(restoredGalleryRows.map((row) => row.folderPath).filter(Boolean));
+  // Phase 4：改从 gallery_folders 读全部绑定文件夹（含 bindFolder 追加 / changeFolderPath 重定位的），
+  // 而非 galleries 旧列 folderPath，保证恢复后的白名单覆盖当前真实绑定集合。
+  loadGalleryRoots(await getAllGalleryFolderPaths());
 
   const result: RestoreBackupResult = {
     mode,

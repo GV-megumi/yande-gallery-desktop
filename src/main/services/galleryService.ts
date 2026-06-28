@@ -161,6 +161,37 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
 }
 
 /**
+ * 读取全部图集绑定文件夹（去重、非空）——Phase 4 的 app:// 白名单装载来源。
+ *
+ * 取代旧的 `getGalleries().data.map(g => g.folderPath)`：后者只反映 galleries 旧列
+ * （= 图集创建时的原始文件夹），不含 bindFolder 追加或 changeFolderPath 重定位后的
+ * 文件夹。gallery_folders 才是当前绑定集合的 source of truth，故白名单必须从它装载，
+ * 否则绑定/重定位的文件夹在重启后会从 app:// 白名单丢失，导致其图片无法加载。
+ */
+export async function getAllGalleryFolderPaths(): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await all<{ folderPath: string }>(
+    db,
+    "SELECT DISTINCT folderPath FROM gallery_folders WHERE folderPath IS NOT NULL AND folderPath <> ''"
+  );
+  return rows.map(r => r.folderPath).filter(Boolean);
+}
+
+/**
+ * 读取某图集的全部绑定文件夹（Phase 4）——供 booru 下载路径校验与多文件夹扫描使用。
+ * 返回 gallery_folders 中该 galleryId 的 folderPath 列表（绑定表存的是归一化路径）。
+ */
+export async function getGalleryFolderPaths(galleryId: number): Promise<string[]> {
+  const db = await getDatabase();
+  const rows = await all<{ folderPath: string }>(
+    db,
+    'SELECT folderPath FROM gallery_folders WHERE galleryId = ?',
+    [galleryId]
+  );
+  return rows.map(r => r.folderPath).filter(Boolean);
+}
+
+/**
  * 创建新图库
  */
 export async function createGallery(galleryData: CreateGalleryDto): Promise<{ success: boolean; data?: number; error?: string }> {

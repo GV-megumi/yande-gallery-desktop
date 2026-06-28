@@ -49,16 +49,11 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     const saveConfig = vi.fn(async () => ({ success: true }));
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 10 }));
-    const getGalleries = vi
-      .fn()
-      // 第 1 次：取现有图库用于"存在则跳过"
-      .mockResolvedValueOnce({ success: true, data: [{ id: 9, folderPath: 'M:/existing' }] })
-      // 第 2 次：迁移后按 DB 最新状态装载登记表
-      .mockResolvedValueOnce({
-        success: true,
-        data: [{ id: 9, folderPath: 'M:/existing' }, { id: 10, folderPath: 'M:/new' }],
-      });
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    // getGalleries 仅用于"存在则跳过"的现有图库快照（迁移判断）
+    const getGalleries = vi.fn(async () => ({ success: true, data: [{ id: 9, folderPath: 'M:/existing' }] }));
+    // Phase 4：装载登记表改读 gallery_folders → getAllGalleryFolderPaths 决定快照
+    const getAllGalleryFolderPaths = vi.fn(async () => ['M:/existing', 'M:/new']);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -76,11 +71,9 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     const saveConfig = vi.fn(async () => ({ success: true }));
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 1 }));
-    const getGalleries = vi
-      .fn()
-      .mockResolvedValueOnce({ success: true, data: [] })
-      .mockResolvedValueOnce({ success: true, data: [{ id: 1, folderPath: 'M:/seed' }] });
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    const getGalleries = vi.fn(async () => ({ success: true, data: [] }));
+    const getAllGalleryFolderPaths = vi.fn(async () => ['M:/seed']);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -96,11 +89,9 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     const saveConfig = vi.fn(async () => ({ success: true }));
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 1 }));
-    const getGalleries = vi
-      .fn()
-      .mockResolvedValueOnce({ success: true, data: [] })
-      .mockResolvedValueOnce({ success: true, data: [{ id: 1, folderPath: 'M:/seed' }] });
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    const getGalleries = vi.fn(async () => ({ success: true, data: [] }));
+    const getAllGalleryFolderPaths = vi.fn(async () => ['M:/seed']);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -117,7 +108,8 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 1 }));
     const getGalleries = vi.fn(async () => ({ success: true, data: [{ id: 7, folderPath: 'M:/db' }] }));
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    const getAllGalleryFolderPaths = vi.fn(async () => ['M:/db']);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -136,7 +128,8 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 1 }));
     const getGalleries = vi.fn(async () => ({ success: true, data: [{ id: 5, folderPath: 'M:/db-only' }] }));
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    const getAllGalleryFolderPaths = vi.fn(async () => ['M:/db-only']);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -164,7 +157,9 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
       return { success: true, data: dbGalleries.length };
     });
     const getGalleries = vi.fn(async () => ({ success: true, data: dbGalleries.map(g => ({ ...g })) }));
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    // Phase 4：登记表读 gallery_folders；这里用同一内存数组派生，体现"建库后该路径已绑定"的有状态行为
+    const getAllGalleryFolderPaths = vi.fn(async () => dbGalleries.map(g => g.folderPath));
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: (p: string) => p }));
     mockHeavyDeps();
 
@@ -198,7 +193,8 @@ describe('initGalleriesFromConfig 增量迁移 + 剥离旧配置 + 装载登记�
     vi.doMock('../../../src/main/services/config.js', () => ({ getConfig: vi.fn(() => cfg), saveConfig }));
     const createGallery = vi.fn(async () => ({ success: true, data: 1 }));
     const getGalleries = vi.fn(async () => ({ success: true, data: [{ id: 1, folderPath: canonical }] }));
-    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries }));
+    const getAllGalleryFolderPaths = vi.fn(async () => [canonical]);
+    vi.doMock('../../../src/main/services/galleryService.js', () => ({ createGallery, getGalleries, getAllGalleryFolderPaths }));
     vi.doMock('../../../src/main/utils/path.js', () => ({ normalizePath: realNormalize }));
     mockHeavyDeps();
 
