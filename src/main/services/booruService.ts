@@ -28,8 +28,7 @@ import {
   ImportPickFileResult,
 } from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
-import { createGallery, getGallery, updateGalleryStats } from './galleryService.js';
-import { scanAndImportFolder } from './imageService.js';
+import { createGallery, getGallery, scanFolderIntoGallery } from './galleryService.js';
 import { getConfig, getDownloadsPath, resolveConfigPath } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import path from 'path';
@@ -236,21 +235,34 @@ async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: Fa
   return created.data;
 }
 
-async function syncGalleryAfterDownload(galleryId: number, downloadPath: string): Promise<void> {
-  const scanResult = await scanAndImportFolder(downloadPath);
-  if (!scanResult.success) {
-    throw new Error(scanResult.error || '图集同步扫描失败');
-  }
-
+/**
+ * booru 下载完成后同步对应图集。
+ *
+ * Phase 2A：改走 galleryService.scanFolderIntoGallery 统一入口（扫描导入 +
+ * 写 gallery_images 成员 + 更新统计 + 发事件），确保下载落地的图片也进成员表。
+ * recursive/extensions 取自图集自身（getGallery）；无配置时用默认扩展名。
+ *
+ * 导出以便单测直接覆盖成员写入逻辑（其余调用方仍在 booruService 内部）。
+ */
+export async function syncGalleryAfterDownload(galleryId: number, downloadPath: string): Promise<void> {
   const galleryResult = await getGallery(galleryId);
   if (!galleryResult.success || !galleryResult.data) {
     throw new Error(galleryResult.error || '图集不存在');
   }
 
-  const imageCount = scanResult.data ? scanResult.data.imported + scanResult.data.skipped : galleryResult.data.imageCount;
-  const updateResult = await updateGalleryStats(galleryId, imageCount, new Date().toISOString());
-  if (!updateResult.success) {
-    throw new Error(updateResult.error || '更新图集统计失败');
+  const gallery = galleryResult.data;
+  const extensions = gallery.extensions && gallery.extensions.length > 0
+    ? gallery.extensions
+    : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
+
+  const scanResult = await scanFolderIntoGallery(
+    galleryId,
+    downloadPath,
+    gallery.recursive ?? true,
+    extensions
+  );
+  if (!scanResult.success) {
+    throw new Error(scanResult.error || '图集同步扫描失败');
   }
 }
 
