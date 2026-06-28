@@ -32,6 +32,10 @@ export const IPC_CHANNELS = {
   GALLERY_BIND_FOLDER: 'gallery:bind-folder',
   GALLERY_UNBIND_FOLDER: 'gallery:unbind-folder',
   GALLERY_CHANGE_FOLDER_PATH: 'gallery:change-folder-path',
+  // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
+  GALLERY_RELOCATE_PREVIEW: 'gallery:relocate-preview',
+  GALLERY_RELOCATE_APPLY: 'gallery:relocate-apply',
+  GALLERY_GET_MISSING_FOLDERS: 'gallery:get-missing-folders',
   GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image',
   GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images',
   GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count',
