@@ -211,4 +211,33 @@ describe('migrateGalleryFolderDecoupling', () => {
     expect(await columnExists(db, 'gallery_folders', 'galleryId')).toBe(true);
     expect(await all(db, 'SELECT * FROM gallery_images')).toEqual([]);
   });
+
+  it('嵌套图集：一张图片可同时归属父图集与子图集（复合主键允许多归属）', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));            // 父，recursive=1
+    const galSub = normalizePath(path.join('M:', 'galA', 'sub'));   // 子，recursive=1
+    const aId = await addGallery(galA, 'galA', 1);
+    const subId = await addGallery(galSub, 'galSub', 1);
+
+    const imgId = await addImage(normalizePath(path.join('M:', 'galA', 'sub', 'x.jpg')));
+
+    await migrateGalleryFolderDecoupling(db);
+
+    // 同一张图片在父图集和子图集下各有一条成员行：
+    // 复合主键 (galleryId, imageId) 允许跨图集多归属，INSERT OR IGNORE 仅在单个图集内去重。
+    const aMembers = (
+      await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [aId])
+    ).map((r) => r.imageId);
+    const subMembers = (
+      await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [subId])
+    ).map((r) => r.imageId);
+
+    expect(aMembers).toContain(imgId);
+    expect(subMembers).toContain(imgId);
+  });
+
+  it('空库：无图集无图片时迁移为 no-op（建表但成员/绑定均为空）', async () => {
+    await expect(migrateGalleryFolderDecoupling(db)).resolves.toBeUndefined();
+    expect(await all(db, 'SELECT * FROM gallery_folders')).toEqual([]);
+    expect(await all(db, 'SELECT * FROM gallery_images')).toEqual([]);
+  });
 });
