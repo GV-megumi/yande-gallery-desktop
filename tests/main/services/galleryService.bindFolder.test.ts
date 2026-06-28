@@ -212,4 +212,27 @@ describe('bindFolder', () => {
     const folderRow = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE folderPath = ?', [extra]);
     expect(folderRow?.folderPath).toBe(extra);
   });
+
+  /**
+   * 扫描失败回滚：bindFolder 事务内 scanFolderIntoGallery 失败时应整体回滚——
+   * 返回 success:false，且刚插入的 gallery_folders 绑定行不应残留；
+   * addGalleryRoot / emit updated 也不应执行（排在事务成功之后）。
+   */
+  it('扫描失败时应回滚绑定：不残留 gallery_folders 行', async () => {
+    const baseFolder = normalizePath(path.join('M:', 'galA'));
+    const galleryId = await addGallery(baseFolder, 1);
+    const extra = normalizePath(path.join('M:', 'extraFail'));
+    // 让扫描步骤失败 → 事务内抛错 → ROLLBACK 撤销绑定行
+    h.scanResult = { success: false, error: '目录不存在' };
+
+    const result = await bindFolder(galleryId, extra, true, ['.jpg']);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+    // 绑定行被回滚，不残留
+    expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE folderPath = ?', [extra])).toHaveLength(0);
+    // 成功后的副作用未触发
+    expect(h.addRootCalls).not.toContain(extra);
+    expect(h.galleriesChanged.some((p) => p.galleryId === galleryId && p.action === 'updated')).toBe(false);
+  });
 });

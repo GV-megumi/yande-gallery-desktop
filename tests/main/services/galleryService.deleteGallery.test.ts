@@ -404,4 +404,69 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     // 两个忽略事件
     expect(h.ignoredChanged.filter((p) => p.action === 'created').map((p) => p.folderPath).sort()).toEqual([folder1, folder2].sort());
   });
+
+  /**
+   * 事务回滚：deleteGallery 第一个事务内某条写失败（这里令 gallery_ignored_folders
+   * 写入失败——删表使 INSERT 抛错）→ 整个事务回滚：图集行仍在、成员/图片完好；
+   * 且 cleanupOrphanImages（第二个事务）从不执行（无缩略图清理）。
+   */
+  it('删图集事务内写失败时应整体回滚：图集与成员图片均保留', async () => {
+    const folder = normalizePath(path.join('M:', 'rollback'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+    const img = await addImage(normalizePath(path.join('M:', 'rollback', 'a.jpg')));
+    await addMembership(galleryId, img);
+
+    // 删掉 gallery_ignored_folders 表 → 事务内 INSERT OR REPLACE 抛错 → 触发 ROLLBACK
+    await run(h.db, 'DROP TABLE gallery_ignored_folders');
+
+    const result = await deleteGallery(galleryId);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+
+    // 事务-1 回滚：图集行仍在
+    expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(1);
+    // gallery_folders / gallery_images 也应回滚保留
+    expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE galleryId = ?', [galleryId])).toHaveLength(1);
+    expect(await all(h.db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [galleryId])).toHaveLength(1);
+    // 图片完好（cleanupOrphanImages 第二事务从未执行）
+    expect((await all<{ id: number }>(h.db, 'SELECT id FROM images')).map((r) => r.id)).toEqual([img]);
+    // 不应清缩略图、不应发 deleted 事件
+    expect(h.deleteThumbnailCalls).toEqual([]);
+    expect(h.galleriesChanged.some((p) => p.action === 'deleted')).toBe(false);
+  });
+
+  /**
+   * 拉黑名单 createdAt 保留：删除图集时若该文件夹已在忽略名单（带旧 createdAt），
+   * INSERT OR REPLACE 的 COALESCE 应保留原 createdAt，仅刷新 updatedAt。
+   */
+  it('删图集写忽略名单时应保留已有 createdAt，仅刷新 updatedAt', async () => {
+    const folder = normalizePath(path.join('M:', 'preserve'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+
+    // 预置忽略名单：旧 createdAt / 旧 updatedAt
+    const oldCreatedAt = '2020-01-01T00:00:00.000Z';
+    const oldUpdatedAt = '2020-01-01T00:00:00.000Z';
+    await run(
+      h.db,
+      `INSERT INTO gallery_ignored_folders (folderPath, note, createdAt, updatedAt) VALUES (?, '旧备注', ?, ?)`,
+      [folder, oldCreatedAt, oldUpdatedAt]
+    );
+
+    const result = await deleteGallery(galleryId);
+
+    expect(result.success).toBe(true);
+    const row = await get<{ createdAt: string; updatedAt: string }>(
+      h.db,
+      'SELECT createdAt, updatedAt FROM gallery_ignored_folders WHERE folderPath = ?',
+      [folder]
+    );
+    // createdAt 不变（COALESCE 路径）
+    expect(row?.createdAt).toBe(oldCreatedAt);
+    // updatedAt 被刷新（不再是旧值）
+    expect(row?.updatedAt).not.toBe(oldUpdatedAt);
+    expect(row?.updatedAt).toBeTruthy();
+  });
 });
