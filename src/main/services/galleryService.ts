@@ -275,6 +275,86 @@ export async function updateGallery(
 }
 
 /**
+ * 回收"孤儿图片"：给定一批候选 imageId（其在某图集的成员关系刚被移除），
+ * 删除其中已无任何 gallery_images 成员行的图片。
+ *
+ * Phase 3：这是 deleteGallery / unbindFolder 等"移除成员"后统一的回收入口。
+ * 复用 deleteGallery 的逐图清理动作，但作用域是孤儿 imageId 集合（而非
+ * folderPath 前缀）——关键区别：仍被其他图集引用的图片不会被删，
+ * 修复了多归属误删。
+ *
+ * 清理顺序（与 deleteGallery 一致）：
+ * 1. 判定孤儿：id IN(candidates) AND id NOT IN (SELECT imageId FROM gallery_images)；
+ * 2. 事务外 best-effort deleteThumbnail(filepath)（失败只告警，不进事务避免拖长持锁）；
+ * 3. 事务内：UPDATE booru_posts 重置 downloaded/localPath（按 localImageId 或 localPath 命中）
+ *    → DELETE images（FK CASCADE 连带清掉 image_tags 与任何残留 gallery_images）。
+ *
+ * @returns 实际删除的孤儿数量。空输入或无孤儿时返回 0（no-op）。
+ */
+export async function cleanupOrphanImages(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  imageIds: number[]
+): Promise<number> {
+  if (!imageIds || imageIds.length === 0) {
+    return 0;
+  }
+
+  // 去重，避免占位符冗余
+  const candidateIds = Array.from(new Set(imageIds));
+  const placeholders = candidateIds.map(() => '?').join(',');
+
+  // 1. 判定孤儿：候选集中、当前在 gallery_images 已无任何成员行的图片
+  const orphans = await all<{ id: number; filepath: string }>(
+    db,
+    `SELECT id, filepath FROM images
+       WHERE id IN (${placeholders})
+         AND id NOT IN (SELECT imageId FROM gallery_images)`,
+    candidateIds
+  );
+
+  if (orphans.length === 0) {
+    return 0;
+  }
+
+  const orphanIds = orphans.map(o => o.id);
+  const orphanFilepaths = orphans.map(o => o.filepath);
+
+  // 2. best-effort 清缩略图（事务外；与 deleteGallery 一致依赖 deleteThumbnail 按 filepath 行为）
+  const { deleteThumbnail } = await import('./thumbnailService.js');
+  for (const orphan of orphans) {
+    try {
+      await deleteThumbnail(orphan.filepath);
+    } catch (err: any) {
+      console.warn(
+        `[galleryService] 清理孤儿缩略图失败: ${orphan.filepath}`,
+        err?.message ?? err
+      );
+    }
+  }
+
+  // 3. 事务内原子清理：重置 booru → DELETE images（FK CASCADE 清 image_tags / 残留 gallery_images）
+  await runInTransaction(db, async () => {
+    const idPlaceholders = orphanIds.map(() => '?').join(',');
+    const pathPlaceholders = orphanFilepaths.map(() => '?').join(',');
+
+    // booru_posts 重置：localImageId 命中（外键 SET NULL 只清引用、不改 downloaded）或 localPath 命中。
+    await run(
+      db,
+      `UPDATE booru_posts
+          SET downloaded = 0, localPath = NULL
+          WHERE localImageId IN (${idPlaceholders})
+             OR localPath IN (${pathPlaceholders})`,
+      [...orphanIds, ...orphanFilepaths]
+    );
+
+    // 删图片：FK CASCADE 连带清掉 image_tags 以及任何仍残留的 gallery_images 行。
+    await run(db, `DELETE FROM images WHERE id IN (${idPlaceholders})`, orphanIds);
+  });
+
+  return orphans.length;
+}
+
+/**
  * 删除图库（bug12：级联清理 + 自动加入忽略名单）
  *
  * 清理顺序：
