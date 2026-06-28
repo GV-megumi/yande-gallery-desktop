@@ -73,6 +73,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UNBIND_FOLDER, galleryId, folderPath),
     changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH, galleryId, oldPath, newPath, recursive, extensions),
+    // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
+    previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_RELOCATE_PREVIEW, mappings),
+    applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_RELOCATE_APPLY, mappings),
+    getMissingGalleryFolders: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_MISSING_FOLDERS),
   },
 
   // 配置操作
@@ -423,6 +430,11 @@ declare global {
         bindFolder: (galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
         unbindFolder: (galleryId: number, folderPath: string) => Promise<{ success: boolean; error?: string }>;
         changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
+        // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
+        previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }>; collisions: Array<{ table: string; column: string; path: string }> }; error?: string }>;
+        applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }> }; error?: string }>;
+        // 注意：getMissingGalleryFolders 直接返回数组（非 {success} 包裹），与上面两个不同
+        getMissingGalleryFolders: () => Promise<Array<{ galleryId: number; folderPath: string }>>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;

@@ -183,7 +183,9 @@ describe('IPC_CHANNELS', () => {
     // Phase 2B 图集成员读取新增 1：GALLERY_GET_IMAGES_BY_GALLERY（196→197）
     // Phase 6A 图库↔文件夹解耦新增 3：GALLERY_BIND_FOLDER、GALLERY_UNBIND_FOLDER、
     //   GALLERY_CHANGE_FOLDER_PATH（197→200）
-    expect(keys.length).toBe(200);
+    // Phase 6A relocate/missing 新增 3：GALLERY_RELOCATE_PREVIEW、GALLERY_RELOCATE_APPLY、
+    //   GALLERY_GET_MISSING_FOLDERS（200→203）
+    expect(keys.length).toBe(203);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {

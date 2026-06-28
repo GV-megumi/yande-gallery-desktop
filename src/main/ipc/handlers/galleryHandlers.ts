@@ -33,6 +33,12 @@ import {
   unbindFolder,
   changeFolderPath,
 } from '../../services/galleryService.js';
+import {
+  previewRelocateRoot,
+  applyRelocateRoot,
+  getMissingGalleryFolders,
+  type RelocateMapping,
+} from '../../services/galleryRelocateService.js';
 import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail } from '../../services/thumbnailService.js';
 import {
   reportInvalidImage,
@@ -395,6 +401,41 @@ export function setupGalleryHandlers() {
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }
+    }
+  );
+
+  // ===== 图库根重定位预检/应用 + 缺失文件夹检测（Phase 6A） =====
+  // 预检：批量旧前缀→新前缀映射会改写多少行、有无 UNIQUE 冲突（不落盘）
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_RELOCATE_PREVIEW,
+    async (_event: IpcMainInvokeEvent, mappings: RelocateMapping[]) => {
+      try {
+        return await previewRelocateRoot(mappings);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // 应用：单事务无损改写所有匹配路径前缀（任一 UNIQUE 冲突则零写入中止）
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_RELOCATE_APPLY,
+    async (_event: IpcMainInvokeEvent, mappings: RelocateMapping[]) => {
+      try {
+        return await applyRelocateRoot(mappings);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // 检测 gallery_folders 中磁盘上已不存在的绑定文件夹
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_GET_MISSING_FOLDERS,
+    async (_event: IpcMainInvokeEvent) => {
+      // 注意：getMissingGalleryFolders 直接返回 Array（非 {success} 包裹），
+      // 与 previewRelocateRoot/applyRelocateRoot 的返回形态不同，此处保持原样透传。
+      return await getMissingGalleryFolders();
     }
   );
 }

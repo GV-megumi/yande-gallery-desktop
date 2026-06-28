@@ -88,6 +88,12 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
   changeFolderPath: vi.fn(),
 }));
 
+vi.mock('../../../src/main/services/galleryRelocateService.js', () => ({
+  previewRelocateRoot: vi.fn(),
+  applyRelocateRoot: vi.fn(),
+  getMissingGalleryFolders: vi.fn(),
+}));
+
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
   generateThumbnail: vi.fn(),
   requestThumbnailGeneration: vi.fn(),
@@ -195,6 +201,9 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.GALLERY_BIND_FOLDER,
       IPC_CHANNELS.GALLERY_UNBIND_FOLDER,
       IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH,
+      IPC_CHANNELS.GALLERY_RELOCATE_PREVIEW,
+      IPC_CHANNELS.GALLERY_RELOCATE_APPLY,
+      IPC_CHANNELS.GALLERY_GET_MISSING_FOLDERS,
     ]);
   });
 
