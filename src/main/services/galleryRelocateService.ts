@@ -18,7 +18,17 @@
  *   - booru_favorite_tag_download_bindings.downloadPath （NOT NULL，非唯一）
  *   - gallery_ignored_folders.folderPath  （UNIQUE）
  *
- * 缩略图是按源 filepath 派生的缓存，不在此改写范围内（搬库后会按新路径惰性重建）。
+ * 本期"有意不在范围内"的其它绝对路径列（避免误以为遗漏）：
+ *   - invalid_images.filepath / invalid_images.thumbnailPath：失效图片记录，本就是"已不存在"的快照，
+ *     不属于核心图集/Booru 完整性面；搬库后重扫即可自然刷新，无需改写。
+ *   - yande_images.localPath：旧版 Yande 表（已被 booru_posts 取代），遗留死数据，不维护。
+ *   - bulk_download_tasks.path / booru_download_queue.targetPath：下载目录配置，属于用户可随时
+ *     重新配置的"去向"设置，而非已落盘资产的身份；不改写，由用户在新机自行设定。
+ *   缩略图是按源 filepath 派生的缓存，同样不在改写范围（搬库后会按新路径惰性重建）。
+ *
+ * TOCTOU 说明（先扫描后事务之间若有并发改动，均为 fail-safe）：
+ *   - 并发插入一个会撞目标路径的行 → 事务内 UPDATE 触发 UNIQUE 约束 → 整体回滚，零写入；
+ *   - 并发删除某个待改写行 → `UPDATE ... WHERE id=?` 命中 0 行，无副作用，其余照常。
  */
 import path from 'path';
 import fs from 'fs/promises';
@@ -305,7 +315,9 @@ export async function getMissingGalleryFolders(): Promise<Array<{ galleryId: num
   const missing: Array<{ galleryId: number; folderPath: string }> = [];
   for (const row of rows) {
     try {
-      await fs.access(row.folderPath);
+      // 入库值本已归一化，这里再过一遍 normalizePath 仅为与本文件其它路径处理保持一致，
+      // 不改变行为；返回时仍回传 DB 原值 row.folderPath。
+      await fs.access(normalizePath(row.folderPath));
     } catch {
       missing.push({ galleryId: row.galleryId, folderPath: row.folderPath });
     }
