@@ -86,6 +86,8 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
   bindFolder: vi.fn(),
   unbindFolder: vi.fn(),
   changeFolderPath: vi.fn(),
+  planScanFolder: vi.fn(),
+  applyScanPlan: vi.fn(),
 }));
 
 vi.mock('../../../src/main/services/galleryRelocateService.js', () => ({
@@ -198,6 +200,8 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.GALLERY_UPDATE_IGNORED_FOLDER,
       IPC_CHANNELS.GALLERY_REMOVE_IGNORED_FOLDER,
       IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS,
+      IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER,
+      IPC_CHANNELS.GALLERY_APPLY_SCAN_PLAN,
       IPC_CHANNELS.GALLERY_BIND_FOLDER,
       IPC_CHANNELS.GALLERY_UNBIND_FOLDER,
       IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH,

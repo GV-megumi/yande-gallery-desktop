@@ -28,6 +28,9 @@ export const IPC_CHANNELS = {
   GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats',
   GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder',
   GALLERY_SCAN_SUBFOLDERS: 'gallery:scan-subfolders',
+  // Phase 6B 扫描入库 plan→apply：规划（一级子文件夹 + 同名碰撞分类）/ 应用决议
+  GALLERY_PLAN_SCAN_FOLDER: 'gallery:plan-scan-folder',
+  GALLERY_APPLY_SCAN_PLAN: 'gallery:apply-scan-plan',
   // Phase 6A 图库↔文件夹解耦：文件夹绑定原语
   GALLERY_BIND_FOLDER: 'gallery:bind-folder',
   GALLERY_UNBIND_FOLDER: 'gallery:unbind-folder',

@@ -185,7 +185,13 @@ describe('IPC_CHANNELS', () => {
     //   GALLERY_CHANGE_FOLDER_PATH（197→200）
     // Phase 6A relocate/missing 新增 3：GALLERY_RELOCATE_PREVIEW、GALLERY_RELOCATE_APPLY、
     //   GALLERY_GET_MISSING_FOLDERS（200→203）
-    expect(keys.length).toBe(203);
+    // Phase 6B 扫描入库 plan/apply 新增 2：GALLERY_PLAN_SCAN_FOLDER、GALLERY_APPLY_SCAN_PLAN（203→205）
+    expect(keys.length).toBe(205);
+  });
+
+  it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {
+    expect(IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER).toBe('gallery:plan-scan-folder');
+    expect(IPC_CHANNELS.GALLERY_APPLY_SCAN_PLAN).toBe('gallery:apply-scan-plan');
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {
