@@ -2,7 +2,7 @@ import { createReadStream } from 'fs';
 import path from 'path';
 import { pipeline } from 'stream/promises';
 import { getGalleries, getGallery } from '../../services/galleryService.js';
-import { getImageById, getImages, getImagesByFolder } from '../../services/imageService.js';
+import { getImageById, getImages, getImagesByGallery } from '../../services/imageService.js';
 import { generateThumbnail } from '../../services/thumbnailService.js';
 import { numberParam, optionalNumberQuery } from '../router.js';
 import { ApiHttpError, type ApiRequestContext, type ApiRoute } from '../types.js';
@@ -140,10 +140,13 @@ export function createGalleryRoutes(): ApiRoute[] {
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const { page, pageSize } = pageQuery(context);
-        const gallery = unwrapServiceResult(await getGallery(galleryId), 'Failed to load gallery');
+        // 保留 gallery-not-found 检查（不存在时映射为 404）
+        unwrapServiceResult(await getGallery(galleryId), 'Failed to load gallery');
 
+        // 成员读取（Phase 2B）：按 galleryId 显式取 gallery_images 成员，
+        // 不再用 gallery.folderPath 做前缀匹配
         return unwrapPagedServiceResult(
-          await getImagesByFolder(gallery.folderPath, page, pageSize),
+          await getImagesByGallery(galleryId, page, pageSize),
           'Failed to load gallery images',
         );
       },
