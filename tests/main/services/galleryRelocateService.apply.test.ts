@@ -310,6 +310,33 @@ describe('applyRelocateRoot — 冲突中止（零写入）', () => {
     // 白名单未被刷新（仍是哨兵）
     expect(getGalleryRootsSnapshot()).toEqual(['SENTINEL']);
   });
+
+  it('多源映射到同一新路径 → 预检即中止，零写入、白名单不变', async () => {
+    // src1\dup 与 src2\dup 都改写到 D:\dst\dup（UNIQUE 列），应被预检拦截而非进事务才撞约束
+    const m1 = { oldPrefix: normalizePath(path.join('N:', 'src1')), newPrefix: normalizePath(path.join('D:', 'dst')) };
+    const m2 = { oldPrefix: normalizePath(path.join('N:', 'src2')), newPrefix: normalizePath(path.join('D:', 'dst')) };
+
+    const ga = await addGallery(normalizePath(path.join('N:', 'src1', 'dup')));
+    await addFolderBinding(ga, normalizePath(path.join('N:', 'src1', 'dup')));
+    const gb = await addGallery(normalizePath(path.join('N:', 'src2', 'dup')));
+    await addFolderBinding(gb, normalizePath(path.join('N:', 'src2', 'dup')));
+
+    loadGalleryRoots(['SENTINEL']);
+
+    const result = await applyRelocateRoot([m1, m2]);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+
+    // 两条 folder 绑定均保持原值（零写入）
+    const fa = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [ga]);
+    const fb = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [gb]);
+    expect(fa?.folderPath).toBe(normalizePath(path.join('N:', 'src1', 'dup')));
+    expect(fb?.folderPath).toBe(normalizePath(path.join('N:', 'src2', 'dup')));
+
+    // 白名单未刷新
+    expect(getGalleryRootsSnapshot()).toEqual(['SENTINEL']);
+  });
 });
 
 describe('applyRelocateRoot — 幂等', () => {

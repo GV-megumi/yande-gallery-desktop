@@ -259,4 +259,28 @@ describe('previewRelocateRoot — 冲突检测', () => {
       path: normalizePath(path.join('N:', 'dst', 'dup.jpg')),
     });
   });
+
+  it('两个被改写的行映射到同一新路径（多源→单目标）→ 报告冲突', async () => {
+    // src1\dup 与 src2\dup 都改写为 D:\dst\dup —— 两行都在被改写集合内，
+    // 旧的"撞既有非改写行"逻辑漏掉这种批内目标重复，需在预检阶段拦截，
+    // 否则 apply 期才在事务里撞 SQLITE_CONSTRAINT（虽安全回滚但是"clean 预检后突然失败"）。
+    const m1 = { oldPrefix: normalizePath(path.join('N:', 'src1')), newPrefix: normalizePath(path.join('D:', 'dst')) };
+    const m2 = { oldPrefix: normalizePath(path.join('N:', 'src2')), newPrefix: normalizePath(path.join('D:', 'dst')) };
+
+    // 用 UNIQUE 列 gallery_folders.folderPath 才是真实约束风险
+    const ga = await addGallery(normalizePath(path.join('N:', 'src1', 'dup')));
+    await addFolderBinding(ga, normalizePath(path.join('N:', 'src1', 'dup')));
+    const gb = await addGallery(normalizePath(path.join('N:', 'src2', 'dup')));
+    await addFolderBinding(gb, normalizePath(path.join('N:', 'src2', 'dup')));
+
+    const result = await previewRelocateRoot([m1, m2]);
+
+    expect(result.success).toBe(true);
+    const folderCollisions = result.data!.collisions.filter(
+      (c) => c.table === 'gallery_folders' && c.column === 'folderPath'
+    );
+    // 第二个映射到 D:\dst\dup 的行被标记为冲突
+    expect(folderCollisions.length).toBe(1);
+    expect(folderCollisions[0].path).toBe(normalizePath(path.join('D:', 'dst', 'dup')));
+  });
 });
