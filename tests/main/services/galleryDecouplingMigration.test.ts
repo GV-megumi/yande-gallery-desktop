@@ -128,3 +128,43 @@ describe('backfillGalleryFolders', () => {
     expect(rows).toHaveLength(1);
   });
 });
+
+describe('backfillGalleryImages', () => {
+  it('递归图集含嵌套图片，非递归图集仅含直接图片', async () => {
+    const galA = normalizePath(path.join('M:', 'galA')); // recursive=1
+    const galB = normalizePath(path.join('M:', 'galB')); // recursive=0
+    const aId = await addGallery(galA, 'galA', 1);
+    const bId = await addGallery(galB, 'galB', 0);
+
+    const aDirect = await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
+    const aNested = await addImage(normalizePath(path.join('M:', 'galA', 'sub', 'b.jpg')));
+    const bDirect = await addImage(normalizePath(path.join('M:', 'galB', 'c.jpg')));
+    const bNested = await addImage(normalizePath(path.join('M:', 'galB', 'sub', 'd.jpg')));
+
+    await ensureDecouplingTables(db);
+    await backfillGalleryImages(db);
+
+    const aMembers = (
+      await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ? ORDER BY imageId', [aId])
+    ).map((r) => r.imageId);
+    const bMembers = (
+      await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ? ORDER BY imageId', [bId])
+    ).map((r) => r.imageId);
+
+    expect(aMembers).toEqual([aDirect, aNested].sort((x, y) => x - y)); // 递归：直接 + 嵌套
+    expect(bMembers).toEqual([bDirect]);                                // 非递归：仅直接
+    // 反向确认：嵌套图片没有被错误塞进非递归图集
+    expect(bMembers).not.toContain(bNested);
+  });
+
+  it('幂等：重复回填不产生重复成员', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));
+    const aId = await addGallery(galA, 'galA', 1);
+    await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
+    await ensureDecouplingTables(db);
+    await backfillGalleryImages(db);
+    await backfillGalleryImages(db);
+    const members = await all(db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [aId]);
+    expect(members).toHaveLength(1);
+  });
+});
