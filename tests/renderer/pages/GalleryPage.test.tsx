@@ -185,7 +185,7 @@ describe('GalleryPage gallery delete action', () => {
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 3,
           recursive: true,
-          isWatching: false,
+          autoScan: false,
         },
       ],
     });
@@ -209,7 +209,7 @@ describe('GalleryPage gallery delete action', () => {
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 3,
         recursive: true,
-        isWatching: false,
+        autoScan: false,
       },
     });
     getImagesByFolder.mockResolvedValue({ success: true, data: [] });
@@ -425,7 +425,7 @@ describe('GalleryPage gallery delete action', () => {
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 3,
           recursive: true,
-          isWatching: false,
+          autoScan: false,
         },
         {
           id: 2,
@@ -434,7 +434,7 @@ describe('GalleryPage gallery delete action', () => {
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 1,
           recursive: false,
-          isWatching: false,
+          autoScan: false,
         },
       ],
     });
@@ -997,7 +997,7 @@ describe('GalleryPage gallery delete action', () => {
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 3,
           recursive: true,
-          isWatching: false,
+          autoScan: false,
         },
         {
           id: 2,
@@ -1007,7 +1007,7 @@ describe('GalleryPage gallery delete action', () => {
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 1,
           recursive: false,
-          isWatching: false,
+          autoScan: false,
         },
       ],
     });
@@ -1022,7 +1022,7 @@ describe('GalleryPage gallery delete action', () => {
             updatedAt: '2026-04-14T00:00:00.000Z',
             imageCount: 1,
             recursive: false,
-            isWatching: false,
+            autoScan: false,
           }
         : {
             id: 1,
@@ -1032,7 +1032,7 @@ describe('GalleryPage gallery delete action', () => {
             updatedAt: '2026-04-14T00:00:00.000Z',
             imageCount: 3,
             recursive: true,
-            isWatching: false,
+            autoScan: false,
           },
     }));
 
@@ -1328,7 +1328,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(await screen.findByText('D:/gallery/test')).toBeTruthy();
   });
 
-  it('Phase 7B：进入 isWatching=true 的图集应自动扫描一次（syncGalleryFolder）', async () => {
+  it('Phase 7B：进入 autoScan=true 的图集应自动扫描一次（syncGalleryFolder）', async () => {
     getGalleries.mockResolvedValue({
       success: true,
       data: [{
@@ -1338,7 +1338,7 @@ describe('GalleryPage gallery delete action', () => {
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
         recursive: true,
-        isWatching: true,
+        autoScan: true,
       }],
     });
     getGallery.mockResolvedValue({
@@ -1350,7 +1350,7 @@ describe('GalleryPage gallery delete action', () => {
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
         recursive: true,
-        isWatching: true,
+        autoScan: true,
       },
     });
 
@@ -1364,14 +1364,14 @@ describe('GalleryPage gallery delete action', () => {
     });
   });
 
-  it('Phase 7B：进入 isWatching=false 的图集不应自动扫描', async () => {
-    // 默认 getGalleries/getGallery 返回 isWatching:false 的「测试图集」(id=1)
+  it('Phase 7B：进入 autoScan=false 的图集不应自动扫描', async () => {
+    // 默认 getGalleries/getGallery 返回 autoScan:false 的「测试图集」(id=1)
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByText('测试图集'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
-    // 给足够时间让任何潜在自动扫描触发；isWatching=false 时不应调用
+    // 给足够时间让任何潜在自动扫描触发；autoScan=false 时不应调用
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(syncGalleryFolder).not.toHaveBeenCalled();
   });
@@ -1713,7 +1713,7 @@ describe('GalleryPage app event refresh', () => {
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
         recursive: true,
-        isWatching: false,
+        autoScan: false,
       }],
     });
 
@@ -1759,7 +1759,7 @@ describe('GalleryPage app event refresh', () => {
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
         recursive: true,
-        isWatching: false,
+        autoScan: false,
         coverImage: {
           id: 101,
           filepath: 'D:/images/cover-event.jpg',

@@ -25,7 +25,7 @@ import { colors } from '../styles/tokens';
  *
  * 把原先只读的图集信息升级为可操作的多文件夹管理器：
  *   - 内联改名（gallery.updateGallery({name})）
- *   - 自动扫描开关（gallery.updateGallery({isWatching})，列名「自动扫描」，DB 列仍是 isWatching）
+ *   - 自动扫描开关（gallery.updateGallery({autoScan})，列名「自动扫描」，DB 列为 autoScan）
  *   - 立即扫描（gallery.syncGalleryFolder）
  *   - 文件夹列表：每个绑定文件夹一行，展示路径/递归/格式 + 「文件夹丢失」标记，
  *     行内可「更改路径」「解绑」；底部「+ 添加文件夹」
@@ -42,7 +42,7 @@ interface GalleryInfo {
   lastScannedAt?: string;
   createdAt: string;
   updatedAt: string;
-  isWatching: boolean;
+  autoScan: boolean;
   coverImageId?: number;
 }
 
@@ -71,7 +71,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
   const [sourceFavoriteTags, setSourceFavoriteTags] = useState<any[]>([]);
   const [foldersLoading, setFoldersLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
-  const [watching, setWatching] = useState<boolean>(gallery.isWatching);
+  const [watching, setWatching] = useState<boolean>(gallery.autoScan);
   const [watchingSaving, setWatchingSaving] = useState(false);
   // 内联改名
   const [renaming, setRenaming] = useState(false);
@@ -145,7 +145,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
   // 打开时（或切换图集时）拉取数据并同步本地受控态
   useEffect(() => {
     if (!open) return;
-    setWatching(gallery.isWatching);
+    setWatching(gallery.autoScan);
     setRenameValue(gallery.name);
     setRenaming(false);
     void loadFolders();
@@ -153,12 +153,12 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, gallery.id]);
 
-  // 自动扫描开关：写 gallery.isWatching（UI 标签为「自动扫描」）
+  // 自动扫描开关：写 gallery.autoScan（UI 标签为「自动扫描」）
   const handleToggleWatching = async (checked: boolean) => {
     setWatchingSaving(true);
     setWatching(checked); // 乐观更新
     try {
-      const result = await window.electronAPI.gallery.updateGallery(gallery.id, { isWatching: checked });
+      const result = await window.electronAPI.gallery.updateGallery(gallery.id, { autoScan: checked });
       if (result.success) {
         onChanged?.();
       } else {

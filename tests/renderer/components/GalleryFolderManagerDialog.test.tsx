@@ -24,7 +24,7 @@ const baseGallery = {
   lastScannedAt: '2026-06-01T00:00:00.000Z',
   createdAt: '2026-05-01T00:00:00.000Z',
   updatedAt: '2026-06-01T00:00:00.000Z',
-  isWatching: false,
+  autoScan: false,
   coverImageId: 5,
 };
 
@@ -132,17 +132,17 @@ describe('GalleryFolderManagerDialog', () => {
     expect(await screen.findByText('D:/gallery/a')).toBeTruthy();
   });
 
-  it('切换「自动扫描」开关调用 updateGallery({isWatching}) 并触发 onChanged', async () => {
+  it('切换「自动扫描」开关调用 updateGallery({autoScan}) 并触发 onChanged', async () => {
     const onChanged = vi.fn();
     render(<GalleryFolderManagerDialog {...makeProps({ onChanged })} />);
 
     await screen.findByText('D:/gallery/a');
-    // 自动扫描 Switch（初始 isWatching=false → 点击打开）
+    // 自动扫描 Switch（初始 autoScan=false → 点击打开）
     const switchEl = screen.getByRole('switch');
     await userEvent.click(switchEl);
 
     await waitFor(() => {
-      expect(updateGallery).toHaveBeenCalledWith(1, { isWatching: true });
+      expect(updateGallery).toHaveBeenCalledWith(1, { autoScan: true });
     });
     expect(onChanged).toHaveBeenCalled();
   });

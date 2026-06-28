@@ -172,7 +172,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
-  // Phase 7B：进入图集时按 isWatching 自动扫描一次的「已扫描」守卫，避免每次渲染重复触发
+  // Phase 7B：进入图集时按 autoScan 自动扫描一次的「已扫描」守卫，避免每次渲染重复触发
   const autoScannedGalleryIdsRef = useRef<Set<number>>(new Set());
   const visibleRecentImages = useMemo(
     () => recentImages.slice(0, recentVisibleCount),
@@ -776,10 +776,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           console.log(`[GalleryPage] 图集图片加载成功，数量: ${data.length}`);
           setGalleryImages(data); // 存储到galleryImages
 
-          // Phase 7B 进入图集自动扫描：若 gallery.isWatching（UI 称「自动扫描」）开启，
+          // Phase 7B 进入图集自动扫描：若 gallery.autoScan（UI 称「自动扫描」）开启，
           // 在首屏渲染后异步扫描全部绑定文件夹一次并回灌新图。用 ref 守卫保证每个图集仅触发一次，
           // 不阻塞首屏渲染（不 await，扫描完成后再静默刷新图片）。
-          if (gallery.isWatching && !autoScannedGalleryIdsRef.current.has(galleryId)) {
+          if (gallery.autoScan && !autoScannedGalleryIdsRef.current.has(galleryId)) {
             autoScannedGalleryIdsRef.current.add(galleryId);
             void autoScanGalleryOnEnter(galleryId, requestRunId);
           }
