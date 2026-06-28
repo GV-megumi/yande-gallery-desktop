@@ -192,6 +192,53 @@ export async function getGalleryFolderPaths(galleryId: number): Promise<string[]
 }
 
 /**
+ * 读取某图集的全部绑定文件夹（含 recursive / extensions）——Phase 7B 的「图集信息」
+ * 多文件夹管理对话框渲染来源。
+ *
+ * 与 getGalleryFolderPaths（只返回 folderPath 字符串数组）不同，本函数返回结构化行：
+ *   { folderPath, recursive(boolean), extensions(string[]) }，按 folderPath 升序。
+ * recursive 由 0/1 映射为 boolean；extensions 为 JSON 字符串，解析失败或为 NULL 时回退 []。
+ */
+export async function getGalleryFolders(
+  galleryId: number
+): Promise<{ success: boolean; data?: Array<{ folderPath: string; recursive: boolean; extensions: string[] }>; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const rows = await all<{ folderPath: string; recursive: number; extensions: string | null }>(
+      db,
+      'SELECT folderPath, recursive, extensions FROM gallery_folders WHERE galleryId = ? ORDER BY folderPath',
+      [galleryId]
+    );
+
+    const data = rows.map(row => {
+      let extensions: string[] = [];
+      if (row.extensions) {
+        try {
+          const parsed = JSON.parse(row.extensions);
+          if (Array.isArray(parsed)) {
+            extensions = parsed;
+          }
+        } catch {
+          // 损坏的 extensions JSON：回退空数组（不阻断整次读取）
+          extensions = [];
+        }
+      }
+      return {
+        folderPath: row.folderPath,
+        recursive: Boolean(row.recursive),
+        extensions,
+      };
+    });
+
+    return { success: true, data };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 读取图集绑定文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * 创建新图库
  */
 export async function createGallery(galleryData: CreateGalleryDto): Promise<{ success: boolean; data?: number; error?: string }> {

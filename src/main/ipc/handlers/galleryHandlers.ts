@@ -35,6 +35,7 @@ import {
   bindFolder,
   unbindFolder,
   changeFolderPath,
+  getGalleryFolders,
 } from '../../services/galleryService.js';
 import {
   previewRelocateRoot,
@@ -420,6 +421,18 @@ export function setupGalleryHandlers() {
     async (_event: IpcMainInvokeEvent, galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => {
       try {
         return await changeFolderPath(galleryId, oldPath, newPath, recursive, extensions);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // 读取某图集的全部绑定文件夹（含 recursive / extensions）——Phase 7B 多文件夹管理对话框
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_GET_FOLDERS,
+    async (_event: IpcMainInvokeEvent, galleryId: number) => {
+      try {
+        return await getGalleryFolders(galleryId);
       } catch (error) {
         return { success: false, error: error instanceof Error ? error.message : String(error) };
       }

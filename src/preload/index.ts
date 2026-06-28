@@ -81,6 +81,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UNBIND_FOLDER, galleryId, folderPath),
     changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH, galleryId, oldPath, newPath, recursive, extensions),
+    // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
+    getGalleryFolders: (galleryId: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_FOLDERS, galleryId),
     // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
     previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_RELOCATE_PREVIEW, mappings),
@@ -453,6 +456,8 @@ declare global {
         bindFolder: (galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
         unbindFolder: (galleryId: number, folderPath: string) => Promise<{ success: boolean; error?: string }>;
         changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
+        // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
+        getGalleryFolders: (galleryId: number) => Promise<{ success: boolean; data?: Array<{ folderPath: string; recursive: boolean; extensions: string[] }>; error?: string }>;
         // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
         previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }>; collisions: Array<{ table: string; column: string; path: string }> }; error?: string }>;
         applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }> }; error?: string }>;
