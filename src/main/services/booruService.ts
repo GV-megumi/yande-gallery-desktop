@@ -28,7 +28,8 @@ import {
   ImportPickFileResult,
 } from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
-import { createGallery, getGallery, scanFolderIntoGallery } from './galleryService.js';
+import { createGallery, getGallery, scanFolderIntoGallery, getGalleryFolderPaths } from './galleryService.js';
+import { normalizePath } from '../utils/path.js';
 import { getConfig, getDownloadsPath, resolveConfigPath } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
 import path from 'path';
@@ -2404,7 +2405,10 @@ export async function upsertFavoriteTagDownloadBinding(
       if (!gallery) {
         throw new Error('绑定的图集不存在');
       }
-      if (gallery.folderPath !== resolvedDownloadPath) {
+      // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），而非仅等于 galleries 旧列 folderPath。
+      // 否则 bindFolder 追加 / changeFolderPath 重定位后的合法目录会被误判为不一致。两侧均归一化后比较。
+      const galleryFolders = (await getGalleryFolderPaths(input.galleryId)).map(p => normalizePath(p));
+      if (!galleryFolders.includes(normalizePath(resolvedDownloadPath))) {
         throw new Error('下载目录必须与绑定图集的文件夹路径一致');
       }
     }
@@ -2541,6 +2545,26 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
       }
     }
 
+    // Phase 4：一致性判定改用"下载目录 ∈ 图集 gallery_folders"，而非仅等于 galleries 旧列 folderPath。
+    // 预取这些图集的全部绑定文件夹（归一化），按 galleryId 归组成 Set，供下方同步映射 O(1) 命中判断。
+    const galleryFolderPathsById = new Map<number, Set<string>>();
+    if (galleryIds.length > 0) {
+      const folderPlaceholders = galleryIds.map(() => '?').join(',');
+      const folderRows = await all<{ galleryId: number; folderPath: string }>(db, `
+        SELECT galleryId, folderPath
+        FROM gallery_folders
+        WHERE galleryId IN (${folderPlaceholders})
+      `, galleryIds);
+      for (const row of folderRows) {
+        let set = galleryFolderPathsById.get(row.galleryId);
+        if (!set) {
+          set = new Set<string>();
+          galleryFolderPathsById.set(row.galleryId, set);
+        }
+        set.add(normalizePath(row.folderPath));
+      }
+    }
+
     const runtimeMap = new Map<string, FavoriteTagDownloadRuntimeProgress>();
     const sessionSnapshotMap = new Map<string, { status: BulkDownloadSessionStatus; completedAt?: string | null }>();
     const activeSessionIds = Array.from(new Set(
@@ -2621,11 +2645,15 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
         if (!gallery) {
           galleryBindingConsistent = false;
           galleryBindingMismatchReason = 'galleryNotFound';
-        } else if (gallery.folderPath !== binding.downloadPath) {
-          galleryBindingConsistent = false;
-          galleryBindingMismatchReason = 'pathMismatch';
         } else {
-          galleryBindingConsistent = true;
+          // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），两侧归一化后判断。
+          const folderSet = galleryFolderPathsById.get(binding.galleryId);
+          if (folderSet && folderSet.has(normalizePath(binding.downloadPath))) {
+            galleryBindingConsistent = true;
+          } else {
+            galleryBindingConsistent = false;
+            galleryBindingMismatchReason = 'pathMismatch';
+          }
         }
       }
 
@@ -2900,7 +2928,9 @@ export async function startFavoriteTagBulkDownload(favoriteTagId: number): Promi
       await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
       throw new Error('绑定的图集不存在');
     }
-    if (gallery.folderPath !== binding.downloadPath) {
+    // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），两侧归一化后比较。
+    const galleryFolders = (await getGalleryFolderPaths(resolvedGalleryId)).map(p => normalizePath(p));
+    if (!galleryFolders.includes(normalizePath(binding.downloadPath))) {
       await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
       throw new Error('下载目录必须与绑定图集的文件夹路径一致');
     }

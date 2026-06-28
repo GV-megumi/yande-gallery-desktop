@@ -413,6 +413,10 @@ vi.mock('../../../src/main/services/database', () => ({
     if (sql.includes('FROM galleries') && sql.includes('WHERE id IN')) {
       return state.galleries;
     }
+    // Phase 4：getFavoriteTagsWithDownloadState 预取各图集的 gallery_folders 绑定文件夹
+    if (sql.includes('FROM gallery_folders') && sql.includes('WHERE galleryId IN')) {
+      return state.galleries.map(g => ({ galleryId: g.id, folderPath: g.folderPath }));
+    }
     if (sql.includes('FROM bulk_download_sessions') && sql.includes("originType = 'favoriteTag'")) {
       return state.sessions
         .filter(session => session.originId === params?.[0])
@@ -447,6 +451,8 @@ vi.mock('../../../src/main/services/galleryService', () => ({
   createGallery: vi.fn(async () => ({ success: true, data: 10 })),
   getGallery: vi.fn(async () => ({ success: true, data: { id: 10, imageCount: 1 } })),
   updateGalleryStats: vi.fn(async () => ({ success: true })),
+  // Phase 4：下载路径校验改为"在图集 gallery_folders 内"；按 galleryId 返回其绑定文件夹
+  getGalleryFolderPaths: vi.fn(async (galleryId: number) => (galleryId === 10 ? ['D:/gallery/a'] : [])),
 }));
 
 vi.mock('../../../src/main/services/imageService', () => ({
@@ -521,6 +527,8 @@ describe('booruService integration-ish behavior', () => {
     expect(items.length).toBeGreaterThan(0);
     expect(items[0].downloadBinding?.favoriteTagId).toBe(1);
     expect(items[0].galleryName).toBe('Gallery A');
+    // Phase 4：下载目录 D:/gallery/a 落在图集 gallery_folders 内 → 一致
+    expect(items[0].galleryBindingConsistent).toBe(true);
     expect(items[1].resolvedDownloadPath?.replace(/\\/g, '/')).toBe('C:/config/downloads/tag_b');
   });
 
@@ -545,6 +553,15 @@ describe('booruService integration-ish behavior', () => {
     await service.startFavoriteTagBulkDownload(1);
 
     expect(fs.mkdir).toHaveBeenCalledWith('D:/gallery/a', { recursive: true });
+  });
+
+  it('startFavoriteTagBulkDownload 下载目录不在图集 gallery_folders 内时应拒绝', async () => {
+    // Phase 4：让该图集的绑定文件夹不含 binding.downloadPath('D:/gallery/a') → 校验失败抛错
+    const galleryService = await import('../../../src/main/services/galleryService');
+    vi.mocked(galleryService.getGalleryFolderPaths).mockResolvedValueOnce(['D:/somewhere/else']);
+
+    const service = await import('../../../src/main/services/booruService');
+    await expect(service.startFavoriteTagBulkDownload(1)).rejects.toThrow('下载目录必须与绑定图集的文件夹路径一致');
   });
 });
 
