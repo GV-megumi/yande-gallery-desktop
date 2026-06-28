@@ -1,5 +1,4 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import path from 'path';
 
 // 模拟内部依赖
 const getMock = vi.fn();
@@ -66,18 +65,28 @@ describe('imageService.deleteImage', () => {
     expect(deleteThumbnailMock).not.toHaveBeenCalled();
   });
 
-  // —— 图集归属：边界精确的路径前缀匹配（修复 SQL LIKE 误配） ——
-  describe('图集归属匹配', () => {
-    // 用 path.join 构造平台原生分隔符的路径，与入库格式一致
-    const p = (...segs: string[]) => path.join(path.sep + 'pics', ...segs);
+  // —— 图集归属：改用 gallery_images 成员表反查（Phase 2B）——
+  // 不再用 folderPath 前缀匹配，而是 SELECT galleryId FROM gallery_images WHERE imageId = ? LIMIT 1。
+  describe('图集归属匹配（gallery_images 反查）', () => {
+    /**
+     * 让 getMock 按 SQL 分派：filepath SELECT 返回图片行，
+     * gallery_images SELECT 返回成员行（或 undefined）。
+     */
+    function wireLookup(filepath: string | undefined, membershipRow: { galleryId: number } | undefined): void {
+      getMock.mockImplementation(async (_db: any, sql: string) => {
+        if (/gallery_images/i.test(String(sql))) {
+          return membershipRow;
+        }
+        return filepath === undefined ? undefined : { filepath };
+      });
+    }
 
     /** 执行 deleteImage 并返回 emitGalleryImagesChanged 收到的 galleryId */
     async function deleteAndGetGalleryId(
       filepath: string,
-      galleries: Array<{ id: number; folderPath: string }>
+      membershipRow: { galleryId: number } | undefined
     ): Promise<number | null> {
-      getMock.mockResolvedValue({ filepath });
-      allMock.mockResolvedValue(galleries);
+      wireLookup(filepath, membershipRow);
       const { deleteImage } = await import('../../../src/main/services/imageService.js');
       const result = await deleteImage(1);
       expect(result.success).toBe(true);
@@ -85,52 +94,37 @@ describe('imageService.deleteImage', () => {
       return emitGalleryImagesChangedMock.mock.calls[0][0].galleryId;
     }
 
-    it('图片在图集目录内时应正确归属', async () => {
-      const galleryId = await deleteAndGetGalleryId(
-        p('cats', 'img.jpg'),
-        [{ id: 7, folderPath: p('cats') }]
-      );
+    it('反查 SQL 应按 imageId 查询 gallery_images 成员表', async () => {
+      wireLookup('/pics/cats/img.jpg', { galleryId: 7 });
+      const { deleteImage } = await import('../../../src/main/services/imageService.js');
+      await deleteImage(42);
+
+      // 找到针对 gallery_images 的那次 get 调用，断言 SQL 与参数
+      const membershipCall = getMock.mock.calls.find(([, sql]) => /gallery_images/i.test(String(sql)));
+      expect(membershipCall).toBeTruthy();
+      expect(String(membershipCall![1])).toMatch(/SELECT\s+galleryId\s+FROM\s+gallery_images\s+WHERE\s+imageId\s*=\s*\?/i);
+      // 第三个参数是绑定参数数组，应携带 imageId
+      expect(membershipCall![2]).toEqual([42]);
+    });
+
+    it('成员行存在时事件应携带其 galleryId', async () => {
+      const galleryId = await deleteAndGetGalleryId('/pics/cats/img.jpg', { galleryId: 7 });
       expect(galleryId).toBe(7);
     });
 
-    it('兄弟前缀目录不应误配（cats2 不属于 cats）', async () => {
-      const galleryId = await deleteAndGetGalleryId(
-        p('cats2', 'img.jpg'),
-        [{ id: 7, folderPath: p('cats') }]
-      );
+    it('无成员行时事件 galleryId 应为 null', async () => {
+      const galleryId = await deleteAndGetGalleryId('/pics/cats/img.jpg', undefined);
       expect(galleryId).toBeNull();
     });
 
-    it('folderPath 中的 LIKE 元字符（_ 和 %）不应产生假匹配', async () => {
-      // 旧实现中 'ca_s' 的 '_' 会匹配 'cats' 中的 't'，'%' 会匹配任意子串
-      const galleryId = await deleteAndGetGalleryId(
-        p('cats', 'img.jpg'),
-        [
-          { id: 1, folderPath: p('ca_s') },
-          { id: 2, folderPath: p('%') },
-        ]
-      );
-      expect(galleryId).toBeNull();
-    });
-
-    it('嵌套图集应取 folderPath 最长（最深）的匹配', async () => {
-      const galleryId = await deleteAndGetGalleryId(
-        p('cats', 'kittens', 'img.jpg'),
-        [
-          { id: 1, folderPath: p() },
-          { id: 2, folderPath: p('cats') },
-          { id: 3, folderPath: p('dogs') },
-        ]
-      );
-      expect(galleryId).toBe(2);
-    });
-
-    it.runIf(process.platform === 'win32')('win32 下路径比较应大小写不敏感', async () => {
-      const galleryId = await deleteAndGetGalleryId(
-        path.join(path.sep + 'Pics', 'Cats', 'img.jpg'),
-        [{ id: 9, folderPath: p('cats') }]
-      );
-      expect(galleryId).toBe(9);
+    it('图片记录不存在时不应反查成员表', async () => {
+      // filepath SELECT 返回 undefined → row 为空 → 跳过反查
+      getMock.mockResolvedValue(undefined);
+      const { deleteImage } = await import('../../../src/main/services/imageService.js');
+      const result = await deleteImage(999);
+      expect(result.success).toBe(true);
+      const membershipCall = getMock.mock.calls.find(([, sql]) => /gallery_images/i.test(String(sql)));
+      expect(membershipCall).toBeUndefined();
     });
   });
 });
