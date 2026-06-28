@@ -2,6 +2,7 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs/promises';
 import { getDatabasePath } from './config.js';
+import { normalizePath } from '../utils/path.js';
 
 // 数据库连接实例
 let db: sqlite3.Database | null = null;
@@ -915,4 +916,48 @@ export async function isDatabaseInitialized(): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+// ===========================================================================
+// 图集与文件夹解耦迁移（Expand 阶段）
+//
+// 引入两张关联表，把"图片归属"从 filepath 前缀隐式匹配升级为显式成员表：
+//   - gallery_folders：图集 ↔ 文件夹（1:N），folderPath 全局唯一
+//   - gallery_images ：图集 ↔ 图片成员（主键 galleryId+imageId）
+//
+// 本迁移只"扩张"（建表 + 回填），不动 galleries 旧列（folderPath/isWatching/
+// recursive/extensions），保证迁移期间旧代码仍可运行。旧列清理（galleries 重建、
+// isWatching→autoScan 改名）留到所有消费方改造完成后的 contract 阶段。
+//
+// 幂等：建表用 IF NOT EXISTS；回填用 INSERT OR IGNORE（folderPath 唯一 / 成员主键）。
+// ===========================================================================
+
+/** 建 gallery_folders / gallery_images 两张表与索引（幂等） */
+export async function ensureDecouplingTables(database: sqlite3.Database): Promise<void> {
+  await run(database, `
+    CREATE TABLE IF NOT EXISTS gallery_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      galleryId INTEGER NOT NULL,
+      folderPath TEXT NOT NULL UNIQUE,   -- 全局唯一：一个文件夹只属于一个图集
+      recursive INTEGER NOT NULL DEFAULT 1,
+      extensions TEXT,                   -- JSON 数组；为空时由调用方用默认扩展名
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE
+    )
+  `);
+
+  await run(database, `
+    CREATE TABLE IF NOT EXISTS gallery_images (
+      galleryId INTEGER NOT NULL,
+      imageId INTEGER NOT NULL,
+      addedAt TEXT NOT NULL,
+      PRIMARY KEY (galleryId, imageId),
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE,
+      FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
+    )
+  `);
+
+  await run(database, `CREATE INDEX IF NOT EXISTS idx_gallery_folders_galleryId ON gallery_folders (galleryId)`);
+  await run(database, `CREATE INDEX IF NOT EXISTS idx_gallery_images_imageId ON gallery_images (imageId)`);
 }
