@@ -739,8 +739,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         }
         const folderPath = gallery.folderPath;
         console.log(`[GalleryPage] 图集 "${gallery.name}" 路径: ${folderPath}`);
-        // 单个图集一次性加载较多图片（例如 1000 张），方便浏览
-        const result = await window.electronAPI.gallery.getImagesByFolder(folderPath, 1, 1000);
+        // 图集详情读取改用 gallery_images 成员表（Phase 2B）：按 galleryId 显式取成员，
+        // 不再依赖 folderPath 前缀匹配。单个图集一次性加载较多图片（例如 1000 张），方便浏览。
+        const result = await window.electronAPI.gallery.getImagesByGallery(galleryId, 1, 1000);
         if (!isLatestRequest()) {
           return;
         }

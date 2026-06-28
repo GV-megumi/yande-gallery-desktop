@@ -10,6 +10,7 @@ import { GalleryPage } from '../../../src/renderer/pages/GalleryPage';
 const getGalleries = vi.fn();
 const getGallery = vi.fn();
 const getImagesByFolder = vi.fn();
+const getImagesByGallery = vi.fn();
 const getThumbnail = vi.fn();
 const deleteGallery = vi.fn();
 const getGallerySourceFavoriteTags = vi.fn();
@@ -204,6 +205,7 @@ describe('GalleryPage gallery delete action', () => {
       },
     });
     getImagesByFolder.mockResolvedValue({ success: true, data: [] });
+    getImagesByGallery.mockResolvedValue({ success: true, data: [] });
     getGallerySourceFavoriteTags.mockResolvedValue({
       success: true,
       data: [
@@ -223,6 +225,7 @@ describe('GalleryPage gallery delete action', () => {
         deleteGallery,
         getGallery,
         getImagesByFolder,
+        getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
       },
@@ -445,7 +448,7 @@ describe('GalleryPage gallery delete action', () => {
     getGallerySourceFavoriteTags
       .mockImplementationOnce(() => modalTags.promise)
       .mockImplementationOnce(() => detailTags.promise);
-    getImagesByFolder.mockImplementationOnce(() => detailImages.promise);
+    getImagesByGallery.mockImplementationOnce(() => detailImages.promise);
 
     renderGalleriesPage();
 
@@ -729,7 +732,7 @@ describe('GalleryPage gallery delete action', () => {
     await waitFor(() => {
       expect(getGalleryPagePreferences).toHaveBeenCalled();
       expect(getGallery).toHaveBeenCalledWith(1);
-      expect(getImagesByFolder).toHaveBeenCalledWith('D:/gallery/test', 1, 1000);
+      expect(getImagesByGallery).toHaveBeenCalledWith(1, 1, 1000);
     });
 
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
@@ -938,7 +941,7 @@ describe('GalleryPage gallery delete action', () => {
       })
       .mockResolvedValue({ success: true, data: undefined });
     getGallery.mockClear();
-    getImagesByFolder.mockClear();
+    getImagesByGallery.mockClear();
 
     view.rerender(<GalleryPage subTab="recent" />);
     view.rerender(<GalleryPage subTab="galleries" />);
@@ -949,7 +952,7 @@ describe('GalleryPage gallery delete action', () => {
 
     expect(screen.queryByRole('button', { name: /返\s*回/ })).toBeNull();
     expect(getGallery).not.toHaveBeenCalled();
-    expect(getImagesByFolder).not.toHaveBeenCalled();
+    expect(getImagesByGallery).not.toHaveBeenCalled();
     expect(getConfig).not.toHaveBeenCalled();
     expect(saveConfig).not.toHaveBeenCalled();
   });
@@ -1013,8 +1016,8 @@ describe('GalleryPage gallery delete action', () => {
     getGallerySourceFavoriteTags.mockImplementation((galleryId: number) => (
       galleryId === 2 ? freshTags.promise : staleTags.promise
     ));
-    getImagesByFolder.mockImplementation((folderPath: string) => (
-      folderPath === 'D:/gallery/another' ? freshImages.promise : staleImages.promise
+    getImagesByGallery.mockImplementation((galleryId: number) => (
+      galleryId === 2 ? freshImages.promise : staleImages.promise
     ));
 
     const view = renderGalleriesPage();
@@ -1038,8 +1041,8 @@ describe('GalleryPage gallery delete action', () => {
     });
 
     await waitFor(() => {
-      expect(getImagesByFolder).toHaveBeenCalledTimes(1);
-      expect(getImagesByFolder).toHaveBeenCalledWith('D:/gallery/another', 1, 1000);
+      expect(getImagesByGallery).toHaveBeenCalledTimes(1);
+      expect(getImagesByGallery).toHaveBeenCalledWith(2, 1, 1000);
     });
 
     freshImages.resolve({
@@ -1125,7 +1128,7 @@ describe('GalleryPage gallery delete action', () => {
         },
       },
     });
-    getImagesByFolder.mockResolvedValueOnce({
+    getImagesByGallery.mockResolvedValueOnce({
       success: true,
       data: createGalleryImages(1000),
     });
@@ -1187,7 +1190,7 @@ describe('GalleryPage gallery delete action', () => {
         },
       },
     });
-    getImagesByFolder.mockResolvedValueOnce({
+    getImagesByGallery.mockResolvedValueOnce({
       success: true,
       data: createGalleryImages(1),
     });
@@ -1249,7 +1252,7 @@ describe('GalleryPage gallery delete action', () => {
     const staleImages = createDeferred<{ success: true; data: any[] }>();
     const recentImagesDeferred = createDeferred<{ success: true; data: any[] }>();
     getGallerySourceFavoriteTags.mockImplementation(() => staleTags.promise);
-    getImagesByFolder.mockImplementation(() => staleImages.promise);
+    getImagesByGallery.mockImplementation(() => staleImages.promise);
     getRecentImages.mockImplementation(() => recentImagesDeferred.promise);
 
     const view = renderGalleriesPage();
@@ -1307,6 +1310,7 @@ describe('GalleryPage app event refresh', () => {
     getGalleries.mockResolvedValue({ success: true, data: [] });
     getGallery.mockResolvedValue({ success: true, data: undefined });
     getImagesByFolder.mockResolvedValue({ success: true, data: [] });
+    getImagesByGallery.mockResolvedValue({ success: true, data: [] });
     getThumbnail.mockResolvedValue({ success: false, error: 'no-thumb' });
     deleteGallery.mockResolvedValue({ success: true });
     getGallerySourceFavoriteTags.mockResolvedValue({ success: true, data: [] });
@@ -1325,6 +1329,7 @@ describe('GalleryPage app event refresh', () => {
         deleteGallery,
         getGallery,
         getImagesByFolder,
+        getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
       },
