@@ -837,6 +837,38 @@ export async function unbindFolder(
 }
 
 /**
+ * 改图集某绑定文件夹的路径（Phase 3）= unbindFolder(old) + bindFolder(new)。
+ *
+ * 先解绑旧路径（成员重算 + 回收孤儿），再绑定并重扫新路径。
+ * 若解绑失败，直接返回其错误，不继续绑定。
+ * 若绑定失败，透传绑定错误（此时旧路径已解绑——可接受，但要清晰报错，
+ * 让调用方知道图集当前可能不含原文件夹）。图集记录与 id 不变。
+ */
+export async function changeFolderPath(
+  galleryId: number,
+  oldPath: string,
+  newPath: string,
+  recursive: boolean = true,
+  extensions?: string[]
+): Promise<{ success: boolean; error?: string }> {
+  const unbindResult = await unbindFolder(galleryId, oldPath);
+  if (!unbindResult.success) {
+    return { success: false, error: unbindResult.error };
+  }
+
+  const bindResult = await bindFolder(galleryId, newPath, recursive, extensions);
+  if (!bindResult.success) {
+    // 旧路径已解绑但新路径绑定失败：明确告知调用方
+    return {
+      success: false,
+      error: `旧文件夹已解绑，但绑定新文件夹失败: ${bindResult.error}`,
+    };
+  }
+
+  return { success: true };
+}
+
+/**
  * 设置图库封面
  */
 export async function setGalleryCover(
