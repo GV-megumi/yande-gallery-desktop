@@ -961,3 +961,17 @@ export async function ensureDecouplingTables(database: sqlite3.Database): Promis
   await run(database, `CREATE INDEX IF NOT EXISTS idx_gallery_folders_galleryId ON gallery_folders (galleryId)`);
   await run(database, `CREATE INDEX IF NOT EXISTS idx_gallery_images_imageId ON gallery_images (imageId)`);
 }
+
+/**
+ * 从旧 galleries.folderPath 回填 gallery_folders（每个图集一条绑定）。
+ * 幂等：folderPath 全局唯一 + INSERT OR IGNORE。
+ * 仅在 galleries 仍含 folderPath 列时由编排函数调用。
+ */
+export async function backfillGalleryFolders(database: sqlite3.Database): Promise<void> {
+  await run(database, `
+    INSERT OR IGNORE INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+    SELECT id, folderPath, COALESCE(recursive, 1), extensions, createdAt, updatedAt
+      FROM galleries
+     WHERE folderPath IS NOT NULL AND folderPath <> ''
+  `);
+}
