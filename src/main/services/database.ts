@@ -975,3 +975,47 @@ export async function backfillGalleryFolders(database: sqlite3.Database): Promis
      WHERE folderPath IS NOT NULL AND folderPath <> ''
   `);
 }
+
+/**
+ * 回填 gallery_images：对每个图集，按与 deleteGallery 一致的 recursive 感知前缀匹配
+ * 选出其图片写入成员表。幂等（成员主键 + INSERT OR IGNORE）。
+ *
+ * 匹配规则（与 galleryService.deleteGallery 一致，保持图片归属与现状相同）：
+ *   - recursive=1：filepath LIKE 'F{sep}%' OR filepath = 'F'
+ *   - recursive=0：filepath LIKE 'F{sep}%' AND filepath NOT LIKE 'F{sep}%{sep}%'
+ * 其中 F = normalizePath(folderPath)，sep = path.sep（与入库 filepath 分隔符一致）。
+ */
+export async function backfillGalleryImages(database: sqlite3.Database): Promise<void> {
+  const galleries = await all<{ id: number; folderPath: string; recursive: number }>(
+    database,
+    `SELECT id, folderPath, recursive FROM galleries WHERE folderPath IS NOT NULL AND folderPath <> ''`
+  );
+
+  const now = new Date().toISOString();
+
+  for (const g of galleries) {
+    const normalized = normalizePath(g.folderPath);
+    const likePrefix = normalized + path.sep;
+    const isRecursive = g.recursive === 1 || (g.recursive as unknown as boolean) === true;
+
+    const images = isRecursive
+      ? await all<{ id: number }>(
+          database,
+          `SELECT id FROM images WHERE filepath LIKE ? OR filepath = ?`,
+          [likePrefix + '%', normalized]
+        )
+      : await all<{ id: number }>(
+          database,
+          `SELECT id FROM images WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
+          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        );
+
+    for (const img of images) {
+      await run(
+        database,
+        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, ?)`,
+        [g.id, img.id, now]
+      );
+    }
+  }
+}
