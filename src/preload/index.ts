@@ -37,16 +37,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_DELETE_GALLERY, id),
     setGalleryCover: (id: number, coverImageId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SET_GALLERY_COVER, id, coverImageId),
-    getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER, folderPath, page, pageSize),
     getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY, galleryId, page, pageSize),
     scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, folderPath, extensions, recursive),
     syncGalleryFolder: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SYNC_GALLERY_FOLDER, id),
-    scanSubfolders: (rootPath: string, extensions?: string[]) =>
-      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS, rootPath, extensions),
     // Phase 6B 扫描入库 plan→apply：规划（只读分类一级子文件夹）/ 应用决议
     planScanFolder: (rootPath: string, extensions?: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER, rootPath, extensions),
@@ -418,11 +414,9 @@ declare global {
         updateGallery: (id: number, updates: any) => Promise<{ success: boolean; error?: string }>;
         deleteGallery: (id: number) => Promise<{ success: boolean; error?: string }>;
         setGalleryCover: (id: number, coverImageId: number) => Promise<{ success: boolean; error?: string }>;
-        getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         syncGalleryFolder: (id: number) => Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string }>;
-        scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;
         // Phase 6B 扫描入库 plan→apply：规划（只读分类）/ 应用决议
         planScanFolder: (rootPath: string, extensions?: string[]) => Promise<{
           success: boolean;

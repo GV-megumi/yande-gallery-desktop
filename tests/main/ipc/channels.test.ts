@@ -187,7 +187,8 @@ describe('IPC_CHANNELS', () => {
     //   GALLERY_GET_MISSING_FOLDERS（200→203）
     // Phase 6B 扫描入库 plan/apply 新增 2：GALLERY_PLAN_SCAN_FOLDER、GALLERY_APPLY_SCAN_PLAN（203→205）
     // Phase 7B 图集多文件夹管理新增 1：GALLERY_GET_FOLDERS（205→206）
-    expect(keys.length).toBe(206);
+    // Phase 8A contract 移除 2：GALLERY_GET_IMAGES_BY_FOLDER、GALLERY_SCAN_SUBFOLDERS（206→204）
+    expect(keys.length).toBe(204);
   });
 
   it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {

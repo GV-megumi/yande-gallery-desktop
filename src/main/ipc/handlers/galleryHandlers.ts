@@ -10,7 +10,6 @@ import {
   deleteImage,
   getRecentImages,
   getRecentImagesAfter,
-  getImagesByFolder,
   getImagesByGallery,
   getAllFolders,
   scanAndImportFolder,
@@ -24,7 +23,6 @@ import {
   setGalleryCover,
   updateGalleryStats,
   syncGalleryFolder,
-  scanSubfoldersAndCreateGalleries,
   planScanFolder,
   applyScanPlan,
   type ApplyScanResolution,
@@ -175,15 +173,6 @@ export function setupGalleryHandlers() {
   ) => {
     try {
       return await getRecentImagesAfter(updatedAt, id, limit, beforeUpdatedAt, beforeId);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
-
-  // ===== 文件夹相关 =====
-  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, page: number = 1, pageSize: number = 50) => {
-    try {
-      return await getImagesByFolder(folderPath, page, pageSize);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -361,15 +350,6 @@ export function setupGalleryHandlers() {
       }
     }
   );
-
-  // ===== 扫描子文件夹并创建图集 =====
-  ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS, async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
-    try {
-      return await scanSubfoldersAndCreateGalleries(rootPath, extensions);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
 
   // ===== 扫描入库 plan→apply（Phase 6B） =====
   // 规划：只读分析 rootPath 一级子文件夹（+ 自身），分类 new/collision/skipped，不建图集

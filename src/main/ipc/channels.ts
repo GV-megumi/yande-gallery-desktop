@@ -15,7 +15,6 @@ export const IPC_CHANNELS = {
   // 图库操作
   GALLERY_GET_RECENT_IMAGES: 'gallery:get-recent-images',
   GALLERY_GET_RECENT_IMAGES_AFTER: 'gallery:get-recent-images-after',
-  GALLERY_GET_IMAGES_BY_FOLDER: 'gallery:get-images-by-folder',
   GALLERY_GET_IMAGES_BY_GALLERY: 'gallery:get-images-by-gallery',
   GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders',
   GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
@@ -27,7 +26,6 @@ export const IPC_CHANNELS = {
   GALLERY_SET_GALLERY_COVER: 'gallery:set-gallery-cover',
   GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats',
   GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder',
-  GALLERY_SCAN_SUBFOLDERS: 'gallery:scan-subfolders',
   // Phase 6B 扫描入库 plan→apply：规划（一级子文件夹 + 同名碰撞分类）/ 应用决议
   GALLERY_PLAN_SCAN_FOLDER: 'gallery:plan-scan-folder',
   GALLERY_APPLY_SCAN_PLAN: 'gallery:apply-scan-plan',
