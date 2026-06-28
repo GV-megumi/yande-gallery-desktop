@@ -11,6 +11,7 @@ import {
   getRecentImages,
   getRecentImagesAfter,
   getImagesByFolder,
+  getImagesByGallery,
   getAllFolders,
   scanAndImportFolder,
 } from '../../services/imageService.js';
@@ -170,6 +171,15 @@ export function setupGalleryHandlers() {
   ipcMain.handle(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, page: number = 1, pageSize: number = 50) => {
     try {
       return await getImagesByFolder(folderPath, page, pageSize);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 图集成员读取（Phase 2B）：按 gallery_images 成员表读取图集图片
+  ipcMain.handle(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY, async (_event: IpcMainInvokeEvent, galleryId: number, page: number = 1, pageSize: number = 50) => {
+    try {
+      return await getImagesByGallery(galleryId, page, pageSize);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

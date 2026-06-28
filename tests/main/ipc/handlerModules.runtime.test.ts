@@ -64,6 +64,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   getRecentImages: vi.fn(),
   getRecentImagesAfter: vi.fn(),
   getImagesByFolder: vi.fn(),
+  getImagesByGallery: vi.fn(),
   getAllFolders: vi.fn(),
   scanAndImportFolder: vi.fn(),
 }));
@@ -167,6 +168,7 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES,
       IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES_AFTER,
       IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER,
+      IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY,
       IPC_CHANNELS.GALLERY_GET_ALL_FOLDERS,
       IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER,
       IPC_CHANNELS.GALLERY_GET_GALLERIES,
