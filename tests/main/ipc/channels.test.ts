@@ -181,7 +181,9 @@ describe('IPC_CHANNELS', () => {
     // Task 5 收藏一键下载新增 1：BOORU_START_FAVORITES_BULK_DOWNLOAD
     // 图库归一到数据库后移除 1：CONFIG_UPDATE_GALLERY_FOLDERS（197→196）
     // Phase 2B 图集成员读取新增 1：GALLERY_GET_IMAGES_BY_GALLERY（196→197）
-    expect(keys.length).toBe(197);
+    // Phase 6A 图库↔文件夹解耦新增 3：GALLERY_BIND_FOLDER、GALLERY_UNBIND_FOLDER、
+    //   GALLERY_CHANGE_FOLDER_PATH（197→200）
+    expect(keys.length).toBe(200);
   });
 
   it('bug9：应包含 SYSTEM_NAVIGATE 与 notifications / desktop 分域配置通道', () => {

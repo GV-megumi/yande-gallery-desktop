@@ -66,6 +66,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UPDATE_IGNORED_FOLDER, id, patch),
     removeIgnoredFolder: (id: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_REMOVE_IGNORED_FOLDER, id),
+    // Phase 6A 图库↔文件夹解耦：文件夹绑定原语
+    bindFolder: (galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_BIND_FOLDER, galleryId, folderPath, recursive, extensions),
+    unbindFolder: (galleryId: number, folderPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UNBIND_FOLDER, galleryId, folderPath),
+    changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH, galleryId, oldPath, newPath, recursive, extensions),
   },
 
   // 配置操作
@@ -412,6 +419,10 @@ declare global {
         addIgnoredFolder: (folderPath: string, note?: string) => Promise<{ success: boolean; error?: string }>;
         updateIgnoredFolder: (id: number, patch: { note?: string }) => Promise<{ success: boolean; error?: string }>;
         removeIgnoredFolder: (id: number) => Promise<{ success: boolean; error?: string }>;
+        // Phase 6A 图库↔文件夹解耦：文件夹绑定原语
+        bindFolder: (galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
+        unbindFolder: (galleryId: number, folderPath: string) => Promise<{ success: boolean; error?: string }>;
+        changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
