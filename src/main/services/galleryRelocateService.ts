@@ -21,6 +21,7 @@
  * 缩略图是按源 filepath 派生的缓存，不在此改写范围内（搬库后会按新路径惰性重建）。
  */
 import path from 'path';
+import fs from 'fs/promises';
 import { getDatabase, all, run, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
@@ -275,4 +276,29 @@ export async function applyRelocateRoot(
     console.error('[galleryRelocateService] applyRelocateRoot 失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
+}
+
+/**
+ * 列出磁盘上不存在的绑定文件夹（只读，不改库）。
+ *
+ * 逐条检查 gallery_folders.folderPath 是否可 fs.access；不存在的行返回出来，
+ * 供 UI 在搬库/迁移后高亮"需要重定位"的图集。一次 access 失败（含 ENOENT、
+ * 权限等任何错误）都视为缺失——目标只是给用户一个需要关注的清单。
+ */
+export async function getMissingGalleryFolders(): Promise<Array<{ galleryId: number; folderPath: string }>> {
+  const db = await getDatabase();
+  const rows = await all<{ galleryId: number; folderPath: string }>(
+    db,
+    "SELECT galleryId, folderPath FROM gallery_folders WHERE folderPath IS NOT NULL AND folderPath <> ''"
+  );
+
+  const missing: Array<{ galleryId: number; folderPath: string }> = [];
+  for (const row of rows) {
+    try {
+      await fs.access(row.folderPath);
+    } catch {
+      missing.push({ galleryId: row.galleryId, folderPath: row.folderPath });
+    }
+  }
+  return missing;
 }
