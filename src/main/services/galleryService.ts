@@ -722,6 +722,121 @@ export async function bindFolder(
 }
 
 /**
+ * 查询某文件夹（按 recursive 感知前缀）覆盖到的图片 id 集合。
+ * 谓词与 ensureMembershipForFolder / backfillGalleryImages 字面一致，保证
+ * "覆盖判定"与"成员写入"用同一规则：
+ *   - recursive=true ：filepath LIKE 'F{sep}%' OR filepath = 'F'
+ *   - recursive=false：filepath LIKE 'F{sep}%' AND filepath NOT LIKE 'F{sep}%{sep}%'
+ */
+async function selectImageIdsCoveredByFolder(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  folderPath: string,
+  recursive: boolean
+): Promise<number[]> {
+  const normalized = normalizePath(folderPath);
+  const likePrefix = normalized + path.sep;
+  const rows = recursive
+    ? await all<{ id: number }>(
+        db,
+        `SELECT id FROM images WHERE filepath LIKE ? OR filepath = ?`,
+        [likePrefix + '%', normalized]
+      )
+    : await all<{ id: number }>(
+        db,
+        `SELECT id FROM images WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
+        [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+      );
+  return rows.map(r => r.id);
+}
+
+/**
+ * 解绑图集的一个文件夹（Phase 3）。保留图集记录，不写忽略名单（与 deleteGallery 区分）。
+ *
+ * - 归一化；移除 (galleryId, folderPath) 的 gallery_folders 行；
+ * - 重算成员归属：该图集当前成员中，凡其 filepath 不再被任一"剩余绑定文件夹"覆盖的，
+ *   删除对应 gallery_images(galleryId,imageId) 行，并收集这些 imageId；
+ *   覆盖判定用 selectImageIdsCoveredByFolder（与 ensureMembershipForFolder 同一前缀谓词）；
+ * - cleanupOrphanImages(收集到的 imageId)：其中已无任何成员的图片被回收（多归属图片保留）；
+ * - removeGalleryRoot(folderPath)；以 COUNT(gallery_images) 更新统计；emit updated。
+ *
+ * 注意：cleanupOrphanImages 自带事务，故放在解绑事务之外，避免同库嵌套 runInTransaction。
+ */
+export async function unbindFolder(
+  galleryId: number,
+  folderPath: string
+): Promise<{ success: boolean; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const normalized = normalizePath(folderPath);
+
+    // 1. 移除目标绑定行 + 重算未覆盖成员并删其成员行（原子）
+    const removedMemberIds: number[] = [];
+    await runInTransaction(db, async () => {
+      await run(
+        db,
+        'DELETE FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+        [galleryId, normalized]
+      );
+
+      // 剩余绑定文件夹（移除后）
+      const remainingFolders = await all<{ folderPath: string; recursive: number }>(
+        db,
+        'SELECT folderPath, recursive FROM gallery_folders WHERE galleryId = ?',
+        [galleryId]
+      );
+
+      // 当前成员
+      const currentMembers = await all<{ imageId: number }>(
+        db,
+        'SELECT imageId FROM gallery_images WHERE galleryId = ?',
+        [galleryId]
+      );
+      const currentMemberIds = currentMembers.map(m => m.imageId);
+
+      // 仍被任一剩余文件夹覆盖的 imageId 集合
+      const coveredIds = new Set<number>();
+      for (const f of remainingFolders) {
+        const isRecursive = f.recursive === 1 || (f.recursive as unknown as boolean) === true;
+        const ids = await selectImageIdsCoveredByFolder(db, f.folderPath, isRecursive);
+        for (const id of ids) coveredIds.add(id);
+      }
+
+      // 不再被覆盖的成员 → 删成员行并收集
+      const toRemove = currentMemberIds.filter(id => !coveredIds.has(id));
+      if (toRemove.length > 0) {
+        const placeholders = toRemove.map(() => '?').join(',');
+        await run(
+          db,
+          `DELETE FROM gallery_images WHERE galleryId = ? AND imageId IN (${placeholders})`,
+          [galleryId, ...toRemove]
+        );
+        removedMemberIds.push(...toRemove);
+      }
+    });
+
+    // 2. 回收孤儿（自带事务，置于解绑事务外）；仍归属其他图集的图片会被保留
+    await cleanupOrphanImages(db, removedMemberIds);
+
+    // 3. app:// 白名单移除该根 + 以成员表 COUNT 更新统计
+    removeGalleryRoot(normalized);
+    const countRow = await get<{ cnt: number }>(
+      db,
+      'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
+      [galleryId]
+    );
+    await updateGalleryStats(galleryId, countRow?.cnt ?? 0, new Date().toISOString());
+
+    emitGalleryGalleriesChanged({ galleryId, action: 'updated' });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] 解绑文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * 设置图库封面
  */
 export async function setGalleryCover(
