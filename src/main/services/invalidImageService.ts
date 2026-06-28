@@ -45,12 +45,17 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
       // 文件不存在，继续
     }
 
-    // 查找所属 gallery（通过 filepath 前缀匹配 galleries.folderPath）
-    const gallery = await get<{ id: number; coverImageId: number | null }>(db,
-      `SELECT id, coverImageId FROM galleries
-       WHERE ? LIKE folderPath || '%'
-       ORDER BY LENGTH(folderPath) DESC LIMIT 1`,
-      [image.filepath]);
+    // 查找所属 gallery（Phase 4：通过 gallery_images 成员归属，而非 galleries.folderPath 前缀匹配）。
+    // 取该图片的任一成员行 galleryId（多归属时任取其一即可：归属用于刷新该图集统计/封面）。
+    // 须在删 images 前读取——删除会触发 FK CASCADE 清掉 gallery_images 成员行。
+    const membership = await get<{ galleryId: number }>(db,
+      'SELECT galleryId FROM gallery_images WHERE imageId = ? LIMIT 1',
+      [image.id]);
+    const gallery = membership
+      ? await get<{ id: number; coverImageId: number | null }>(db,
+          'SELECT id, coverImageId FROM galleries WHERE id = ?',
+          [membership.galleryId])
+      : null;
 
     // 获取缩略图路径
     const thumbnailPath = await getThumbnailIfExists(image.filepath);
@@ -72,12 +77,12 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
       // 从 images 表删除（ON DELETE CASCADE 会自动清理 image_tags）
       await run(db, 'DELETE FROM images WHERE id = ?', [image.id]);
 
-      // 更新 gallery 的 imageCount
+      // 更新 gallery 的 imageCount（Phase 4：以 gallery_images 成员表为准）。
+      // 此处已在删 images 之后，本图片的成员行已被 FK CASCADE 清掉，故 COUNT 自然排除它。
       if (gallery) {
-        const folderPath = await getGalleryFolderPath(db, gallery.id);
         const countResult = await get<{ cnt: number }>(db,
-          `SELECT COUNT(*) as cnt FROM images WHERE filepath LIKE ? || '%'`,
-          [folderPath]);
+          'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
+          [gallery.id]);
         if (countResult) {
           await run(db, 'UPDATE galleries SET imageCount = ? WHERE id = ?', [countResult.cnt, gallery.id]);
         }
@@ -111,12 +116,6 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
     console.error('[invalidImageService] 上报无效图片失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
-}
-
-/** 辅助：获取 gallery 的 folderPath */
-async function getGalleryFolderPath(db: any, galleryId: number): Promise<string> {
-  const row = await get<{ folderPath: string }>(db, 'SELECT folderPath FROM galleries WHERE id = ?', [galleryId]);
-  return row?.folderPath ?? '';
 }
 
 /**
