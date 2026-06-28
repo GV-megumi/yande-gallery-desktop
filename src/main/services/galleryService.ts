@@ -1072,6 +1072,137 @@ export async function scanSubfoldersAndCreateGalleries(
   }
 }
 
+// planScanFolder 的分类结果项类型（Phase 6B）
+export interface PlanScanNewFolder {
+  folderPath: string;
+  name: string;
+}
+export interface PlanScanCollision {
+  folderPath: string;
+  name: string;
+  existingGalleryId: number;
+  existingGalleryName: string;
+}
+export interface PlanScanSkipped {
+  folderPath: string;
+  name: string;
+  reason: 'alreadyBound' | 'ignored' | 'noImages';
+}
+export interface PlanScanResult {
+  newFolders: PlanScanNewFolder[];
+  collisions: PlanScanCollision[];
+  skipped: PlanScanSkipped[];
+}
+
+/**
+ * 规划「扫描入库」：只读分析 rootPath 的一级子文件夹（+ rootPath 自身），不建图集、不写库（Phase 6B）。
+ *
+ * 这是两步式 plan→apply API 的第一步：UI 拿到本结果后展示同名碰撞对话框，再带用户的逐项选择
+ * 调 applyScanPlan。修正了旧 scanSubfoldersAndCreateGalleries 的两个问题：
+ *   - 扫描深度：候选只取**一级**子目录（不深递归创建图集）；
+ *   - 同名碰撞：发现已有同名图集时不再自动改名，而是列入 collisions 交给用户决定（合并/新建）。
+ *
+ * 候选集合 = fs.readdir(rootPath, {withFileTypes}) 中的目录（仅一级）+ rootPath 本身。
+ * 对每个候选 F（folderPath 归一化，name = basename）：
+ *   1. checkFolderHasImages(F, extensions) 为 false（无直接图片）→ skipped: noImages（不建图集）；
+ *   2. normalize(F) 已在 gallery_folders.folderPath → skipped: alreadyBound；
+ *   3. 否则 normalize(F) 在 gallery_ignored_folders.folderPath → skipped: ignored；
+ *   4. 否则存在 name == basename(F) 的图集 → collisions（带其 id+name）；
+ *   5. 否则 → newFolders。
+ *
+ * @returns 分类结果（newFolders / collisions / skipped）。根文件夹不存在时 success:false。
+ */
+export async function planScanFolder(
+  rootPath: string,
+  extensions: string[] = DEFAULT_IMAGE_EXTENSIONS
+): Promise<{ success: boolean; data?: PlanScanResult; error?: string }> {
+  try {
+    const fs = await import('fs/promises');
+    const normalizedRoot = normalizePath(rootPath);
+
+    // 根文件夹必须存在
+    try {
+      await fs.access(normalizedRoot);
+    } catch {
+      return { success: false, error: 'Root folder does not exist' };
+    }
+
+    // 候选 = rootPath 本身 + 一级子目录（仅目录，不深递归）
+    const candidates: string[] = [normalizedRoot];
+    try {
+      const entries = await fs.readdir(normalizedRoot, { withFileTypes: true });
+      for (const entry of entries) {
+        if (entry.isDirectory()) {
+          candidates.push(normalizePath(path.join(normalizedRoot, entry.name)));
+        }
+      }
+    } catch (err) {
+      // 读取根目录失败：无法枚举一级子文件夹，直接报错
+      const msg = err instanceof Error ? err.message : String(err);
+      return { success: false, error: `读取根文件夹失败: ${msg}` };
+    }
+
+    // 预加载分类所需的库状态（只读）：绑定文件夹集合 / 忽略名单 / 图集名→id 映射
+    const db = await getDatabase();
+    const boundRows = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM gallery_folders');
+    const boundPaths = new Set(boundRows.map(r => r.folderPath));
+    const ignoredRows = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM gallery_ignored_folders');
+    const ignoredPaths = new Set(ignoredRows.map(r => r.folderPath));
+
+    const newFolders: PlanScanNewFolder[] = [];
+    const collisions: PlanScanCollision[] = [];
+    const skipped: PlanScanSkipped[] = [];
+
+    for (const folderPath of candidates) {
+      const name = path.basename(folderPath);
+
+      // 1. 无直接图片 → noImages（不建图集）
+      const hasImages = await checkFolderHasImages(folderPath, extensions);
+      if (!hasImages) {
+        skipped.push({ folderPath, name, reason: 'noImages' });
+        continue;
+      }
+
+      // 2. 已被某图集绑定 → alreadyBound
+      if (boundPaths.has(folderPath)) {
+        skipped.push({ folderPath, name, reason: 'alreadyBound' });
+        continue;
+      }
+
+      // 3. 在忽略名单 → ignored
+      if (ignoredPaths.has(folderPath)) {
+        skipped.push({ folderPath, name, reason: 'ignored' });
+        continue;
+      }
+
+      // 4. 存在同名图集 → collisions（带现有图集 id+name）
+      const sameName = await get<{ id: number; name: string }>(
+        db,
+        'SELECT id, name FROM galleries WHERE name = ? LIMIT 1',
+        [name]
+      );
+      if (sameName) {
+        collisions.push({
+          folderPath,
+          name,
+          existingGalleryId: sameName.id,
+          existingGalleryName: sameName.name,
+        });
+        continue;
+      }
+
+      // 5. 否则 → 新文件夹
+      newFolders.push({ folderPath, name });
+    }
+
+    return { success: true, data: { newFolders, collisions, skipped } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryService] planScanFolder 失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
 /**
  * 检查文件夹是否包含图片
  */
