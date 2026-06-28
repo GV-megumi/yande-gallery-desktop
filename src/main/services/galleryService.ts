@@ -486,6 +486,78 @@ export async function ensureMembershipForFolder(
 }
 
 /**
+ * 扫描某文件夹并把结果落到指定图集：导入图片 + 写成员 + 更新统计。
+ *
+ * Phase 2A 统一写入口：
+ *   1. scanAndImportFolder(folderPath, extensions, recursive) —— 复用已有扫描导入；
+ *   2. ensureMembershipForFolder —— 把该文件夹范围内的 images 写入 gallery_images；
+ *   3. COUNT(*) gallery_images WHERE galleryId —— 以成员表为准统计图片数；
+ *   4. updateGalleryStats —— 写回 galleries.imageCount / lastScannedAt；
+ *   5. imported>0 时发出 gallery:images-imported（与 syncGalleryFolder 行为一致）。
+ *
+ * 注意：本阶段读路径未切换，imageCount 改以成员表 COUNT 为准只影响"统计数字"，
+ * 与旧 folderPath 前缀 COUNT 在数据正确时等价（成员由同一前缀规则写入）。
+ *
+ * @returns { imported, skipped, imageCount }，扫描失败时 success:false 且不写成员/不更新统计。
+ */
+export async function scanFolderIntoGallery(
+  galleryId: number,
+  folderPath: string,
+  recursive: boolean,
+  extensions: string[]
+): Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number }; error?: string }> {
+  // 1. 复用已有扫描导入逻辑（filesystem → images 表）
+  const importResult = await scanAndImportFolder(folderPath, extensions, recursive);
+  if (!importResult.success || !importResult.data) {
+    return { success: false, error: importResult.error || '扫描导入失败' };
+  }
+
+  const db = await getDatabase();
+
+  // 2. 写 gallery_images 成员（按 recursive 前缀，幂等）
+  await ensureMembershipForFolder(db, galleryId, folderPath, recursive);
+
+  // 3. 以成员表为准统计图片数
+  const countRow = await get<{ cnt: number }>(
+    db,
+    'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
+    [galleryId]
+  );
+  const imageCount = countRow?.cnt ?? 0;
+  const now = new Date().toISOString();
+
+  // 4. 写回图集统计
+  await updateGalleryStats(galleryId, imageCount, now);
+
+  // 5. 与 syncGalleryFolder 一致：仅在确有新增时发事件，载荷形状保持不变
+  if (importResult.data.imported > 0) {
+    emitBuiltRendererAppEvent({
+      type: 'gallery:images-imported',
+      source: 'galleryService',
+      payload: {
+        folderPath,
+        galleryId,
+        imported: importResult.data.imported,
+        skipped: importResult.data.skipped,
+        recursive,
+        imageCount,
+        lastScannedAt: now,
+        reason: 'scanFolderIntoGallery',
+      },
+    });
+  }
+
+  return {
+    success: true,
+    data: {
+      imported: importResult.data.imported,
+      skipped: importResult.data.skipped,
+      imageCount,
+    },
+  };
+}
+
+/**
  * 设置图库封面
  */
 export async function setGalleryCover(
