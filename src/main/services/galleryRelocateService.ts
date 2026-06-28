@@ -209,3 +209,70 @@ export async function previewRelocateRoot(
     return { success: false, error: errorMessage };
   }
 }
+
+/** applyRelocateRoot 的返回数据形态。 */
+export interface RelocateApplyData {
+  /** 每个 (表, 列) 实际改写的行数。 */
+  affected: Array<{ table: string; column: string; count: number }>;
+}
+
+/**
+ * 应用重定位（单事务、无损）。
+ *
+ * 流程：
+ *   1. 先扫描全部站点（== preview 的逻辑）；任一 UNIQUE 冲突 → 直接返回失败、不写任何行；
+ *   2. 否则在单个 runInTransaction 内，对每个站点按主键 id 逐行 UPDATE 为 JS 预计算的新路径
+ *      （per-row UPDATE keyed by id 最稳，不依赖 SQL 侧的边界正确性）；
+ *   3. 提交后用 getAllGalleryFolderPaths 重新装载 app:// 白名单——直接 SQL 改了 folderPath，
+ *      但 galleryRootRegistry 是进程内同步缓存，不会自动跟随，必须显式刷新
+ *      （与 backupService.restore 的处理一致）。
+ *
+ * 幂等：再次对同一映射调用时，已无行落在 oldPrefix 下，matched 为空 → 0 改写、不报错。
+ * 无损：只改路径字符串列，images.id / gallery_images / image_tags / 封面引用等均不动。
+ */
+export async function applyRelocateRoot(
+  mappings: RelocateMapping[]
+): Promise<{ success: boolean; data?: RelocateApplyData; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const scans = await scanAllSites(db, mappings);
+
+    // 任一 UNIQUE 冲突 → 中止，零写入（先于事务发现，连 BEGIN 都不进）。
+    const collisionCount = scans.reduce((sum, s) => sum + s.collisions.length, 0);
+    if (collisionCount > 0) {
+      const firstCollision = scans.find((s) => s.collisions.length > 0)!;
+      const errorMessage =
+        `relocateRoot 中止：检测到 ${collisionCount} 处 UNIQUE 路径冲突` +
+        `（例如 ${firstCollision.site.table}.${firstCollision.site.column} → ${firstCollision.collisions[0]}）`;
+      console.error('[galleryRelocateService] applyRelocateRoot:', errorMessage);
+      return { success: false, error: errorMessage };
+    }
+
+    // 单事务内逐行改写：任一失败整体回滚（runInTransaction 内部已处理 ROLLBACK）。
+    await runInTransaction(db, async () => {
+      for (const scan of scans) {
+        for (const m of scan.matched) {
+          await run(
+            db,
+            `UPDATE ${scan.site.table} SET ${scan.site.column} = ? WHERE id = ?`,
+            [m.newPath, m.id]
+          );
+        }
+      }
+    });
+
+    // 提交后刷新 app:// 白名单（gallery_folders.folderPath 已变）。
+    loadGalleryRoots(await getAllGalleryFolderPaths());
+
+    const affected = scans.map((s) => ({
+      table: s.site.table,
+      column: s.site.column,
+      count: s.matched.length,
+    }));
+    return { success: true, data: { affected } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('[galleryRelocateService] applyRelocateRoot 失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
