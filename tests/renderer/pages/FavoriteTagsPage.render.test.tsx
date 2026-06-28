@@ -9,6 +9,7 @@ import { FavoriteTagsPage } from '../../../src/renderer/pages/FavoriteTagsPage';
 const getFavoriteTagsWithDownloadState = vi.fn();
 const getSites = vi.fn();
 const getGalleries = vi.fn();
+const getGalleryFolders = vi.fn();
 const selectFolder = vi.fn();
 const upsertFavoriteTagDownloadBinding = vi.fn();
 const getConfig = vi.fn();
@@ -78,6 +79,7 @@ beforeEach(() => {
     },
     gallery: {
       getGalleries,
+      getGalleryFolders,
     },
     config: {
       get: getConfig,
@@ -126,7 +128,12 @@ describe('FavoriteTagsPage render behavior', () => {
 
   function mockPageData(items: any[]) {
     getSites.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Yande' }] });
-    getGalleries.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Gallery A', folderPath: 'D:/gallery/a' }] });
+    // Phase 8B：gallery DTO 不再带 folderPath，下载路径默认改由 getGalleryFolders 解析首个绑定文件夹
+    getGalleries.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Gallery A' }] });
+    getGalleryFolders.mockResolvedValue({
+      success: true,
+      data: [{ folderPath: 'D:/gallery/a', recursive: true, extensions: ['.jpg'] }],
+    });
     getFavoriteTagsWithDownloadState.mockResolvedValue({
       success: true,
       data: {
@@ -270,6 +277,42 @@ describe('FavoriteTagsPage render behavior', () => {
     const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
     await waitFor(() => {
       expect(pathInput.value).toBe('D:/downloads/default');
+    });
+  });
+
+  it('在下载配置弹窗中选择图集时，应用 getGalleryFolders 首个绑定文件夹作为下载路径默认值', async () => {
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('favoriteTags.configTitle:tag_a')).toBeTruthy();
+
+    // 等待图集列表加载完成（loadGalleries 经 getGalleryFolders 解析默认路径）
+    await waitFor(() => {
+      expect(getGalleryFolders).toHaveBeenCalledWith(1);
+    });
+
+    // 打开图集下拉并选择「Gallery A」
+    const gallerySelect = within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' });
+    fireEvent.mouseDown(gallerySelect);
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    // 选择图集后，下载路径输入框应填入该图集首个绑定文件夹路径
+    const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
+    await waitFor(() => {
+      expect(pathInput.value).toBe('D:/gallery/a');
     });
   });
 

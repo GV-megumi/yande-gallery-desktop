@@ -216,11 +216,28 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     try {
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success && result.data) {
-        setGalleries(result.data.map((gallery: any) => ({
-          id: gallery.id,
-          name: gallery.name,
-          folderPath: gallery.folderPath,
-        })));
+        // Phase 8B：gallery DTO 不再带 folderPath（folderPath/recursive/extensions 已归 gallery_folders）。
+        // 选择图集时下载路径的默认值改为「该图集首个绑定文件夹」，故这里逐个图集拉取绑定文件夹，
+        // 取首个 folderPath 作为默认下载路径；无绑定文件夹时回退空串（用户可手动选目录）。
+        const galleryOptions: GalleryOption[] = await Promise.all(
+          result.data.map(async (gallery: any) => {
+            let folderPath = '';
+            try {
+              const foldersResult = await window.electronAPI.gallery.getGalleryFolders(gallery.id);
+              if (foldersResult.success && foldersResult.data && foldersResult.data.length > 0) {
+                folderPath = foldersResult.data[0].folderPath;
+              }
+            } catch (error) {
+              console.warn('[FavoriteTagsPage] 读取图集绑定文件夹失败:', gallery.id, error);
+            }
+            return {
+              id: gallery.id,
+              name: gallery.name,
+              folderPath,
+            };
+          })
+        );
+        setGalleries(galleryOptions);
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 加载图集列表失败:', error);
