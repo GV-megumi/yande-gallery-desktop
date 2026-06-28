@@ -27,16 +27,15 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 // 图库类型
+// Phase 8A：图集与文件夹解耦后，folderPath/recursive/extensions 归 gallery_folders（按文件夹），
+// 不再是图集级属性；isWatching 改名为 autoScan（是否自动扫描）。
 export interface Gallery {
   id: number;
-  folderPath: string;
   name: string;
   coverImageId?: number;
   imageCount: number;
   lastScannedAt?: string;
-  isWatching: boolean;
-  recursive: boolean;
-  extensions: string[];
+  autoScan: boolean;
   createdAt: string;
   updatedAt: string;
   coverImage?: Image;  // 关联的封面图
@@ -72,14 +71,11 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
 
     const galleries: Gallery[] = results.map(row => ({
       id: row.id,
-      folderPath: row.folderPath,
       name: row.name,
       coverImageId: row.coverImageId,
       imageCount: row.imageCount,
       lastScannedAt: row.lastScannedAt,
-      isWatching: Boolean(row.isWatching),
-      recursive: Boolean(row.recursive),
-      extensions: row.extensions ? JSON.parse(row.extensions) : [],
+      autoScan: Boolean(row.autoScan),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       coverImage: row.coverImageId ? {
@@ -129,14 +125,11 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
 
     const gallery: Gallery = {
       id: row.id,
-      folderPath: row.folderPath,
       name: row.name,
       coverImageId: row.coverImageId,
       imageCount: row.imageCount,
       lastScannedAt: row.lastScannedAt,
-      isWatching: Boolean(row.isWatching),
-      recursive: Boolean(row.recursive),
-      extensions: row.extensions ? JSON.parse(row.extensions) : [],
+      autoScan: Boolean(row.autoScan),
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
       coverImage: row.coverImageId ? {
@@ -272,28 +265,24 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
     // 设置扩展名默认值
     const extensions = galleryData.extensions || ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
+    // Phase 8A：galleries 只存图集元数据 + autoScan；folderPath/recursive/extensions 归 gallery_folders。
     const sql = `
       INSERT INTO galleries
-      (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (name, autoScan, createdAt, updatedAt)
+      VALUES (?, ?, ?, ?)
     `;
 
     const now = new Date().toISOString();
-    const isWatching = galleryData.isWatching ?? true;
+    const autoScan = galleryData.isWatching ?? true; // CreateGalleryDto 仍用 isWatching 命名
     const recursive = galleryData.recursive ?? true;
     const extensionsJson = JSON.stringify(extensions);
 
-    // Phase 2A：galleries 旧行 + gallery_folders 绑定行原子双写。
-    // 过渡期仍保留 galleries 旧列（folderPath/isWatching/recursive/extensions），
-    // 两条记录的 folderPath/recursive/extensions 保持一致，便于后续读路径切到绑定表。
+    // 原子写：galleries 元数据行 + gallery_folders 绑定行（folderPath/recursive/extensions 落在绑定行）。
     let galleryId: number | undefined;
     await runInTransaction(db, async () => {
       await run(db, sql, [
-        folderPath,
         galleryData.name,
-        isWatching ? 1 : 0,
-        recursive ? 1 : 0,
-        extensionsJson,
+        autoScan ? 1 : 0,
         now,
         now
       ]);
@@ -326,7 +315,7 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
  */
 export async function updateGallery(
   id: number,
-  updates: Partial<Pick<Gallery, 'name' | 'isWatching' | 'recursive'>>
+  updates: Partial<Pick<Gallery, 'name' | 'autoScan'>>
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
@@ -339,14 +328,10 @@ export async function updateGallery(
       values.push(updates.name);
     }
 
-    if (updates.isWatching !== undefined) {
-      setClauses.push('isWatching = ?');
-      values.push(updates.isWatching ? 1 : 0);
-    }
-
-    if (updates.recursive !== undefined) {
-      setClauses.push('recursive = ?');
-      values.push(updates.recursive ? 1 : 0);
+    // Phase 8A：isWatching→autoScan；recursive 不再是图集级属性（归 gallery_folders），故移除。
+    if (updates.autoScan !== undefined) {
+      setClauses.push('autoScan = ?');
+      values.push(updates.autoScan ? 1 : 0);
     }
 
     if (setClauses.length === 0) {
@@ -492,10 +477,11 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
   try {
     const db = await getDatabase();
 
-    // 1. 校验图集存在；folderPath 仍读旧列，仅用于 deleted 事件载荷（向后兼容）。
-    const existing = await get<{ id: number; folderPath: string | null }>(
+    // 1. 校验图集存在。Phase 8A：galleries 不再有 folderPath 列；deleted 事件的 folderPath
+    //    载荷改用首个绑定文件夹（下方 boundFolders[0]）。
+    const existing = await get<{ id: number }>(
       db,
-      'SELECT id, folderPath FROM galleries WHERE id = ?',
+      'SELECT id FROM galleries WHERE id = ?',
       [id]
     );
 
@@ -519,10 +505,8 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
     // 绑定表存的是 normalized 路径；再过一遍 normalizePath 兜底，保证拉黑/登记键一致。
     const boundFolders = folderRows.map(r => normalizePath(r.folderPath));
 
-    // deleted 事件 folderPath 字段：优先用旧列 folderPath，回退到首个绑定文件夹。
-    const eventFolderPath = existing.folderPath
-      ? normalizePath(existing.folderPath)
-      : (boundFolders[0] ?? '');
+    // deleted 事件 folderPath 字段：用首个绑定文件夹（图集可能无绑定文件夹，回退空串）。
+    const eventFolderPath = boundFolders[0] ?? '';
 
     // 3. 事务内：删图集行（FK CASCADE 连带删 gallery_folders / gallery_images）
     //    + 清 invalid_images（表定义 ON DELETE SET NULL，这里显式删更干净，避免孤儿行）

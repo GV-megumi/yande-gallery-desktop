@@ -3,17 +3,15 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * Phase 6B Task 4 — 去重检查改查 gallery_folders（绑定表才是「文件夹被占用」的真相）
+ * Phase 8A — 去重检查以 gallery_folders 为准（绑定表是「文件夹被占用」的唯一真相）
  *
- * createGallery 的重复检查从旧 `SELECT id FROM galleries WHERE folderPath=?`
- * 改为查真实绑定 `SELECT galleryId FROM gallery_folders WHERE folderPath=?`：
- * 一个文件夹「被占用」当且仅当它已被某图集绑定（gallery_folders 有行）。
+ * createGallery 的重复检查查真实绑定 `SELECT galleryId FROM gallery_folders WHERE folderPath=?`：
+ * 一个文件夹「被占用」当且仅当它已被某图集绑定（gallery_folders 有行）。Phase 8A 后 galleries
+ * 不再有 folderPath 列，绑定表是唯一来源。
  *
- * 断言两点（针对 gallery_folders 决策本身）：
+ * 断言两点：
  *   1. 文件夹已在 gallery_folders → createGallery 以「已存在」短路拒绝；
- *   2. 文件夹仅作为「陈旧的 galleries.folderPath」存在（无 gallery_folders 行）→
- *      不再被去重检查短路拒绝（决策放行）。为隔离该决策、避开 galleries.folderPath UNIQUE
- *      兜底，本用例的测试 schema 不给 galleries.folderPath 加 UNIQUE。
+ *   2. 文件夹无任何 gallery_folders 行 → 放行创建，并新写一条绑定。
  *
  * 真实 :memory: sqlite；mock fs.access 让文件夹存在校验通过；mock 事件/登记副作用。
  */
@@ -55,17 +53,14 @@ import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { createGallery } from '../../../src/main/services/galleryService';
 
-/**
- * 测试 schema：galleries.folderPath **不带 UNIQUE**，以便隔离「去重检查」决策本身
- * （否则陈旧 galleries.folderPath 会被 UNIQUE 兜底，掩盖决策是否短路）。
- * gallery_folders.folderPath 仍带 UNIQUE（与真实一致，绑定全局唯一）。
- */
-async function setupSchemaNoGalleryUnique(): Promise<void> {
+// Phase 8A 新结构：galleries 无 folderPath/isWatching/recursive/extensions；
+// gallery_folders.folderPath 仍带 UNIQUE（绑定全局唯一），是「文件夹被占用」的唯一真相。
+async function setupSchema(): Promise<void> {
   await run(h.db, `
     CREATE TABLE galleries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, folderPath TEXT NOT NULL, name TEXT NOT NULL,
-      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT, isWatching INTEGER DEFAULT 1,
-      recursive INTEGER DEFAULT 1, extensions TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT,
+      autoScan INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
     )
   `);
   await run(h.db, `
@@ -82,7 +77,7 @@ beforeEach(async () => {
     const database = new sqlite3.Database(':memory:', (err) => (err ? reject(err) : resolve(database)));
   });
   await run(h.db, 'PRAGMA foreign_keys=ON');
-  await setupSchemaNoGalleryUnique();
+  await setupSchema();
   vi.clearAllMocks();
 });
 
@@ -91,15 +86,14 @@ afterEach(async () => {
 });
 
 describe('createGallery 去重检查改查 gallery_folders', () => {
-  it('文件夹已在 gallery_folders 绑定时拒绝创建（即使无对应 galleries 旧行）', async () => {
+  it('文件夹已在 gallery_folders 绑定时拒绝创建', async () => {
     const folder = normalizePath(path.join('M:', 'boundFolder'));
 
-    // 预置一个图集 + 把 folder 绑定给它（gallery_folders 有行），但故意不让 galleries.folderPath = folder
+    // 预置一个图集 + 把 folder 绑定给它（gallery_folders 有行）
     await run(
       h.db,
-      `INSERT INTO galleries (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
-       VALUES (?, 'owner', 1, 1, ?, '2024-01-01', '2024-01-01')`,
-      [normalizePath(path.join('M:', 'ownerRoot')), JSON.stringify(['.jpg'])]
+      `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)
+       VALUES ('owner', 1, '2024-01-01', '2024-01-01')`
     );
     const owner = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
     await run(
@@ -111,8 +105,7 @@ describe('createGallery 去重检查改查 gallery_folders', () => {
 
     const result = await createGallery({ folderPath: folder, name: 'newGallery' });
 
-    // 决策：folder 已被绑定 → 以「去重检查短路」拒绝（而非走到 gallery_folders UNIQUE INSERT 才回滚）。
-    // 断言具体短路消息以区分两种拒绝来源：短路返回固定文案，UNIQUE 回滚返回 SQLite 约束错误文案。
+    // 决策：folder 已被绑定 → 以「去重检查短路」拒绝（固定文案，区别于 UNIQUE 回滚的 SQLite 约束错误）。
     expect(result.success).toBe(false);
     expect(result.error).toBe('Gallery already exists for this folder');
 
@@ -121,24 +114,30 @@ describe('createGallery 去重检查改查 gallery_folders', () => {
     expect(rows.map((r) => r.galleryId)).toEqual([owner!.id]);
   });
 
-  it('文件夹仅为陈旧 galleries.folderPath（无 gallery_folders 行）时不被去重短路，放行创建', async () => {
-    const folder = normalizePath(path.join('M:', 'staleFolder'));
+  it('文件夹无任何 gallery_folders 绑定时放行创建，并新写一条绑定', async () => {
+    const folder = normalizePath(path.join('M:', 'freshFolder'));
 
-    // 预置一条陈旧 galleries 行，其 folderPath = folder，但 gallery_folders 无对应绑定行
+    // 库内有一个不相关图集（其绑定文件夹不同），不应影响本 folder 的去重决策
     await run(
       h.db,
-      `INSERT INTO galleries (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
-       VALUES (?, 'stale', 1, 1, ?, '2024-01-01', '2024-01-01')`,
-      [folder, JSON.stringify(['.jpg'])]
+      `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)
+       VALUES ('other', 1, '2024-01-01', '2024-01-01')`
+    );
+    const other = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+    await run(
+      h.db,
+      `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+       VALUES (?, ?, 1, ?, '2024-01-01', '2024-01-01')`,
+      [other!.id, normalizePath(path.join('M:', 'otherFolder')), JSON.stringify(['.jpg'])]
     );
 
     const result = await createGallery({ folderPath: folder, name: 'freshGallery', extensions: ['.jpg'] });
 
-    // 去重决策放行（不再因陈旧 galleries.folderPath 而短路拒绝）
+    // 去重决策放行（folder 无绑定行）
     expect(result.success).toBe(true);
     expect(result.data).toBeTruthy();
 
-    // 新建走双写，gallery_folders 现在出现该 folder 的绑定行（之前没有）
+    // 新建写入该 folder 的绑定行（之前没有）
     const binding = await get<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_folders WHERE folderPath = ?', [folder]);
     expect(binding).toBeTruthy();
     expect(binding!.galleryId).toBe(result.data);

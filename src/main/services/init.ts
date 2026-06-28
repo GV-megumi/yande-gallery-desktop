@@ -171,16 +171,18 @@ export async function initGalleriesFromConfig(): Promise<void> {
     const hasLegacyKey = config.galleries !== undefined;
     const legacyFolders = config.galleries?.folders ?? [];
 
+    // 取现有图库的归一化绑定文件夹集合，用于"存在则跳过"的增量判断 + 装载登记表。
+    // Phase 8A：galleries 不再有 folderPath 列，绑定文件夹的 source of truth 是 gallery_folders，
+    // 故统一改用 getAllGalleryFolderPaths（读 gallery_folders.folderPath，已归一化）。
+    // 只查一次：迁移期间把新建图库的路径累加进 existingPaths，迁移完成后据此装载登记表，
+    // 既避免二次查询、又保证登记表含「已有绑定 ∪ 本次新建」。
+    const existingFolderPaths = await getAllGalleryFolderPaths();
+    const existingPaths = new Set<string>(
+      existingFolderPaths.map(p => normalizePath(p)).filter(Boolean)
+    );
+
     if (legacyFolders.length > 0) {
       console.log('📂 检测到旧 config.galleries.folders，开始增量迁移进数据库...');
-
-      // 取现有图库的归一化 folderPath 集合，用于"存在则跳过"的增量判断
-      const existingResult = await getGalleries();
-      const existingPaths = new Set<string>(
-        existingResult.success && existingResult.data
-          ? existingResult.data.map(g => normalizePath(g.folderPath)).filter(Boolean)
-          : []
-      );
 
       let createdCount = 0;
       let skippedCount = 0;
@@ -224,11 +226,10 @@ export async function initGalleriesFromConfig(): Promise<void> {
       }
     }
 
-    // 从 DB 装载图库根登记表（app:// 白名单的同步来源）。
-    // Phase 4：改从 gallery_folders 读全部绑定文件夹，而非 galleries 旧列 folderPath——
-    // 后者只反映图集原始文件夹，不含 bindFolder 追加 / changeFolderPath 重定位的文件夹，
-    // 会导致这些文件夹的图片在重启后因白名单缺失而无法通过 app:// 加载。
-    const roots = await getAllGalleryFolderPaths();
+    // 从「已有绑定 ∪ 本次新建」装载图库根登记表（app:// 白名单的同步来源）。
+    // gallery_folders 才是绑定文件夹的真相（含 bindFolder 追加 / changeFolderPath 重定位的文件夹），
+    // 否则这些文件夹的图片在重启后会因白名单缺失而无法通过 app:// 加载。
+    const roots = Array.from(existingPaths);
     loadGalleryRoots(roots);
     console.log(`[init] 图库根登记表已装载，共 ${roots.length} 个根`);
   } catch (error) {

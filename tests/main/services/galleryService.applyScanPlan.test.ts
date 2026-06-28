@@ -64,11 +64,12 @@ async function setupSchema(): Promise<void> {
       createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
     )
   `);
+  // Phase 8A 新结构：galleries 无 folderPath/isWatching/recursive/extensions（归 gallery_folders）
   await run(h.db, `
     CREATE TABLE galleries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, folderPath TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT, isWatching INTEGER DEFAULT 1,
-      recursive INTEGER DEFAULT 1, extensions TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT,
+      autoScan INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
     )
   `);
   await run(h.db, `
@@ -99,15 +100,23 @@ async function addImage(filepath: string): Promise<number> {
   return row!.id;
 }
 
+// 新结构：galleries 行只存元数据 + autoScan；绑定文件夹写到 gallery_folders。
 async function addGallery(folderPath: string, name: string): Promise<number> {
   await run(
     h.db,
-    `INSERT INTO galleries (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
-     VALUES (?, ?, 1, 1, ?, '2024-01-01', '2024-01-01')`,
-    [folderPath, name, JSON.stringify(['.jpg'])]
+    `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)
+     VALUES (?, 1, '2024-01-01', '2024-01-01')`,
+    [name]
   );
   const row = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
-  return row!.id;
+  const galleryId = row!.id;
+  await run(
+    h.db,
+    `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+     VALUES (?, ?, 1, ?, '2024-01-01', '2024-01-01')`,
+    [galleryId, folderPath, JSON.stringify(['.jpg'])]
+  );
+  return galleryId;
 }
 
 let tmpRoot = '';
@@ -152,10 +161,12 @@ describe('applyScanPlan', () => {
     expect(result.data!.created).toBe(1);
     expect(result.data!.imported).toBe(2);
 
-    // 新图集存在且 recursive=1
+    // 新图集存在且其绑定 recursive=1（recursive 现在归 gallery_folders）
     const gallery = await get<{ id: number; recursive: number }>(
       h.db,
-      'SELECT id, recursive FROM galleries WHERE folderPath = ?',
+      `SELECT g.id, gf.recursive
+         FROM galleries g JOIN gallery_folders gf ON gf.galleryId = g.id
+        WHERE gf.folderPath = ?`,
       [normA]
     );
     expect(gallery).toBeTruthy();
@@ -240,8 +251,12 @@ describe('applyScanPlan', () => {
     expect(result.data!.merged).toBe(1);
     expect(result.data!.imported).toBe(2);
 
-    // create 产生新图集且含成员
-    const newGallery = await get<{ id: number }>(h.db, 'SELECT id FROM galleries WHERE folderPath = ?', [normC]);
+    // create 产生新图集且含成员（按 gallery_folders 绑定定位新图集 id）
+    const newGallery = await get<{ id: number }>(
+      h.db,
+      'SELECT galleryId AS id FROM gallery_folders WHERE folderPath = ?',
+      [normC]
+    );
     expect(newGallery).toBeTruthy();
     const newMembers = (
       await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [newGallery!.id])
@@ -285,7 +300,11 @@ describe('applyScanPlan', () => {
     // 坏 merge 未计入 merged
     expect(result.data!.merged).toBe(0);
 
-    const okGallery = await get<{ id: number }>(h.db, 'SELECT id FROM galleries WHERE folderPath = ?', [normOk]);
+    const okGallery = await get<{ id: number }>(
+      h.db,
+      'SELECT galleryId AS id FROM gallery_folders WHERE folderPath = ?',
+      [normOk]
+    );
     expect(okGallery).toBeTruthy();
     const okMembers = (
       await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [okGallery!.id])

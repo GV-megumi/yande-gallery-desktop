@@ -28,7 +28,7 @@ import {
   ImportPickFileResult,
 } from '../../shared/types.js';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
-import { createGallery, getGallery, scanFolderIntoGallery, getGalleryFolderPaths } from './galleryService.js';
+import { createGallery, getGallery, scanFolderIntoGallery, getGalleryFolderPaths, getGalleryFolders } from './galleryService.js';
 import { normalizePath } from '../utils/path.js';
 import { getConfig, getDownloadsPath, resolveConfigPath } from './config.js';
 import { createBooruClient } from './booruClientFactory.js';
@@ -239,9 +239,11 @@ async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: Fa
 /**
  * booru 下载完成后同步对应图集。
  *
- * Phase 2A：改走 galleryService.scanFolderIntoGallery 统一入口（扫描导入 +
- * 写 gallery_images 成员 + 更新统计 + 发事件），确保下载落地的图片也进成员表。
- * recursive/extensions 取自图集自身（getGallery）；无配置时用默认扩展名。
+ * Phase 8A：galleries 不再存 recursive/extensions（已归 gallery_folders）。本函数改为：
+ *   1. getGallery 仅校验图集存在（保留"图集不存在"错误契约）；
+ *   2. 从 gallery_folders 取该 downloadPath 对应绑定行的 recursive/extensions；
+ *      下载路径未登记为绑定文件夹时回退 recursive=true + 默认扩展名；
+ *   3. scanFolderIntoGallery 统一入口（扫描导入 + 写 gallery_images 成员 + 更新统计 + 发事件）。
  *
  * 导出以便单测直接覆盖成员写入逻辑（其余调用方仍在 booruService 内部）。
  */
@@ -251,15 +253,23 @@ export async function syncGalleryAfterDownload(galleryId: number, downloadPath: 
     throw new Error(galleryResult.error || '图集不存在');
   }
 
-  const gallery = galleryResult.data;
-  const extensions = gallery.extensions && gallery.extensions.length > 0
-    ? gallery.extensions
+  // recursive/extensions 现在按文件夹存（gallery_folders）。下载路径与某绑定文件夹对应时
+  // 取其配置；否则回退默认（recursive=true + 默认扩展名）。
+  const normalizedDownloadPath = normalizePath(downloadPath);
+  const foldersResult = await getGalleryFolders(galleryId);
+  const matchedFolder = foldersResult.success && foldersResult.data
+    ? foldersResult.data.find(f => normalizePath(f.folderPath) === normalizedDownloadPath)
+    : undefined;
+
+  const recursive = matchedFolder ? matchedFolder.recursive : true;
+  const extensions = matchedFolder && matchedFolder.extensions.length > 0
+    ? matchedFolder.extensions
     : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
   const scanResult = await scanFolderIntoGallery(
     galleryId,
     downloadPath,
-    gallery.recursive ?? true,
+    recursive,
     extensions
   );
   if (!scanResult.success) {
