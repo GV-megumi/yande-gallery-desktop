@@ -358,33 +358,35 @@ export async function cleanupOrphanImages(
 }
 
 /**
- * 删除图库（bug12：级联清理 + 自动加入忽略名单）
+ * 删除图库（Phase 3：按成员删除 + 孤儿回收，取代旧的 folderPath 前缀级联）。
+ *
+ * 公开契约保持不变：返回 { success, error? }；图集不存在返回 success:false；
+ * 发出 gallery:galleries-changed{action:'deleted'} 与 gallery:ignored-folders-changed{action:'created'}；
+ * 每个绑定文件夹写入 gallery_ignored_folders（拉黑，下次扫描不重建）；原图文件不删。
  *
  * 清理顺序：
- * 1. 校验 galleries 行存在，读出 folderPath + recursive（事务外，只读）；
- * 2. 按归一化 folderPath 前缀 LIKE 查出所有 images（事务外，只读）；
- * 3. 对每张图尽力清理磁盘缩略图（事务外 best-effort，失败只告警）；
- *    —— 磁盘 IO 不进事务：即便事务后续回滚，磁盘缩略图先删也可接受；
- *       放进事务里反而会拖长事务持锁时间。
- * 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）：
- *    a. DELETE image_tags / images；
- *    b. DELETE invalid_images WHERE galleryId（显式，虽然 FK 设 SET NULL 也可容忍）；
- *    c. UPDATE booru_posts 把对应 localPath 的 downloaded/localPath 重置，
- *       避免"已下载"状态错乱；
- *    d. DELETE galleries 本行；
- *    e. INSERT OR REPLACE 写入 gallery_ignored_folders，下次扫描不再重建。
- *    任一条失败 → ROLLBACK。
+ * 1. 校验 galleries 行存在（folderPath 旧列仅用于 deleted 事件载荷，向后兼容）；
+ * 2. 读 gallery_images 成员 imageId 与 gallery_folders 绑定文件夹（只读）；
+ * 3. 事务内：
+ *    a. DELETE invalid_images WHERE galleryId（须在删 galleries 前，避免 FK SET NULL 后丢失定位）；
+ *    b. DELETE galleries 本行（FK CASCADE 连带删 gallery_folders / gallery_images）；
+ *    c. 每个绑定文件夹 INSERT OR REPLACE 写入 gallery_ignored_folders；
+ *    任一条失败 → ROLLBACK；
+ * 4. cleanupOrphanImages(成员 imageId)：此时本图集成员行已被 CASCADE 删除，
+ *    仅本图集独占的图片成为孤儿被删（清缩略图 + 重置 booru.downloaded/localPath）；
+ *    仍被其他图集引用的图片保留——修复旧前缀级联的多归属误删；
+ * 5. 逐个绑定文件夹 removeGalleryRoot + 发事件。
  *
- * 注意：原图文件不删，仅清数据库记录与缩略图缓存。
+ * 注意：cleanupOrphanImages 自带事务，故置于删图集事务之后，避免同库嵌套 runInTransaction。
  */
 export async function deleteGallery(id: number): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
 
-    // 1. 校验并取 folderPath
-    const existing = await get<{ id: number; folderPath: string; recursive: number }>(
+    // 1. 校验图集存在；folderPath 仍读旧列，仅用于 deleted 事件载荷（向后兼容）。
+    const existing = await get<{ id: number; folderPath: string | null }>(
       db,
-      'SELECT id, folderPath, recursive FROM galleries WHERE id = ?',
+      'SELECT id, folderPath FROM galleries WHERE id = ?',
       [id]
     );
 
@@ -392,114 +394,72 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       return { success: false, error: 'Gallery not found' };
     }
 
-    const normalized = normalizePath(existing.folderPath);
-    // LIKE 前缀使用 path.sep，与 scanDirectory/path.join 入库的 filepath 分隔符保持一致
-    const likePrefix = normalized + path.sep;
+    // 2. 读成员图片 id 与绑定文件夹（按成员表 / 绑定表，而非 folderPath 前缀）。
+    const memberRows = await all<{ imageId: number }>(
+      db,
+      'SELECT imageId FROM gallery_images WHERE galleryId = ?',
+      [id]
+    );
+    const memberImageIds = memberRows.map(r => r.imageId);
 
-    // 2. 查该图集范围内的图片
-    // bug12 I2：必须按 recursive 字段区分匹配范围，否则非递归图集会误删
-    // 子目录下的文件（包括可能属于其他图集的文件）。
-    // - recursive=1：整棵子树（前缀 + '%'）
-    // - recursive=0：仅直接子文件；SQLite LIKE 没有负字符类，用 AND NOT LIKE
-    //   排除 "prefix + 任意 + sep + 任意" 的更深层路径。
-    //
-    // 注：path.sep 在 Windows 下是反斜杠，在 SQLite LIKE 里没有 escape 语义，
-    // 按字面字符参与匹配即可；此处无需额外 escape。
-    const isRecursive = existing.recursive === 1 || (existing.recursive as unknown as boolean) === true;
-    const images = isRecursive
-      ? await all<{ id: number; filepath: string }>(
-          db,
-          `SELECT id, filepath FROM images
-             WHERE filepath LIKE ? OR filepath = ?`,
-          [likePrefix + '%', normalized]
-        )
-      : await all<{ id: number; filepath: string }>(
-          db,
-          `SELECT id, filepath FROM images
-             WHERE filepath LIKE ?
-               AND filepath NOT LIKE ?`,
-          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
-        );
+    const folderRows = await all<{ folderPath: string }>(
+      db,
+      'SELECT folderPath FROM gallery_folders WHERE galleryId = ?',
+      [id]
+    );
+    // 绑定表存的是 normalized 路径；再过一遍 normalizePath 兜底，保证拉黑/登记键一致。
+    const boundFolders = folderRows.map(r => normalizePath(r.folderPath));
 
-    // 3. best-effort 清缩略图（事务外；依赖 bug13 已修好的 deleteThumbnail 按 filepath 行为）
-    if (images.length > 0) {
-      const { deleteThumbnail } = await import('./thumbnailService.js');
-      for (const img of images) {
-        try {
-          await deleteThumbnail(img.filepath);
-        } catch (err: any) {
-          console.warn(
-            `[galleryService] 清理缩略图失败: ${img.filepath}`,
-            err?.message ?? err
-          );
-        }
-      }
-    }
+    // deleted 事件 folderPath 字段：优先用旧列 folderPath，回退到首个绑定文件夹。
+    const eventFolderPath = existing.folderPath
+      ? normalizePath(existing.folderPath)
+      : (boundFolders[0] ?? '');
 
-    // 4. 事务内原子级联（bug12 I1：之前这一段没包事务，中途失败会留半残）
-    //    任一 DB 写失败整体 ROLLBACK，外层 catch 返回 success:false
+    // 3. 事务内：删图集行（FK CASCADE 连带删 gallery_folders / gallery_images）
+    //    + 清 invalid_images（表定义 ON DELETE SET NULL，这里显式删更干净，避免孤儿行）
+    //    + 每个绑定文件夹写入忽略名单（INSERT OR REPLACE 保留 createdAt）。
+    //    任一写失败整体 ROLLBACK，外层 catch 返回 success:false。
+    const now = new Date().toISOString();
     await runInTransaction(db, async () => {
-      // 4a. 批量 DELETE image_tags → images
-      if (images.length > 0) {
-        const idList = images.map(i => i.id);
-        const placeholders = idList.map(() => '?').join(',');
-        await run(db, `DELETE FROM image_tags WHERE imageId IN (${placeholders})`, idList);
-        await run(db, `DELETE FROM images WHERE id IN (${placeholders})`, idList);
-      }
-
-      // 4b. invalid_images 按 galleryId 显式清（表定义是 ON DELETE SET NULL，
-      //     这里直接删记录更干净，避免累积孤儿行）
+      // 3a. invalid_images 按 galleryId 显式清（须在删 galleries 前，否则 FK SET NULL 后无法按 galleryId 定位）
       await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
 
-      // 4c. booru_posts 中落地到本图集目录下的帖子：重置 downloaded/localPath
-      //     localImageId 已由外键 SET NULL 处理；localPath 的字符串匹配是这里的兜底。
-      //
-      // bug12 I2：范围必须与 images 查询一致 —— 非递归图集只匹配直接子路径，
-      //           避免把子目录图集下的 booru_post 也一起打成未下载。
-      if (isRecursive) {
-        await run(
-          db,
-          `UPDATE booru_posts
-              SET downloaded = 0, localPath = NULL
-              WHERE localPath IS NOT NULL AND (localPath LIKE ? OR localPath = ?)`,
-          [likePrefix + '%', normalized]
-        );
-      } else {
-        await run(
-          db,
-          `UPDATE booru_posts
-              SET downloaded = 0, localPath = NULL
-              WHERE localPath IS NOT NULL
-                AND localPath LIKE ?
-                AND localPath NOT LIKE ?`,
-          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
-        );
-      }
-
-      // 4d. 删图集行
+      // 3b. 删图集行：FK CASCADE 连带清掉本图集的 gallery_folders / gallery_images 成员行
       await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
 
-      // 4e. 写入忽略名单（INSERT OR REPLACE 保留 createdAt）
-      const now = new Date().toISOString();
-      await run(
-        db,
-        `INSERT OR REPLACE INTO gallery_ignored_folders
-           (folderPath, note, createdAt, updatedAt)
-         VALUES (
-           ?, ?,
-           COALESCE(
-             (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+      // 3c. 逐个绑定文件夹拉黑（下次扫描不重建）
+      for (const folder of boundFolders) {
+        await run(
+          db,
+          `INSERT OR REPLACE INTO gallery_ignored_folders
+             (folderPath, note, createdAt, updatedAt)
+           VALUES (
+             ?, ?,
+             COALESCE(
+               (SELECT createdAt FROM gallery_ignored_folders WHERE folderPath = ?),
+               ?
+             ),
              ?
-           ),
-           ?
-         )`,
-        [normalized, '删除图集自动忽略', normalized, now, now]
-      );
+           )`,
+          [folder, '删除图集自动忽略', folder, now, now]
+        );
+      }
     });
 
-    removeGalleryRoot(normalized);
-    emitGalleryGalleriesChanged({ galleryId: id, action: 'deleted', folderPath: normalized });
-    emitGalleryIgnoredFoldersChanged({ action: 'created', folderPath: normalized, affectedCount: 1 });
+    // 4. 回收孤儿（自带事务，置于删图集事务之后）：
+    //    此时本图集的 gallery_images 已被 CASCADE 删除，成员图片中仅被本图集独占的
+    //    成为孤儿被删（清缩略图 + 重置 booru）；仍被其他图集引用的图片保留——
+    //    这修复了旧前缀级联的多归属误删。
+    await cleanupOrphanImages(db, memberImageIds);
+
+    // 5. app:// 白名单移除每个根 + 事件
+    for (const folder of boundFolders) {
+      removeGalleryRoot(folder);
+    }
+    emitGalleryGalleriesChanged({ galleryId: id, action: 'deleted', folderPath: eventFolderPath });
+    for (const folder of boundFolders) {
+      emitGalleryIgnoredFoldersChanged({ action: 'created', folderPath: folder, affectedCount: 1 });
+    }
 
     return { success: true };
   } catch (error) {
