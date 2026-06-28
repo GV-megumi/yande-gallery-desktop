@@ -25,7 +25,6 @@ const checkForUpdate = vi.fn();
 const openExternal = vi.fn();
 const testBaidu = vi.fn();
 const testGoogle = vi.fn();
-const scanSubfolders = vi.fn();
 const getGalleries = vi.fn();
 const createGallery = vi.fn();
 const updateGallery = vi.fn();
@@ -356,7 +355,6 @@ beforeEach(() => {
       }),
     },
     gallery: {
-      scanSubfolders,
       getGalleries,
       createGallery,
       updateGallery,

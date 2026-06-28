@@ -243,7 +243,7 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
 
     // 检查是否已存在：以真实绑定（gallery_folders）为准——一个文件夹「被占用」当且仅当它已被某图集绑定。
     // 旧实现查 galleries.folderPath 旧列，会被「陈旧旧列 / 重定位后残留」误判；gallery_folders 才是真相。
-    // 注：下方事务里 galleries.folderPath UNIQUE 的 INSERT 仍是过渡期的硬兜底，此处只是把「决策」前移到绑定表。
+    // 注：契约期已彻底移除 galleries.folderPath 列，下方事务只写图集元数据，folderPath 落在 gallery_folders 绑定行。
     const existing = await get<{ galleryId: number }>(
       db,
       'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',

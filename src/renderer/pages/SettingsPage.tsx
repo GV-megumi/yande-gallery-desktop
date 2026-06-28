@@ -146,7 +146,6 @@ export const SettingsPage: React.FC = () => {
   // antd v5 上下文化提示，替代静态 message / Modal（App.tsx 已包 <App>）
   const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [proxyForm] = Form.useForm();
 
   // Phase 7A：扫描文件夹（plan→碰撞解决→apply）与重定位根目录维护
@@ -402,7 +401,6 @@ export const SettingsPage: React.FC = () => {
     if (!window.electronAPI) return;
     console.log('[SettingsPage] 开始加载配置');
     try {
-      setLoading(true);
       const result = await window.electronAPI.config.get();
       if (result.success && result.data) {
         const config = result.data;
@@ -426,8 +424,6 @@ export const SettingsPage: React.FC = () => {
     } catch (error) {
       console.error('Failed to load config:', error);
       message.error('加载配置失败');
-    } finally {
-      setLoading(false);
     }
   };
 
