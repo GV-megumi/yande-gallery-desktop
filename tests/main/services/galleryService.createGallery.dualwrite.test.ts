@@ -3,14 +3,14 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * Phase 2A — createGallery 双写 gallery_folders
+ * Phase 8A — createGallery 写 galleries 元数据 + gallery_folders 绑定（不再双写旧列）
  *
- * createGallery 在 runInTransaction 内同时写入：
- *   - galleries 旧行（folderPath/isWatching/recursive/extensions，过渡期保留）
+ * createGallery 在 runInTransaction 内写入：
+ *   - galleries 元数据行（name/autoScan/…，不含 folderPath/recursive/extensions）
  *   - gallery_folders 绑定行（galleryId/folderPath/recursive/extensions）
- * 两者 folderPath/recursive/extensions 一致。
+ * folderPath/recursive/extensions 只落在 gallery_folders（解耦后的 source of truth）。
  *
- * 真实 :memory: sqlite 验证双写结果；只 mock 掉 fs.access（文件夹存在检查）
+ * 真实 :memory: sqlite 验证写入结果；只 mock 掉 fs.access（文件夹存在检查）
  * 与事件/登记表副作用。
  */
 
@@ -54,17 +54,15 @@ import { normalizePath } from '../../../src/main/utils/path';
 import { createGallery } from '../../../src/main/services/galleryService';
 
 async function setupSchema(): Promise<void> {
+  // Phase 8A 新结构：galleries 无 folderPath/isWatching/recursive/extensions
   await run(h.db, `
     CREATE TABLE galleries (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
-      folderPath TEXT NOT NULL UNIQUE,
       name TEXT NOT NULL,
       coverImageId INTEGER,
       imageCount INTEGER DEFAULT 0,
       lastScannedAt TEXT,
-      isWatching INTEGER DEFAULT 1,
-      recursive INTEGER DEFAULT 1,
-      extensions TEXT,
+      autoScan INTEGER NOT NULL DEFAULT 1,
       createdAt TEXT NOT NULL,
       updatedAt TEXT NOT NULL
     )
@@ -96,7 +94,7 @@ afterEach(async () => {
   await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
 });
 
-describe('createGallery 双写 gallery_folders', () => {
+describe('createGallery 写 galleries 元数据 + gallery_folders 绑定', () => {
   it('成功创建后 gallery_folders 有匹配的绑定行（folderPath/recursive/extensions）', async () => {
     const folder = normalizePath(path.join('M:', 'galX'));
     const result = await createGallery({
@@ -136,9 +134,11 @@ describe('createGallery 双写 gallery_folders', () => {
 
   it('galleries 行与 gallery_folders 行各写一条', async () => {
     const folder = normalizePath(path.join('M:', 'galZ'));
-    await createGallery({ folderPath: folder, name: 'galZ' });
+    const result = await createGallery({ folderPath: folder, name: 'galZ' });
+    const galleryId = result.data!;
 
-    const galleries = await all(h.db, 'SELECT * FROM galleries WHERE folderPath = ?', [folder]);
+    // galleries 按返回的 id 定位（不再有 folderPath 列）；gallery_folders 按 folderPath 定位
+    const galleries = await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId]);
     const folders = await all(h.db, 'SELECT * FROM gallery_folders WHERE folderPath = ?', [folder]);
     expect(galleries).toHaveLength(1);
     expect(folders).toHaveLength(1);

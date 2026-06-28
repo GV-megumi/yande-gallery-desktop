@@ -3,11 +3,12 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * Phase 2A — booru 下载后同步走 scanFolderIntoGallery 写成员
+ * Phase 8A — booru 下载后同步走 scanFolderIntoGallery 写成员（新结构）
  *
- * syncGalleryAfterDownload 改为：getGallery 取 recursive/extensions →
- * scanFolderIntoGallery(galleryId, downloadPath, recursive, extensions)，
- * 从而在 booru 下载完成后也写入 gallery_images 成员。
+ * syncGalleryAfterDownload 改为：getGallery 校验存在 + 读 gallery_folders 取该
+ * downloadPath 的 recursive/extensions → scanFolderIntoGallery(galleryId,
+ * downloadPath, recursive, extensions)，从而在 booru 下载完成后也写入 gallery_images
+ * 成员。Phase 8A 后 galleries 不再有 recursive/extensions 列（归 gallery_folders）。
  *
  * 用真实 :memory: sqlite + 真实 galleryService（不 mock），只 mock 文件系统
  * 扫描步骤（imageService.scanAndImportFolder）与各类事件副作用，验证成员落库。
@@ -76,11 +77,20 @@ async function setupSchema(): Promise<void> {
       createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
     )
   `);
+  // Phase 8A 新结构：galleries 无 folderPath/isWatching/recursive/extensions
   await run(h.db, `
     CREATE TABLE galleries (
-      id INTEGER PRIMARY KEY AUTOINCREMENT, folderPath TEXT NOT NULL UNIQUE, name TEXT NOT NULL,
-      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT, isWatching INTEGER DEFAULT 1,
-      recursive INTEGER DEFAULT 1, extensions TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL,
+      coverImageId INTEGER, imageCount INTEGER DEFAULT 0, lastScannedAt TEXT,
+      autoScan INTEGER NOT NULL DEFAULT 1, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL
+    )
+  `);
+  // recursive/extensions 现在归 gallery_folders（按文件夹）
+  await run(h.db, `
+    CREATE TABLE gallery_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, galleryId INTEGER NOT NULL, folderPath TEXT NOT NULL UNIQUE,
+      recursive INTEGER NOT NULL DEFAULT 1, extensions TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE
     )
   `);
   await run(h.db, `
@@ -102,15 +112,22 @@ async function addImage(filepath: string): Promise<number> {
   return row!.id;
 }
 
+// 新结构：galleries 行只存元数据 + autoScan；recursive/extensions 写到 gallery_folders 绑定行。
 async function addGallery(folderPath: string, recursive: number): Promise<number> {
   await run(
     h.db,
-    `INSERT INTO galleries (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
-     VALUES (?, 'g', 1, ?, ?, '2024-01-01', '2024-01-01')`,
-    [folderPath, recursive, JSON.stringify(['.jpg'])]
+    `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)
+     VALUES ('g', 1, '2024-01-01', '2024-01-01')`
   );
   const row = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
-  return row!.id;
+  const galleryId = row!.id;
+  await run(
+    h.db,
+    `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, '2024-01-01', '2024-01-01')`,
+    [galleryId, folderPath, recursive, JSON.stringify(['.jpg'])]
+  );
+  return galleryId;
 }
 
 beforeEach(async () => {

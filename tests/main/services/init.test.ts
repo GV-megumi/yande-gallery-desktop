@@ -184,14 +184,9 @@ describe('initGalleriesFromConfig 逻辑', () => {
   });
 
   it('config 文件夹已存在于数据库时应跳过创建，但仍剥离旧配置（增量迁移）', async () => {
-    // 现有图库的 folderPath 覆盖了 config 里的两个文件夹 → 全部"存在则跳过"
-    mockGetGalleries.mockResolvedValueOnce({
-      success: true,
-      data: [
-        { id: 1, folderPath: '/test/folder1' },
-        { id: 2, folderPath: '/test/folder2' },
-      ],
-    });
+    // Phase 8A：增量判断改读 gallery_folders（getAllGalleryFolderPaths）。
+    // 现有绑定文件夹覆盖了 config 里的两个文件夹 → 全部"存在则跳过"
+    mockGetAllGalleryFolderPaths.mockResolvedValueOnce(['/test/folder1', '/test/folder2']);
     const { initializeApp } = await import('../../../src/main/services/init.js');
     await initializeApp();
 
