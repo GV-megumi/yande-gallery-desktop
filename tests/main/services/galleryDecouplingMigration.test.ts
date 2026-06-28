@@ -168,3 +168,47 @@ describe('backfillGalleryImages', () => {
     expect(members).toHaveLength(1);
   });
 });
+
+describe('migrateGalleryFolderDecoupling', () => {
+  it('完整迁移：建表 + 回填 folders + 回填 images', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));
+    const aId = await addGallery(galA, 'galA', 1);
+    const aImg = await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
+
+    await migrateGalleryFolderDecoupling(db);
+
+    const folders = await all(db, 'SELECT * FROM gallery_folders WHERE galleryId = ?', [aId]);
+    const members = await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [aId]);
+    expect(folders).toHaveLength(1);
+    expect(members.map((m) => m.imageId)).toEqual([aImg]);
+  });
+
+  it('幂等：连续两次迁移结果不变', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));
+    await addGallery(galA, 'galA', 1);
+    await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
+
+    await migrateGalleryFolderDecoupling(db);
+    await migrateGalleryFolderDecoupling(db);
+
+    expect(await all(db, 'SELECT * FROM gallery_folders')).toHaveLength(1);
+    expect(await all(db, 'SELECT * FROM gallery_images')).toHaveLength(1);
+  });
+
+  it('contract 后（galleries 无 folderPath 列）：只建表、不回填、不报错', async () => {
+    await run(db, 'DROP TABLE galleries');
+    await run(db, `
+      CREATE TABLE galleries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        autoScan INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    `);
+
+    await expect(migrateGalleryFolderDecoupling(db)).resolves.toBeUndefined();
+    expect(await columnExists(db, 'gallery_folders', 'galleryId')).toBe(true);
+    expect(await all(db, 'SELECT * FROM gallery_images')).toEqual([]);
+  });
+});
