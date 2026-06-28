@@ -185,23 +185,39 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
     const now = new Date().toISOString();
     const isWatching = galleryData.isWatching ?? true;
     const recursive = galleryData.recursive ?? true;
+    const extensionsJson = JSON.stringify(extensions);
 
-    await run(db, sql, [
-      folderPath,
-      galleryData.name,
-      isWatching ? 1 : 0,
-      recursive ? 1 : 0,
-      JSON.stringify(extensions),
-      now,
-      now
-    ]);
+    // Phase 2A：galleries 旧行 + gallery_folders 绑定行原子双写。
+    // 过渡期仍保留 galleries 旧列（folderPath/isWatching/recursive/extensions），
+    // 两条记录的 folderPath/recursive/extensions 保持一致，便于后续读路径切到绑定表。
+    let galleryId: number | undefined;
+    await runInTransaction(db, async () => {
+      await run(db, sql, [
+        folderPath,
+        galleryData.name,
+        isWatching ? 1 : 0,
+        recursive ? 1 : 0,
+        extensionsJson,
+        now,
+        now
+      ]);
 
-    const result = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+      const inserted = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+      galleryId = inserted?.id;
+
+      await run(
+        db,
+        `INSERT INTO gallery_folders
+           (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [galleryId, folderPath, recursive ? 1 : 0, extensionsJson, now, now]
+      );
+    });
 
     addGalleryRoot(folderPath);
-    emitGalleryGalleriesChanged({ galleryId: result?.id, action: 'created', folderPath });
+    emitGalleryGalleriesChanged({ galleryId, action: 'created', folderPath });
 
-    return { success: true, data: result?.id };
+    return { success: true, data: galleryId };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Error creating gallery:', errorMessage);
