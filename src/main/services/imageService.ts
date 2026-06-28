@@ -658,6 +658,81 @@ export async function getImagesByFolder(
 }
 
 /**
+ * 按图集成员表读取图片（Phase 2B）
+ *
+ * 与 getImagesByFolder 行为一致（同样的 row→Image 映射、同样的返回形状），
+ * 区别仅在于图片归属来源：不再用 filepath 前缀匹配，而是显式 join gallery_images
+ * 成员表。成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），因此结果与
+ * 旧前缀读取一致，但语义更准确（图集与文件夹解耦后不依赖路径形态）。
+ *
+ * @param galleryId 图集 ID
+ * @param page 页码
+ * @param pageSize 每页数量
+ */
+export async function getImagesByGallery(
+  galleryId: number,
+  page: number = 1,
+  pageSize: number = 50
+): Promise<{ success: boolean; data?: Image[]; total?: number; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const offset = (page - 1) * pageSize;
+
+    // 定义SQL查询结果的临时类型
+    interface ImageQueryResult extends Omit<Image, 'tags'> {
+      tags?: string;
+    }
+
+    // 查询该图集成员图片（显式成员表 join，不做 filepath 前缀匹配）
+    const images = await all<ImageQueryResult>(
+      db,
+      `
+        SELECT
+          i.*,
+          GROUP_CONCAT(t.name) as tags
+        FROM gallery_images gi
+        JOIN images i ON i.id = gi.imageId
+        LEFT JOIN image_tags it ON i.id = it.imageId
+        LEFT JOIN tags t ON it.tagId = t.id
+        WHERE gi.galleryId = ?
+        GROUP BY i.id
+        ORDER BY i.updatedAt DESC
+        LIMIT ? OFFSET ?
+      `,
+      [galleryId, pageSize, offset]
+    );
+
+    // 查询总数
+    const countResult = await get<{ count: number }>(
+      db,
+      'SELECT COUNT(*) as count FROM gallery_images WHERE galleryId = ?',
+      [galleryId]
+    );
+    const total = countResult?.count || 0;
+
+    // 转换tags字符串为Tag数组（简化处理）
+    const result = images.map(image => {
+      const tagsArray = (image.tags && typeof image.tags === 'string' ? image.tags.split(',') : [])
+        .map((tag: string) => ({
+          id: 0,
+          name: tag,
+          createdAt: image.createdAt
+        }));
+      return {
+        ...image,
+        tags: tagsArray
+      };
+    });
+
+    return { success: true, data: result, total };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error getting images by gallery:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * 获取所有文件夹列表（去重）
  */
 export async function getAllFolders(): Promise<{ success: boolean; data?: string[]; error?: string }> {
