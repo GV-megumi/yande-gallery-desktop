@@ -29,6 +29,9 @@ import {
   addIgnoredFolder,
   updateIgnoredFolder,
   removeIgnoredFolder,
+  bindFolder,
+  unbindFolder,
+  changeFolderPath,
 } from '../../services/galleryService.js';
 import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail } from '../../services/thumbnailService.js';
 import {
@@ -357,6 +360,43 @@ export function setupGalleryHandlers() {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
+
+  // ===== 图库↔文件夹解耦：文件夹绑定原语（Phase 6A） =====
+  // 将文件夹绑定到图集（全局唯一：一个文件夹只能绑定到一个图集）
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_BIND_FOLDER,
+    async (_event: IpcMainInvokeEvent, galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => {
+      try {
+        return await bindFolder(galleryId, folderPath, recursive, extensions);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // 解除文件夹与图集的绑定
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_UNBIND_FOLDER,
+    async (_event: IpcMainInvokeEvent, galleryId: number, folderPath: string) => {
+      try {
+        return await unbindFolder(galleryId, folderPath);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
+
+  // 修改图集绑定的文件夹路径（解绑旧路径 + 绑定新路径）
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH,
+    async (_event: IpcMainInvokeEvent, galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => {
+      try {
+        return await changeFolderPath(galleryId, oldPath, newPath, recursive, extensions);
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
+  );
 }
 
 // 辅助函数：递归扫描目录

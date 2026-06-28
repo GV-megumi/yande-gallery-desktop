@@ -28,6 +28,10 @@ export const IPC_CHANNELS = {
   GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats',
   GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder',
   GALLERY_SCAN_SUBFOLDERS: 'gallery:scan-subfolders',
+  // Phase 6A 图库↔文件夹解耦：文件夹绑定原语
+  GALLERY_BIND_FOLDER: 'gallery:bind-folder',
+  GALLERY_UNBIND_FOLDER: 'gallery:unbind-folder',
+  GALLERY_CHANGE_FOLDER_PATH: 'gallery:change-folder-path',
   GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image',
   GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images',
   GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count',
