@@ -47,6 +47,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SYNC_GALLERY_FOLDER, id),
     scanSubfolders: (rootPath: string, extensions?: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS, rootPath, extensions),
+    // Phase 6B 扫描入库 plan→apply：规划（只读分类一级子文件夹）/ 应用决议
+    planScanFolder: (rootPath: string, extensions?: string[]) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER, rootPath, extensions),
+    applyScanPlan: (resolution: {
+      create: Array<{ folderPath: string; name: string }>;
+      merge: Array<{ folderPath: string; galleryId: number }>;
+      extensions?: string[];
+    }) => ipcRenderer.invoke(IPC_CHANNELS.GALLERY_APPLY_SCAN_PLAN, resolution),
     reportInvalidImage: (imageId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_REPORT_INVALID_IMAGE, imageId),
     getInvalidImages: (page?: number, pageSize?: number) =>
@@ -412,6 +420,21 @@ declare global {
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         syncGalleryFolder: (id: number) => Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string }>;
         scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;
+        // Phase 6B 扫描入库 plan→apply：规划（只读分类）/ 应用决议
+        planScanFolder: (rootPath: string, extensions?: string[]) => Promise<{
+          success: boolean;
+          data?: {
+            newFolders: Array<{ folderPath: string; name: string }>;
+            collisions: Array<{ folderPath: string; name: string; existingGalleryId: number; existingGalleryName: string }>;
+            skipped: Array<{ folderPath: string; name: string; reason: 'alreadyBound' | 'ignored' | 'noImages' }>;
+          };
+          error?: string;
+        }>;
+        applyScanPlan: (resolution: {
+          create: Array<{ folderPath: string; name: string }>;
+          merge: Array<{ folderPath: string; galleryId: number }>;
+          extensions?: string[];
+        }) => Promise<{ success: boolean; data?: { created: number; merged: number; imported: number; skipped: number }; error?: string }>;
         reportInvalidImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
         getInvalidImages: (page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         getInvalidImageCount: () => Promise<{ success: boolean; data?: number; error?: string }>;

@@ -25,6 +25,9 @@ import {
   updateGalleryStats,
   syncGalleryFolder,
   scanSubfoldersAndCreateGalleries,
+  planScanFolder,
+  applyScanPlan,
+  type ApplyScanResolution,
   listIgnoredFolders,
   addIgnoredFolder,
   updateIgnoredFolder,
@@ -362,6 +365,25 @@ export function setupGalleryHandlers() {
   ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_SUBFOLDERS, async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
     try {
       return await scanSubfoldersAndCreateGalleries(rootPath, extensions);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // ===== 扫描入库 plan→apply（Phase 6B） =====
+  // 规划：只读分析 rootPath 一级子文件夹（+ 自身），分类 new/collision/skipped，不建图集
+  ipcMain.handle(IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
+    try {
+      return await planScanFolder(rootPath, extensions);
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  // 应用：按用户决议逐项新建图集 / 合并到现有图集（单项失败收集并继续）
+  ipcMain.handle(IPC_CHANNELS.GALLERY_APPLY_SCAN_PLAN, async (_event: IpcMainInvokeEvent, resolution: ApplyScanResolution) => {
+    try {
+      return await applyScanPlan(resolution);
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
