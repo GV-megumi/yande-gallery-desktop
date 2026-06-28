@@ -39,6 +39,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SET_GALLERY_COVER, id, coverImageId),
     getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_FOLDER, folderPath, page, pageSize),
+    getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY, galleryId, page, pageSize),
     scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, folderPath, extensions, recursive),
     syncGalleryFolder: (id: number) =>
@@ -392,6 +394,7 @@ declare global {
         deleteGallery: (id: number) => Promise<{ success: boolean; error?: string }>;
         setGalleryCover: (id: number, coverImageId: number) => Promise<{ success: boolean; error?: string }>;
         getImagesByFolder: (folderPath: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
+        getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         syncGalleryFolder: (id: number) => Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string }>;
         scanSubfolders: (rootPath: string, extensions?: string[]) => Promise<{ success: boolean; data?: { created: number; skipped: number }; error?: string }>;

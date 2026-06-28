@@ -39,6 +39,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   getRecentImages: vi.fn(),
   getRecentImagesAfter: vi.fn(),
   getImagesByFolder: vi.fn(),
+  getImagesByGallery: vi.fn(),
   getAllFolders: vi.fn(),
   scanAndImportFolder: vi.fn(),
 }));
