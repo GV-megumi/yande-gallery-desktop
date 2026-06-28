@@ -20,14 +20,21 @@ import path from 'path';
 const h = vi.hoisted(() => ({
   db: null as unknown as import('sqlite3').Database,
   deleteThumbnailCalls: [] as string[],
+  // 记录每次 run(sql, params) 调用的 SQL 与参数个数，用于断言分批（每条语句参数数 ≤ 批大小）。
+  runCalls: [] as Array<{ sql: string; paramCount: number }>,
 }));
 
-// getDatabase 返回测试 db；其余 run/get/all/runWithChanges/runInTransaction 用真实实现。
+// getDatabase 返回测试 db；run 包一层 spy（仍委托真实实现，记录 SQL + 参数数）；
+// 其余 get/all/runWithChanges/runInTransaction 用真实实现。
 vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../src/main/services/database.js')>();
   return {
     ...actual,
     getDatabase: vi.fn(async () => h.db),
+    run: (db: any, sql: string, params: any[] = []) => {
+      h.runCalls.push({ sql, paramCount: Array.isArray(params) ? params.length : 0 });
+      return actual.run(db, sql, params);
+    },
   };
 });
 
@@ -152,6 +159,7 @@ beforeEach(async () => {
   await run(h.db, 'PRAGMA foreign_keys=ON');
   await setupSchema();
   h.deleteThumbnailCalls = [];
+  h.runCalls = [];
   vi.clearAllMocks();
 });
 
@@ -252,5 +260,85 @@ describe('cleanupOrphanImages', () => {
     expect(count).toBe(1);
     const ids = (await all<{ id: number }>(h.db, 'SELECT id FROM images ORDER BY id')).map((r) => r.id);
     expect(ids).toEqual([kept]);
+  });
+
+  /**
+   * 大图集回收：候选 id 数量跨多个 500 分批边界。
+   *
+   * 旧实现把每个 id 拼成一个占位符放进单条 IN(...)，在变量上限为 999 的环境会抛
+   * "too many SQL variables"。本测试不依赖环境的硬上限（现代 SQLite 可达 32766），
+   * 而是用 run spy 直接断言"分批"这一行为契约：DELETE FROM images 必须被拆成多条语句、
+   * 每条参数数 ≤ 500（批大小）。同时验证全部孤儿被删、非孤儿保留。
+   */
+  it('候选跨多个 500 分批：DELETE images 应分批（每条 ≤500 参数）且全部孤儿被删', async () => {
+    const ORPHAN_COUNT = 1200; // 跨 3 个 500 分批边界
+    const orphanIds: number[] = [];
+    for (let i = 0; i < ORPHAN_COUNT; i++) {
+      orphanIds.push(await addImage(normalizePath(path.join('M:', 'big', `o${i}.jpg`))));
+    }
+    // 一张非孤儿：仍是图集 7 的成员
+    const kept = await addImage(normalizePath(path.join('M:', 'big', 'kept.jpg')));
+    await addMembership(7, kept);
+
+    h.runCalls = []; // 清掉 setup/插入阶段的记录，只看 cleanupOrphanImages 内部
+    const count = await cleanupOrphanImages(h.db, [...orphanIds, kept]);
+
+    expect(count).toBe(ORPHAN_COUNT);
+
+    // 分批契约：DELETE FROM images 被拆成多条；每条参数数 ≤ 500
+    const deleteCalls = h.runCalls.filter((c) => /DELETE FROM images WHERE id IN/i.test(c.sql));
+    expect(deleteCalls.length).toBeGreaterThan(1);
+    for (const c of deleteCalls) {
+      expect(c.paramCount).toBeLessThanOrEqual(500);
+    }
+    // 删除总数应覆盖全部孤儿
+    const totalDeleted = deleteCalls.reduce((s, c) => s + c.paramCount, 0);
+    expect(totalDeleted).toBe(ORPHAN_COUNT);
+
+    // 仅剩 kept；kept 成员行仍在
+    const ids = (await all<{ id: number }>(h.db, 'SELECT id FROM images ORDER BY id')).map((r) => r.id);
+    expect(ids).toEqual([kept]);
+    expect(await all(h.db, 'SELECT * FROM gallery_images WHERE imageId = ?', [kept])).toHaveLength(1);
+  });
+
+  /**
+   * 大图集 booru 重置：超过 500 个孤儿对应的 booru_posts 也应分批重置。
+   * UPDATE booru_posts 一条语句同时带 localImageId 与 localPath 两组占位符（2×批大小），
+   * 故每条参数数应 ≤ 1000（2 × 500）。
+   */
+  it('候选跨多个 500 分批：UPDATE booru_posts 也应分批重置', async () => {
+    const ORPHAN_COUNT = 1100;
+    await run(h.db, `INSERT INTO booru_sites (name, url, type) VALUES ('S', 'https://s', 'moebooru')`);
+    const siteRow = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+
+    const orphanIds: number[] = [];
+    for (let i = 0; i < ORPHAN_COUNT; i++) {
+      const fp = normalizePath(path.join('M:', 'bigb', `o${i}.jpg`));
+      const imgId = await addImage(fp);
+      orphanIds.push(imgId);
+      await run(
+        h.db,
+        `INSERT INTO booru_posts (siteId, postId, fileUrl, downloaded, localPath, localImageId)
+         VALUES (?, ?, 'https://f', 1, ?, ?)`,
+        [siteRow!.id, i, fp, imgId]
+      );
+    }
+
+    h.runCalls = [];
+    const count = await cleanupOrphanImages(h.db, orphanIds);
+
+    expect(count).toBe(ORPHAN_COUNT);
+
+    // 分批契约：UPDATE booru_posts 被拆成多条；每条参数数 ≤ 1000（id 组 + path 组，各 ≤500）
+    const updateCalls = h.runCalls.filter((c) => /UPDATE booru_posts/i.test(c.sql));
+    expect(updateCalls.length).toBeGreaterThan(1);
+    for (const c of updateCalls) {
+      expect(c.paramCount).toBeLessThanOrEqual(1000);
+    }
+
+    expect(await all(h.db, 'SELECT id FROM images')).toHaveLength(0);
+    // 所有 booru_posts 应被重置
+    const stillDownloaded = await all(h.db, 'SELECT id FROM booru_posts WHERE downloaded = 1 OR localPath IS NOT NULL');
+    expect(stillDownloaded).toHaveLength(0);
   });
 });
