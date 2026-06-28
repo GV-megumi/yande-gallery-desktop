@@ -9,7 +9,6 @@ import { GalleryPage } from '../../../src/renderer/pages/GalleryPage';
 
 const getGalleries = vi.fn();
 const getGallery = vi.fn();
-const getImagesByFolder = vi.fn();
 const getImagesByGallery = vi.fn();
 const getThumbnail = vi.fn();
 const deleteGallery = vi.fn();
@@ -212,7 +211,6 @@ describe('GalleryPage gallery delete action', () => {
         autoScan: false,
       },
     });
-    getImagesByFolder.mockResolvedValue({ success: true, data: [] });
     getImagesByGallery.mockResolvedValue({ success: true, data: [] });
     getGallerySourceFavoriteTags.mockResolvedValue({
       success: true,
@@ -243,7 +241,6 @@ describe('GalleryPage gallery delete action', () => {
         getGalleries,
         deleteGallery,
         getGallery,
-        getImagesByFolder,
         getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
@@ -1413,7 +1410,6 @@ describe('GalleryPage app event refresh', () => {
 
     getGalleries.mockResolvedValue({ success: true, data: [] });
     getGallery.mockResolvedValue({ success: true, data: undefined });
-    getImagesByFolder.mockResolvedValue({ success: true, data: [] });
     getImagesByGallery.mockResolvedValue({ success: true, data: [] });
     getThumbnail.mockResolvedValue({ success: false, error: 'no-thumb' });
     deleteGallery.mockResolvedValue({ success: true });
@@ -1439,7 +1435,6 @@ describe('GalleryPage app event refresh', () => {
         getGalleries,
         deleteGallery,
         getGallery,
-        getImagesByFolder,
         getImagesByGallery,
         getRecentImages,
         getRecentImagesAfter,
