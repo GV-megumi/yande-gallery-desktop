@@ -13,6 +13,19 @@ import { addGalleryRoot, removeGalleryRoot } from './galleryRootRegistry.js';
 // 默认图片扩展名（绑定/扫描未显式指定 extensions 时的回退值）
 const DEFAULT_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
+// 孤儿回收批大小：IN(...) 占位符按此分批，避免大图集超过 SQLite 变量上限
+// （部分构建为 999；UPDATE booru_posts 一条语句带两组占位符，故每条 ≤ 2×500=1000，仍安全）。
+const ORPHAN_GC_BATCH = 500;
+
+/** 把数组按固定大小切片（用于 IN(...) 占位符分批） */
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
 // 图库类型
 export interface Gallery {
   id: number;
@@ -304,16 +317,21 @@ export async function cleanupOrphanImages(
 
   // 去重，避免占位符冗余
   const candidateIds = Array.from(new Set(imageIds));
-  const placeholders = candidateIds.map(() => '?').join(',');
 
-  // 1. 判定孤儿：候选集中、当前在 gallery_images 已无任何成员行的图片
-  const orphans = await all<{ id: number; filepath: string }>(
-    db,
-    `SELECT id, filepath FROM images
-       WHERE id IN (${placeholders})
-         AND id NOT IN (SELECT imageId FROM gallery_images)`,
-    candidateIds
-  );
+  // 1. 判定孤儿：候选集中、当前在 gallery_images 已无任何成员行的图片。
+  //    候选可能很多（大图集），按批查询避免单条 IN(...) 超过 SQLite 变量上限。
+  const orphans: Array<{ id: number; filepath: string }> = [];
+  for (const batch of chunkArray(candidateIds, ORPHAN_GC_BATCH)) {
+    const placeholders = batch.map(() => '?').join(',');
+    const batchOrphans = await all<{ id: number; filepath: string }>(
+      db,
+      `SELECT id, filepath FROM images
+         WHERE id IN (${placeholders})
+           AND id NOT IN (SELECT imageId FROM gallery_images)`,
+      batch
+    );
+    orphans.push(...batchOrphans);
+  }
 
   if (orphans.length === 0) {
     return 0;
@@ -335,23 +353,34 @@ export async function cleanupOrphanImages(
     }
   }
 
-  // 3. 事务内原子清理：重置 booru → DELETE images（FK CASCADE 清 image_tags / 残留 gallery_images）
+  // 3. 事务内原子清理：重置 booru → DELETE images（FK CASCADE 清 image_tags / 残留 gallery_images）。
+  //    同样按批处理占位符：每批 ≤ ORPHAN_GC_BATCH 个 id（booru UPDATE 带两组占位符，≤ 2×批）。
   await runInTransaction(db, async () => {
-    const idPlaceholders = orphanIds.map(() => '?').join(',');
-    const pathPlaceholders = orphanFilepaths.map(() => '?').join(',');
+    const idBatches = chunkArray(orphanIds, ORPHAN_GC_BATCH);
+    const pathBatches = chunkArray(orphanFilepaths, ORPHAN_GC_BATCH);
 
     // booru_posts 重置：localImageId 命中（外键 SET NULL 只清引用、不改 downloaded）或 localPath 命中。
-    await run(
-      db,
-      `UPDATE booru_posts
-          SET downloaded = 0, localPath = NULL
-          WHERE localImageId IN (${idPlaceholders})
-             OR localPath IN (${pathPlaceholders})`,
-      [...orphanIds, ...orphanFilepaths]
-    );
+    // id 与 filepath 批一一对应（同一批的 orphans 切出来的，下标对齐）。
+    for (let i = 0; i < idBatches.length; i++) {
+      const idBatch = idBatches[i];
+      const pathBatch = pathBatches[i];
+      const idPlaceholders = idBatch.map(() => '?').join(',');
+      const pathPlaceholders = pathBatch.map(() => '?').join(',');
+      await run(
+        db,
+        `UPDATE booru_posts
+            SET downloaded = 0, localPath = NULL
+            WHERE localImageId IN (${idPlaceholders})
+               OR localPath IN (${pathPlaceholders})`,
+        [...idBatch, ...pathBatch]
+      );
+    }
 
     // 删图片：FK CASCADE 连带清掉 image_tags 以及任何仍残留的 gallery_images 行。
-    await run(db, `DELETE FROM images WHERE id IN (${idPlaceholders})`, orphanIds);
+    for (const idBatch of idBatches) {
+      const idPlaceholders = idBatch.map(() => '?').join(',');
+      await run(db, `DELETE FROM images WHERE id IN (${idPlaceholders})`, idBatch);
+    }
   });
 
   return orphans.length;
