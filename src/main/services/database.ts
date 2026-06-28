@@ -722,6 +722,11 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       console.warn('[database] booru_favorites 迁移跳过（可能数据库为空）:', migErr);
     }
 
+    // === 图集与文件夹解耦迁移（Expand：建关联表 + 回填，不动旧列） ===
+    console.log('[database] 开始图集与文件夹解耦迁移...');
+    await migrateGalleryFolderDecoupling(database);
+    console.log('[database] 图集与文件夹解耦迁移完成');
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [
