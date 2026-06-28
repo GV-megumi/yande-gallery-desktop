@@ -6,7 +6,6 @@ import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
-import { normalizePath } from '../utils/path.js';
 
 /**
  * 图片服务 - 数据库操作实现
@@ -260,51 +259,25 @@ export async function getImageById(id: number): Promise<{ success: boolean; data
 }
 
 /**
- * 查找包含指定图片路径的图集（用于删除事件的 galleryId 归属）。
+ * 反查图片所属图集 ID（用于删除事件的 galleryId 归属）。
  *
- * 不用 SQL LIKE 做前缀匹配，原因：
- * - 裸前缀（无尾部分隔符）会把兄弟目录误配：D:\pics\cats2 下的图片会被归到 D:\pics\cats
- * - folderPath 中的 LIKE 元字符（'_'、'%'）在无 ESCAPE 子句时会产生假匹配
+ * Phase 2B：图集归属改用显式成员表 gallery_images，不再做 folderPath 前缀匹配。
+ * 成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），归属语义更准确，
+ * 也不受路径形态（兄弟目录、LIKE 元字符、大小写）影响。
  *
- * 改为取出图集行后在 JS 侧做边界精确的路径前缀匹配：
- * - 路径经 normalizePath 归一化（分隔符、末尾斜杠统一）
- * - win32 文件系统大小写不敏感，比较前统一转小写；其余平台保持大小写敏感
- * - 边界要求：与 folderPath 完全相等，或以 "folderPath + path.sep" 为前缀
- * - 图集可嵌套时取 folderPath 最长（最深）的匹配，与原 SQL 的
- *   ORDER BY LENGTH(folderPath) DESC 语义保持一致
+ * 一张图片可同属多个图集（成员主键为 galleryId+imageId），删除事件只需一个
+ * 代表性的 galleryId，取第一条（LIMIT 1）即可。
  */
-async function findGalleryIdForImagePath(
+async function findGalleryIdForImage(
   db: Awaited<ReturnType<typeof getDatabase>>,
-  filepath: string
+  imageId: number
 ): Promise<{ id: number } | null> {
-  // 图集数量由用户配置决定，规模很小，全量取出在 JS 侧匹配开销可忽略
-  const galleries = await all<{ id: number; folderPath: string }>(
+  const row = await get<{ galleryId: number }>(
     db,
-    'SELECT id, folderPath FROM galleries'
+    'SELECT galleryId FROM gallery_images WHERE imageId = ? LIMIT 1',
+    [imageId]
   );
-
-  const caseInsensitive = process.platform === 'win32';
-  const normalizeForCompare = (p: string): string => {
-    const normalized = normalizePath(p);
-    return caseInsensitive ? normalized.toLowerCase() : normalized;
-  };
-
-  const target = normalizeForCompare(filepath);
-  let matched: { id: number } | null = null;
-  let matchedLength = -1;
-
-  for (const gallery of galleries) {
-    if (!gallery.folderPath) continue;
-    const folder = normalizeForCompare(gallery.folderPath);
-    // 边界精确：完全相等，或 folderPath 后紧跟路径分隔符（排除兄弟前缀目录）
-    const isMatch = target === folder || target.startsWith(folder + path.sep);
-    if (isMatch && folder.length > matchedLength) {
-      matched = { id: gallery.id };
-      matchedLength = folder.length;
-    }
-  }
-
-  return matched;
+  return row ? { id: row.galleryId } : null;
 }
 
 /**
@@ -320,12 +293,13 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     const row = await get<{ filepath: string }>(
       db, 'SELECT filepath FROM images WHERE id = ?', [id]
     );
-    // 图集归属：JS 侧做边界精确的路径前缀匹配，避免 SQL LIKE 的元字符与兄弟目录误配
-    const gallery = row?.filepath
-      ? await findGalleryIdForImagePath(db, row.filepath)
+    // 图集归属：用 gallery_images 成员表反查（Phase 2B）。
+    // 必须在 DELETE FROM images 之前查询——删 images 行会 CASCADE 清掉其成员行。
+    const gallery = row
+      ? await findGalleryIdForImage(db, id)
       : null;
 
-    // 删除数据库记录
+    // 删除数据库记录（images 行被删时 gallery_images 成员行随 FK CASCADE 一并清理）
     await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
     await run(db, 'DELETE FROM images WHERE id = ?', [id]);
 
