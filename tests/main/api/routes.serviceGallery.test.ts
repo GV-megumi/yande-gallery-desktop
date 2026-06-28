@@ -5,7 +5,7 @@ import { createGalleryRoutes } from '../../../src/main/api/routes/galleryRoutes.
 import { createServiceRoutes } from '../../../src/main/api/routes/serviceRoutes.js';
 import { getApiServiceConfig } from '../../../src/main/services/config.js';
 import { getGalleries, getGallery } from '../../../src/main/services/galleryService.js';
-import { getImageById, getImages, getImagesByFolder } from '../../../src/main/services/imageService.js';
+import { getImageById, getImages, getImagesByFolder, getImagesByGallery } from '../../../src/main/services/imageService.js';
 import { generateThumbnail } from '../../../src/main/services/thumbnailService.js';
 import { createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
@@ -29,6 +29,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   getImages: vi.fn(),
   getImageById: vi.fn(),
   getImagesByFolder: vi.fn(),
+  getImagesByGallery: vi.fn(),
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
@@ -49,6 +50,7 @@ const mockGetGallery = vi.mocked(getGallery);
 const mockGetImages = vi.mocked(getImages);
 const mockGetImageById = vi.mocked(getImageById);
 const mockGetImagesByFolder = vi.mocked(getImagesByFolder);
+const mockGetImagesByGallery = vi.mocked(getImagesByGallery);
 const mockGenerateThumbnail = vi.mocked(generateThumbnail);
 const mockCreateReadStream = vi.mocked(createReadStream);
 const mockPipeline = vi.mocked(pipeline);
@@ -229,11 +231,11 @@ describe('gallery and image API routes', () => {
     expect(mockGetGallery).toHaveBeenCalledWith(42);
   });
 
-  it('loads gallery images by folder path with parsed pagination', async () => {
+  it('loads gallery images by membership with parsed pagination', async () => {
     const expectedGallery = gallery({ id: 7, folderPath: 'M:/gallery/dogs' });
     const expectedImages = [image({ id: 70 })];
     mockGetGallery.mockResolvedValue({ success: true, data: expectedGallery });
-    mockGetImagesByFolder.mockResolvedValue({ success: true, data: expectedImages, total: 1 });
+    mockGetImagesByGallery.mockResolvedValue({ success: true, data: expectedImages, total: 1 });
     const route = findRoute(createGalleryRoutes(), '/api/v1/galleries/:galleryId/images');
 
     await expect(
@@ -242,18 +244,21 @@ describe('gallery and image API routes', () => {
         query: new URLSearchParams([['page', '3'], ['pageSize', '25']]),
       })),
     ).resolves.toEqual({ data: expectedImages, total: 1 });
+    // 仍保留 gallery-not-found 检查
     expect(mockGetGallery).toHaveBeenCalledWith(7);
-    expect(mockGetImagesByFolder).toHaveBeenCalledWith('M:/gallery/dogs', 3, 25);
+    // 成员读取改用 getImagesByGallery，按 galleryId 取成员（不再用 folderPath 前缀）
+    expect(mockGetImagesByGallery).toHaveBeenCalledWith(7, 3, 25);
+    expect(mockGetImagesByFolder).not.toHaveBeenCalled();
   });
 
   it('uses default pagination for gallery images', async () => {
-    mockGetGallery.mockResolvedValue({ success: true, data: gallery({ folderPath: 'M:/gallery/defaults' }) });
-    mockGetImagesByFolder.mockResolvedValue({ success: true, data: [], total: 0 });
+    mockGetGallery.mockResolvedValue({ success: true, data: gallery({ id: 8, folderPath: 'M:/gallery/defaults' }) });
+    mockGetImagesByGallery.mockResolvedValue({ success: true, data: [], total: 0 });
     const route = findRoute(createGalleryRoutes(), '/api/v1/galleries/:galleryId/images');
 
     await route.handler(context({ params: { galleryId: '8' } }));
 
-    expect(mockGetImagesByFolder).toHaveBeenCalledWith('M:/gallery/defaults', 1, 50);
+    expect(mockGetImagesByGallery).toHaveBeenCalledWith(8, 1, 50);
   });
 
   it('lists images with parsed and default pagination', async () => {
