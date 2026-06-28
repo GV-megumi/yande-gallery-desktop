@@ -109,17 +109,17 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     `);
 
     // 创建图库表（懒加载设计）
+    // Phase 8A contract：图集与文件夹解耦后，galleries 不再存 folderPath/recursive/extensions
+    // （这些归 gallery_folders），isWatching 改名为语义更准确的 autoScan（是否随启动/进入自动扫描）。
+    // 新库直接建新结构；旧库由下方 contractGalleriesTable 在解耦回填之后重建升级。
     await run(database, `
       CREATE TABLE IF NOT EXISTS galleries (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        folderPath TEXT NOT NULL UNIQUE,  -- 文件夹完整路径
         name TEXT NOT NULL,               -- 图库名称
         coverImageId INTEGER,            -- 封面图片ID（引用images表）
         imageCount INTEGER DEFAULT 0,     -- 图片数量（缓存）
         lastScannedAt TEXT,              -- 最后扫描时间
-        isWatching INTEGER DEFAULT 1,     -- 是否监视目录变化
-        recursive INTEGER DEFAULT 1,      -- 是否递归扫描子目录
-        extensions TEXT,                  -- 支持的扩展名（JSON数组）
+        autoScan INTEGER NOT NULL DEFAULT 1, -- 是否自动扫描（旧 isWatching 改名）
         createdAt TEXT NOT NULL,
         updatedAt TEXT NOT NULL,
         FOREIGN KEY (coverImageId) REFERENCES images (id) ON DELETE SET NULL
@@ -147,7 +147,6 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
         CREATE INDEX IF NOT EXISTS idx_images_filepath ON images (filepath);
         CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name);
         CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded);
-        CREATE INDEX IF NOT EXISTS idx_galleries_folderPath ON galleries (folderPath);
         CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC);
         CREATE INDEX IF NOT EXISTS idx_gallery_ignored_folders_folderPath ON gallery_ignored_folders (folderPath);
       `, (err) => err ? reject(err) : resolve());
@@ -727,6 +726,13 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await migrateGalleryFolderDecoupling(database);
     console.log('[database] 图集与文件夹解耦迁移完成');
 
+    // === Phase 8A contract：重建 galleries 删旧列（folderPath/isWatching/recursive/extensions），
+    //     isWatching→autoScan。必须在 migrateGalleryFolderDecoupling 之后——回填读 galleries.folderPath，
+    //     contract 删列后回填判断自动短路。 ===
+    console.log('[database] 开始 galleries contract 迁移...');
+    await contractGalleriesTable(database);
+    console.log('[database] galleries contract 迁移完成');
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [
@@ -1043,5 +1049,79 @@ export async function migrateGalleryFolderDecoupling(database: sqlite3.Database)
       await backfillGalleryImages(database);
     });
     console.log('[database] 图集解耦迁移：gallery_folders / gallery_images 回填完成');
+  }
+}
+
+// ===========================================================================
+// 图集与文件夹解耦迁移（Contract 阶段）
+//
+// 删除 galleries 的旧列（folderPath/isWatching/recursive/extensions）并把 isWatching
+// 改名为 autoScan。folderPath/recursive/extensions 现在归 gallery_folders（解耦回填后
+// 已是 source of truth），galleries 只保留图集自身元数据 + autoScan 自动扫描开关。
+//
+// 必须在 migrateGalleryFolderDecoupling 之后运行：回填读 galleries.folderPath，删列后
+// 回填判断（columnExists 'folderPath'）自动短路。
+//
+// SQLite 不支持 DROP COLUMN（旧版本）+ 重命名列的一步迁移，统一用「建新表 → 拷数据 →
+// 删旧表 → 改名」的 FK 保留式重建：
+//   - 引用 galleries(id) 的子表（gallery_folders / gallery_images /
+//     booru_favorite_tag_download_bindings / invalid_images）通过保留 id 保持有效；
+//   - 用 PRAGMA foreign_key_check 在提交前自检，发现违例即抛错回滚（绝不留坏库）。
+//
+// 幂等：仅当 galleries 仍含 folderPath 列时执行；contract 后该判断为 false，直接跳过。
+//
+// 注意：用裸 run('BEGIN'/'COMMIT')（而非 runInTransaction），因为 PRAGMA foreign_keys
+// 在事务内是 no-op——必须先在事务外关闭外键、重建后再打开。
+// ===========================================================================
+export async function contractGalleriesTable(database: sqlite3.Database): Promise<void> {
+  // 幂等短路：已是新结构（无 folderPath）则跳过
+  if (!(await columnExists(database, 'galleries', 'folderPath'))) {
+    return;
+  }
+
+  await run(database, 'PRAGMA foreign_keys=OFF');
+  try {
+    await run(database, 'BEGIN');
+
+    // 新结构表（与上方 CREATE TABLE IF NOT EXISTS galleries 一致）
+    await run(database, `
+      CREATE TABLE galleries_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        coverImageId INTEGER,
+        imageCount INTEGER DEFAULT 0,
+        lastScannedAt TEXT,
+        autoScan INTEGER NOT NULL DEFAULT 1,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL,
+        FOREIGN KEY (coverImageId) REFERENCES images (id) ON DELETE SET NULL
+      )
+    `);
+
+    // 拷数据：保留 id（子表 FK 依赖），isWatching→autoScan（NULL 回退 1）
+    await run(database, `
+      INSERT INTO galleries_new (id, name, coverImageId, imageCount, lastScannedAt, autoScan, createdAt, updatedAt)
+      SELECT id, name, coverImageId, imageCount, lastScannedAt, COALESCE(isWatching, 1), createdAt, updatedAt
+        FROM galleries
+    `);
+
+    await run(database, 'DROP TABLE galleries');
+    await run(database, 'ALTER TABLE galleries_new RENAME TO galleries');
+
+    // 重建保留的索引（folderPath 索引随列一并废弃）
+    await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC)');
+
+    // 提交前 FK 自检：保留 id 后引用 galleries 的子表行应全部有效
+    const violations = await all(database, 'PRAGMA foreign_key_check');
+    if (violations.length) {
+      throw new Error('contract galleries FK check failed: ' + JSON.stringify(violations));
+    }
+
+    await run(database, 'COMMIT');
+  } catch (e) {
+    await run(database, 'ROLLBACK').catch(() => {});
+    throw e;
+  } finally {
+    await run(database, 'PRAGMA foreign_keys=ON');
   }
 }
