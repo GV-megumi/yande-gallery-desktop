@@ -44,9 +44,12 @@ vi.mock('../../../src/main/services/database.js', () => ({
 
 const mockCreateGallery = vi.fn().mockResolvedValue({ success: true });
 const mockGetGalleries = vi.fn().mockResolvedValue({ success: true, data: [] });
+// Phase 4：装载登记表改读 gallery_folders，初始化会调用 getAllGalleryFolderPaths
+const mockGetAllGalleryFolderPaths = vi.fn().mockResolvedValue([]);
 vi.mock('../../../src/main/services/galleryService.js', () => ({
   createGallery: mockCreateGallery,
   getGalleries: mockGetGalleries,
+  getAllGalleryFolderPaths: mockGetAllGalleryFolderPaths,
 }));
 
 vi.mock('../../../src/main/utils/path.js', () => ({

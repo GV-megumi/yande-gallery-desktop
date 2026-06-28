@@ -265,8 +265,8 @@ describe('restoreAppBackupData', () => {
     const backupData = createBackupPayload();
 
     const allMock = vi.fn(async (_db: unknown, sql: string) => {
-      // 恢复成功后 backupService 会用这条 SQL 重建登记表
-      if (sql === 'SELECT folderPath FROM galleries') {
+      // Phase 4：恢复成功后 backupService 经 getAllGalleryFolderPaths 从 gallery_folders 重建登记表
+      if (sql.includes('FROM gallery_folders')) {
         return [{ folderPath: 'M:/restored-a' }, { folderPath: 'M:/restored-b' }];
       }
       return [];

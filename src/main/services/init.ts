@@ -1,6 +1,6 @@
 import { initPaths, loadConfig, getConfig, getDatabasePath, ensureDataDirectories, getConfigDir, getDataDir, saveConfig } from './config.js';
 import { initDatabase, closeDatabase } from './database.js';
-import { createGallery, getGalleries } from './galleryService.js';
+import { createGallery, getGalleries, getAllGalleryFolderPaths } from './galleryService.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { normalizePath } from '../utils/path.js';
 import { downloadManager } from './downloadManager.js';
@@ -224,11 +224,11 @@ export async function initGalleriesFromConfig(): Promise<void> {
       }
     }
 
-    // 从 DB 装载图库根登记表（app:// 白名单的同步来源）
-    const galleriesResult = await getGalleries();
-    const roots = galleriesResult.success && galleriesResult.data
-      ? galleriesResult.data.map(g => g.folderPath).filter(Boolean)
-      : [];
+    // 从 DB 装载图库根登记表（app:// 白名单的同步来源）。
+    // Phase 4：改从 gallery_folders 读全部绑定文件夹，而非 galleries 旧列 folderPath——
+    // 后者只反映图集原始文件夹，不含 bindFolder 追加 / changeFolderPath 重定位的文件夹，
+    // 会导致这些文件夹的图片在重启后因白名单缺失而无法通过 app:// 加载。
+    const roots = await getAllGalleryFolderPaths();
     loadGalleryRoots(roots);
     console.log(`[init] 图库根登记表已装载，共 ${roots.length} 个根`);
   } catch (error) {
