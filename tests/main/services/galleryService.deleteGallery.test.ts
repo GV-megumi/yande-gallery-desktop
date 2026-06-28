@@ -1,248 +1,407 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import sqlite3 from 'sqlite3';
+import path from 'path';
 
 /**
- * bug12 — deleteGallery 级联清理反模式守卫
+ * deleteGallery —— Phase 3：按成员删除 + 孤儿回收（替代旧的 folderPath 前缀级联）
  *
- * 原 deleteGallery 只删 galleries 一行，遗留 images / 缩略图 /
- * invalid_images / booru_posts.downloaded。本测试确保：
+ * 公开契约（必须保持不变）：
+ *   - 返回 { success, error? }；图集不存在时 success:false + error，且不触清理；
+ *   - 删除后：图集行消失、其成员图片（仅本图集独占的）被删、缩略图被清、
+ *     booru_posts 对应行 downloaded=0/localPath=NULL 重置；
+ *   - 每个绑定文件夹写入 gallery_ignored_folders（拉黑，下次扫描不重建）；
+ *   - 事件 gallery:galleries-changed{action:'deleted'} + gallery:ignored-folders-changed{action:'created'}；
+ *   - 原图文件不删（本测试在 :memory: 中不涉及真实磁盘）。
  *
- * 1. SELECT 按 folderPath 范围查到该图集下的 images；
- * 2. 每张图调用 deleteThumbnail(filepath) 清理磁盘缩略图；
- * 3. DELETE image_tags / images / invalid_images / galleries；
- * 4. INSERT OR REPLACE 写入 gallery_ignored_folders（避免下次扫描重建）。
+ * 关键修复（多归属）：被另一图集同时引用的图片，删除本图集时不应被删。
+ *
+ * 实现方式从"SQL 文本断言（mock db）"升级为"真实 :memory: sqlite + 端到端结果断言"，
+ * 这样可验证 FK CASCADE 与多归属保护——比旧的 SQL 文本匹配覆盖更强。
+ * 仅把磁盘 IO（deleteThumbnail）与磁盘扫描（scanAndImportFolder）mock 掉。
  */
 
-const getMock = vi.fn();
-const runMock = vi.fn();
-const allMock = vi.fn();
-const deleteThumbnailMock = vi.fn(async () => ({ success: true }));
-
-// bug12 I1：deleteGallery 现在把 DB 级联包进 runInTransaction。
-// 单测不开真实事务，只需让 fn 直接执行并把抛错向外透传，
-// galleryService 的外层 catch 会把它转成 { success: false, error }。
-vi.mock('../../../src/main/services/database.js', () => ({
-  getDatabase: vi.fn(async () => ({})),
-  get: (...args: any[]) => getMock(...args),
-  run: (...args: any[]) => runMock(...args),
-  all: (...args: any[]) => allMock(...args),
-  runInTransaction: async (_db: any, fn: () => Promise<any>) => fn(),
+const h = vi.hoisted(() => ({
+  db: null as unknown as import('sqlite3').Database,
+  deleteThumbnailCalls: [] as string[],
+  galleriesChanged: [] as any[],
+  ignoredChanged: [] as any[],
+  removeRootCalls: [] as string[],
 }));
 
-vi.mock('../../../src/main/services/thumbnailService.js', () => ({
-  deleteThumbnail: (...args: any[]) => deleteThumbnailMock(...args),
-}));
-
-vi.mock('../../../src/main/utils/path.js', () => ({
-  normalizePath: (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, ''),
-}));
+vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/main/services/database.js')>();
+  return {
+    ...actual,
+    getDatabase: vi.fn(async () => h.db),
+  };
+});
 
 vi.mock('../../../src/main/services/imageService.js', () => ({
   scanAndImportFolder: vi.fn(async () => ({ success: true, data: { imported: 0, skipped: 0 } })),
 }));
 
-describe('galleryService.deleteGallery — 级联清理', () => {
-  beforeEach(() => {
-    getMock.mockReset();
-    runMock.mockReset();
-    allMock.mockReset();
-    deleteThumbnailMock.mockReset();
-    deleteThumbnailMock.mockResolvedValue({ success: true });
-    runMock.mockResolvedValue(undefined);
+vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deleteThumbnail: vi.fn(async (filepath: string) => {
+    h.deleteThumbnailCalls.push(filepath);
+    return { success: true };
+  }),
+}));
+
+vi.mock('../../../src/main/services/rendererEventBus.js', () => ({
+  emitBuiltRendererAppEvent: vi.fn(),
+}));
+
+vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
+  emitGalleryGalleriesChanged: vi.fn((p: any) => { h.galleriesChanged.push(p); }),
+  emitGalleryIgnoredFoldersChanged: vi.fn((p: any) => { h.ignoredChanged.push(p); }),
+}));
+
+vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
+  addGalleryRoot: vi.fn(),
+  removeGalleryRoot: vi.fn((p: string) => { h.removeRootCalls.push(p); }),
+}));
+
+import { run, get, all } from '../../../src/main/services/database';
+import { normalizePath } from '../../../src/main/utils/path';
+import { deleteGallery } from '../../../src/main/services/galleryService';
+
+async function setupSchema(): Promise<void> {
+  await run(h.db, `
+    CREATE TABLE images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      filename TEXT NOT NULL,
+      filepath TEXT NOT NULL UNIQUE,
+      fileSize INTEGER NOT NULL,
+      width INTEGER NOT NULL,
+      height INTEGER NOT NULL,
+      format TEXT NOT NULL,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE tags (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      category TEXT,
+      createdAt TEXT NOT NULL DEFAULT '2024-01-01'
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE image_tags (
+      imageId INTEGER NOT NULL,
+      tagId INTEGER NOT NULL,
+      PRIMARY KEY (imageId, tagId),
+      FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE,
+      FOREIGN KEY (tagId) REFERENCES tags (id) ON DELETE CASCADE
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE galleries (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folderPath TEXT NOT NULL UNIQUE,
+      name TEXT NOT NULL,
+      coverImageId INTEGER,
+      imageCount INTEGER DEFAULT 0,
+      lastScannedAt TEXT,
+      isWatching INTEGER DEFAULT 1,
+      recursive INTEGER DEFAULT 1,
+      extensions TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE gallery_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      galleryId INTEGER NOT NULL,
+      folderPath TEXT NOT NULL UNIQUE,
+      recursive INTEGER NOT NULL DEFAULT 1,
+      extensions TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL,
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE gallery_images (
+      galleryId INTEGER NOT NULL,
+      imageId INTEGER NOT NULL,
+      addedAt TEXT NOT NULL,
+      PRIMARY KEY (galleryId, imageId),
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE,
+      FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE gallery_ignored_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folderPath TEXT NOT NULL UNIQUE,
+      note TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE booru_sites (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL,
+      url TEXT NOT NULL UNIQUE,
+      type TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT '2024-01-01',
+      updatedAt TEXT NOT NULL DEFAULT '2024-01-01'
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE booru_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      siteId INTEGER NOT NULL,
+      postId INTEGER NOT NULL,
+      fileUrl TEXT NOT NULL,
+      downloaded INTEGER DEFAULT 0,
+      localPath TEXT,
+      localImageId INTEGER,
+      createdAt TEXT NOT NULL DEFAULT '2024-01-01',
+      updatedAt TEXT NOT NULL DEFAULT '2024-01-01',
+      FOREIGN KEY (localImageId) REFERENCES images(id) ON DELETE SET NULL
+    )
+  `);
+  await run(h.db, `
+    CREATE TABLE invalid_images (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      originalImageId INTEGER NOT NULL,
+      filename TEXT NOT NULL,
+      filepath TEXT NOT NULL,
+      detectedAt TEXT NOT NULL DEFAULT '2024-01-01',
+      galleryId INTEGER,
+      FOREIGN KEY (galleryId) REFERENCES galleries(id) ON DELETE SET NULL
+    )
+  `);
+}
+
+async function addImage(filepath: string): Promise<number> {
+  await run(
+    h.db,
+    `INSERT INTO images (filename, filepath, fileSize, width, height, format, createdAt, updatedAt)
+     VALUES (?, ?, 0, 0, 0, 'jpg', '2024-01-01', '2024-01-01')`,
+    [path.basename(filepath), filepath]
+  );
+  const row = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+  return row!.id;
+}
+
+async function addGallery(folderPath: string, recursive: number): Promise<number> {
+  await run(
+    h.db,
+    `INSERT INTO galleries (folderPath, name, isWatching, recursive, extensions, createdAt, updatedAt)
+     VALUES (?, 'g', 1, ?, ?, '2024-01-01', '2024-01-01')`,
+    [folderPath, recursive, JSON.stringify(['.jpg'])]
+  );
+  const row = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+  return row!.id;
+}
+
+async function addFolderBinding(galleryId: number, folderPath: string, recursive: number): Promise<void> {
+  await run(
+    h.db,
+    `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+     VALUES (?, ?, ?, ?, '2024-01-01', '2024-01-01')`,
+    [galleryId, folderPath, recursive, JSON.stringify(['.jpg'])]
+  );
+}
+
+async function addMembership(galleryId: number, imageId: number): Promise<void> {
+  await run(
+    h.db,
+    `INSERT INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, '2024-01-01')`,
+    [galleryId, imageId]
+  );
+}
+
+beforeEach(async () => {
+  h.db = await new Promise<sqlite3.Database>((resolve, reject) => {
+    const database = new sqlite3.Database(':memory:', (err) => (err ? reject(err) : resolve(database)));
   });
+  await run(h.db, 'PRAGMA foreign_keys=ON');
+  await setupSchema();
+  h.deleteThumbnailCalls = [];
+  h.galleriesChanged = [];
+  h.ignoredChanged = [];
+  h.removeRootCalls = [];
+  vi.clearAllMocks();
+});
 
-  it('成功路径应按 folderPath 查 images → 清缩略图 → DELETE 子表 → 写忽略名单', async () => {
-    // 1. SELECT galleries.id / folderPath / recursive
-    getMock.mockResolvedValueOnce({ id: 1, folderPath: 'D:/pics', recursive: 0 });
-    // 2. SELECT images WHERE filepath LIKE ...
-    allMock.mockResolvedValueOnce([
-      { id: 10, filepath: 'D:/pics/a.jpg' },
-      { id: 11, filepath: 'D:/pics/b.jpg' },
-    ]);
+afterEach(async () => {
+  await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
+});
 
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(1);
+describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
+  it('单文件夹图集：删除后图集消失、独占图片被删、缩略图清、booru 重置、文件夹拉黑、事件齐全', async () => {
+    const folder = normalizePath(path.join('M:', 'pics'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+
+    const fa = normalizePath(path.join('M:', 'pics', 'a.jpg'));
+    const fb = normalizePath(path.join('M:', 'pics', 'b.jpg'));
+    const ia = await addImage(fa);
+    const ib = await addImage(fb);
+    await addMembership(galleryId, ia);
+    await addMembership(galleryId, ib);
+
+    // image_tags 关联（验证 FK CASCADE）
+    await run(h.db, `INSERT INTO tags (name) VALUES ('t')`);
+    const tagRow = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+    await run(h.db, `INSERT INTO image_tags (imageId, tagId) VALUES (?, ?)`, [ia, tagRow!.id]);
+
+    // booru_post 落地在该图集目录（localImageId + localPath 命中）
+    await run(h.db, `INSERT INTO booru_sites (name, url, type) VALUES ('S','https://s','moebooru')`);
+    const siteRow = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
+    await run(
+      h.db,
+      `INSERT INTO booru_posts (siteId, postId, fileUrl, downloaded, localPath, localImageId)
+       VALUES (?, 1, 'https://f', 1, ?, ?)`,
+      [siteRow!.id, fa, ia]
+    );
+
+    // invalid_images 关联本图集（删除时应被清，避免累积孤儿行）
+    await run(
+      h.db,
+      `INSERT INTO invalid_images (originalImageId, filename, filepath, galleryId)
+       VALUES (?, 'bad.jpg', ?, ?)`,
+      [ia, fa, galleryId]
+    );
+
+    const result = await deleteGallery(galleryId);
 
     expect(result.success).toBe(true);
 
-    // 缩略图逐个清（bug12 第 1 条反模式守卫）
-    expect(deleteThumbnailMock).toHaveBeenCalledTimes(2);
-    expect(deleteThumbnailMock).toHaveBeenCalledWith('D:/pics/a.jpg');
-    expect(deleteThumbnailMock).toHaveBeenCalledWith('D:/pics/b.jpg');
+    // 图集行消失（FK CASCADE 连带 gallery_folders / gallery_images）
+    expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(0);
+    expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE galleryId = ?', [galleryId])).toHaveLength(0);
+    expect(await all(h.db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [galleryId])).toHaveLength(0);
 
-    const sqls = runMock.mock.calls.map(c => String(c[1]));
-    // images / image_tags 必须显式清
-    expect(sqls.some(s => /DELETE FROM images WHERE id IN/i.test(s))).toBe(true);
-    expect(sqls.some(s => /DELETE FROM image_tags WHERE imageId IN/i.test(s))).toBe(true);
-    // invalid_images 按 galleryId
-    expect(sqls.some(s => /DELETE FROM invalid_images WHERE galleryId/i.test(s))).toBe(true);
-    // booru_posts 的 downloaded/localPath 清理
-    expect(sqls.some(s => /UPDATE booru_posts[\s\S]*downloaded = 0[\s\S]*localPath = NULL/i.test(s))).toBe(true);
-    // 图集行
-    expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(true);
-    // 自动写入忽略名单（bug12 第 2 条反模式守卫一部分）
-    expect(sqls.some(s => /INSERT OR REPLACE INTO gallery_ignored_folders/i.test(s))).toBe(true);
+    // 独占成员图片被删 + image_tags 经 CASCADE 清空
+    expect(await all(h.db, 'SELECT id FROM images')).toHaveLength(0);
+    expect(await all(h.db, 'SELECT * FROM image_tags')).toHaveLength(0);
+
+    // 缩略图逐个清
+    expect(h.deleteThumbnailCalls.sort()).toEqual([fa, fb].sort());
+
+    // booru 重置
+    const post = await get<{ downloaded: number; localPath: string | null }>(h.db, 'SELECT downloaded, localPath FROM booru_posts WHERE postId = 1');
+    expect(post?.downloaded).toBe(0);
+    expect(post?.localPath).toBeNull();
+
+    // 文件夹拉黑（gallery_ignored_folders 写入 normalized 路径）
+    const ignored = await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_ignored_folders');
+    expect(ignored.map((r) => r.folderPath)).toContain(folder);
+
+    // invalid_images 本图集记录被清
+    expect(await all(h.db, 'SELECT * FROM invalid_images')).toHaveLength(0);
+
+    // 事件齐全
+    expect(h.galleriesChanged.some((p) => p.galleryId === galleryId && p.action === 'deleted')).toBe(true);
+    expect(h.ignoredChanged.some((p) => p.action === 'created' && p.folderPath === folder)).toBe(true);
+    // 根登记移除
+    expect(h.removeRootCalls).toContain(folder);
   });
 
-  it('图集不存在时应返回 success:false 且不触任何清理', async () => {
-    getMock.mockResolvedValueOnce(undefined);
-
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
+  it('图集不存在时返回 success:false 且不触任何清理', async () => {
     const result = await deleteGallery(999);
-
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
-    expect(deleteThumbnailMock).not.toHaveBeenCalled();
-    // 不应进入任何 DELETE 阶段
-    const sqls = runMock.mock.calls.map(c => String(c[1]));
-    expect(sqls.some(s => /DELETE FROM/i.test(s))).toBe(false);
+    expect(h.deleteThumbnailCalls).toEqual([]);
+    expect(await all(h.db, 'SELECT * FROM gallery_ignored_folders')).toHaveLength(0);
+    expect(h.galleriesChanged).toEqual([]);
+    expect(h.ignoredChanged).toEqual([]);
   });
 
-  it('图集下没有图片时不调用 deleteThumbnail，但仍写忽略名单 + 删 gallery 行', async () => {
-    getMock.mockResolvedValueOnce({ id: 2, folderPath: '/tmp/empty', recursive: 1 });
-    allMock.mockResolvedValueOnce([]); // 无图
+  it('图集无图片时不调 deleteThumbnail，但仍删图集行 + 拉黑文件夹', async () => {
+    const folder = normalizePath(path.join('M:', 'empty'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
 
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(2);
+    const result = await deleteGallery(galleryId);
 
     expect(result.success).toBe(true);
-    expect(deleteThumbnailMock).not.toHaveBeenCalled();
-
-    const sqls = runMock.mock.calls.map(c => String(c[1]));
-    expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(true);
-    expect(sqls.some(s => /INSERT OR REPLACE INTO gallery_ignored_folders/i.test(s))).toBe(true);
+    expect(h.deleteThumbnailCalls).toEqual([]);
+    expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(0);
+    const ignored = await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_ignored_folders');
+    expect(ignored.map((r) => r.folderPath)).toContain(folder);
   });
 
-  it('deleteThumbnail 抛错应被吞（best-effort），其余清理仍继续', async () => {
-    getMock.mockResolvedValueOnce({ id: 3, folderPath: '/x', recursive: 0 });
-    allMock.mockResolvedValueOnce([{ id: 1, filepath: '/x/a.jpg' }]);
-    deleteThumbnailMock.mockRejectedValueOnce(new Error('fs EACCES'));
+  it('deleteThumbnail 抛错应被吞（best-effort），其余清理仍完成', async () => {
+    const folder = normalizePath(path.join('M:', 'x'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+    const img = await addImage(normalizePath(path.join('M:', 'x', 'a.jpg')));
+    await addMembership(galleryId, img);
 
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(3);
+    const { deleteThumbnail } = await import('../../../src/main/services/thumbnailService.js');
+    (deleteThumbnail as any).mockRejectedValueOnce(new Error('fs EACCES'));
+
+    const result = await deleteGallery(galleryId);
 
     expect(result.success).toBe(true);
-    const sqls = runMock.mock.calls.map(c => String(c[1]));
-    expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(true);
+    expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(0);
+    expect(await all(h.db, 'SELECT id FROM images')).toHaveLength(0);
   });
 
   /**
-   * bug12 I2 反模式守卫：recursive=0 图集不应删除子目录下图片
-   *
-   * 场景：图集 folderPath=/pics，recursive=0；images 表里同时存在
-   * /pics/a.jpg（直接子文件，应删）和 /pics/sub/b.jpg（子目录，不应删，
-   * 可能属于另一个 /pics/sub 图集）。
-   *
-   * 旧实现无视 recursive，images 查询始终用整棵子树 LIKE prefix + '%'，
-   * 会把 /pics/sub/b.jpg 一起删掉，破坏其他图集的数据。
-   *
-   * 修复：recursive=0 分支在 LIKE 基础上追加 AND NOT LIKE '<prefix>%<sep>%'
-   * 排除更深层路径，仅保留直接子文件。UPDATE booru_posts 的范围同步。
-   *
-   * 反模式证据：把 galleryService.ts 的 recursive=0 分支回退成整棵子树查询，
-   * 本条 FAIL（DELETE images WHERE id IN (...) 参数会包含 /pics/sub/b.jpg 的 id）。
+   * 多归属修复证明：一张图片同时归属图集 A 与图集 B；删除 A 时该图片不应被删，
+   * 因为它仍是 B 的成员。旧的 folderPath 前缀级联会把它一起删掉（数据丢失）。
    */
-  it('recursive=0 图集不应删除子目录下图片（bug12 I2 反模式守卫）', async () => {
-    // 图集 /pics 是非递归；images 表里同时存在直接子文件和更深层文件
-    getMock.mockResolvedValueOnce({ id: 7, folderPath: '/pics', recursive: 0 });
-    // 预期 SQL 已经过滤过 sub/ 下的 b.jpg，这里只返回直接子文件 a.jpg
-    // （mock 层不真正执行 SQL，但通过断言 SQL 文本 + 参数来验证行为）
-    allMock.mockResolvedValueOnce([{ id: 10, filepath: '/pics/a.jpg' }]);
+  it('共享图片同时归属另一图集时，删除本图集不删除该共享图（多归属修复）', async () => {
+    const folderA = normalizePath(path.join('M:', 'A'));
+    const folderB = normalizePath(path.join('M:', 'B'));
+    const galleryA = await addGallery(folderA, 1);
+    const galleryB = await addGallery(folderB, 1);
+    await addFolderBinding(galleryA, folderA, 1);
+    await addFolderBinding(galleryB, folderB, 1);
 
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(7);
+    // shared 图片在 A 与 B 都是成员（多归属，复合主键允许）
+    const shared = await addImage(normalizePath(path.join('M:', 'A', 'shared.jpg')));
+    const aOnly = await addImage(normalizePath(path.join('M:', 'A', 'aonly.jpg')));
+    await addMembership(galleryA, shared);
+    await addMembership(galleryB, shared);
+    await addMembership(galleryA, aOnly);
+
+    const result = await deleteGallery(galleryA);
 
     expect(result.success).toBe(true);
 
-    // 关键断言 1：SELECT images 的 SQL 必须包含 "NOT LIKE" 排除子树
-    const selectImagesCalls = allMock.mock.calls.filter(c => /SELECT\s+id,\s+filepath\s+FROM\s+images/i.test(String(c[1])));
-    expect(selectImagesCalls.length).toBeGreaterThanOrEqual(1);
-    const selectSql = String(selectImagesCalls[0][1]);
-    expect(selectSql).toMatch(/NOT LIKE/i);
-
-    // 关键断言 2：DELETE images WHERE id IN (...) 的 id 列表只包含直接子文件
-    const deleteImagesCalls = runMock.mock.calls.filter(c => /DELETE FROM images WHERE id IN/i.test(String(c[1])));
-    expect(deleteImagesCalls.length).toBe(1);
-    const deleteParams = deleteImagesCalls[0][2] as any[];
-    expect(deleteParams).toEqual([10]);
-
-    // 关键断言 3：UPDATE booru_posts 的 SQL 也应包含 NOT LIKE（与 images 同步）
-    const updateBooruCalls = runMock.mock.calls.filter(c =>
-      /UPDATE booru_posts[\s\S]*downloaded = 0[\s\S]*localPath = NULL/i.test(String(c[1]))
-    );
-    expect(updateBooruCalls.length).toBe(1);
-    const updateSql = String(updateBooruCalls[0][1]);
-    expect(updateSql).toMatch(/NOT LIKE/i);
+    // A 消失
+    expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryA])).toHaveLength(0);
+    // shared 图片仍在（B 还引用它），aOnly 被回收
+    const imgIds = (await all<{ id: number }>(h.db, 'SELECT id FROM images ORDER BY id')).map((r) => r.id);
+    expect(imgIds).toEqual([shared]);
+    // B 的成员行仍在
+    const bMembers = (await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryB])).map((r) => r.imageId);
+    expect(bMembers).toEqual([shared]);
+    // 仅 aOnly 的缩略图被清，shared 未被清
+    expect(h.deleteThumbnailCalls).toEqual([normalizePath(path.join('M:', 'A', 'aonly.jpg'))]);
   });
 
   /**
-   * bug12 I2：recursive=1 图集保持整棵子树清理（不能回归成只删直接子文件）
+   * 多文件夹图集：删除时每个绑定文件夹都应被拉黑（不仅是 galleries.folderPath）。
    */
-  it('recursive=1 图集应删除整棵子树（含子目录）', async () => {
-    getMock.mockResolvedValueOnce({ id: 8, folderPath: '/pics-r', recursive: 1 });
-    allMock.mockResolvedValueOnce([
-      { id: 20, filepath: '/pics-r/a.jpg' },
-      { id: 21, filepath: '/pics-r/sub/b.jpg' },
-    ]);
+  it('多文件夹图集：删除时每个绑定文件夹都写入忽略名单', async () => {
+    const folder1 = normalizePath(path.join('M:', 'multi1'));
+    const folder2 = normalizePath(path.join('M:', 'multi2'));
+    const galleryId = await addGallery(folder1, 1);
+    await addFolderBinding(galleryId, folder1, 1);
+    await addFolderBinding(galleryId, folder2, 1);
 
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(8);
+    const result = await deleteGallery(galleryId);
 
     expect(result.success).toBe(true);
-
-    // 关键断言：递归分支 SELECT 不应包含 NOT LIKE
-    const selectImagesCalls = allMock.mock.calls.filter(c => /SELECT\s+id,\s+filepath\s+FROM\s+images/i.test(String(c[1])));
-    expect(selectImagesCalls.length).toBeGreaterThanOrEqual(1);
-    const selectSql = String(selectImagesCalls[0][1]);
-    expect(selectSql).not.toMatch(/NOT LIKE/i);
-
-    // DELETE images 应覆盖两张图（子目录也应被删）
-    const deleteImagesCalls = runMock.mock.calls.filter(c => /DELETE FROM images WHERE id IN/i.test(String(c[1])));
-    expect(deleteImagesCalls.length).toBe(1);
-    const deleteParams = deleteImagesCalls[0][2] as any[];
-    expect(new Set(deleteParams)).toEqual(new Set([20, 21]));
-
-    // UPDATE booru_posts 的 SQL 也不应有 NOT LIKE
-    const updateBooruCalls = runMock.mock.calls.filter(c =>
-      /UPDATE booru_posts[\s\S]*downloaded = 0[\s\S]*localPath = NULL/i.test(String(c[1]))
-    );
-    expect(updateBooruCalls.length).toBe(1);
-    const updateSql = String(updateBooruCalls[0][1]);
-    expect(updateSql).not.toMatch(/NOT LIKE/i);
-  });
-
-  /**
-   * bug12 I1：事务内任一 DB 写抛错 → 整体通过 runInTransaction 传出 →
-   * 外层 catch 捕获 → 返回 success:false 并带 error。
-   *
-   * 单测里 mock 的 runInTransaction 不会真 BEGIN/COMMIT/ROLLBACK，
-   * 所以这里仅断言"错误会被透传并转成 success:false"。真正的 ROLLBACK
-   * 由 database.runInTransaction 的集成测试守卫（已在其他用例中覆盖）。
-   */
-  it('事务内 UPDATE booru_posts 抛错应被外层捕获，返回 success:false', async () => {
-    getMock.mockResolvedValueOnce({ id: 5, folderPath: '/y', recursive: 0 });
-    allMock.mockResolvedValueOnce([{ id: 20, filepath: '/y/a.jpg' }]);
-
-    // 让 UPDATE booru_posts 那一步抛错
-    runMock.mockImplementation(async (_db: any, sql: string) => {
-      if (/UPDATE booru_posts/i.test(sql)) {
-        throw new Error('simulated booru_posts update failure');
-      }
-    });
-
-    const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
-    const result = await deleteGallery(5);
-
-    expect(result.success).toBe(false);
-    expect(result.error).toMatch(/booru_posts update failure/);
-
-    // 先于 UPDATE 的语句应已调用过（DELETE image_tags / images / invalid_images）
-    const sqls = runMock.mock.calls.map(c => String(c[1]));
-    expect(sqls.some(s => /DELETE FROM image_tags/i.test(s))).toBe(true);
-    expect(sqls.some(s => /DELETE FROM images WHERE id IN/i.test(s))).toBe(true);
-    expect(sqls.some(s => /DELETE FROM invalid_images/i.test(s))).toBe(true);
-
-    // 失败点之后的语句不应再执行：不应出现 DELETE galleries / INSERT OR REPLACE ignored
-    expect(sqls.some(s => /DELETE FROM galleries WHERE id/i.test(s))).toBe(false);
-    expect(sqls.some(s => /INSERT OR REPLACE INTO gallery_ignored_folders/i.test(s))).toBe(false);
+    const ignored = (await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_ignored_folders ORDER BY folderPath')).map((r) => r.folderPath);
+    expect(ignored).toContain(folder1);
+    expect(ignored).toContain(folder2);
+    // 两个文件夹的根登记都被移除
+    expect(h.removeRootCalls).toContain(folder1);
+    expect(h.removeRootCalls).toContain(folder2);
+    // 两个忽略事件
+    expect(h.ignoredChanged.filter((p) => p.action === 'created').map((p) => p.folderPath).sort()).toEqual([folder1, folder2].sort());
   });
 });

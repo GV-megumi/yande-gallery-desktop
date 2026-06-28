@@ -483,14 +483,17 @@ describe('galleryService 同步维护 galleryRootRegistry', () => {
   it('deleteGallery 成功后把 folderPath 移出登记表', async () => {
     loadGalleryRoots([normalizedDel]);
 
-    // get：返回 gallery 行
+    // get：存在性校验返回 gallery 行（含 folderPath，用于 deleted 事件载荷）
     (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       id: 1,
       folderPath: normalizedDel,
-      recursive: 1,
     });
-    // all：图片列表为空（跳过缩略图清理）
-    (dbModule.all as ReturnType<typeof vi.fn>).mockResolvedValueOnce([]);
+    // Phase 3：按成员删除——两次 all 调用：
+    //   1) gallery_images 成员（空 → 无孤儿回收、无缩略图清理）；
+    //   2) gallery_folders 绑定文件夹（一条，驱动 removeGalleryRoot）。
+    (dbModule.all as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce([])                                // 成员为空
+      .mockResolvedValueOnce([{ folderPath: normalizedDel }]); // 绑定文件夹
 
     const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
     await deleteGallery(1);
