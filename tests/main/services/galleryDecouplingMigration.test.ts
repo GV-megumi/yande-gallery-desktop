@@ -97,3 +97,34 @@ describe('ensureDecouplingTables', () => {
     await expect(ensureDecouplingTables(db)).resolves.toBeUndefined();
   });
 });
+
+describe('backfillGalleryFolders', () => {
+  it('每个图集回填一条绑定，含 folderPath/recursive/extensions', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));
+    const galB = normalizePath(path.join('M:', 'galB'));
+    const aId = await addGallery(galA, 'galA', 1);
+    const bId = await addGallery(galB, 'galB', 0);
+
+    await ensureDecouplingTables(db);
+    await backfillGalleryFolders(db);
+
+    const rows = await all<{ galleryId: number; folderPath: string; recursive: number; extensions: string }>(
+      db,
+      'SELECT galleryId, folderPath, recursive, extensions FROM gallery_folders ORDER BY galleryId'
+    );
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({ galleryId: aId, folderPath: galA, recursive: 1 });
+    expect(rows[1]).toMatchObject({ galleryId: bId, folderPath: galB, recursive: 0 });
+    expect(JSON.parse(rows[0].extensions)).toEqual(['.jpg']);
+  });
+
+  it('幂等：重复回填不产生重复绑定', async () => {
+    const galA = normalizePath(path.join('M:', 'galA'));
+    await addGallery(galA, 'galA', 1);
+    await ensureDecouplingTables(db);
+    await backfillGalleryFolders(db);
+    await backfillGalleryFolders(db);
+    const rows = await all(db, 'SELECT * FROM gallery_folders');
+    expect(rows).toHaveLength(1);
+  });
+});
