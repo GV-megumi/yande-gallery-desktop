@@ -270,7 +270,7 @@ export interface RendererGalleryImagesImportedPayload {
   recursive?: boolean;
   imageCount?: number;
   lastScannedAt?: string;
-  reason: 'scanAndImportFolder' | 'syncGalleryFolder' | 'scanSubfolders';
+  reason: 'scanAndImportFolder' | 'syncGalleryFolder' | 'scanSubfolders' | 'scanFolderIntoGallery';
 }
 
 export type RendererGalleryImagesImportedEvent = RendererAppEventBase<

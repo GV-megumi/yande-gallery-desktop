@@ -825,52 +825,26 @@ export async function syncGalleryFolder(id: number): Promise<{
     ? gallery.extensions
     : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
-  // 3. 复用已有的扫描导入逻辑
-  const importResult = await scanAndImportFolder(gallery.folderPath, extensions, gallery.recursive ?? true);
-  if (!importResult.success || !importResult.data) {
-    return { success: false, error: importResult.error || '同步失败' };
-  }
-
-  // 4. 查询该文件夹下的图片总数（直接 COUNT 查询，避免加载全部数据）
-  const db = await getDatabase();
-  const countRow = await get<{ cnt: number }>(
-    db,
-    'SELECT COUNT(*) as cnt FROM images WHERE filepath LIKE ?',
-    [`${gallery.folderPath}${path.sep}%`]
-  );
-  const imageCount = countRow?.cnt ?? 0;
+  // 3. Phase 2A：走统一入口 scanFolderIntoGallery（扫描导入 + 写 gallery_images 成员
+  //    + 以成员表 COUNT 更新统计 + 发 gallery:images-imported 事件）。
+  //    imageCount 改以成员表为准，非递归图集不再把子目录文件计入。
   const lastScannedAt = new Date().toISOString();
-
-  // 5. 更新图集统计信息
-  await updateGalleryStats(id, imageCount, lastScannedAt);
-
-  if (importResult.data.imported > 0) {
-    emitBuiltRendererAppEvent({
-      type: 'gallery:images-imported',
-      source: 'galleryService',
-      payload: {
-        folderPath: gallery.folderPath,
-        galleryId: id,
-        imported: importResult.data.imported,
-        skipped: importResult.data.skipped,
-        recursive: gallery.recursive ?? true,
-        imageCount,
-        lastScannedAt,
-        reason: 'syncGalleryFolder',
-      },
-    });
+  const scanResult = await scanFolderIntoGallery(id, gallery.folderPath, gallery.recursive ?? true, extensions);
+  if (!scanResult.success || !scanResult.data) {
+    return { success: false, error: scanResult.error || '同步失败' };
   }
 
   console.log(
-    `[galleryService] 同步完成: galleryId=${id}, imported=${importResult.data.imported}, skipped=${importResult.data.skipped}, imageCount=${imageCount}`
+    `[galleryService] 同步完成: galleryId=${id}, imported=${scanResult.data.imported}, skipped=${scanResult.data.skipped}, imageCount=${scanResult.data.imageCount}`
   );
 
+  // 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }
   return {
     success: true,
     data: {
-      imported: importResult.data.imported,
-      skipped: importResult.data.skipped,
-      imageCount,
+      imported: scanResult.data.imported,
+      skipped: scanResult.data.skipped,
+      imageCount: scanResult.data.imageCount,
       lastScannedAt,
     },
   };

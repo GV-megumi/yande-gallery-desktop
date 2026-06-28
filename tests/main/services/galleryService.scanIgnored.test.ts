@@ -10,6 +10,7 @@ import path from 'path';
 
 const getMock = vi.fn();
 const runMock = vi.fn();
+const runWithChangesMock = vi.fn();
 const allMock = vi.fn();
 const readdirMock = vi.fn();
 const accessMock = vi.fn();
@@ -19,7 +20,10 @@ vi.mock('../../../src/main/services/database.js', () => ({
   getDatabase: vi.fn(async () => ({})),
   get: (...args: any[]) => getMock(...args),
   run: (...args: any[]) => runMock(...args),
+  runWithChanges: (...args: any[]) => runWithChangesMock(...args),
   all: (...args: any[]) => allMock(...args),
+  // Phase 2A：createGallery 把双写包进 runInTransaction；mock 直接执行回调即可。
+  runInTransaction: async (_db: any, fn: () => Promise<any>) => fn(),
 }));
 
 // 归一化路径的 mock：使用 path.sep，和实际 normalizePath 行为一致
@@ -55,9 +59,11 @@ describe('galleryService.scanSubfoldersAndCreateGalleries — 忽略名单', () 
     accessMock.mockReset();
     scanAndImportMock.mockReset();
 
+    runWithChangesMock.mockReset();
     accessMock.mockResolvedValue(undefined);
     scanAndImportMock.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } });
     runMock.mockResolvedValue(undefined);
+    runWithChangesMock.mockResolvedValue({ changes: 0 });
   });
 
   it('命中忽略名单的子目录不应被创建为 gallery', async () => {
