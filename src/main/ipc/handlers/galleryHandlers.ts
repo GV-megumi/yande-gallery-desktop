@@ -5,14 +5,16 @@ import { IPC_CHANNELS } from '../channels.js';
 import {
   initDatabase,
   getImages,
-  addImage,
+  // [已停用] DB_ADD_IMAGE / IMAGE_SCAN_FOLDER handler 已注释，addImage 在本文件内已无引用（服务层仍由 scanAndImportFolder 内部使用，勿删）
+  // addImage,
   searchImages,
   deleteImage,
   getRecentImages,
   getRecentImagesAfter,
   getImagesByGallery,
   getAllFolders,
-  scanAndImportFolder,
+  // [已停用] GALLERY_SCAN_AND_IMPORT_FOLDER handler 已注释，scanAndImportFolder 在本文件内已无引用（服务层仍由 galleryService.scanFolderIntoGallery 使用，勿删）
+  // scanAndImportFolder,
 } from '../../services/imageService.js';
 import {
   getGalleries,
@@ -69,14 +71,15 @@ export function setupGalleryHandlers() {
     }
   });
 
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // 添加图片
-  ipcMain.handle(IPC_CHANNELS.DB_ADD_IMAGE, async (_event: IpcMainInvokeEvent, image: any) => {
-    try {
-      return await addImage(image);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
+  // ipcMain.handle(IPC_CHANNELS.DB_ADD_IMAGE, async (_event: IpcMainInvokeEvent, image: any) => {
+  //   try {
+  //     return await addImage(image);
+  //   } catch (error) {
+  //     return { success: false, error: error instanceof Error ? error.message : String(error) };
+  //   }
+  // });
 
   // 搜索图片（支持分页）
   ipcMain.handle(IPC_CHANNELS.DB_SEARCH_IMAGES, async (_event: IpcMainInvokeEvent, query: string, page?: number, pageSize?: number) => {
@@ -87,34 +90,35 @@ export function setupGalleryHandlers() {
     }
   });
 
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // 扫描文件夹（简化版，不处理图片内容）
-  ipcMain.handle(IPC_CHANNELS.IMAGE_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string) => {
-    try {
-      const images = [];
-      const files = await scanDirectory(folderPath);
-
-      for (const file of files) {
-        const ext = path.extname(file).toLowerCase();
-        if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
-          try {
-            const imageInfo = await getImageInfo(file);
-            if (imageInfo) {
-              const result = await addImage(imageInfo);
-              if (result.success && result.data) {
-                images.push({ ...imageInfo, id: result.data });
-              }
-            }
-          } catch (error) {
-            console.error(`Failed to process image ${file}:`, error);
-          }
-        }
-      }
-
-      return { success: true, data: images };
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
+  // ipcMain.handle(IPC_CHANNELS.IMAGE_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string) => {
+  //   try {
+  //     const images = [];
+  //     const files = await scanDirectory(folderPath);
+  //
+  //     for (const file of files) {
+  //       const ext = path.extname(file).toLowerCase();
+  //       if (['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'].includes(ext)) {
+  //         try {
+  //           const imageInfo = await getImageInfo(file);
+  //           if (imageInfo) {
+  //             const result = await addImage(imageInfo);
+  //             if (result.success && result.data) {
+  //               images.push({ ...imageInfo, id: result.data });
+  //             }
+  //           }
+  //         } catch (error) {
+  //           console.error(`Failed to process image ${file}:`, error);
+  //         }
+  //       }
+  //     }
+  //
+  //     return { success: true, data: images };
+  //   } catch (error) {
+  //     return { success: false, error: error instanceof Error ? error.message : String(error) };
+  //   }
+  // });
 
   // 生成缩略图
   ipcMain.handle(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL, async (_event: IpcMainInvokeEvent, imagePath: string, force?: boolean) => {
@@ -195,13 +199,14 @@ export function setupGalleryHandlers() {
     }
   });
 
-  ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
-    try {
-      return await scanAndImportFolder(folderPath, extensions, recursive);
-    } catch (error) {
-      return { success: false, error: error instanceof Error ? error.message : String(error) };
-    }
-  });
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
+  //   try {
+  //     return await scanAndImportFolder(folderPath, extensions, recursive);
+  //   } catch (error) {
+  //     return { success: false, error: error instanceof Error ? error.message : String(error) };
+  //   }
+  // });
 
   // ===== 图库（Gallery）管理 =====
   ipcMain.handle(IPC_CHANNELS.GALLERY_GET_GALLERIES, async (_event: IpcMainInvokeEvent) => {

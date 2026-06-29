@@ -168,9 +168,8 @@ describe('IPC handler submodule runtime registration', () => {
     expectRegisteredChannels([
       IPC_CHANNELS.DB_INIT,
       IPC_CHANNELS.DB_GET_IMAGES,
-      IPC_CHANNELS.DB_ADD_IMAGE,
+      // [已停用] DB_ADD_IMAGE / IMAGE_SCAN_FOLDER handler 已注释停用（绕过 gallery_images 成员模型，零调用方），不再注册
       IPC_CHANNELS.DB_SEARCH_IMAGES,
-      IPC_CHANNELS.IMAGE_SCAN_FOLDER,
       IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL,
       IPC_CHANNELS.IMAGE_GET_THUMBNAIL,
       IPC_CHANNELS.IMAGE_DELETE,
@@ -179,7 +178,7 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES_AFTER,
       IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY,
       IPC_CHANNELS.GALLERY_GET_ALL_FOLDERS,
-      IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER,
+      // [已停用] GALLERY_SCAN_AND_IMPORT_FOLDER handler 已注释停用（绕过 gallery_images 成员模型，零调用方），不再注册
       IPC_CHANNELS.GALLERY_GET_GALLERIES,
       IPC_CHANNELS.GALLERY_GET_GALLERY,
       IPC_CHANNELS.GALLERY_CREATE_GALLERY,

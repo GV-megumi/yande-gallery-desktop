@@ -7,12 +7,12 @@ describe('IPC_CHANNELS', () => {
   it('应包含数据库操作通道', () => {
     expect(IPC_CHANNELS.DB_INIT).toBe('db:init');
     expect(IPC_CHANNELS.DB_GET_IMAGES).toBe('db:get-images');
-    expect(IPC_CHANNELS.DB_ADD_IMAGE).toBe('db:add-image');
+    // [已停用] DB_ADD_IMAGE 绕过 gallery_images 成员模型，已注释停用（零调用方，保留备查）
     expect(IPC_CHANNELS.DB_SEARCH_IMAGES).toBe('db:search-images');
   });
 
   it('应包含图片操作通道', () => {
-    expect(IPC_CHANNELS.IMAGE_SCAN_FOLDER).toBe('image:scan-folder');
+    // [已停用] IMAGE_SCAN_FOLDER 绕过 gallery_images 成员模型，已注释停用（零调用方，保留备查）
     expect(IPC_CHANNELS.IMAGE_GENERATE_THUMBNAIL).toBe('image:generate-thumbnail');
   });
 
@@ -188,7 +188,9 @@ describe('IPC_CHANNELS', () => {
     // Phase 6B 扫描入库 plan/apply 新增 2：GALLERY_PLAN_SCAN_FOLDER、GALLERY_APPLY_SCAN_PLAN（203→205）
     // Phase 7B 图集多文件夹管理新增 1：GALLERY_GET_FOLDERS（205→206）
     // Phase 8A contract 移除 2：GALLERY_GET_IMAGES_BY_FOLDER、GALLERY_SCAN_SUBFOLDERS（206→204）
-    expect(keys.length).toBe(204);
+    // [已停用] 注释停用绕过 gallery_images 成员的 3 个遗留图片导入通道：
+    //   DB_ADD_IMAGE、IMAGE_SCAN_FOLDER、GALLERY_SCAN_AND_IMPORT_FOLDER（204→201）
+    expect(keys.length).toBe(201);
   });
 
   it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {

@@ -2,11 +2,13 @@ export const IPC_CHANNELS = {
   // 数据库操作
   DB_INIT: 'db:init',
   DB_GET_IMAGES: 'db:get-images',
-  DB_ADD_IMAGE: 'db:add-image',
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // DB_ADD_IMAGE: 'db:add-image',
   DB_SEARCH_IMAGES: 'db:search-images',
 
   // 图片操作
-  IMAGE_SCAN_FOLDER: 'image:scan-folder',
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // IMAGE_SCAN_FOLDER: 'image:scan-folder',
   IMAGE_GENERATE_THUMBNAIL: 'image:generate-thumbnail',
   IMAGE_GET_THUMBNAIL: 'image:get-thumbnail',
   IMAGE_DELETE: 'image:delete',
@@ -17,7 +19,8 @@ export const IPC_CHANNELS = {
   GALLERY_GET_RECENT_IMAGES_AFTER: 'gallery:get-recent-images-after',
   GALLERY_GET_IMAGES_BY_GALLERY: 'gallery:get-images-by-gallery',
   GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders',
-  GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
+  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
   GALLERY_GET_GALLERIES: 'gallery:get-galleries',
   GALLERY_GET_GALLERY: 'gallery:get-gallery',
   GALLERY_CREATE_GALLERY: 'gallery:create-gallery',
