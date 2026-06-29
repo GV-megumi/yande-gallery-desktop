@@ -33,7 +33,7 @@
 
 - `init()`：初始化数据库
 - `getImages(page, pageSize)`：分页获取图片
-- `addImage(image)`：新增图片记录
+- ~~`addImage(image)`~~：**已停用**（绕过 `gallery_images` 成员模型，会产生图集不可见的孤儿图；preload/channels 中仅以注释保留，零调用方）
 - `searchImages(query, page?, pageSize?)`：按关键词搜索图片
 
 ## `gallery`
@@ -46,17 +46,34 @@
 - `getGallery(id)`：获取单个图库
 - `createGallery(galleryData)`：创建图库
 - `updateGallery(id, updates)`：更新图库
-- `deleteGallery(id)`：删除图库。按 `galleries.recursive` 字段决定清理范围：`recursive=1` 级联删图集下整棵子树的 `images` / 缩略图 / `booru_posts.localImageId` / `invalid_images` 等关联数据，并把 `folderPath` 写入 `gallery_ignored_folders` 防止下次扫描重建；`recursive=0` 只清理图集目录下直接子文件。原始图片文件不会被物理删除。
+- `deleteGallery(id)`：删除图库。基于 `gallery_images` 成员表删除该图集的全部成员图片（一个事务里级联删 `image_tags` / `images`、清缩略图、复位对应 `booru_posts` 的 `downloaded`/`localPath`、做孤儿回收），删除图集行及其全部 `gallery_folders` 绑定，并把每个被删文件夹写入 `gallery_ignored_folders` 防止下次扫描重建。原始图片文件不会被物理删除；多归属图片只在不再属于任何图集时才回收。
 - `setGalleryCover(id, coverImageId)`：设置图库封面
-- `getImagesByFolder(folderPath, page?, pageSize?)`：获取指定目录图片
-- `scanAndImportFolder(folderPath, extensions?, recursive?)`：扫描并导入目录
-- `syncGalleryFolder(id)`：同步指定图库的文件夹，重新扫描并导入新文件，返回 `{ imported, skipped, imageCount, lastScannedAt }`
-- `scanSubfolders(rootPath, extensions?)`：扫描子目录并批量创建图库
+- `getImagesByGallery(galleryId, page?, pageSize?)`：获取某图集的图片（按 `gallery_images` 成员表 JOIN；取代旧的 `getImagesByFolder`）
+- `syncGalleryFolder(id)`：同步该图集的**全部绑定文件夹**（遍历 `gallery_folders`），重扫并写入 `gallery_images` 成员，返回 `{ imported, skipped, imageCount, lastScannedAt }`
+- `planScanFolder(rootPath, extensions?)`：扫描规划（只读，不写库）。仅枚举 `rootPath` 的**一级子文件夹**（含 `rootPath` 自身），把有图片的目录分类为 `newFolders` / `collisions`（同名图集已存在）/ `skipped`（`alreadyBound` / `ignored` / `noImages`）
+- `applyScanPlan({ create, merge, extensions? })`：按用户决议落库。`create` 项新建图集（`recursive=true`）+ 绑定 + 扫描入成员；`merge` 项把文件夹并入既有图集。返回 `{ created, merged, imported, skipped }`
+
+> ⚠ 旧接口 `getImagesByFolder` / `scanAndImportFolder` / `scanSubfolders` 已移除或停用：图集与文件夹解耦后，图片归属改由 `gallery_images` 成员表表达，扫描入库改为 `planScanFolder` + `applyScanPlan` 两步。`scanAndImportFolder` 在 preload/channels 中仅以注释保留（零调用方）。
 - `reportInvalidImage(imageId)`：标记图片为无效
 - `getInvalidImages(page?, pageSize?)`：分页获取无效图片列表
 - `getInvalidImageCount()`：获取无效图片总数
 - `deleteInvalidImage(id)`：删除单个无效图片记录
 - `clearInvalidImages()`：清空所有无效图片记录
+
+### 图集↔文件夹绑定（多文件夹模型）
+
+图集与文件夹解耦后，一个图集可绑定多个文件夹（`gallery_folders` 表，`folderPath` 全局唯一），图片归属走 `gallery_images` 成员表。
+
+- `getGalleryFolders(galleryId)`：读取某图集的全部绑定文件夹（每项含 `folderPath` / `recursive` / `extensions`）
+- `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给图集新增一个绑定文件夹并扫描入成员
+- `unbindFolder(galleryId, folderPath)`：解除某文件夹绑定，删除其带来的成员并回收孤儿（保留图集记录、不写黑名单）。覆盖感知：仍被该图集其它绑定文件夹覆盖的图片不会被移除
+- `changeFolderPath(galleryId, oldPath, newPath, recursive?, extensions?)`：更改某绑定文件夹路径（先绑新、成功后再解旧；新路径失败则旧绑定与成员零损失）
+
+### 跨机器重定位与丢失文件夹检测
+
+- `previewRelocateRoot(mappings)`：重定位预检（dry-run，不写库）。`mappings: { oldPrefix, newPrefix }[]`，返回 `{ affected: {table,column,count}[], collisions: {table,column,path}[] }`
+- `applyRelocateRoot(mappings)`：应用重定位。单事务内按 `旧前缀→新前缀` 边界感知地无损改写库内全部路径列（`gallery_folders.folderPath` / `images.filepath` / `booru_posts.localPath` / `booru_favorite_tag_download_bindings.downloadPath` / `gallery_ignored_folders.folderPath`）；有 UNIQUE 冲突则整体中止、零写入。用于"文件随库一起搬到新机器"
+- `getMissingGalleryFolders()`：返回绑定文件夹在磁盘上不存在的项 `{ galleryId, folderPath }[]`（只读检测，供 UI 标记"文件夹丢失"）。**注意：直接返回数组，不是 `{ success }` 包裹**，调用方应 `try/catch`
 
 ### 图集忽略名单
 
@@ -65,7 +82,7 @@
 - `updateIgnoredFolder(id, patch)`：更新忽略记录（当前主要是修改 `note`）
 - `removeIgnoredFolder(id)`：从忽略名单中移除（允许下次扫描再次创建）
 
-忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的 `folderPath` 追加进来。
+忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的全部绑定文件夹追加进来。
 
 ### 最近图片游标查询
 
@@ -147,7 +164,7 @@
 
 面向本地图片扫描与缩略图。
 
-- `scanFolder(folderPath)`：扫描目录
+- ~~`scanFolder(folderPath)`~~：**已停用**（同 `gallery.scanAndImportFolder`：绕过 `gallery_images` 成员模型；仅注释保留，零调用方。扫描入库请用 `gallery.planScanFolder` + `applyScanPlan`）
 - `generateThumbnail(imagePath, force?)`：生成缩略图
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
