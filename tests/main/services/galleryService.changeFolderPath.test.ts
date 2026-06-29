@@ -225,4 +225,58 @@ describe('changeFolderPath', () => {
     const rows = await all<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_folders WHERE folderPath = ?', [takenFolder]);
     expect(rows.map((r) => r.galleryId)).toEqual([otherGallery]);
   });
+
+  it('新路径绑定失败时不丢旧绑定与旧成员（先绑新再解旧，新失败保留旧状态）', async () => {
+    const oldFolder = normalizePath(path.join('M:', 'keep'));
+    const takenFolder = normalizePath(path.join('M:', 'taken'));
+    const galleryId = await addGallery(oldFolder, 1);
+    await addFolderBinding(galleryId, oldFolder, 1);
+
+    // 旧文件夹下有成员图片
+    const oldImg = await addImage(normalizePath(path.join('M:', 'keep', 'o.jpg')));
+    await addMembership(galleryId, oldImg);
+
+    // 新路径已被另一个图集占用 → bindFolder(new) 会因 UNIQUE 失败
+    const otherGallery = await addGallery(normalizePath(path.join('M:', 'other')), 1);
+    await addFolderBinding(otherGallery, takenFolder, 1);
+
+    const result = await changeFolderPath(galleryId, oldFolder, takenFolder, true, ['.jpg']);
+
+    expect(result.success).toBe(false);
+
+    // 旧绑定行仍在（未被提前解绑）
+    const oldBinding = await all<{ folderPath: string }>(
+      h.db,
+      'SELECT folderPath FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, oldFolder]
+    );
+    expect(oldBinding).toHaveLength(1);
+
+    // 旧成员仍在（未被解绑/孤儿回收删除）
+    const members = (
+      await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
+    ).map((r) => r.imageId);
+    expect(members).toEqual([oldImg]);
+
+    // 旧图片记录仍在（未被 GC 删除）
+    const imgRow = await get<{ id: number }>(h.db, 'SELECT id FROM images WHERE id = ?', [oldImg]);
+    expect(imgRow?.id).toBe(oldImg);
+  });
+
+  it('新旧路径相同时为 no-op 成功（不触发 UNIQUE 自冲突，旧绑定与成员保留）', async () => {
+    const folder = normalizePath(path.join('M:', 'same'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+    const img = await addImage(normalizePath(path.join('M:', 'same', 'a.jpg')));
+    await addMembership(galleryId, img);
+
+    const result = await changeFolderPath(galleryId, folder, folder, true, ['.jpg']);
+
+    expect(result.success).toBe(true);
+    // 绑定与成员都还在
+    const folders = (await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [galleryId])).map((r) => r.folderPath);
+    expect(folders).toEqual([folder]);
+    const members = (await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])).map((r) => r.imageId);
+    expect(members).toEqual([img]);
+  });
 });
