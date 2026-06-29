@@ -44,6 +44,10 @@ vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
 
 import { run, get, all } from '../../../src/main/services/database';
 import { reportInvalidImage } from '../../../src/main/services/invalidImageService';
+import {
+  emitGalleryGalleriesChanged,
+  emitGalleryImagesChanged,
+} from '../../../src/main/services/appEventPublisher';
 
 async function setupSchema(): Promise<void> {
   await run(h.db, `
@@ -210,6 +214,47 @@ describe('reportInvalidImage 归属/计数改用 gallery_images', () => {
     // 两个图集的成员行都因 images 删除被 CASCADE 清掉
     const remaining = await all<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_images WHERE imageId = ?', [shared]);
     expect(remaining).toHaveLength(0);
+  });
+
+  it('多归属图片失效时刷新该图全部归属图集的统计（不止一个）', async () => {
+    const galleryA = await addGallery(normalizePathLike('M:/AA'));
+    const galleryB = await addGallery(normalizePathLike('M:/BB'));
+    // 各放一张独占图（撑起初始计数）+ 一张共享图（即将失效）
+    const aOwn = await addImage('M:/AA/own.jpg');
+    const bOwn = await addImage('M:/BB/own.jpg');
+    const shared = await addImage('M:/AA/shared.jpg');
+    await addMember(galleryA, aOwn);
+    await addMember(galleryA, shared);
+    await addMember(galleryB, bOwn);
+    await addMember(galleryB, shared);
+    // 预置过期 imageCount，验证两个图集都会被刷新
+    await run(h.db, 'UPDATE galleries SET imageCount = 99 WHERE id IN (?, ?)', [galleryA, galleryB]);
+
+    const result = await reportInvalidImage(shared);
+    expect(result.success).toBe(true);
+
+    // 两个图集的 imageCount 都应刷新为各自剩余成员数（各 1，共享图已删）
+    const gA = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [galleryA]);
+    const gB = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [galleryB]);
+    expect(gA?.imageCount).toBe(1);
+    expect(gB?.imageCount).toBe(1);
+
+    // 两个图集都应收到 statsUpdated 统计变更事件
+    const statsGalleryIds = vi
+      .mocked(emitGalleryGalleriesChanged)
+      .mock.calls.map(([arg]) => (arg as { galleryId: number; action: string }))
+      .filter((arg) => arg.action === 'statsUpdated')
+      .map((arg) => arg.galleryId);
+    expect(statsGalleryIds).toContain(galleryA);
+    expect(statsGalleryIds).toContain(galleryB);
+
+    // images-changed 事件的 affectedGalleryIds 应覆盖两个图集
+    const affected = vi
+      .mocked(emitGalleryImagesChanged)
+      .mock.calls.map(([arg]) => arg as { affectedGalleryIds?: number[] })
+      .flatMap((arg) => arg.affectedGalleryIds ?? []);
+    expect(affected).toContain(galleryA);
+    expect(affected).toContain(galleryB);
   });
 });
 

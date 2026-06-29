@@ -46,15 +46,21 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
     }
 
     // 查找所属 gallery（Phase 4：通过 gallery_images 成员归属，而非 galleries.folderPath 前缀匹配）。
-    // 取该图片的任一成员行 galleryId（多归属时任取其一即可：归属用于刷新该图集统计/封面）。
+    // 一张图可同时归属多个图集（多归属）；删除图片会 FK CASCADE 清掉它在所有图集的成员行，
+    // 故必须读出全部归属图集，逐个刷新统计——否则共同归属的图集 imageCount/事件会陈旧。
     // 须在删 images 前读取——删除会触发 FK CASCADE 清掉 gallery_images 成员行。
-    const membership = await get<{ galleryId: number }>(db,
-      'SELECT galleryId FROM gallery_images WHERE imageId = ? LIMIT 1',
+    const memberships = await all<{ galleryId: number }>(db,
+      'SELECT galleryId FROM gallery_images WHERE imageId = ?',
       [image.id]);
-    const gallery = membership
+    // 去重（同一图集对同一图片只可能一行，这里保险去重）
+    const ownerGalleryIds = Array.from(new Set(memberships.map(m => m.galleryId)));
+    // invalid_images.galleryId 仍记录单个代表（首个归属，无归属则 NULL），保持单列语义不变。
+    const representativeGalleryId: number | null = ownerGalleryIds[0] ?? null;
+    // 代表图集的封面信息（用于"失效图是封面则清空封面"，沿用原单图集行为）。
+    const gallery = representativeGalleryId != null
       ? await get<{ id: number; coverImageId: number | null }>(db,
           'SELECT id, coverImageId FROM galleries WHERE id = ?',
-          [membership.galleryId])
+          [representativeGalleryId])
       : null;
 
     // 获取缩略图路径
@@ -63,28 +69,29 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
     const now = new Date().toISOString();
 
     await runInTransaction(db, async () => {
-      // 插入无效图片记录
+      // 插入无效图片记录（galleryId 记录单个代表归属，保持单列语义）
       await run(db, `
         INSERT INTO invalid_images (originalImageId, filename, filepath, fileSize, width, height, format, thumbnailPath, detectedAt, galleryId)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      `, [image.id, image.filename, image.filepath, image.fileSize, image.width, image.height, image.format, thumbnailPath, now, gallery?.id ?? null]);
+      `, [image.id, image.filename, image.filepath, image.fileSize, image.width, image.height, image.format, thumbnailPath, now, representativeGalleryId]);
 
-      // 如果该图片是 gallery 的封面，清除封面
+      // 如果该图片是代表图集的封面，清除封面
       if (gallery && gallery.coverImageId === image.id) {
         await run(db, 'UPDATE galleries SET coverImageId = NULL WHERE id = ?', [gallery.id]);
       }
 
-      // 从 images 表删除（ON DELETE CASCADE 会自动清理 image_tags）
+      // 从 images 表删除（ON DELETE CASCADE 会自动清理 image_tags 与全部 gallery_images 成员行）
       await run(db, 'DELETE FROM images WHERE id = ?', [image.id]);
 
-      // 更新 gallery 的 imageCount（Phase 4：以 gallery_images 成员表为准）。
-      // 此处已在删 images 之后，本图片的成员行已被 FK CASCADE 清掉，故 COUNT 自然排除它。
-      if (gallery) {
+      // 刷新全部归属图集的 imageCount（Phase 4：以 gallery_images 成员表为准）。
+      // 此处已在删 images 之后，本图片在各图集的成员行已被 FK CASCADE 清掉，故各 COUNT 自然排除它。
+      // 多归属时必须逐个刷新，否则共同归属的图集计数会陈旧。
+      for (const gid of ownerGalleryIds) {
         const countResult = await get<{ cnt: number }>(db,
           'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
-          [gallery.id]);
+          [gid]);
         if (countResult) {
-          await run(db, 'UPDATE galleries SET imageCount = ? WHERE id = ?', [countResult.cnt, gallery.id]);
+          await run(db, 'UPDATE galleries SET imageCount = ? WHERE id = ?', [countResult.cnt, gid]);
         }
       }
     });
@@ -93,22 +100,24 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
     emitGalleryInvalidImagesChanged({
       action: 'reported',
       originalImageId: image.id,
-      galleryId: gallery?.id ?? null,
+      galleryId: representativeGalleryId,
       affectedCount: 1,
       filepath: image.filepath,
     });
     emitGalleryImagesChanged({
       action: 'invalidated',
       imageId: image.id,
-      galleryId: gallery?.id ?? null,
-      affectedGalleryIds: gallery ? [gallery.id] : undefined,
+      galleryId: representativeGalleryId,
+      // 覆盖全部归属图集（多归属时下游据此刷新每个图集视图）
+      affectedGalleryIds: ownerGalleryIds.length > 0 ? ownerGalleryIds : undefined,
       affectedImageIds: [image.id],
       affectedCount: 1,
       reason: 'invalidReported',
       filepath: image.filepath,
     }, 'invalidImageService');
-    if (gallery) {
-      emitGalleryGalleriesChanged({ action: 'statsUpdated', galleryId: gallery.id, affectedCount: 1 });
+    // 逐个归属图集发统计变更事件（与单图集时一致，循环覆盖全部）
+    for (const gid of ownerGalleryIds) {
+      emitGalleryGalleriesChanged({ action: 'statsUpdated', galleryId: gid, affectedCount: 1 });
     }
     return { success: true };
   } catch (error) {
