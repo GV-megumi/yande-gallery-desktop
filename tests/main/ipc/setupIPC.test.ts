@@ -295,7 +295,19 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("GALLERY_SET_GALLERY_COVER: 'gallery:set-gallery-cover'");
     expect(channelsSource).toContain("GALLERY_UPDATE_GALLERY_STATS: 'gallery:update-gallery-stats'");
     expect(channelsSource).toContain("GALLERY_GET_IMAGES_BY_GALLERY: 'gallery:get-images-by-gallery'");
-    expect(channelsSource).toContain("GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder'");
+    // GALLERY_SCAN_AND_IMPORT_FOLDER 已停用：channels.ts 仅以注释保留，普通 toContain 会命中注释成假阳性。
+    // 用行首锚定正则确保它不再是“活跃常量”（注释行以 // 开头，不会被 ^\s*GALLERY 匹配），
+    // 并正向校验其替代/新增的解耦通道确实已注册。
+    expect(channelsSource).not.toMatch(/^\s*GALLERY_SCAN_AND_IMPORT_FOLDER:/m);
+    expect(channelsSource).toContain("GALLERY_PLAN_SCAN_FOLDER: 'gallery:plan-scan-folder'");
+    expect(channelsSource).toContain("GALLERY_APPLY_SCAN_PLAN: 'gallery:apply-scan-plan'");
+    expect(channelsSource).toContain("GALLERY_BIND_FOLDER: 'gallery:bind-folder'");
+    expect(channelsSource).toContain("GALLERY_UNBIND_FOLDER: 'gallery:unbind-folder'");
+    expect(channelsSource).toContain("GALLERY_CHANGE_FOLDER_PATH: 'gallery:change-folder-path'");
+    expect(channelsSource).toContain("GALLERY_GET_FOLDERS: 'gallery:get-folders'");
+    expect(channelsSource).toContain("GALLERY_RELOCATE_PREVIEW: 'gallery:relocate-preview'");
+    expect(channelsSource).toContain("GALLERY_RELOCATE_APPLY: 'gallery:relocate-apply'");
+    expect(channelsSource).toContain("GALLERY_GET_MISSING_FOLDERS: 'gallery:get-missing-folders'");
     expect(channelsSource).toContain("GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder'");
     expect(channelsSource).toContain("GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image'");
     expect(channelsSource).toContain("GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images'");
