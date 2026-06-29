@@ -902,12 +902,17 @@ export async function unbindFolder(
 }
 
 /**
- * 改图集某绑定文件夹的路径（Phase 3）= unbindFolder(old) + bindFolder(new)。
+ * 改图集某绑定文件夹的路径（Phase 3）= bindFolder(new) 成功后再 unbindFolder(old)。
  *
- * 先解绑旧路径（成员重算 + 回收孤儿），再绑定并重扫新路径。
- * 若解绑失败，直接返回其错误，不继续绑定。
- * 若绑定失败，透传绑定错误（此时旧路径已解绑——可接受，但要清晰报错，
- * 让调用方知道图集当前可能不含原文件夹）。图集记录与 id 不变。
+ * 关键顺序：先绑新、再解旧。旧实现是先解旧再绑新，若绑新失败（新路径已被别处
+ * 绑定 / 不可读 / 扫描失败），旧绑定与成员已被删除（图片可能已被孤儿回收），
+ * 造成不可恢复的数据丢失。改为先绑新：
+ *   - 新旧路径归一化后相同：no-op 成功（避免对同一路径 bind 触发 UNIQUE 自冲突）；
+ *   - bindFolder(new) 失败：立即返回其错误，完全不动旧绑定（旧状态原样保留）；
+ *   - bindFolder(new) 成功后再 unbindFolder(old)：移除旧绑定 + 其成员 + 回收孤儿。
+ *     若解旧失败，返回错误并说明此刻新旧两者都已绑定（可人工恢复，无数据丢失），
+ *     不尝试回滚已成功的新绑定。
+ * 图集记录与 id 始终不变。
  */
 export async function changeFolderPath(
   galleryId: number,
@@ -916,17 +921,25 @@ export async function changeFolderPath(
   recursive: boolean = true,
   extensions?: string[]
 ): Promise<{ success: boolean; error?: string }> {
-  const unbindResult = await unbindFolder(galleryId, oldPath);
-  if (!unbindResult.success) {
-    return { success: false, error: unbindResult.error };
+  // 新旧路径相同：无需重绑（对已绑定路径再 bindFolder 会撞 UNIQUE）。直接 no-op 成功，
+  // 保留现有绑定与成员不变。
+  if (normalizePath(newPath) === normalizePath(oldPath)) {
+    return { success: true };
   }
 
+  // 1. 先绑新。失败则原样保留旧绑定与成员，立即返回错误（无任何数据丢失）。
   const bindResult = await bindFolder(galleryId, newPath, recursive, extensions);
   if (!bindResult.success) {
-    // 旧路径已解绑但新路径绑定失败：明确告知调用方
+    return { success: false, error: bindResult.error };
+  }
+
+  // 2. 新绑定已成功，再解旧（移除旧绑定 + 其成员 + 回收孤儿）。
+  //    若解旧失败：新旧此刻都已绑定，可人工恢复，不回滚已成功的新绑定。
+  const unbindResult = await unbindFolder(galleryId, oldPath);
+  if (!unbindResult.success) {
     return {
       success: false,
-      error: `旧文件夹已解绑，但绑定新文件夹失败: ${bindResult.error}`,
+      error: `新文件夹已绑定，但解绑旧文件夹失败（新旧文件夹当前均已绑定，可人工修正）: ${unbindResult.error}`,
     };
   }
 
