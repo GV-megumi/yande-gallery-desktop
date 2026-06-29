@@ -9,6 +9,7 @@ import {
   extractExtension,
   extractFilename,
   normalizePaths,
+  escapeLike,
 } from '../../../src/main/utils/path';
 import path from 'path';
 
@@ -170,6 +171,22 @@ describe('extractFilename', () => {
 
   it('应处理包含多个点的文件名', () => {
     expect(extractFilename('file.backup.tar.gz')).toBe('file.backup.tar');
+  });
+});
+
+describe('escapeLike', () => {
+  it('应转义 LIKE 通配符 _ 和 %（前缀加反斜杠转义符）', () => {
+    expect(escapeLike('gal_1')).toBe('gal\\_1');
+    expect(escapeLike('50%')).toBe('50\\%');
+  });
+
+  it('应转义反斜杠本身（避免反斜杠路径分隔符破坏 ESCAPE 语义）', () => {
+    // 单个反斜杠 → 转义为 \\（一个转义符 + 一个反斜杠字面量）
+    expect(escapeLike('a\\b')).toBe('a\\\\b');
+  });
+
+  it('普通字符不受影响', () => {
+    expect(escapeLike('plain/path-123.jpg')).toBe('plain/path-123.jpg');
   });
 });
 

@@ -1,7 +1,7 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
-import { normalizePath } from '../utils/path.js';
+import { normalizePath, escapeLike } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import {
@@ -598,13 +598,14 @@ export async function updateGalleryStats(
  * Phase 2A：所有写路径都要保证 gallery_images 成员与现状（folderPath 前缀匹配）一致，
  * 以便后续把读路径切到成员表时数据齐全。本函数是这一致性的统一入口。
  *
- * 前缀匹配规则必须与 galleryService.deleteGallery / database.backfillGalleryImages
+ * 前缀匹配规则必须与 selectImageIdsCoveredByFolder / database.backfillGalleryImages
  * 字面一致（normalized = normalizePath(folderPath)，likePrefix = normalized + path.sep）：
- *   - recursive=true ：filepath LIKE likePrefix+'%' OR filepath = normalized
- *   - recursive=false：filepath LIKE likePrefix+'%' AND filepath NOT LIKE likePrefix+'%'+sep+'%'
+ *   - recursive=true ：filepath LIKE likePrefix+'%' ESCAPE '\' OR filepath = normalized
+ *   - recursive=false：filepath LIKE likePrefix+'%' ESCAPE '\' AND filepath NOT LIKE likePrefix+'%'+sep+'%' ESCAPE '\'
  *
  * 用单条集合式 INSERT OR IGNORE ... SELECT 完成，幂等（成员复合主键 + OR IGNORE）。
- * 注：path.sep 在 SQLite LIKE 里无 escape 语义，按字面字符参与匹配即可。
+ * 注：likePrefix（含 path.sep）经 escapeLike 转义，配套 ESCAPE '\'——否则路径里的
+ * _/% 会被当通配符，使兄弟目录（如 ...gal_1 误命中 ...galA1）被错误写入成员。
  *
  * @returns 本次新写入的成员行数（changes）。重复执行时已存在的成员被 OR IGNORE，返回 0。
  */
@@ -616,6 +617,7 @@ export async function ensureMembershipForFolder(
 ): Promise<number> {
   const normalized = normalizePath(folderPath);
   const likePrefix = normalized + path.sep;
+  const escapedPrefix = escapeLike(likePrefix);
   const now = new Date().toISOString();
 
   const result = recursive
@@ -623,15 +625,15 @@ export async function ensureMembershipForFolder(
         db,
         `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
            SELECT ?, id, ? FROM images
-            WHERE filepath LIKE ? OR filepath = ?`,
-        [galleryId, now, likePrefix + '%', normalized]
+            WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
+        [galleryId, now, escapedPrefix + '%', normalized]
       )
     : await runWithChanges(
         db,
         `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
            SELECT ?, id, ? FROM images
-            WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
-        [galleryId, now, likePrefix + '%', likePrefix + '%' + path.sep + '%']
+            WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
+        [galleryId, now, escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
       );
 
   return result.changes;
@@ -785,8 +787,10 @@ export async function bindFolder(
  * 查询某文件夹（按 recursive 感知前缀）覆盖到的图片 id 集合。
  * 谓词与 ensureMembershipForFolder / backfillGalleryImages 字面一致，保证
  * "覆盖判定"与"成员写入"用同一规则：
- *   - recursive=true ：filepath LIKE 'F{sep}%' OR filepath = 'F'
- *   - recursive=false：filepath LIKE 'F{sep}%' AND filepath NOT LIKE 'F{sep}%{sep}%'
+ *   - recursive=true ：filepath LIKE 'F{sep}%' ESCAPE '\' OR filepath = 'F'
+ *   - recursive=false：filepath LIKE 'F{sep}%' ESCAPE '\' AND filepath NOT LIKE 'F{sep}%{sep}%' ESCAPE '\'
+ * 字面前缀 F{sep} 经 escapeLike 转义（_/% 不当通配符），与成员写入侧保持一致，
+ * 否则解绑/孤儿回收时"覆盖判定"会与"成员写入"分叉，误判兄弟目录图片归属。
  */
 async function selectImageIdsCoveredByFolder(
   db: Awaited<ReturnType<typeof getDatabase>>,
@@ -795,16 +799,17 @@ async function selectImageIdsCoveredByFolder(
 ): Promise<number[]> {
   const normalized = normalizePath(folderPath);
   const likePrefix = normalized + path.sep;
+  const escapedPrefix = escapeLike(likePrefix);
   const rows = recursive
     ? await all<{ id: number }>(
         db,
-        `SELECT id FROM images WHERE filepath LIKE ? OR filepath = ?`,
-        [likePrefix + '%', normalized]
+        `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
+        [escapedPrefix + '%', normalized]
       )
     : await all<{ id: number }>(
         db,
-        `SELECT id FROM images WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
-        [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+        `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
+        [escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
       );
   return rows.map(r => r.id);
 }

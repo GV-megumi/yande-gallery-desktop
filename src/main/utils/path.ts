@@ -21,6 +21,26 @@ export function normalizePath(filePath: string): string {
 }
 
 /**
+ * 转义 SQL LIKE 模式里的通配符，供 `... LIKE ? ESCAPE '\'` 使用。
+ *
+ * SQLite LIKE 把 `_`（任意单字符）和 `%`（任意多字符）当通配符；用文件夹路径做
+ * 前缀匹配（`filepath LIKE prefix%`）时，路径里的 `_`/`%` 会被当成通配符，导致
+ * 兄弟目录被误命中（例如前缀 `M:\gal_1\` 会匹配到 `M:\galA1\...`，`_` = 任意字符）。
+ *
+ * 用反斜杠 `\` 作为转义符，对 `\`、`%`、`_` 三者各加前缀 `\`（反斜杠须先转义自身，
+ * 否则它会吞掉后面字符的转义语义）。调用方必须在 SQL 里配套写明 `ESCAPE '\'`。
+ *
+ * 注意：仅转义"参与匹配的字面前缀"；末尾通配 `%`（以及非递归模式里的 `sep%` 段）
+ * 是有意保留的通配符，不要经过本函数。
+ *
+ * @param s 要作为字面量参与 LIKE 匹配的字符串（通常是 normalizePath 后的路径前缀）
+ * @returns 转义后的字符串，可安全拼接末尾通配符
+ */
+export function escapeLike(s: string): string {
+  return s.replace(/[\\%_]/g, c => '\\' + c);
+}
+
+/**
  * 获取目录路径（去除文件名）
  * @param filePath 完整文件路径
  */
