@@ -167,6 +167,23 @@ describe('backfillGalleryImages', () => {
     const members = await all(db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [aId]);
     expect(members).toHaveLength(1);
   });
+
+  it('文件夹名含下划线时不把兄弟目录图片回填进来（LIKE 通配符 _ 须转义）', async () => {
+    // gal_1 的下划线是 LIKE 通配符；未转义时 'gal_1\%' 会误命中兄弟目录 'galA1\...'
+    const gal = normalizePath(path.join('M:', 'gal_1'));
+    const galId = await addGallery(gal, 'gal_1', 1);
+    const own = await addImage(normalizePath(path.join('M:', 'gal_1', 'a.jpg')));
+    const sibling = await addImage(normalizePath(path.join('M:', 'galA1', 'b.jpg')));
+
+    await ensureDecouplingTables(db);
+    await backfillGalleryImages(db);
+
+    const members = (
+      await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galId])
+    ).map((r) => r.imageId);
+    expect(members).toContain(own);
+    expect(members).not.toContain(sibling);
+  });
 });
 
 describe('migrateGalleryFolderDecoupling', () => {

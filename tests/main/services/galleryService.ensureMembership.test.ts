@@ -109,4 +109,29 @@ describe('ensureMembershipForFolder', () => {
 
     expect(await memberIds(3)).toHaveLength(2);
   });
+
+  it('文件夹名含下划线时不误匹配兄弟目录（LIKE 通配符 _ 须转义）', async () => {
+    // gal_1 的下划线是 LIKE 通配符（匹配任意单字符），未转义时 'gal_1\%' 会误命中 'galA1\...'
+    const folder = normalizePath(path.join('M:', 'gal_1'));
+    const own = await addImage(normalizePath(path.join('M:', 'gal_1', 'a.jpg')));
+    const sibling = await addImage(normalizePath(path.join('M:', 'galA1', 'b.jpg')));
+
+    await ensureMembershipForFolder(db, 7, folder, true);
+
+    const members = await memberIds(7);
+    expect(members).toContain(own);
+    expect(members).not.toContain(sibling);
+  });
+
+  it('非递归 + 下划线文件夹名也不误匹配兄弟目录', async () => {
+    const folder = normalizePath(path.join('M:', 'g_b'));
+    const own = await addImage(normalizePath(path.join('M:', 'g_b', 'a.jpg')));
+    const sibling = await addImage(normalizePath(path.join('M:', 'gXb', 'b.jpg')));
+
+    await ensureMembershipForFolder(db, 8, folder, false);
+
+    const members = await memberIds(8);
+    expect(members).toContain(own);
+    expect(members).not.toContain(sibling);
+  });
 });

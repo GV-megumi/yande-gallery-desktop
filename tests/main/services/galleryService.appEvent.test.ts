@@ -25,6 +25,8 @@ vi.mock('../../../src/main/services/database.js', () => ({
 
 vi.mock('../../../src/main/utils/path.js', () => ({
   normalizePath: (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, ''),
+  // ensureMembershipForFolder 现会调用 escapeLike 转义 LIKE 前缀；mock 须导出它（与真实实现一致）。
+  escapeLike: (s: string) => s.replace(/[\\%_]/g, (c: string) => '\\' + c),
 }));
 
 vi.mock('../../../src/main/services/imageService.js', () => ({

@@ -2,7 +2,7 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 import fs from 'fs/promises';
 import { getDatabasePath } from './config.js';
-import { normalizePath } from '../utils/path.js';
+import { normalizePath, escapeLike } from '../utils/path.js';
 
 // 数据库连接实例
 let db: sqlite3.Database | null = null;
@@ -991,10 +991,12 @@ export async function backfillGalleryFolders(database: sqlite3.Database): Promis
  * 回填 gallery_images：对每个图集，按与 deleteGallery 一致的 recursive 感知前缀匹配
  * 选出其图片写入成员表。幂等（成员主键 + INSERT OR IGNORE）。
  *
- * 匹配规则（与 galleryService.deleteGallery 一致，保持图片归属与现状相同）：
- *   - recursive=1：filepath LIKE 'F{sep}%' OR filepath = 'F'
- *   - recursive=0：filepath LIKE 'F{sep}%' AND filepath NOT LIKE 'F{sep}%{sep}%'
+ * 匹配规则（与 galleryService 的成员/覆盖谓词字面一致，保持图片归属与现状相同）：
+ *   - recursive=1：filepath LIKE 'F{sep}%' ESCAPE '\' OR filepath = 'F'
+ *   - recursive=0：filepath LIKE 'F{sep}%' ESCAPE '\' AND filepath NOT LIKE 'F{sep}%{sep}%' ESCAPE '\'
  * 其中 F = normalizePath(folderPath)，sep = path.sep（与入库 filepath 分隔符一致）。
+ * 字面前缀 F{sep} 经 escapeLike 转义（_/% 不再当通配符），故兄弟目录（如 F=...gal_1
+ * 误匹配 ...galA1）不会被错误塞进成员表；末尾 % 与 {sep}% 段保留为通配符。
  */
 export async function backfillGalleryImages(database: sqlite3.Database): Promise<void> {
   const galleries = await all<{ id: number; folderPath: string; recursive: number }>(
@@ -1009,16 +1011,18 @@ export async function backfillGalleryImages(database: sqlite3.Database): Promise
     const likePrefix = normalized + path.sep;
     const isRecursive = g.recursive === 1 || (g.recursive as unknown as boolean) === true;
 
+    // 前缀经 escapeLike 转义（_/% 不再当通配符），配套 ESCAPE '\'；末尾 % 与 sep% 段保留为通配符。
+    const escapedPrefix = escapeLike(likePrefix);
     const images = isRecursive
       ? await all<{ id: number }>(
           database,
-          `SELECT id FROM images WHERE filepath LIKE ? OR filepath = ?`,
-          [likePrefix + '%', normalized]
+          `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
+          [escapedPrefix + '%', normalized]
         )
       : await all<{ id: number }>(
           database,
-          `SELECT id FROM images WHERE filepath LIKE ? AND filepath NOT LIKE ?`,
-          [likePrefix + '%', likePrefix + '%' + path.sep + '%']
+          `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
+          [escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
         );
 
     for (const img of images) {
