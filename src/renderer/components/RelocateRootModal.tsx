@@ -10,7 +10,8 @@ import { spacing, colors, fontSize } from '../styles/tokens';
  * 把旧路径前缀整体改写为新前缀（无损、不重扫）。
  *
  * 流程：填写一条或多条 {oldPrefix → newPrefix} 映射 →「预览」拉取受影响的
- * (table,column) 计数与潜在路径碰撞 → 仅当无碰撞时才允许「应用」（带二次确认）。
+ * (table,column) 计数、潜在路径碰撞与"仅大小写差异"提示 → 仅当无碰撞时才允许
+ * 「应用」（带二次确认；大小写差异提示不阻断，仅建议用户统一大小写）。
  *
  * 本组件通过 props 注入 onPreview / onApply / onPickFolder，自身不直接触达
  * electronAPI，便于复用与测试；SettingsPage 负责把这些回调接到 gallery.* 与
@@ -34,9 +35,20 @@ interface PreviewCollision {
   path: string;
 }
 
+/** 非阻断提示：newPrefix 与库内既有路径前缀仅大小写不同（win32），建议统一大小写 */
+interface PreviewWarning {
+  table: string;
+  column: string;
+  newPrefix: string;
+  existingPrefix: string;
+  count: number;
+}
+
 interface PreviewResult {
   affected: PreviewAffected[];
   collisions: PreviewCollision[];
+  /** 主进程 preview 一定返回该字段；标为可选是对旧调用方/测试注入的防御 */
+  warnings?: PreviewWarning[];
 }
 
 interface Props {
@@ -78,6 +90,8 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
   // 预览结果是否仍对应当前映射
   const previewFresh = previewedSignature !== null && previewedSignature === currentSignature;
   const hasCollisions = (preview?.collisions.length ?? 0) > 0;
+  // 仅大小写差异提示不阻断应用（canApply 不受其影响）
+  const caseWarnings = preview?.warnings ?? [];
   const canApply = previewFresh && !hasCollisions && sanitized.length > 0 && !applying;
 
   const updateRow = (index: number, patch: Partial<RelocateMapping>) => {
@@ -241,6 +255,28 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
                     {preview.collisions.map((c, i) => (
                       <li key={i} style={{ wordBreak: 'break-all' }}>
                         {c.path}（{c.table}.{c.column}）
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              }
+            />
+          )}
+          {caseWarnings.length > 0 && (
+            // 非阻断提示：Windows 文件系统不区分大小写，但库内路径匹配按字节精确比较；
+            // 新前缀与既有路径仅大小写不同时，应用后同一物理目录会出现两种大小写形态
+            <Alert
+              type="warning"
+              showIcon
+              style={{ marginTop: spacing.md }}
+              message="库内存在与新前缀仅大小写不同的路径（不阻断应用）"
+              description={
+                <div>
+                  建议把新前缀的大小写改成与库内既有路径一致，避免应用后同一物理目录出现两种大小写形态：
+                  <ul style={{ margin: `${spacing.xs}px 0 0`, paddingLeft: spacing.lg }}>
+                    {caseWarnings.map((w, i) => (
+                      <li key={i} style={{ wordBreak: 'break-all' }}>
+                        新前缀 {w.newPrefix} ↔ 既有 {w.existingPrefix}（{w.table}.{w.column}，{w.count} 行）
                       </li>
                     ))}
                   </ul>
