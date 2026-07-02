@@ -717,9 +717,16 @@ export async function scanFolderIntoGallery(
  * - 归一化 folderPath；
  * - 若该 folderPath 已存在于 gallery_folders（全局 UNIQUE）→ 拒绝，给出清晰 error
  *   （一个文件夹只能属于一个图集）；
- * - 事务内：插入 gallery_folders 行 → scanFolderIntoGallery（扫描导入 + 写 gallery_images
- *   成员 + 以成员表 COUNT 更新统计）。scanFolderIntoGallery 内部不开事务，
- *   所有写都参与本事务，整体原子；
+ * - 短事务只插入 gallery_folders 绑定行（经 runInTransaction 排队，避免这条 INSERT
+ *   落进其它并发事务的开放窗口、随对方 ROLLBACK 一并丢失）；
+ * - 事务外执行 scanFolderIntoGallery（全量磁盘扫描 + 逐文件导入 + 写成员 + 更新统计）。
+ *   大目录（NAS/HDD 万张级）扫描可达分钟级，绝不能包进事务：否则期间所有
+ *   runInTransaction 调用方（收藏落库、批量下载记录、标签写入等）都会在事务队列上
+ *   阻塞到扫描结束。scanAndImportFolder 逐文件幂等（filepath 查重），失败后重试可
+ *   自愈，与 applyScanPlan create 路径的无事务扫描行为一致；
+ * - 扫描失败（返回失败或抛错）→ 补偿回滚：复用 unbindFolder 既有语义（删除绑定行 +
+ *   重叠感知移除成员 + 孤儿 GC），保证失败后无残留绑定。changeFolderPath 的
+ *   "先绑新后解旧"安全性因此不变（新侧失败 → 补偿删新绑定 → 旧绑定原样）；
  * - addGalleryRoot(folderPath)（app:// 白名单增量维护）；
  * - emit gallery:galleries-changed{action:'updated'}。
  *
@@ -750,10 +757,8 @@ export async function bindFolder(
       };
     }
 
-    // 事务内：插入绑定行 + 扫描导入并写成员/更新统计（scanFolderIntoGallery 不自开事务，安全）
+    // 短事务只写绑定行：磁盘扫描不在事务内（见函数头注释——长事务会阻塞全应用事务队列）
     const now = new Date().toISOString();
-    let imported = 0;
-    let skipped = 0;
     await runInTransaction(db, async () => {
       await run(
         db,
@@ -762,20 +767,43 @@ export async function bindFolder(
          VALUES (?, ?, ?, ?, ?, ?)`,
         [galleryId, normalized, recursive ? 1 : 0, JSON.stringify(effectiveExtensions), now, now]
       );
-
-      const scanResult = await scanFolderIntoGallery(galleryId, normalized, recursive, effectiveExtensions);
-      if (!scanResult.success) {
-        // 抛错触发 ROLLBACK，撤销刚插入的绑定行
-        throw new Error(scanResult.error || '扫描文件夹失败');
-      }
-      imported = scanResult.data?.imported ?? 0;
-      skipped = scanResult.data?.skipped ?? 0;
     });
+
+    // 事务外执行全量扫描导入。抛错与业务失败同待遇：统一走下方补偿解绑，
+    // 否则异常直落外层 catch 会跳过补偿、残留绑定行。
+    let scanResult: Awaited<ReturnType<typeof scanFolderIntoGallery>>;
+    try {
+      scanResult = await scanFolderIntoGallery(galleryId, normalized, recursive, effectiveExtensions);
+    } catch (scanError) {
+      scanResult = {
+        success: false,
+        error: scanError instanceof Error ? scanError.message : String(scanError),
+      };
+    }
+
+    if (!scanResult.success) {
+      // 补偿回滚：复用 unbindFolder（删绑定行 + 重叠感知移除成员 + 孤儿 GC）。
+      // 扫描中途已导入的 images 行（无成员、图集不可见）不在此清理，
+      // 留待下次重试被 scanAndImportFolder 幂等吸收——与 applyScanPlan create 路径失败行为一致。
+      console.warn(
+        `[galleryService] bindFolder 扫描失败，补偿解绑该绑定: ${normalized}, error=${scanResult.error}`
+      );
+      const compensation = await unbindFolder(galleryId, normalized);
+      if (!compensation.success) {
+        console.error(
+          `[galleryService] bindFolder 扫描失败后的补偿解绑亦失败（可能残留绑定行）: ${normalized}, ${compensation.error}`
+        );
+      }
+      return { success: false, error: scanResult.error || '扫描文件夹失败' };
+    }
 
     addGalleryRoot(normalized);
     emitGalleryGalleriesChanged({ galleryId, action: 'updated' });
 
-    return { success: true, data: { imported, skipped } };
+    return {
+      success: true,
+      data: { imported: scanResult.data?.imported ?? 0, skipped: scanResult.data?.skipped ?? 0 },
+    };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryService] 绑定文件夹失败:', errorMessage);

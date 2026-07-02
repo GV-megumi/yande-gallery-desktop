@@ -263,6 +263,48 @@ describe('changeFolderPath', () => {
     expect(imgRow?.id).toBe(oldImg);
   });
 
+  /**
+   * 修复轮 U04：bindFolder 改为"短事务插绑定行 + 事务外扫描 + 失败补偿解绑"后，
+   * changeFolderPath 的"先绑新后解旧"安全性必须保持：新侧扫描失败 → 补偿删除
+   * 新绑定行（unbindFolder 语义），旧绑定与旧成员原样保留，无任何残留/丢失。
+   */
+  it('新路径扫描失败时：补偿移除新绑定，旧绑定与成员原样保留', async () => {
+    const oldFolder = normalizePath(path.join('M:', 'keep2'));
+    const newFolder = normalizePath(path.join('M:', 'newFail'));
+    const galleryId = await addGallery(oldFolder, 1);
+    await addFolderBinding(galleryId, oldFolder, 1);
+
+    const oldImg = await addImage(normalizePath(path.join('M:', 'keep2', 'o.jpg')));
+    await addMembership(galleryId, oldImg);
+
+    // 新路径未被占用（通过 UNIQUE 预检），但扫描失败 → bindFolder 走补偿解绑
+    h.scanResult = { success: false, error: '目录不可读' };
+
+    const result = await changeFolderPath(galleryId, oldFolder, newFolder, true, ['.jpg']);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toBeTruthy();
+
+    // 新绑定行无残留（补偿已删除）
+    expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE folderPath = ?', [newFolder])).toHaveLength(0);
+
+    // 旧绑定行仍在
+    const oldBinding = await all<{ folderPath: string }>(
+      h.db,
+      'SELECT folderPath FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, oldFolder]
+    );
+    expect(oldBinding).toHaveLength(1);
+
+    // 旧成员与旧图片记录仍在（补偿的重叠感知移除不会误删仍被旧文件夹覆盖的成员）
+    const members = (
+      await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
+    ).map((r) => r.imageId);
+    expect(members).toEqual([oldImg]);
+    const imgRow = await get<{ id: number }>(h.db, 'SELECT id FROM images WHERE id = ?', [oldImg]);
+    expect(imgRow?.id).toBe(oldImg);
+  });
+
   it('新旧路径相同时为 no-op 成功（不触发 UNIQUE 自冲突，旧绑定与成员保留）', async () => {
     const folder = normalizePath(path.join('M:', 'same'));
     const galleryId = await addGallery(folder, 1);
