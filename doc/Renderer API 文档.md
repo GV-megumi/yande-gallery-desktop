@@ -51,7 +51,7 @@
 - `getImagesByGallery(galleryId, page?, pageSize?)`：获取某图集的图片（按 `gallery_images` 成员表 JOIN；取代旧的 `getImagesByFolder`）
 - `syncGalleryFolder(id)`：同步该图集的**全部绑定文件夹**（遍历 `gallery_folders`），重扫并写入 `gallery_images` 成员，返回 `{ imported, skipped, imageCount, lastScannedAt }`
 - `planScanFolder(rootPath, extensions?)`：扫描规划（只读，不写库）。仅枚举 `rootPath` 的**一级子文件夹**（含 `rootPath` 自身），把有图片的目录分类为 `newFolders` / `collisions`（同名图集已存在；库内有多个同名图集时确定性取最早创建的那个作为碰撞目标）/ `skipped`（`alreadyBound` / `ignored` / `noImages`）
-- `applyScanPlan({ create, merge, extensions? })`：按用户决议落库。`create` 项新建图集（`recursive=true`；图集名与现有图集或同批已建项重名时按 `名称 (2)` / `名称 (3)` 规则自动加后缀）+ 绑定 + 扫描入成员；`merge` 项把文件夹并入既有图集。返回 `{ created, merged, imported, skipped }`
+- `applyScanPlan({ create, merge, extensions? })`：按用户决议落库。`create` 项新建图集（`recursive=true`；图集名与现有图集或同批已建项重名时按 `名称 (2)` / `名称 (3)` 规则自动加后缀）+ 绑定 + 扫描入成员；`merge` 项把文件夹并入既有图集。返回 `{ created, merged, imported, failedFolders, skippedFiles }`——`failedFolders` 为整项失败的**文件夹**数（建集/绑定失败或异常），`skippedFiles` 为扫描时因已在库中被跳过的**文件**数（幂等重扫的正常现象）；两者单位不同，不再混入同一个 `skipped` 计数
 
 > ⚠ 旧接口 `getImagesByFolder` / `scanAndImportFolder` / `scanSubfolders` 已移除或停用：图集与文件夹解耦后，图片归属改由 `gallery_images` 成员表表达，扫描入库改为 `planScanFolder` + `applyScanPlan` 两步。`scanAndImportFolder` 在 preload/channels 中仅以注释保留（零调用方）。
 - `reportInvalidImage(imageId)`：标记图片为无效

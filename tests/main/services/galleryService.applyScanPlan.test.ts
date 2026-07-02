@@ -357,6 +357,62 @@ describe('applyScanPlan', () => {
     expect(names).toEqual(['Plain']);
   });
 
+  it('计数单位拆分：文件夹级失败计入 failedFolders，文件级已存在计入 skippedFiles，不再混入同一计数器', async () => {
+    // create 项：扫描发现 5 个文件已在 images 表（文件级已存在）
+    const folderOk = path.join(tmpRoot, 'CountOK');
+    await fsp.mkdir(folderOk, { recursive: true });
+    const normOk = normalizePath(folderOk);
+    h.importByFolder[normOk] = { imported: 2, skipped: 5 };
+
+    // merge 项：目标文件夹已被其它图集绑定 → 整项失败（文件夹级失败）
+    const galleryA = await addGallery(normalizePath(path.join('M:', 'countGalA')), 'CountA');
+    const galleryB = await addGallery(normalizePath(path.join('M:', 'countGalB')), 'CountB');
+    const folderShared = normalizePath(path.join('M:', 'countShared'));
+    await run(
+      h.db,
+      `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+       VALUES (?, ?, 1, ?, '2024-01-01', '2024-01-01')`,
+      [galleryA, folderShared, JSON.stringify(['.jpg'])]
+    );
+
+    const result = await applyScanPlan({
+      create: [{ folderPath: normOk, name: 'CountOK' }],
+      merge: [{ folderPath: folderShared, galleryId: galleryB }],
+      extensions: ['.jpg'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data!.created).toBe(1);
+    expect(result.data!.merged).toBe(0);
+    expect(result.data!.imported).toBe(2);
+    // 单位各归各：1 个失败的文件夹项、5 个已存在的文件，不再相加成无意义的 6
+    expect(result.data!.failedFolders).toBe(1);
+    expect(result.data!.skippedFiles).toBe(5);
+    // 旧的混合单位 skipped 字段已移除
+    expect(result.data).not.toHaveProperty('skipped');
+  });
+
+  it('计数单位拆分：merge 成功时其扫描的文件级已存在数也累入 skippedFiles', async () => {
+    const existingFolder = normalizePath(path.join('M:', 'countGalC'));
+    const galleryId = await addGallery(existingFolder, 'CountC');
+
+    const mergeFolder = path.join(tmpRoot, 'CountM');
+    await fsp.mkdir(mergeFolder, { recursive: true });
+    const normMerge = normalizePath(mergeFolder);
+    h.importByFolder[normMerge] = { imported: 0, skipped: 3 };
+
+    const result = await applyScanPlan({
+      create: [],
+      merge: [{ folderPath: normMerge, galleryId }],
+      extensions: ['.jpg'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data!.merged).toBe(1);
+    expect(result.data!.failedFolders).toBe(0);
+    expect(result.data!.skippedFiles).toBe(3);
+  });
+
   it('单项失败不中止整批：坏的 merge 不阻止好的 create', async () => {
     const folderOk = path.join(tmpRoot, 'OK');
     await fsp.mkdir(folderOk, { recursive: true });

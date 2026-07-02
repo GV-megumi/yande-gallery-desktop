@@ -445,6 +445,8 @@ const zhCN = {
     scanLater: '稍后扫描',
     scanning: '正在后台扫描子文件夹...',
     scanComplete: '扫描完成：创建图集 {created} 个，跳过 {skipped} 个，导入图片 {imported} 张',
+    // 扫描入库 applyScanPlan 汇总：文件夹级失败与文件级已存在分开表述（单位不同，不能合并计数）
+    scanApplySummary: '新增 {created} 个图集，合并 {merged} 个，失败 {failedFolders} 个文件夹，{skippedFiles} 张图片已存在',
     download: '下载',
     downloadPath: '下载路径',
     notSet: '未设置',

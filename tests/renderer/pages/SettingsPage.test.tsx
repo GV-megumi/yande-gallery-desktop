@@ -62,7 +62,7 @@ vi.mock('../../../src/renderer/locales', () => ({
   useLocale: () => ({
     locale: 'zh-CN',
     setLocale,
-    t: (key: string) => {
+    t: (key: string, params?: Record<string, string | number>) => {
       const mapping: Record<string, string> = {
         'settings.tabGeneral': '通用配置',
         'settings.tabProxy': '代理配置',
@@ -77,6 +77,7 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.scanFolder': '扫描文件夹',
         'settings.deleteFolder': '删除文件夹',
         'settings.deleteFolderConfirm': '确认删除',
+        'settings.scanApplySummary': '新增 {created} 个图集，合并 {merged} 个，失败 {failedFolders} 个文件夹，{skippedFiles} 张图片已存在',
         'settings.download': '下载设置',
         'settings.downloadPath': '下载路径',
         'settings.notSet': '未设置',
@@ -130,7 +131,10 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.googleSuccess': '谷歌成功',
         'settings.googleFailed': '谷歌失败'
       };
-      return mapping[key] ?? key;
+      // 与真实 useLocale 的 t 对齐：支持 {param} 占位符替换
+      const template = mapping[key] ?? key;
+      if (!params) return template;
+      return template.replace(/\{(\w+)\}/g, (_, name: string) => (name in params ? String(params[name]) : `{${name}}`));
     },
   }),
 }));
@@ -263,7 +267,7 @@ beforeEach(() => {
   });
   applyScanPlan.mockResolvedValue({
     success: true,
-    data: { created: 0, merged: 0, imported: 0, skipped: 0 },
+    data: { created: 0, merged: 0, imported: 0, failedFolders: 0, skippedFiles: 0 },
   });
   previewRelocateRoot.mockResolvedValue({ success: true, data: { affected: [], collisions: [] } });
   applyRelocateRoot.mockResolvedValue({ success: true, data: { affected: [] } });
@@ -661,6 +665,38 @@ describe('SettingsPage general tab behavior', () => {
         merge: [],
       });
     });
+  });
+
+  it('扫描汇总 toast 分开表述文件夹级失败与文件级已存在，不再混成一个跳过计数', async () => {
+    selectFolder.mockResolvedValue({ success: true, data: 'D:/pics/root' });
+    planScanFolder.mockResolvedValue({
+      success: true,
+      data: {
+        newFolders: [
+          { folderPath: 'D:/pics/root/a', name: 'a' },
+          { folderPath: 'D:/pics/root/b', name: 'b' },
+        ],
+        collisions: [],
+        skipped: [],
+      },
+    });
+    // 模拟：2 个新建成功、1 个文件夹项失败、3200 个文件因已入库被跳过（幂等重扫）
+    applyScanPlan.mockResolvedValue({
+      success: true,
+      data: { created: 2, merged: 0, imported: 10, failedFolders: 1, skippedFiles: 3200 },
+    });
+
+    render(<App><SettingsPage /></App>);
+
+    const scanButton = await screen.findByRole('button', { name: /扫描文件夹/ });
+    await userEvent.click(scanButton);
+
+    await waitFor(() => {
+      expect(applyScanPlan).toHaveBeenCalled();
+    });
+
+    // 两种单位分开呈现：文件夹级失败数与文件级已存在数各自可读，且不出现「跳过 3201 个」这类混合值
+    await screen.findByText('新增 2 个图集，合并 0 个，失败 1 个文件夹，3200 张图片已存在');
   });
 
   it('扫描文件夹用户取消选择目录时不规划也不应用', async () => {
