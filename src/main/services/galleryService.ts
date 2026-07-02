@@ -1201,7 +1201,8 @@ export interface PlanScanResult {
  *
  * 这是两步式 plan→apply API 的第一步：UI 拿到本结果后展示同名碰撞对话框，再带用户的逐项选择
  * 调 applyScanPlan。修正了旧 scanSubfoldersAndCreateGalleries 的两个问题：
- *   - 扫描深度：候选只取**一级**子目录（不深递归创建图集）；
+ *   - 扫描深度：候选只取**一级**子目录（不深递归创建图集；applyScanPlan 导入同样非递归，
+ *     只收各文件夹的直接图片）；
  *   - 同名碰撞：发现已有同名图集时不再自动改名，而是列入 collisions 交给用户决定（合并/新建）。
  *
  * 候选集合 = fs.readdir(rootPath, {withFileTypes}) 中的目录（仅一级）+ rootPath 本身。
@@ -1310,9 +1311,9 @@ export async function planScanFolder(
 
 // applyScanPlan 的入参决议类型（Phase 6B）
 export interface ApplyScanResolution {
-  // 新建图集：每项新建一个 recursive=true 的图集并扫描该文件夹入成员
+  // 新建图集：每项新建一个 recursive=false 的图集并扫描该文件夹的直接图片入成员
   create: Array<{ folderPath: string; name: string }>;
-  // 合并到现有图集：每项把文件夹加绑到指定图集并扫描入成员
+  // 合并到现有图集：每项把文件夹以非递归绑定加到指定图集并扫描其直接图片入成员
   merge: Array<{ folderPath: string; galleryId: number }>;
   extensions?: string[];
 }
@@ -1320,14 +1321,19 @@ export interface ApplyScanResolution {
 /**
  * 应用「扫描入库」决议（Phase 6B plan→apply 的第二步）。
  *
+ * 扫描入库语义：图集 = 文件夹的**直接图片**，全程不递归。planScanFolder 只把
+ * 「root 自身 + 一级子文件夹」列为候选，本函数落库时同样只导入各候选的直接图片
+ * （recursive=false 持久化到 gallery_folders.recursive=0，后续「同步文件夹」也按
+ * 非递归执行）。若用 recursive=true 会把深层嵌套图片整棵吞进图集，且 root 图集与
+ * 其一级子文件夹图集成员重叠。
+ *
  * 按 planScanFolder 给出、并经用户在碰撞对话框确认的决议逐项执行：
- *   - create：createGallery({folderPath,name,isWatching:true,recursive:true,extensions})
- *     → scanFolderIntoGallery(newId, folderPath, true, extensions)。recursive=true 是深度修复的关键：
- *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skippedFiles。
+ *   - create：createGallery({folderPath,name,isWatching:true,recursive:false,extensions})
+ *     → scanFolderIntoGallery(newId, folderPath, false, extensions)。累加 created + imported/skippedFiles。
  *     图集名同名去重（修复轮 U07）：与现有图集或同批已建项重名时按 "名称 (2)" / "名称 (3)"
  *     规则追加后缀（galleries.name 无 UNIQUE，靠此处保证图库页不出现不可区分的重名图集）；
- *   - merge：bindFolder(galleryId, folderPath, true, extensions)（加绑文件夹 + 扫描入成员，
- *     bindFolder 透传扫描计数）。累加 merged + imported/skippedFiles。
+ *   - merge：bindFolder(galleryId, folderPath, false, extensions)（非递归加绑文件夹 +
+ *     扫描其直接图片入成员，bindFolder 透传扫描计数）。累加 merged + imported/skippedFiles。
  *
  * 单项失败收集并继续，不因一个坏文件夹中止整批（good 项仍落库）。
  * 整体返回 success:true（除非发生非预期异常）；逐项失败通过 failedFolders 计数反映。
@@ -1383,7 +1389,7 @@ export async function applyScanPlan(
           folderPath: item.folderPath,
           name: galleryName,
           isWatching: true,
-          recursive: true,
+          recursive: false,
           extensions,
         });
         if (!createResult.success || !createResult.data) {
@@ -1395,7 +1401,7 @@ export async function applyScanPlan(
         usedNames.add(galleryName);
 
         const newId = createResult.data;
-        const scanResult = await scanFolderIntoGallery(newId, item.folderPath, true, extensions);
+        const scanResult = await scanFolderIntoGallery(newId, item.folderPath, false, extensions);
         if (!scanResult.success || !scanResult.data) {
           // 图集已建但扫描失败：仍计 created，导入计 0，并告警
           console.warn(`[galleryService] applyScanPlan 新图集扫描失败: ${item.folderPath}, error=${scanResult.error}`);
@@ -1413,10 +1419,10 @@ export async function applyScanPlan(
       }
     }
 
-    // merge：逐项加绑到现有图集 + 扫描入成员；单项失败收集并继续
+    // merge：逐项以非递归绑定加到现有图集 + 扫描直接图片入成员；单项失败收集并继续
     for (const item of resolution.merge ?? []) {
       try {
-        const bindResult = await bindFolder(item.galleryId, item.folderPath, true, extensions);
+        const bindResult = await bindFolder(item.galleryId, item.folderPath, false, extensions);
         if (!bindResult.success) {
           console.warn(`[galleryService] applyScanPlan 合并绑定失败: ${item.folderPath}, error=${bindResult.error}`);
           failedFolders++;
