@@ -172,6 +172,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.IMAGE_DELETE_THUMBNAIL, imagePath),
     deleteImage: (imageId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.IMAGE_DELETE, imageId),
+    // 维护动作：清理孤儿缩略图（设置页入口）
+    cleanupOrphanThumbnails: () =>
+      ipcRenderer.invoke(IPC_CHANNELS.IMAGE_CLEANUP_ORPHAN_THUMBNAILS),
   },
 
   // booru 域通过工厂统一定义，主/子窗口 preload 共用
@@ -246,6 +249,8 @@ declare global {
         getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; pending?: boolean; missing?: boolean; error?: string }>;
         deleteThumbnail: (imagePath: string) => Promise<{ success: boolean; error?: string }>;
         deleteImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
+        // 维护动作：清理孤儿缩略图（scanned=对账的缩略图数，deleted=删除数，freedBytes=释放字节）
+        cleanupOrphanThumbnails: () => Promise<{ success: boolean; data?: { scanned: number; deleted: number; freedBytes: number }; error?: string }>;
       };
       // Booru API (新增)
       booru: {

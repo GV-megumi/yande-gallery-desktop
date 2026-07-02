@@ -43,7 +43,7 @@ import {
   getMissingGalleryFolders,
   type RelocateMapping,
 } from '../../services/galleryRelocateService.js';
-import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail } from '../../services/thumbnailService.js';
+import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail, cleanupOrphanThumbnails } from '../../services/thumbnailService.js';
 import {
   reportInvalidImage,
   migrateMissingFolderImages,
@@ -157,6 +157,11 @@ export function setupGalleryHandlers() {
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
+  });
+
+  // 维护动作：清理孤儿缩略图（与库内图片/无效项都不再对应的缩略图文件）
+  ipcMain.handle(IPC_CHANNELS.IMAGE_CLEANUP_ORPHAN_THUMBNAILS, async (_event: IpcMainInvokeEvent) => {
+    return await cleanupOrphanThumbnails();
   });
 
   // ===== 最近图片 =====

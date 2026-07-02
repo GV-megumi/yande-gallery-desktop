@@ -191,7 +191,8 @@ describe('IPC_CHANNELS', () => {
     // [已停用] 注释停用绕过 gallery_images 成员的 3 个遗留图片导入通道：
     //   DB_ADD_IMAGE、IMAGE_SCAN_FOLDER、GALLERY_SCAN_AND_IMPORT_FOLDER（204→201）
     // 丢失文件夹横幅批量迁移新增 1：GALLERY_MIGRATE_MISSING_FOLDER_IMAGES（201→202）
-    expect(keys.length).toBe(202);
+    // 孤儿缩略图清理维护动作新增 1：IMAGE_CLEANUP_ORPHAN_THUMBNAILS（202→203）
+    expect(keys.length).toBe(203);
   });
 
   it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {
