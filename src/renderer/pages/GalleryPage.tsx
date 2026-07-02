@@ -13,6 +13,7 @@ import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
 import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
+import { useViewScrollMemory, findScrollableAncestor } from '../hooks/useViewScrollMemory';
 
 const areGalleryPreferencesEqual = (
   left?: GalleryPagePreferencesBySubTab,
@@ -161,6 +162,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [dismissedMissingBannerIds, setDismissedMissingBannerIds] = useState<Set<number>>(new Set());
   // 内容容器 ref，用于监听滚动和判断缓存恢复时是否可直接插入新增块
   const contentRef = useRef<HTMLDivElement>(null);
+  // 列表 ↔ 详情共用同一个页级滚动容器：按视图分别记住滚动位置，
+  // 返回列表时恢复进入详情前的位置（悬挂时暂停，防止把别的视图的滚动记到自己头上）
+  useViewScrollMemory(
+    contentRef,
+    selectedGallery ? `detail:${selectedGallery.id}` : 'list',
+    { enabled: !suspended },
+  );
   const recentRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const galleriesRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 搜索模式状态
@@ -331,16 +339,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
   const findScrollContainer = (): HTMLElement | null => {
     if (!contentRef.current) return null;
-
-    let parent = contentRef.current.parentElement;
-    while (parent) {
-      const style = window.getComputedStyle(parent);
-      if (style.overflowY === 'auto' || style.overflowY === 'scroll') {
-        return parent;
-      }
-      parent = parent.parentElement;
-    }
-    return null;
+    return findScrollableAncestor(contentRef.current.parentElement);
   };
 
   const isRecentScrollNearTop = (): boolean => {

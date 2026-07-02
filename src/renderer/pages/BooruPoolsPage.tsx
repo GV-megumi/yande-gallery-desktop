@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Card, Input, List, Space, Empty, App, Button, Tag, Tooltip, Typography } from 'antd';
 import { DatabaseOutlined, SearchOutlined, ArrowLeftOutlined, LeftOutlined, RightOutlined } from '@ant-design/icons';
 import type { BooruPost, BooruSite, BooruPool } from '../../shared/types';
@@ -9,6 +9,7 @@ import { colors, spacing, fontSize, radius, iconColors } from '../styles/tokens'
 import { useFavorite } from '../hooks/useFavorite';
 import { useBooruPostActions } from '../hooks/useBooruPostActions';
 import { useBooruDomainEvents } from '../hooks/useBooruDomainEvents';
+import { useViewScrollMemory } from '../hooks/useViewScrollMemory';
 
 const { Text } = Typography;
 
@@ -37,6 +38,9 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   const [poolPosts, setPoolPosts] = useState<BooruPost[]>([]);
   const [poolLoading, setPoolLoading] = useState(false);
   const [poolPage, setPoolPage] = useState(1);
+  // 列表 ↔ Pool 详情共用页级滚动容器，按视图分别记住滚动位置（返回列表时恢复原位）
+  const rootRef = useRef<HTMLDivElement>(null);
+  useViewScrollMemory(rootRef, selectedPool ? `pool:${selectedPool.id}` : 'list', { enabled: !suspended });
 
   const { toggleFavorite: toggleLocalFavorite } = useFavorite({
     siteId: activeSite?.id ?? null,
@@ -186,7 +190,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
   // Pool 详情视图
   if (selectedPool) {
     return (
-      <div>
+      <div ref={rootRef}>
         {/* 标题栏 */}
         <div style={{
           display: 'flex',
@@ -340,7 +344,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
 
   // Pool 列表视图
   return (
-    <div>
+    <div ref={rootRef}>
       {/* 标题和搜索 */}
       <div style={{
         display: 'flex',

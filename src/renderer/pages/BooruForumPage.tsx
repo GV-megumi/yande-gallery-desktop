@@ -3,12 +3,13 @@
  * 当前优先支持 Danbooru 的只读论坛浏览。
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, App, Button, Card, Empty, List, Space, Spin, Tag, Typography } from 'antd';
 import { ArrowLeftOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons';
 import type { BooruSite, BooruForumTopic, BooruForumPost } from '../../shared/types';
 import { colors, spacing, fontSize, radius } from '../styles/tokens';
 import { DTextRenderer } from '../components/DTextRenderer';
+import { useViewScrollMemory } from '../hooks/useViewScrollMemory';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -40,6 +41,9 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
   const [posts, setPosts] = useState<BooruForumPost[]>([]);
   const [postsLoading, setPostsLoading] = useState(false);
   const [postPage, setPostPage] = useState(1);
+  // 主题列表 ↔ 主题帖子共用页级滚动容器，按视图分别记住滚动位置（返回列表时恢复原位）
+  const rootRef = useRef<HTMLDivElement>(null);
+  useViewScrollMemory(rootRef, selectedTopic ? `topic:${selectedTopic.id}` : 'list', { enabled: !suspended });
 
   const isDanbooru = activeSite?.type === 'danbooru';
 
@@ -156,7 +160,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
 
   if (selectedTopic) {
     return (
-      <div>
+      <div ref={rootRef}>
         <div style={{ display: 'flex', alignItems: 'center', gap: spacing.md, marginBottom: spacing.lg, flexWrap: 'wrap' }}>
           <Button icon={<ArrowLeftOutlined />} onClick={() => { setSelectedTopic(null); setPosts([]); setPostPage(1); }}>
             返回主题列表
@@ -222,7 +226,7 @@ export const BooruForumPage: React.FC<BooruForumPageProps> = ({ onUserClick, sus
   }
 
   return (
-    <div>
+    <div ref={rootRef}>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: spacing.md, marginBottom: spacing.lg, flexWrap: 'wrap' }}>
         <div>
           <Title level={3} style={{ margin: 0 }}>
