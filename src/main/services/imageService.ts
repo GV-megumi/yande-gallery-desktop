@@ -3,7 +3,7 @@ import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { normalizePath, isSubPath } from '../utils/path.js';
-import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.js';
+import { enqueueThumbnailGeneration, deleteThumbnail, cancelThumbnailGeneration } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
@@ -323,6 +323,8 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
           console.warn(`[imageService] 删除磁盘文件失败: ${row.filepath}`, err.message);
         }
       }
+      // 先取消队列里挂着的生成任务，再删缩略图文件——否则删除后队列补生成会留下孤儿缩略图
+      cancelThumbnailGeneration([row.filepath]);
       // deleteThumbnail 内部已对 ENOENT 容错
       await deleteThumbnail(row.filepath).catch((err: any) => {
         console.warn(`[imageService] 删除缩略图失败: ${row.filepath}`, err?.message ?? err);

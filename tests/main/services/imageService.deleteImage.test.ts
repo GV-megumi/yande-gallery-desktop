@@ -16,6 +16,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
   all: (...args: any[]) => allMock(...args),
 }));
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration: vi.fn(),
   deleteThumbnail: (...args: any[]) => deleteThumbnailMock(...args),
 }));

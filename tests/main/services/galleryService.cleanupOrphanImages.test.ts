@@ -40,6 +40,7 @@ vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
 
 // deleteThumbnail 是 galleryService 动态 import('./thumbnailService.js') 进来的，mock 成 spy。
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
   deleteThumbnail: vi.fn(async (filepath: string) => {
     h.deleteThumbnailCalls.push(filepath);
     return { success: true };
@@ -236,6 +237,9 @@ describe('cleanupOrphanImages', () => {
     expect(post?.localImageId).toBeNull();
     // 尝试清缩略图
     expect(h.deleteThumbnailCalls).toEqual([filepath]);
+    // 删缩略图之前先取消队列中挂着的生成任务（否则删除后队列补生成 = 永久孤儿缩略图）
+    const { cancelThumbnailGeneration } = await import('../../../src/main/services/thumbnailService');
+    expect(vi.mocked(cancelThumbnailGeneration)).toHaveBeenCalledWith([filepath]);
   });
 
   it('deleteThumbnail 抛错应被吞（best-effort），图片仍被删除', async () => {

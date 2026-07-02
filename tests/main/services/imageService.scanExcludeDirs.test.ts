@@ -42,6 +42,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration,
   deleteThumbnail,
 }));

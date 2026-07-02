@@ -25,6 +25,7 @@ vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
 });
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
   getThumbnailIfExists: vi.fn(async () => null),
   deleteThumbnail: vi.fn(async () => undefined),
 }));
