@@ -3,10 +3,10 @@ import { getThumbnailIfExists, deleteThumbnail } from './thumbnailService.js';
 import { InvalidImage } from '../../shared/types.js';
 import fs from 'fs/promises';
 import {
-  emitGalleryGalleriesChanged,
   emitGalleryImagesChanged,
   emitGalleryInvalidImagesChanged,
 } from './appEventPublisher.js';
+import { recalcGalleriesImageCount, emitGalleriesStatsUpdated } from './galleryStats.js';
 
 /**
  * 上报无效图片：从 images 表迁移到 invalid_images 表
@@ -85,15 +85,8 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
 
       // 刷新全部归属图集的 imageCount（Phase 4：以 gallery_images 成员表为准）。
       // 此处已在删 images 之后，本图片在各图集的成员行已被 FK CASCADE 清掉，故各 COUNT 自然排除它。
-      // 多归属时必须逐个刷新，否则共同归属的图集计数会陈旧。
-      for (const gid of ownerGalleryIds) {
-        const countResult = await get<{ cnt: number }>(db,
-          'SELECT COUNT(*) as cnt FROM gallery_images WHERE galleryId = ?',
-          [gid]);
-        if (countResult) {
-          await run(db, 'UPDATE galleries SET imageCount = ? WHERE id = ?', [countResult.cnt, gid]);
-        }
-      }
+      // 多归属时必须逐个刷新，否则共同归属的图集计数会陈旧（共享 helper，与 imageService.deleteImage 同一逻辑）。
+      await recalcGalleriesImageCount(db, ownerGalleryIds);
     });
 
     console.log(`[invalidImageService] 已迁移无效图片: ${image.filename} (ID: ${imageId})`);
@@ -115,10 +108,8 @@ export async function reportInvalidImage(imageId: number): Promise<{ success: bo
       reason: 'invalidReported',
       filepath: image.filepath,
     }, 'invalidImageService');
-    // 逐个归属图集发统计变更事件（与单图集时一致，循环覆盖全部）
-    for (const gid of ownerGalleryIds) {
-      emitGalleryGalleriesChanged({ action: 'statsUpdated', galleryId: gid, affectedCount: 1 });
-    }
+    // 逐个归属图集发统计变更事件（与单图集时一致，循环覆盖全部；事务提交后才发）
+    emitGalleriesStatsUpdated(ownerGalleryIds);
     return { success: true };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
