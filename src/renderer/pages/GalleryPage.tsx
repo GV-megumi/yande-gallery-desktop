@@ -176,8 +176,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
-  // Phase 7B：进入图集时按 autoScan 自动扫描一次的「已扫描」守卫，避免每次渲染重复触发
-  const autoScannedGalleryIdsRef = useRef<Set<number>>(new Set());
+  // Phase 7B：进入图集时按 autoScan 自动扫描的「本次进入」守卫（修复轮 U15：语义为每次进入详情一次）。
+  // 记录当前这次进入对应的图集与是否已触发；离开详情（返回列表/图集被删除/水合重置）时置空，
+  // 退出后再进同一图集会重新扫描；同一次进入内的回灌重载与手动刷新不重复触发。
+  const autoScanEntryRef = useRef<{ galleryId: number; scanned: boolean } | null>(null);
   const visibleRecentImages = useMemo(
     () => recentImages.slice(0, recentVisibleCount),
     [recentImages, recentVisibleCount]
@@ -264,6 +266,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             message.success('图集已删除');
             if (selectedGallery?.id === gallery.id) {
               galleryDetailRequestRunIdRef.current += 1;
+              autoScanEntryRef.current = null;
               setSelectedGallery(null);
               setGalleryImages([]);
             }
@@ -536,6 +539,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         if (changedGalleryId && selectedGallery?.id === changedGalleryId) {
           if (payload.action === 'deleted') {
             galleryDetailRequestRunIdRef.current += 1;
+            autoScanEntryRef.current = null;
             setSelectedGallery(null);
             setGalleryImages([]);
           } else {
@@ -795,10 +799,16 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           setGalleryImages(data); // 存储到galleryImages
 
           // Phase 7B 进入图集自动扫描：若 gallery.autoScan（UI 称「自动扫描」）开启，
-          // 在首屏渲染后异步扫描全部绑定文件夹一次并回灌新图。用 ref 守卫保证每个图集仅触发一次，
-          // 不阻塞首屏渲染（不 await，扫描完成后再静默刷新图片）。
-          if (gallery.autoScan && !autoScannedGalleryIdsRef.current.has(galleryId)) {
-            autoScannedGalleryIdsRef.current.add(galleryId);
+          // 在首屏渲染后异步扫描全部绑定文件夹一次并回灌新图，不阻塞首屏渲染（不 await）。
+          // 修复轮 U15：守卫按「每次进入详情一次」判定——进入记录在离开详情时清空，退出再进会重新扫描；
+          // 同一次进入内的重载（autoScanGalleryOnEnter 回灌 / 手动刷新 / 对话框 onChanged）复用记录，不重复触发。
+          let autoScanEntry = autoScanEntryRef.current;
+          if (!autoScanEntry || autoScanEntry.galleryId !== galleryId) {
+            autoScanEntry = { galleryId, scanned: false };
+            autoScanEntryRef.current = autoScanEntry;
+          }
+          if (gallery.autoScan && !autoScanEntry.scanned) {
+            autoScanEntry.scanned = true;
             void autoScanGalleryOnEnter(galleryId, requestRunId);
           }
 
@@ -1074,6 +1084,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         if (subTab === 'recent') {
           console.log('[GalleryPage] 初始化"最近图片"模式');
           galleryDetailRequestRunIdRef.current += 1;
+          autoScanEntryRef.current = null;
           galleryInfoRequestRunIdRef.current += 1;
           setSelectedGalleryInfo(null);
           setRecentVisibleCount(RECENT_VISIBLE_BATCH_SIZE);
@@ -1086,6 +1097,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         } else if (subTab === 'all') {
           console.log('[GalleryPage] 初始化"所有图片"模式');
           galleryDetailRequestRunIdRef.current += 1;
+          autoScanEntryRef.current = null;
           galleryInfoRequestRunIdRef.current += 1;
           setSelectedGalleryInfo(null);
           const nextSearchQuery = allPreferences?.searchQuery ?? '';
@@ -1121,6 +1133,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           );
           console.log('[GalleryPage] 清空其他模式的数据');
           galleryDetailRequestRunIdRef.current += 1;
+          autoScanEntryRef.current = null;
           galleryInfoRequestRunIdRef.current += 1;
           setRecentImages([]);
           setRecentNewSegments([]);
@@ -1686,6 +1699,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       }
                       console.log('[GalleryPage] 返回图集列表');
                       galleryDetailRequestRunIdRef.current += 1;
+                      // 修复轮 U15：离开详情即结束「本次进入」，清空自动扫描记录，下次进入重新触发
+                      autoScanEntryRef.current = null;
                       setSelectedGallery(null);
                       setGalleryImages([]);
                       // 显式同步落盘 selectedGalleryId=null，绕过 useEffect 中 250ms 防抖：
