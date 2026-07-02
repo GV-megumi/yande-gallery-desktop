@@ -15,6 +15,8 @@ import path from 'path';
 
 const h = vi.hoisted(() => ({
   db: null as unknown as import('sqlite3').Database,
+  /** 视为"存在"的路径集合（文件与文件夹共用；不在集合内的 access 一律抛 ENOENT）。 */
+  existing: new Set<string>(),
 }));
 
 vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
@@ -27,10 +29,12 @@ vi.mock('../../../src/main/services/thumbnailService.js', () => ({
   deleteThumbnail: vi.fn(async () => undefined),
 }));
 
-// fs.access 抛错 = 源文件不存在 → 满足"确认源文件确实不存在"双校验，继续上报
+// fs.access：h.existing 命中 → 存在；否则抛 ENOENT。
+// 既服务于"源文件确实不存在"双校验，也服务于丢失文件夹防护的绑定文件夹存在性检查。
 vi.mock('fs/promises', () => ({
   default: {
-    access: vi.fn(async () => {
+    access: vi.fn(async (p: string) => {
+      if (h.existing.has(p)) return undefined;
       throw new Error('ENOENT');
     }),
   },
@@ -43,7 +47,7 @@ vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
 }));
 
 import { run, get, all } from '../../../src/main/services/database';
-import { reportInvalidImage } from '../../../src/main/services/invalidImageService';
+import { reportInvalidImage, migrateMissingFolderImages } from '../../../src/main/services/invalidImageService';
 import {
   emitGalleryGalleriesChanged,
   emitGalleryImagesChanged,
@@ -70,6 +74,14 @@ async function setupSchema(): Promise<void> {
       PRIMARY KEY (galleryId, imageId),
       FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE,
       FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
+    )
+  `);
+  // 丢失文件夹防护读取绑定表：覆盖图片路径的绑定文件夹全部缺失时拒绝自动迁移
+  await run(h.db, `
+    CREATE TABLE gallery_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, galleryId INTEGER NOT NULL, folderPath TEXT NOT NULL UNIQUE,
+      recursive INTEGER NOT NULL DEFAULT 1, extensions TEXT, createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL,
+      FOREIGN KEY (galleryId) REFERENCES galleries (id) ON DELETE CASCADE
     )
   `);
   await run(h.db, `
@@ -115,7 +127,17 @@ async function addMember(galleryId: number, imageId: number): Promise<void> {
   await run(h.db, `INSERT INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, '2024-01-01')`, [galleryId, imageId]);
 }
 
+async function addBinding(galleryId: number, folderPath: string): Promise<void> {
+  await run(
+    h.db,
+    `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+     VALUES (?, ?, 1, NULL, '2024-01-01', '2024-01-01')`,
+    [galleryId, folderPath]
+  );
+}
+
 beforeEach(async () => {
+  h.existing = new Set<string>();
   h.db = await new Promise<sqlite3.Database>((resolve, reject) => {
     const database = new sqlite3.Database(':memory:', (err) => (err ? reject(err) : resolve(database)));
   });
@@ -255,6 +277,98 @@ describe('reportInvalidImage 归属/计数改用 gallery_images', () => {
       .flatMap((arg) => arg.affectedGalleryIds ?? []);
     expect(affected).toContain(galleryA);
     expect(affected).toContain(galleryB);
+  });
+});
+
+describe('丢失文件夹防护与显式批量迁移', () => {
+  it('覆盖图片的绑定文件夹整个缺失 → 拒绝自动迁移，图片/成员记录原样保留', async () => {
+    const g = await addGallery(normalizePathLike('M:/lost-root'));
+    await addBinding(g, 'M:/lost');
+    const img = await addImage('M:/lost/a.jpg');
+    await addMember(g, img);
+    // h.existing 为空：源文件缺失、绑定文件夹也缺失（搬库/未重定位场景）
+
+    const result = await reportInvalidImage(img);
+
+    expect(result.success).toBe(false);
+    expect(result.error).toMatch(/绑定文件夹不存在/);
+    expect(await get(h.db, 'SELECT id FROM images WHERE id = ?', [img])).toBeTruthy();
+    expect(await get(h.db, 'SELECT imageId FROM gallery_images WHERE imageId = ?', [img])).toBeTruthy();
+    expect(await get(h.db, 'SELECT id FROM invalid_images WHERE originalImageId = ?', [img])).toBeUndefined();
+  });
+
+  it('绑定文件夹存在而文件缺失 → 照常迁移（真删除场景不受防护影响）', async () => {
+    const g = await addGallery(normalizePathLike('M:/ok-root'));
+    await addBinding(g, 'M:/ok');
+    h.existing.add('M:/ok'); // 文件夹在磁盘上
+    const img = await addImage('M:/ok/gone.jpg'); // 文件不在
+    await addMember(g, img);
+
+    const result = await reportInvalidImage(img);
+
+    expect(result.success).toBe(true);
+    expect(await get(h.db, 'SELECT id FROM invalid_images WHERE originalImageId = ?', [img])).toBeTruthy();
+    expect(await get(h.db, 'SELECT id FROM images WHERE id = ?', [img])).toBeUndefined();
+  });
+
+  it('多归属：任一覆盖绑定文件夹仍存在 → 照常迁移', async () => {
+    const gA = await addGallery(normalizePathLike('M:/mm-a-root'));
+    const gB = await addGallery(normalizePathLike('M:/mm-b-root'));
+    await addBinding(gA, 'M:/mm'); // 缺失
+    await addBinding(gB, 'M:/mm/sub'); // 存在
+    h.existing.add('M:/mm/sub');
+    const img = await addImage('M:/mm/sub/x.jpg'); // 两个绑定都覆盖
+    await addMember(gA, img);
+    await addMember(gB, img);
+
+    const result = await reportInvalidImage(img);
+
+    expect(result.success).toBe(true);
+    expect(await get(h.db, 'SELECT id FROM invalid_images WHERE originalImageId = ?', [img])).toBeTruthy();
+  });
+
+  it('migrateMissingFolderImages：批量迁移丢失文件夹下的成员，其它文件夹图片不动，计数刷新', async () => {
+    const g = await addGallery(normalizePathLike('M:/batch-root'));
+    await addBinding(g, 'M:/batch-lost');
+    await addBinding(g, 'M:/batch-ok');
+    h.existing.add('M:/batch-ok');
+    const lost1 = await addImage('M:/batch-lost/1.jpg');
+    const lost2 = await addImage('M:/batch-lost/2.jpg');
+    const keep = await addImage('M:/batch-ok/3.jpg');
+    await addMember(g, lost1);
+    await addMember(g, lost2);
+    await addMember(g, keep);
+    await run(h.db, 'UPDATE galleries SET imageCount = 3 WHERE id = ?', [g]);
+
+    const result = await migrateMissingFolderImages(g, 'M:/batch-lost');
+
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ migrated: 2, skipped: 0 });
+    const invalids = await all<{ originalImageId: number }>(h.db, 'SELECT originalImageId FROM invalid_images');
+    expect(invalids.map((r) => r.originalImageId).sort()).toEqual([lost1, lost2].sort());
+    expect(await get(h.db, 'SELECT id FROM images WHERE id = ?', [keep])).toBeTruthy();
+    const gRow = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [g]);
+    expect(gRow?.imageCount).toBe(1);
+  });
+
+  it('migrateMissingFolderImages：非绑定文件夹报错；源文件仍存在的成员跳过不迁', async () => {
+    const g = await addGallery(normalizePathLike('M:/guard-root'));
+    await addBinding(g, 'M:/guard');
+    const alive = await addImage('M:/guard/alive.jpg');
+    h.existing.add('M:/guard/alive.jpg'); // 极端情况：文件其实还在
+    const gone = await addImage('M:/guard/gone.jpg');
+    await addMember(g, alive);
+    await addMember(g, gone);
+
+    const notBound = await migrateMissingFolderImages(g, 'M:/not-bound');
+    expect(notBound.success).toBe(false);
+    expect(notBound.error).toMatch(/不是此图集的绑定文件夹/);
+
+    const result = await migrateMissingFolderImages(g, 'M:/guard');
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual({ migrated: 1, skipped: 1 });
+    expect(await get(h.db, 'SELECT id FROM images WHERE id = ?', [alive])).toBeTruthy();
+    expect(await get(h.db, 'SELECT id FROM invalid_images WHERE originalImageId = ?', [gone])).toBeTruthy();
   });
 });
 

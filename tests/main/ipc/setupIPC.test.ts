@@ -308,6 +308,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("GALLERY_RELOCATE_PREVIEW: 'gallery:relocate-preview'");
     expect(channelsSource).toContain("GALLERY_RELOCATE_APPLY: 'gallery:relocate-apply'");
     expect(channelsSource).toContain("GALLERY_GET_MISSING_FOLDERS: 'gallery:get-missing-folders'");
+    expect(channelsSource).toContain("GALLERY_MIGRATE_MISSING_FOLDER_IMAGES: 'gallery:migrate-missing-folder-images'");
     expect(channelsSource).toContain("GALLERY_SYNC_GALLERY_FOLDER: 'gallery:sync-gallery-folder'");
     expect(channelsSource).toContain("GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image'");
     expect(channelsSource).toContain("GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images'");

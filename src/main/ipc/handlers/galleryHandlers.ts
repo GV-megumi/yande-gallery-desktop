@@ -46,6 +46,7 @@ import {
 import { generateThumbnail, requestThumbnailGeneration, deleteThumbnail } from '../../services/thumbnailService.js';
 import {
   reportInvalidImage,
+  migrateMissingFolderImages,
   getInvalidImages,
   getInvalidImageCount,
   deleteInvalidImage,
@@ -456,6 +457,15 @@ export function setupGalleryHandlers() {
       // 注意：getMissingGalleryFolders 直接返回 Array（非 {success} 包裹），
       // 与 previewRelocateRoot/applyRelocateRoot 的返回形态不同，此处保持原样透传。
       return await getMissingGalleryFolders();
+    }
+  );
+
+  // 丢失文件夹横幅「全部迁入无效项」：显式批量迁移丢失文件夹下的成员图片
+  // （绕过自动上报的丢失文件夹防护——用户已明确选择放弃这些图片记录）
+  ipcMain.handle(
+    IPC_CHANNELS.GALLERY_MIGRATE_MISSING_FOLDER_IMAGES,
+    async (_event: IpcMainInvokeEvent, galleryId: number, folderPath: string) => {
+      return await migrateMissingFolderImages(galleryId, folderPath);
     }
   );
 }
