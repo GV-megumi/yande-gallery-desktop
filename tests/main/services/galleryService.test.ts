@@ -488,12 +488,12 @@ describe('galleryService 同步维护 galleryRootRegistry', () => {
       id: 1,
       folderPath: normalizedDel,
     });
-    // Phase 3：按成员删除——两次 all 调用：
-    //   1) gallery_images 成员（空 → 无孤儿回收、无缩略图清理）；
-    //   2) gallery_folders 绑定文件夹（一条，驱动 removeGalleryRoot）。
+    // Phase 3：按成员删除——两次 all 调用（修复轮 U08 后的顺序）：
+    //   1) gallery_folders 绑定文件夹（一条，驱动 removeGalleryRoot）；
+    //   2) gallery_images 成员快照（空 → 无孤儿回收、无缩略图清理）——已移入删除事务内读取。
     (dbModule.all as ReturnType<typeof vi.fn>)
-      .mockResolvedValueOnce([])                                // 成员为空
-      .mockResolvedValueOnce([{ folderPath: normalizedDel }]); // 绑定文件夹
+      .mockResolvedValueOnce([{ folderPath: normalizedDel }]) // 绑定文件夹
+      .mockResolvedValueOnce([]);                             // 成员快照为空
 
     const { deleteGallery } = await import('../../../src/main/services/galleryService.js');
     await deleteGallery(1);
