@@ -51,12 +51,40 @@ interface LocaleContextValue {
   t: (path: string, params?: Record<string, string | number>) => string;
 }
 
-/** 语言 Context */
+/** 按路径从语言包解析文案并做 {key} 参数替换（Provider 与无 Provider 兜底共用同一实现） */
+function formatMessage(
+  messages: LocaleMessages,
+  path: string,
+  params?: Record<string, string | number>
+): string {
+  const keys = path.split('.');
+  let result: any = messages;
+  for (const key of keys) {
+    if (result && typeof result === 'object' && key in result) {
+      result = result[key];
+    } else {
+      console.warn(`[i18n] 翻译 key 不存在: ${path}`);
+      return path;
+    }
+  }
+  if (typeof result !== 'string') {
+    return path;
+  }
+  if (params) {
+    return result.replace(/\{(\w+)\}/g, (_, key) => {
+      return key in params ? String(params[key]) : `{${key}}`;
+    });
+  }
+  return result;
+}
+
+/** 语言 Context。默认值的 t 直接按 zh-CN 解析（而非返回空串）：
+ *  渲染树意外未包 Provider（单组件测试、异常挂载的子窗口）时兜底出中文，而不是整片空文案。 */
 export const LocaleContext = createContext<LocaleContextValue>({
   locale: 'zh-CN',
   messages: zhCN,
   setLocale: () => {},
-  t: () => '',
+  t: (path, params) => formatMessage(zhCN, path, params),
 });
 
 /**
@@ -79,27 +107,10 @@ export function useLocaleProvider() {
   }, []);
 
   /** 通过路径获取翻译文本，支持参数替换 */
-  const t = useCallback((path: string, params?: Record<string, string | number>): string => {
-    const keys = path.split('.');
-    let result: any = messages;
-    for (const key of keys) {
-      if (result && typeof result === 'object' && key in result) {
-        result = result[key];
-      } else {
-        console.warn(`[i18n] 翻译 key 不存在: ${path}`);
-        return path;
-      }
-    }
-    if (typeof result !== 'string') {
-      return path;
-    }
-    if (params) {
-      return result.replace(/\{(\w+)\}/g, (_, key) => {
-        return key in params ? String(params[key]) : `{${key}}`;
-      });
-    }
-    return result;
-  }, [messages]);
+  const t = useCallback(
+    (path: string, params?: Record<string, string | number>): string => formatMessage(messages, path, params),
+    [messages]
+  );
 
   return { locale, messages, setLocale, t };
 }

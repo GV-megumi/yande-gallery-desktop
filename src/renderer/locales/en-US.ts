@@ -98,6 +98,16 @@ const enUS: LocaleMessages = {
     changePathConfirmRelocateHint:
       'If the files were only moved to a new location as a whole, use "Relocate Root Directory" on the Settings page instead (lossless).',
     changePathConfirmOk: 'Change Path',
+    // Missing-folders banner (GalleryPage album details: relocate / move all to invalid / dismiss)
+    missingFoldersBannerTitle: '{count} bound folder(s) of this album no longer exist on disk',
+    missingFoldersBannerHint: 'Moved the files with your library? Use "Relocate" to rewrite paths losslessly; choose "Move All to Invalid" only if you no longer need them.',
+    missingFoldersRelocate: 'Relocate',
+    missingFoldersMigrate: 'Move All to Invalid',
+    missingFoldersMigrateConfirmTitle: 'Move All to Invalid',
+    missingFoldersMigrateConfirmDesc: 'All member images under the missing folders will be moved to the invalid list (image records and local tags deleted, thumbnails removed, booru download state reset). This cannot be undone. Continue?',
+    missingFoldersMigrateOk: 'Move',
+    missingFoldersMigrateSuccess: 'Moved to invalid: {migrated} image(s)',
+    missingFoldersMigrateFailed: 'Some folders failed to migrate ({failed}), see logs',
   },
 
   // === Booru Page ===
@@ -457,6 +467,11 @@ const enUS: LocaleMessages = {
     scanComplete: 'Scan complete: {created} albums created, {skipped} skipped, {imported} images imported',
     // 扫描入库 applyScanPlan 汇总：文件夹级失败与文件级已存在分开表述（单位不同，不能合并计数）
     scanApplySummary: '{created} albums created, {merged} merged, {failedFolders} folders failed, {skippedFiles} images already existed',
+    // Maintenance: clean orphan thumbnails
+    cleanupOrphanThumbs: 'Clean Orphan Thumbnails',
+    cleanupOrphanThumbsDesc: 'Delete cached thumbnail files that no longer correspond to any image in the library (orphans only, safe)',
+    cleanupOrphanThumbsSuccess: 'Cleaned {deleted} orphan thumbnails (freed {freedMb} MB), {scanned} checked in total',
+    cleanupOrphanThumbsFailed: 'Failed to clean orphan thumbnails',
     download: 'Downloads',
     downloadPath: 'Download Path',
     notSet: 'Not set',
