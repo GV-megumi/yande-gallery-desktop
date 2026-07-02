@@ -128,7 +128,7 @@ describe('FavoriteTagsPage render behavior', () => {
 
   function mockPageData(items: any[]) {
     getSites.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Yande' }] });
-    // Phase 8B：gallery DTO 不再带 folderPath，下载路径默认改由 getGalleryFolders 解析首个绑定文件夹
+    // Phase 8B：gallery DTO 不再带 folderPath；绑定文件夹只在选中具体图集时按需经 getGalleryFolders 拉取
     getGalleries.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Gallery A' }] });
     getGalleryFolders.mockResolvedValue({
       success: true,
@@ -280,7 +280,7 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
-  it('在下载配置弹窗中选择图集时，应用 getGalleryFolders 首个绑定文件夹作为下载路径默认值', async () => {
+  it('绑定文件夹应在选中图集时才按需拉取一次，列表加载期不再逐图集全量预取', async () => {
     mockPageData([
       {
         ...baseTag,
@@ -294,20 +294,27 @@ describe('FavoriteTagsPage render behavior', () => {
     const row = (await screen.findByText('tag a')).closest('tr');
     expect(row).not.toBeNull();
 
+    // 回归守卫：进入页面（loadGalleries 已跑完）不应对任何图集预取绑定文件夹（曾经的 N+1）
+    await waitFor(() => {
+      expect(getGalleries).toHaveBeenCalled();
+    });
+    expect(getGalleryFolders).not.toHaveBeenCalled();
+
     fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
 
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('favoriteTags.configTitle:tag_a')).toBeTruthy();
+    expect(getGalleryFolders).not.toHaveBeenCalled();
 
-    // 等待图集列表加载完成（loadGalleries 经 getGalleryFolders 解析默认路径）
-    await waitFor(() => {
-      expect(getGalleryFolders).toHaveBeenCalledWith(1);
-    });
-
-    // 打开图集下拉并选择「Gallery A」
+    // 打开图集下拉并选择「Gallery A」——此时才按需拉取该图集的绑定文件夹
     const gallerySelect = within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' });
     fireEvent.mouseDown(gallerySelect);
     fireEvent.click(await screen.findByText('Gallery A'));
+
+    await waitFor(() => {
+      expect(getGalleryFolders).toHaveBeenCalledWith(1);
+    });
+    expect(getGalleryFolders).toHaveBeenCalledTimes(1);
 
     // 选择图集后，下载路径输入框应填入该图集首个绑定文件夹路径
     const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
