@@ -74,7 +74,7 @@
 - `previewRelocateRoot(mappings)`：重定位预检（dry-run，不写库）。`mappings: { oldPrefix, newPrefix }[]`，返回 `{ affected: {table,column,count}[], collisions: {table,column,path}[], warnings: {table,column,newPrefix,existingPrefix,count}[] }`。`collisions` 非空则禁止 apply；`warnings` 为**非阻断**提示——某映射规范化后的 `newPrefix` 与库内既有路径前缀仅大小写不同（字节不同），应用后库内会出现同一物理目录的两种大小写形态（后续按字节精确比较的绑定/去重判定会把它们当成不同目录），建议把新前缀改成与库内一致的大小写
 - `applyRelocateRoot(mappings)`：应用重定位。单事务内按 `旧前缀→新前缀` 边界感知地无损改写库内全部路径列（`gallery_folders.folderPath` / `images.filepath` / `booru_posts.localPath` / `booru_favorite_tag_download_bindings.downloadPath` / `gallery_ignored_folders.folderPath`）；有 UNIQUE 冲突则整体中止、零写入。用于"文件随库一起搬到新机器"。**写入侧大小写归一（win32）**：preview 与 apply 都会先把 `oldPrefix`/`newPrefix` 走同一规范化（盘符统一大写；路径在磁盘上存在时用 `fs.realpathSync.native` 取真实目录项大小写形态，同时展开 8.3 短名、会解析符号链接；不存在则回退归一化输入），preview 展示的目标路径字节 == apply 实际写入的字节，避免手输小写前缀（如 `d:\art`）以非规范字节整库落盘后，与系统对话框返回的 `D:\art` 字节不等导致重复绑定、整目录重复导入。成功提交且改写行数 > 0 时，在刷新 `app://` 白名单后广播 `gallery:paths-relocated` 全量失效事件（见「事件订阅」），常驻缓存的图库页据此整页重载——重定位不动 `updatedAt`，否则增量游标感知不到任何变化
 - `getMissingGalleryFolders()`：返回绑定文件夹在磁盘上不存在的项 `{ galleryId, folderPath, galleryName }[]`（只读检测，供 UI 标记"文件夹丢失"与重定位弹窗按行标注归属图集）。**注意：直接返回数组，不是 `{ success }` 包裹**，调用方应 `try/catch`
-- `migrateMissingFolderImages(galleryId, folderPath)`：图集详情「文件夹丢失」横幅的「全部迁入无效项」入口——把该图集位于指定丢失绑定文件夹下的成员图片全部迁入无效列表（破坏性：删 images 行连带成员/本地标签、删缩略图、复位 booru 下载状态），返回 `{ success, data?: { migrated, skipped } }`。`folderPath` 必须是该图集的绑定文件夹；源文件仍存在的成员会被跳过（`skipped`）。这是**用户显式**放弃记录的通道——自动失效上报（`reportInvalidImage`）对"绑定文件夹整个缺失"的图片有防护、拒绝迁移（避免搬库后未重定位就浏览时成员被逐张蚕食），只有本接口绕过该防护。不改动绑定行本身（文件夹仍绑定且缺失，用户可继续重定位或解绑）
+- `migrateMissingFolderImages(galleryId, folderPath)`：图集详情「文件夹丢失」横幅的「全部迁入无效项」入口——把该图集位于指定丢失绑定文件夹下的成员图片全部迁入无效列表（破坏性：删 images 行连带成员/本地标签、删缩略图、复位 booru 下载状态），返回 `{ success, data?: { migrated, skipped } }`。`folderPath` 必须是该图集的绑定文件夹；源文件仍存在的成员会被跳过（`skipped`）。万张级丢失文件夹按**分块事务**迁移（每块 200 张、块末对涉及图集聚合重算 `imageCount`，块间放行其它写事务）；某块失败整块回滚并返回错误，已完成块保留，重试幂等（已迁成员被跳过）。这是**用户显式**放弃记录的通道——自动失效上报（`reportInvalidImage`）对"绑定文件夹整个缺失"的图片有防护、拒绝迁移（避免搬库后未重定位就浏览时成员被逐张蚕食），只有本接口绕过该防护。不改动绑定行本身（文件夹仍绑定且缺失，用户可继续重定位或解绑）
 
 ### 图集忽略名单
 
@@ -169,7 +169,7 @@
 - `generateThumbnail(imagePath, force?)`：生成缩略图
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
-- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除后按 `gallery_images` 成员表刷新该图**全部归属图集**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐图集发 `gallery:galleries-changed`（`statsUpdated`）
+- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除前复位对应 booru 帖子的下载状态（`booru_posts.downloaded=0、localPath=NULL`，按 `localImageId` 或 `localPath` 命中，与孤儿清理/失效迁移语义一致；须在删 images 前执行——之后 FK 仅 SET NULL 清引用，残留的 `downloaded=1` 会让按路径去重的批量下载永远跳过该帖）。删除后按 `gallery_images` 成员表刷新该图**全部归属图集**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐图集发 `gallery:galleries-changed`（`statsUpdated`）
 - `cleanupOrphanThumbnails()`：维护动作（设置页入口）——清理缩略图目录中与库内任何图片都不再对应的孤儿缩略图文件，返回 `{ success, data?: { scanned, deleted, freedBytes } }`。按文件名 hash 段（`md5(filepath)`）对账、不看扩展名；保护 `images` 在库图片与 `invalid_images.thumbnailPath` 引用（无效列表页仍展示）；非缩略图命名的文件一概不动。主进程删除路径已内置"先取消队列生成任务再删文件"（等待中的移除、生成中的打墓碑丢弃产物），本接口用于清理历史竞态遗留的存量孤儿
 
 ## `booru`
