@@ -677,7 +677,11 @@ export async function scanAndImportFolder(
   extensions: string[] = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
   recursive: boolean = true,
   excludeDirs: string[] = []
-): Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: { imported: number; skipped: number; importedIds?: number[] };
+  error?: string;
+}> {
   try {
     // 排除目录先归一化，遍历时与 normalizePath 后的候选目录做前缀判定
     const normalizedExcludes = excludeDirs.map(dir => normalizePath(dir));
@@ -756,7 +760,10 @@ export async function scanAndImportFolder(
       success: true,
       data: {
         imported: imported.length,
-        skipped
+        skipped,
+        // 本次真正新导入的图片 id（修复轮 U08）：供 galleryService.scanFolderIntoGallery
+        // 在目标图集被并发删除（成员写入 FK 失败）时精确兜底回收，避免零归属僵尸行
+        importedIds: imported.map((img) => img.id as number),
       }
     };
   } catch (error) {

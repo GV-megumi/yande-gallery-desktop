@@ -686,7 +686,9 @@ export async function ensureMembershipForFolder(
  * 注意：本阶段读路径未切换，imageCount 改以成员表 COUNT 为准只影响"统计数字"，
  * 与旧 folderPath 前缀 COUNT 在数据正确时等价（成员由同一前缀规则写入）。
  *
- * @returns { imported, skipped, imageCount }，扫描失败时 success:false 且不写成员/不更新统计。
+ * @returns { imported, skipped, imageCount }，扫描失败时 success:false 且不写成员/不更新统计；
+ *          目标图集在扫描期间被并发删除时 success:false（错误注明图集已不存在），
+ *          并对本次导入且零归属的图片做 cleanupOrphanImages 兜底回收（修复轮 U08）。
  */
 export async function scanFolderIntoGallery(
   galleryId: number,
@@ -722,8 +724,33 @@ export async function scanFolderIntoGallery(
     return { success: false, error: importResult.error || '扫描导入失败' };
   }
 
-  // 2. 写 gallery_images 成员（按 recursive 前缀，幂等），黑名单子树中已有图片不收编
-  await ensureMembershipForFolder(db, galleryId, folderPath, recursive, excludedDirs);
+  // 2. 写 gallery_images 成员（按 recursive 前缀，幂等），黑名单子树中已有图片不收编。
+  //    修复轮 U08：目标图集可能在步骤 1 的磁盘导入（大目录可达分钟级、逐文件即时提交）
+  //    期间被并发删除——galleryId 外键失效，INSERT OR IGNORE 仍抛 FK 约束错误（OR IGNORE
+  //    不豁免外键违例）。若直接抛出，本次刚导入的图片将永久滞留为零归属僵尸行：该文件夹
+  //    随删除已被拉黑、不会被重扫收编，且 cleanupOrphanImages 只按显式候选触发，无 GC 路径。
+  try {
+    await ensureMembershipForFolder(db, galleryId, folderPath, recursive, excludedDirs);
+  } catch (membershipError) {
+    const stillExists = await get<{ id: number }>(
+      db,
+      'SELECT id FROM galleries WHERE id = ?',
+      [galleryId]
+    );
+    if (!stillExists) {
+      // 图集确已不存在：对「本次导入且零归属」的图片做孤儿回收兜底（多归属图片由
+      // cleanupOrphanImages 内部保护不删），并返回明确错误而非裸 FK 报错。
+      // 回收自带事务、置于此处（事务外），与既有「GC 不进长事务」原则一致。
+      const importedIds = importResult.data.importedIds ?? [];
+      const removed = await cleanupOrphanImages(db, importedIds);
+      console.warn(
+        `[galleryService] scanFolderIntoGallery 目标图集 ${galleryId} 在扫描期间被删除，已回收本次导入的零归属图片 ${removed}/${importedIds.length} 张: ${folderPath}`
+      );
+      return { success: false, error: '图集已不存在（可能在扫描期间被删除），本次导入的零归属图片已回收' };
+    }
+    // 图集仍在：非并发删除所致的异常，维持原有抛出行为交由调用方兜底
+    throw membershipError;
+  }
 
   // 3. 以成员表为准统计图片数
   const countRow = await get<{ cnt: number }>(
