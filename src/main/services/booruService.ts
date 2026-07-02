@@ -248,9 +248,13 @@ async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: Fa
  *
  * Phase 8A：galleries 不再存 recursive/extensions（已归 gallery_folders）。本函数改为：
  *   1. getGallery 仅校验图集存在（保留"图集不存在"错误契约）；
- *   2. 从 gallery_folders 取该 downloadPath 对应绑定行的 recursive/extensions；
- *      下载路径未登记为绑定文件夹时回退 recursive=true + 默认扩展名；
- *   3. scanFolderIntoGallery 统一入口（扫描导入 + 写 gallery_images 成员 + 更新统计 + 发事件）。
+ *   2. 与下载启动侧（startFavoriteTagBulkDownload）/ 绑定保存侧（upsertFavoriteTagDownloadBinding）
+ *      一致：downloadPath 必须命中该图集的某个 gallery_folders 绑定行。未命中（用户已解绑
+ *      或绑定漂移）时跳过同步——不能回退默认扫描，否则会把刚被解绑回收的成员重新扫入
+ *      gallery_images，且该目录不在 app:// 白名单（galleryRootRegistry 按 gallery_folders
+ *      装载），新成员在网格中会显示为坏图；读取侧 galleryBindingConsistent 会给出 pathMismatch；
+ *   3. 命中时沿用绑定行的 recursive/extensions，scanFolderIntoGallery 统一入口
+ *      （扫描导入 + 写 gallery_images 成员 + 更新统计 + 发事件）。
  *
  * 导出以便单测直接覆盖成员写入逻辑（其余调用方仍在 booruService 内部）。
  */
@@ -260,16 +264,24 @@ export async function syncGalleryAfterDownload(galleryId: number, downloadPath: 
     throw new Error(galleryResult.error || '图集不存在');
   }
 
-  // recursive/extensions 现在按文件夹存（gallery_folders）。下载路径与某绑定文件夹对应时
-  // 取其配置；否则回退默认（recursive=true + 默认扩展名）。
+  // recursive/extensions 按文件夹存（gallery_folders）。下载路径未命中任何绑定行时跳过同步，
+  // 不做"recursive=true + 默认扩展名"的回退扫描（会复活已解绑回收的成员，见函数注释）。
   const normalizedDownloadPath = normalizePath(downloadPath);
   const foldersResult = await getGalleryFolders(galleryId);
   const matchedFolder = foldersResult.success && foldersResult.data
     ? foldersResult.data.find(f => normalizePath(f.folderPath) === normalizedDownloadPath)
     : undefined;
 
-  const recursive = matchedFolder ? matchedFolder.recursive : true;
-  const extensions = matchedFolder && matchedFolder.extensions.length > 0
+  if (!matchedFolder) {
+    console.warn(
+      `[booruService] 跳过下载后图集同步：下载目录不在图集绑定文件夹中（galleryId=${galleryId}, downloadPath=${downloadPath}），收藏标签页将按 pathMismatch 提示绑定不一致`
+    );
+    return;
+  }
+
+  // 命中绑定：沿用该绑定行的 recursive/extensions（extensions 为空时回退默认扩展名）。
+  const recursive = matchedFolder.recursive;
+  const extensions = matchedFolder.extensions.length > 0
     ? matchedFolder.extensions
     : ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
