@@ -917,6 +917,25 @@ export async function runInTransaction<T>(db: sqlite3.Database, fn: () => Promis
 }
 
 /**
+ * 在与 runInTransaction 相同的事务队列上独占执行一段数据库操作。
+ * 只串行化、不自动包 BEGIN/COMMIT：回调自行负责事务配对（或完全不开事务）。
+ *
+ * 用途：需要在「事务外」执行才生效的 PRAGMA（如 foreign_keys 开关在事务内是
+ * no-op），同时又必须与所有排队事务互斥的迁移类操作（见 contractGalleriesTable）。
+ * 队列不因回调抛错而中断，错误原样向调用方传播。
+ */
+export async function runExclusive<T>(db: sqlite3.Database, fn: () => Promise<T>): Promise<T> {
+  const previousTransaction = transactionQueues.get(db) ?? Promise.resolve();
+
+  const exclusive = previousTransaction
+    .catch(() => undefined)
+    .then(fn);
+
+  transactionQueues.set(db, exclusive.then(() => undefined, () => undefined));
+  return exclusive;
+}
+
+/**
  * 检查数据库是否已初始化
  */
 export async function isDatabaseInitialized(): Promise<boolean> {
@@ -1075,57 +1094,74 @@ export async function migrateGalleryFolderDecoupling(database: sqlite3.Database)
 // 幂等：仅当 galleries 仍含 folderPath 列时执行；contract 后该判断为 false，直接跳过。
 //
 // 注意：用裸 run('BEGIN'/'COMMIT')（而非 runInTransaction），因为 PRAGMA foreign_keys
-// 在事务内是 no-op——必须先在事务外关闭外键、重建后再打开。
+// 在事务内是 no-op——必须先在事务外关闭外键、重建后再打开。为避免裸 BEGIN 与
+// transactionQueues 里的排队事务互撞（升级首启窗口/IPC 先于迁移开放，渲染层可能
+// 已排入事务），整体通过 runExclusive 挂进同一条队列：PRAGMA 的关/开在独占段内、
+// 事务外执行，与所有 runInTransaction 事务严格互斥。
 // ===========================================================================
 export async function contractGalleriesTable(database: sqlite3.Database): Promise<void> {
-  // 幂等短路：已是新结构（无 folderPath）则跳过
+  // 幂等快路径：已是新结构（无 folderPath）则不必进独占队列
   if (!(await columnExists(database, 'galleries', 'folderPath'))) {
     return;
   }
 
-  await run(database, 'PRAGMA foreign_keys=OFF');
-  try {
-    await run(database, 'BEGIN');
-
-    // 新结构表（与上方 CREATE TABLE IF NOT EXISTS galleries 一致）
-    await run(database, `
-      CREATE TABLE galleries_new (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        name TEXT NOT NULL,
-        coverImageId INTEGER,
-        imageCount INTEGER DEFAULT 0,
-        lastScannedAt TEXT,
-        autoScan INTEGER NOT NULL DEFAULT 1,
-        createdAt TEXT NOT NULL,
-        updatedAt TEXT NOT NULL,
-        FOREIGN KEY (coverImageId) REFERENCES images (id) ON DELETE SET NULL
-      )
-    `);
-
-    // 拷数据：保留 id（子表 FK 依赖），isWatching→autoScan（NULL 回退 1）
-    await run(database, `
-      INSERT INTO galleries_new (id, name, coverImageId, imageCount, lastScannedAt, autoScan, createdAt, updatedAt)
-      SELECT id, name, coverImageId, imageCount, lastScannedAt, COALESCE(isWatching, 1), createdAt, updatedAt
-        FROM galleries
-    `);
-
-    await run(database, 'DROP TABLE galleries');
-    await run(database, 'ALTER TABLE galleries_new RENAME TO galleries');
-
-    // 重建保留的索引（folderPath 索引随列一并废弃）
-    await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC)');
-
-    // 提交前 FK 自检：保留 id 后引用 galleries 的子表行应全部有效
-    const violations = await all(database, 'PRAGMA foreign_key_check');
-    if (violations.length) {
-      throw new Error('contract galleries FK check failed: ' + JSON.stringify(violations));
+  await runExclusive(database, async () => {
+    // 独占段内重新检查：防并发双跑（渲染层 App.tsx 挂载时会再触发一次 db.init，
+    // 两个 contract 先后进入队列时，后进入者在此短路而不是重复重建）
+    if (!(await columnExists(database, 'galleries', 'folderPath'))) {
+      return;
     }
 
-    await run(database, 'COMMIT');
-  } catch (e) {
-    await run(database, 'ROLLBACK').catch(() => {});
-    throw e;
-  } finally {
-    await run(database, 'PRAGMA foreign_keys=ON');
-  }
+    await run(database, 'PRAGMA foreign_keys=OFF');
+    // 标记 BEGIN 是否已成功开启：若 BEGIN 本身失败（如撞上队列外的裸事务），
+    // 绝不能发 ROLLBACK——那会回滚别人正在进行的事务、破坏其原子性。
+    let began = false;
+    try {
+      await run(database, 'BEGIN');
+      began = true;
+
+      // 新结构表（与上方 CREATE TABLE IF NOT EXISTS galleries 一致）
+      await run(database, `
+        CREATE TABLE galleries_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          name TEXT NOT NULL,
+          coverImageId INTEGER,
+          imageCount INTEGER DEFAULT 0,
+          lastScannedAt TEXT,
+          autoScan INTEGER NOT NULL DEFAULT 1,
+          createdAt TEXT NOT NULL,
+          updatedAt TEXT NOT NULL,
+          FOREIGN KEY (coverImageId) REFERENCES images (id) ON DELETE SET NULL
+        )
+      `);
+
+      // 拷数据：保留 id（子表 FK 依赖），isWatching→autoScan（NULL 回退 1）
+      await run(database, `
+        INSERT INTO galleries_new (id, name, coverImageId, imageCount, lastScannedAt, autoScan, createdAt, updatedAt)
+        SELECT id, name, coverImageId, imageCount, lastScannedAt, COALESCE(isWatching, 1), createdAt, updatedAt
+          FROM galleries
+      `);
+
+      await run(database, 'DROP TABLE galleries');
+      await run(database, 'ALTER TABLE galleries_new RENAME TO galleries');
+
+      // 重建保留的索引（folderPath 索引随列一并废弃）
+      await run(database, 'CREATE INDEX IF NOT EXISTS idx_galleries_lastScannedAt ON galleries (lastScannedAt DESC)');
+
+      // 提交前 FK 自检：保留 id 后引用 galleries 的子表行应全部有效
+      const violations = await all(database, 'PRAGMA foreign_key_check');
+      if (violations.length) {
+        throw new Error('contract galleries FK check failed: ' + JSON.stringify(violations));
+      }
+
+      await run(database, 'COMMIT');
+    } catch (e) {
+      if (began) {
+        await run(database, 'ROLLBACK').catch(() => {});
+      }
+      throw e;
+    } finally {
+      await run(database, 'PRAGMA foreign_keys=ON');
+    }
+  });
 }

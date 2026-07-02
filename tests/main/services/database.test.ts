@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import sqlite3 from 'sqlite3';
-import { run, runWithChanges, get, all, runInTransaction } from '../../../src/main/services/database';
+import { run, runWithChanges, get, all, runInTransaction, runExclusive } from '../../../src/main/services/database';
 
 /**
  * 数据库工具函数测试
@@ -229,6 +229,78 @@ describe('runInTransaction', () => {
       'queued_tx_first_end',
       'queued_tx_second',
     ]);
+  });
+});
+
+describe('runExclusive', () => {
+  it('与 runInTransaction 共用同一队列：交错提交严格串行', async () => {
+    const order: string[] = [];
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let notifyFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { notifyFirstStarted = resolve; });
+
+    const firstTx = runInTransaction(db, async () => {
+      order.push('tx1-start');
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('excl_tx1', 1, '2024-06-01')");
+      notifyFirstStarted();
+      await firstGate;
+      order.push('tx1-end');
+    });
+
+    await firstStarted;
+
+    const exclusive = runExclusive(db, async () => {
+      order.push('excl-start');
+      // 独占段内必不在任何排队事务里：裸 BEGIN 必须能成功
+      //（若与 tx1 并发执行，这里会抛 cannot start a transaction within a transaction）
+      await run(db, 'BEGIN');
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('excl_own', 2, '2024-06-01')");
+      await run(db, 'COMMIT');
+      order.push('excl-end');
+      return 'exclusive';
+    });
+
+    const secondTx = runInTransaction(db, async () => {
+      order.push('tx2-start');
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('excl_tx2', 3, '2024-06-01')");
+      order.push('tx2-end');
+      return 'second';
+    });
+
+    releaseFirst();
+
+    await expect(Promise.all([firstTx, exclusive, secondTx])).resolves.toEqual([undefined, 'exclusive', 'second']);
+    expect(order).toEqual(['tx1-start', 'tx1-end', 'excl-start', 'excl-end', 'tx2-start', 'tx2-end']);
+
+    const rows = await all<{ name: string }>(db, "SELECT name FROM test_items WHERE name LIKE 'excl_%' ORDER BY id ASC");
+    expect(rows.map((row) => row.name)).toEqual(['excl_tx1', 'excl_own', 'excl_tx2']);
+  });
+
+  it('PRAGMA foreign_keys 在独占段内（事务外）真实生效', async () => {
+    // foreign_keys 开关在事务内是 no-op——runExclusive 保证回调不在排队事务内执行，
+    // 开关能真实翻转（contractGalleriesTable 依赖该性质）
+    const result = await runExclusive(db, async () => {
+      await run(db, 'PRAGMA foreign_keys=ON');
+      const on = await get<{ foreign_keys: number }>(db, 'PRAGMA foreign_keys');
+      await run(db, 'PRAGMA foreign_keys=OFF');
+      const off = await get<{ foreign_keys: number }>(db, 'PRAGMA foreign_keys');
+      return { on: on!.foreign_keys, off: off!.foreign_keys };
+    });
+    expect(result).toEqual({ on: 1, off: 0 });
+  });
+
+  it('回调抛错时错误向上传播，且队列不中断（后续事务照常执行）', async () => {
+    await expect(
+      runExclusive(db, async () => {
+        throw new Error('exclusive failed');
+      })
+    ).rejects.toThrow('exclusive failed');
+
+    await runInTransaction(db, async () => {
+      await run(db, "INSERT INTO test_items (name, value, createdAt) VALUES ('after_excl_error', 1, '2024-06-02')");
+    });
+    expect(await get(db, "SELECT 1 AS x FROM test_items WHERE name = 'after_excl_error'")).toBeDefined();
   });
 });
 
