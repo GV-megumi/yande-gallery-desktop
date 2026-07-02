@@ -1361,6 +1361,97 @@ describe('GalleryPage gallery delete action', () => {
     });
   });
 
+  it('修复轮 U15：退出图集详情后再次进入同一图集应再次触发自动扫描（按次进入语义）', async () => {
+    getGalleries.mockResolvedValue({
+      success: true,
+      data: [{
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        autoScan: true,
+      }],
+    });
+    getGallery.mockResolvedValue({
+      success: true,
+      data: {
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        autoScan: true,
+      },
+    });
+
+    renderGalleriesPage();
+
+    // 第一次进入：触发一次自动扫描
+    await userEvent.click(await screen.findByText('自动扫描图集'));
+    expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
+    await waitFor(() => {
+      expect(syncGalleryFolder).toHaveBeenCalledTimes(1);
+    });
+
+    // 返回列表：离开详情会清空「本次进入」自动扫描记录
+    await userEvent.click(screen.getByRole('button', { name: /返\s*回/ }));
+    expect(await screen.findByText('自动扫描图集')).toBeTruthy();
+
+    // 再次进入同一图集：自动扫描按「每次进入」语义应再次触发
+    await userEvent.click(screen.getByText('自动扫描图集'));
+    await waitFor(() => {
+      expect(syncGalleryFolder).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  it('修复轮 U15：同一次进入内自动扫描回灌重载不应重复触发扫描', async () => {
+    getGalleries.mockResolvedValue({
+      success: true,
+      data: [{
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        autoScan: true,
+      }],
+    });
+    getGallery.mockResolvedValue({
+      success: true,
+      data: {
+        id: 7,
+        name: '自动扫描图集',
+        createdAt: '2026-04-14T00:00:00.000Z',
+        updatedAt: '2026-04-14T00:00:00.000Z',
+        imageCount: 1,
+        recursive: true,
+        autoScan: true,
+      },
+    });
+    // imported > 0 时 autoScanGalleryOnEnter 会回灌调用 loadGalleryImages，
+    // 该重载属于同一次进入，不应再次触发 syncGalleryFolder
+    syncGalleryFolder.mockResolvedValue({
+      success: true,
+      data: { imported: 2, skipped: 0, imageCount: 3, lastScannedAt: 'x' },
+    });
+
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('自动扫描图集'));
+    expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
+
+    await waitFor(() => {
+      expect(syncGalleryFolder).toHaveBeenCalledTimes(1);
+    });
+    // 给回灌重载留出时间：若守卫按 runId 而非「本次进入」判定，这里会出现第二次扫描
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(syncGalleryFolder).toHaveBeenCalledTimes(1);
+  });
+
   it('Phase 7B：进入 autoScan=false 的图集不应自动扫描', async () => {
     // 默认 getGalleries/getGallery 返回 autoScan:false 的「测试图集」(id=1)
     renderGalleriesPage();
