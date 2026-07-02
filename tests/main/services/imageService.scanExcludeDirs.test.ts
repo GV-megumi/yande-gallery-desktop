@@ -95,7 +95,8 @@ describe('imageService.scanAndImportFolder excludeDirs 整棵剪枝', () => {
     const { scanAndImportFolder } = await import('../../../src/main/services/imageService.js');
     const result = await scanAndImportFolder(root, ['.jpg'], true, [blackDir]);
 
-    expect(result).toEqual({ success: true, data: { imported: 2, skipped: 0 } });
+    // importedIds：mock get 恒返 { id: 101 }，两次导入均记 101
+    expect(result).toEqual({ success: true, data: { imported: 2, skipped: 0, importedIds: [101, 101] } });
     // 排除目录未被深入遍历
     expect(readdir).not.toHaveBeenCalledWith(blackDir, expect.anything());
     // 导入的 INSERT 不含黑名单子树文件
@@ -121,7 +122,7 @@ describe('imageService.scanAndImportFolder excludeDirs 整棵剪枝', () => {
     const { scanAndImportFolder } = await import('../../../src/main/services/imageService.js');
     const result = await scanAndImportFolder(root, ['.jpg'], true, [blackDir]);
 
-    expect(result).toEqual({ success: true, data: { imported: 1, skipped: 0 } });
+    expect(result).toEqual({ success: true, data: { imported: 1, skipped: 0, importedIds: [101] } });
     expect(readdir).not.toHaveBeenCalledWith(blackDir, expect.anything());
     const insertedPaths = run.mock.calls
       .filter((c) => typeof c[1] === 'string' && c[1].includes('INSERT INTO images'))
@@ -141,7 +142,7 @@ describe('imageService.scanAndImportFolder excludeDirs 整棵剪枝', () => {
     const { scanAndImportFolder } = await import('../../../src/main/services/imageService.js');
     const result = await scanAndImportFolder(root, ['.jpg'], true);
 
-    expect(result).toEqual({ success: true, data: { imported: 1, skipped: 0 } });
+    expect(result).toEqual({ success: true, data: { imported: 1, skipped: 0, importedIds: [101] } });
     const insertedPaths = run.mock.calls
       .filter((c) => typeof c[1] === 'string' && c[1].includes('INSERT INTO images'))
       .map((c) => c[2][1]);
