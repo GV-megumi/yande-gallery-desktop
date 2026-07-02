@@ -89,6 +89,17 @@ function sanitizeMappings(rows: RelocateMapping[]): RelocateMapping[] {
 }
 
 /**
+ * 路径的绝对前缀形态：UNC（`\\server\share`）返回双分隔符、POSIX 绝对路径返回单分隔符、
+ * Windows 盘符路径返回空串（盘符本身保留在分段首段里）；相对路径返回 null。
+ */
+function absolutePrefixOf(p: string, sep: string): string | null {
+  if (/^[\\/]{2}/.test(p)) return sep + sep;
+  if (/^[\\/]/.test(p)) return sep;
+  if (/^[a-zA-Z]:/.test(p)) return '';
+  return null;
+}
+
+/**
  * 推断传播：用户把 pickedOld 重定位到 pickedNew 后，推断另一条丢失路径 otherOld 的新位置。
  *
  * 取 pickedOld 与 pickedNew 的段级最长公共后缀（大小写不敏感，win32 语义），
@@ -97,9 +108,16 @@ function sanitizeMappings(rows: RelocateMapping[]): RelocateMapping[] {
  *
  * 例：pickedOld=D:\pics\a, pickedNew=E:\newpics\a ⇒ 映射 D:\pics → E:\newpics，
  *     otherOld=D:\pics\b ⇒ E:\newpics\b。
+ *
+ * 分段用的 split 会吞掉 UNC（\\NAS\share）与 POSIX（/mnt）的前导分隔符，重组时必须
+ * 按 pickedNew 的绝对前缀形态回贴——否则 NAS 场景推断出 `NAS\share\b` 这种相对形态坏值，
+ * 应用后会把垃圾前缀写进库内 5 张表的路径列。pickedNew 若是相对路径（系统目录对话框
+ * 不会返回，防御性拦截）直接拒绝推断，让用户手选。
  */
 function inferNewPath(pickedOld: string, pickedNew: string, otherOld: string): string | null {
   const sep = pickedNew.includes('\\') ? '\\' : '/';
+  const newPrefix = absolutePrefixOf(pickedNew, sep);
+  if (newPrefix === null) return null;
   const po = pickedOld.split(/[\\/]+/).filter(Boolean);
   const pn = pickedNew.split(/[\\/]+/).filter(Boolean);
   const oo = otherOld.split(/[\\/]+/).filter(Boolean);
@@ -122,7 +140,7 @@ function inferNewPath(pickedOld: string, pickedNew: string, otherOld: string): s
     if (oo[i].toLowerCase() !== oldRoot[i].toLowerCase()) return null;
   }
 
-  return [...newRoot, ...oo.slice(oldRoot.length)].join(sep);
+  return newPrefix + [...newRoot, ...oo.slice(oldRoot.length)].join(sep);
 }
 
 export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, onApply, onPickFolder, onLoadMissingFolders }) => {
