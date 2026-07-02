@@ -8,6 +8,7 @@ import {
   type RendererSafeAppConfig,
 } from './config.js';
 import { all, getDatabase, run, runInTransaction } from './database.js';
+import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { getAllGalleryFolderPaths } from './galleryService.js';
 import { emitAppDataRestored, emitConfigChanged } from './appEventPublisher.js';
@@ -172,6 +173,87 @@ export function isValidBackupData(value: unknown): value is AppBackupData {
   });
 }
 
+/** 读目标表当前列集（PRAGMA table_info）。表名来自 BACKUP_TABLES 白名单，无注入风险。 */
+async function getTableColumnSet(db: sqlite3.Database, table: BackupTableName): Promise<Set<string>> {
+  const rows = await all<{ name: string }>(db, `PRAGMA table_info(${table})`);
+  return new Set(rows.map((row) => row.name));
+}
+
+/**
+ * 只保留目标表当前存在的列（通用防御）：
+ * 1) 旧版备份可能携带已删除的列（如 contract 前的 galleries.folderPath/isWatching/
+ *    recursive/extensions），直接拼进 INSERT 会让整个恢复事务失败；
+ * 2) 列名来自备份文件这一外部输入，buildInsertStatement 会把它拼进 SQL，
+ *    按当前表结构白名单过滤顺带杜绝列名注入。
+ */
+function pickKnownColumns(row: Record<string, unknown>, columns: Set<string>): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(row)) {
+    if (columns.has(key)) {
+      picked[key] = value;
+    }
+  }
+  return picked;
+}
+
+/** 旧版 galleries 行转写出的 gallery_folders 绑定（图集解耦前 folderPath 直接存在 galleries 上） */
+interface LegacyGalleryFolderBinding {
+  galleryId: number;
+  folderPath: string;
+  recursive: unknown;
+  extensions: unknown;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * 旧版（图集解耦前）备份的 galleries 行语义映射：
+ * - isWatching → autoScan（列改名；NULL 回退 1，与 contractGalleriesTable 的 COALESCE(isWatching, 1) 一致）；
+ * - folderPath(+recursive/extensions) 已不再是 galleries 的列，转写为一条 gallery_folders 绑定行
+ *   （路径 normalizePath、INSERT OR IGNORE，与启动迁移 backfillGalleryFolders 的回填语义一致）。
+ * 新格式行没有这些旧列，本函数直通返回。
+ * 注意：旧备份没有 gallery_images 成员数据，恢复后 imageCount 重算为 0 是诚实结果——
+ * 文件夹绑定已经恢复，用户重新扫描即可找回成员与计数。
+ */
+function mapLegacyGalleryRow(row: Record<string, unknown>): {
+  row: Record<string, unknown>;
+  binding: LegacyGalleryFolderBinding | null;
+} {
+  const hasLegacyWatch = 'isWatching' in row;
+  const hasLegacyFolder = 'folderPath' in row;
+  if (!hasLegacyWatch && !hasLegacyFolder) {
+    return { row, binding: null };
+  }
+
+  const mapped: Record<string, unknown> = { ...row };
+  if (hasLegacyWatch && !('autoScan' in mapped)) {
+    const watching = mapped.isWatching;
+    mapped.autoScan = watching === null || watching === undefined ? 1 : watching;
+  }
+
+  let binding: LegacyGalleryFolderBinding | null = null;
+  const folderPath = row.folderPath;
+  const galleryId = row.id;
+  if (typeof folderPath === 'string' && folderPath.trim() !== '') {
+    if (typeof galleryId === 'number') {
+      const nowIso = new Date().toISOString();
+      binding = {
+        galleryId,
+        folderPath: normalizePath(folderPath),
+        recursive: row.recursive === null || row.recursive === undefined ? 1 : row.recursive,
+        extensions: row.extensions ?? null,
+        createdAt: typeof row.createdAt === 'string' ? row.createdAt : nowIso,
+        updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : nowIso,
+      };
+    } else {
+      // SELECT * 导出的行必带 id；缺失/非数字说明备份被人工改动，无法定位归属图集，只放弃绑定转写
+      console.warn('[backupService] 旧版 galleries 行缺有效 id，folderPath 绑定未转写:', String(folderPath));
+    }
+  }
+
+  return { row: mapped, binding };
+}
+
 function buildInsertStatement(table: BackupTableName, row: Record<string, unknown>): { sql: string; values: unknown[] } {
   const columns = Object.keys(row);
   if (columns.length === 0) {
@@ -311,11 +393,57 @@ export async function restoreAppBackupData(
 
       for (const table of BACKUP_RESTORE_ORDER) {
         const rows = backupData.tables[table] ?? [];
+        if (rows.length === 0) {
+          continue;
+        }
+
+        // 目标表当前列集：懒取（仅对有行的表查一次 PRAGMA），供插入前过滤备份行中的未知列。
+        // 真实存在的表 PRAGMA table_info 必非空；空集只会出现在表缺失或测试 mock 环境，
+        // 此时过滤没有意义（缺表时 INSERT 本就会失败），跳过过滤保持原行为。
+        const columns = await getTableColumnSet(db, table);
+
         for (const row of rows) {
           // 即便备份文件中残留了 salt / apiKey / passwordHash 这类敏感列，
           // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
-          const { sql, values } = buildInsertStatement(table, sanitizeBackupRow(table, row));
+          let sanitized = sanitizeBackupRow(table, row);
+
+          // 旧版（图集解耦前）备份的 galleries 行：isWatching→autoScan 语义映射，
+          // folderPath/recursive/extensions 转写为 gallery_folders 绑定（见 mapLegacyGalleryRow）。
+          let legacyBinding: LegacyGalleryFolderBinding | null = null;
+          if (table === 'galleries') {
+            const mapped = mapLegacyGalleryRow(sanitized);
+            sanitized = mapped.row;
+            legacyBinding = mapped.binding;
+          }
+
+          const filtered = columns.size > 0 ? pickKnownColumns(sanitized, columns) : sanitized;
+          if (Object.keys(filtered).length === 0 && Object.keys(row).length > 0) {
+            // 整行与当前表结构无共同列：跳过并告警，不让单行异构数据拖垮整个恢复事务。
+            // （原始空行 {} 不走这里，仍由 buildInsertStatement 按坏数据抛错。）
+            console.warn(`[backupService] 备份表 ${table} 行与当前表结构无共同列，已跳过该行`);
+            continue;
+          }
+
+          const { sql, values } = buildInsertStatement(table, filtered);
           await run(db, sql, values as any[]);
+
+          if (legacyBinding) {
+            // INSERT OR IGNORE：folderPath 全局唯一，若该路径已被现有图集绑定则保留现状，
+            // 与启动迁移 backfillGalleryFolders 的幂等回填语义一致。
+            await run(
+              db,
+              `INSERT OR IGNORE INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+               VALUES (?, ?, ?, ?, ?, ?)`,
+              [
+                legacyBinding.galleryId,
+                legacyBinding.folderPath,
+                legacyBinding.recursive,
+                legacyBinding.extensions,
+                legacyBinding.createdAt,
+                legacyBinding.updatedAt,
+              ] as any[]
+            );
+          }
         }
       }
 

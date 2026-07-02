@@ -305,3 +305,174 @@ describe('新格式备份：绑定与成员随备份往返', () => {
     await expect(seedBinding(g1, folderB)).resolves.toBeUndefined();
   });
 });
+
+/** 构造合法的备份 config 段（与 mocked getConfig 同形），供手工拼装的备份 payload 使用 */
+function buildBackupConfig(): AppBackupData['config'] {
+  return {
+    dataPath: 'data',
+    database: { path: 'gallery.db' },
+    downloads: { path: 'downloads' },
+    thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+    app: { autoScan: true },
+    yande: { maxConcurrentDownloads: 5 },
+    network: { proxy: { enabled: false, protocol: 'http', host: '127.0.0.1', port: 7890 } },
+    booru: {
+      appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
+      download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
+    },
+  } as AppBackupData['config'];
+}
+
+/**
+ * 构造旧版（图集解耦前）备份 payload：
+ * - galleries 行携带旧列 folderPath/isWatching/recursive/extensions（contract 后已不存在）；
+ * - 没有 gallery_folders / gallery_images 两张表（当时尚未引入）。
+ */
+function buildLegacyBackup(galleryRows: Record<string, unknown>[]): AppBackupData {
+  const tables: Record<string, Record<string, unknown>[]> = { galleries: galleryRows };
+  for (const table of MINIMAL_BOORU_TABLES) {
+    tables[table] = [];
+  }
+  return {
+    version: 1,
+    exportedAt: '2025-06-01T00:00:00.000Z',
+    config: buildBackupConfig(),
+    tables,
+  } as unknown as AppBackupData;
+}
+
+describe('旧版（图集解耦前）备份兼容恢复', () => {
+  it('galleries 旧行不再拖垮恢复：isWatching→autoScan，folderPath 转写为 gallery_folders 绑定，imageCount 重算为 0', async () => {
+    const legacyFolder = path.join('M:', 'legacy', 'gal') + path.sep; // 末尾分隔符验证 normalizePath 归一
+    const backup = buildLegacyBackup([
+      {
+        id: 7,
+        folderPath: legacyFolder,
+        name: 'Legacy',
+        coverImageId: null,
+        imageCount: 42,
+        lastScannedAt: null,
+        isWatching: 0,
+        recursive: 0,
+        extensions: JSON.stringify(['.png']),
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-02T00:00:00.000Z',
+      },
+    ]);
+
+    await expect(restoreAppBackupData(backup, { mode: 'merge' })).resolves.toMatchObject({ mode: 'merge' });
+
+    const gallery = await get<{ id: number; name: string; autoScan: number; imageCount: number }>(
+      h.db,
+      'SELECT id, name, autoScan, imageCount FROM galleries WHERE id = 7'
+    );
+    // isWatching=0 映射为 autoScan=0；旧备份无成员数据，imageCount 重算为 0 是诚实结果（绑定已恢复，重扫即可找回）
+    expect(gallery).toMatchObject({ id: 7, name: 'Legacy', autoScan: 0, imageCount: 0 });
+
+    const bindings = await all<{ galleryId: number; folderPath: string; recursive: number; extensions: string }>(
+      h.db,
+      'SELECT galleryId, folderPath, recursive, extensions FROM gallery_folders'
+    );
+    expect(bindings).toHaveLength(1);
+    expect(bindings[0]).toMatchObject({
+      galleryId: 7,
+      folderPath: normalizePath(legacyFolder),
+      recursive: 0,
+    });
+    expect(JSON.parse(bindings[0].extensions)).toEqual(['.png']);
+
+    expect(await all(h.db, 'SELECT * FROM gallery_images')).toEqual([]);
+  });
+
+  it('isWatching 为 NULL 时 autoScan 回退 1（与 contract 迁移 COALESCE 一致）；folderPath 空串不产生绑定', async () => {
+    const backup = buildLegacyBackup([
+      {
+        id: 8,
+        folderPath: '',
+        name: 'NoFolder',
+        coverImageId: null,
+        imageCount: 0,
+        lastScannedAt: null,
+        isWatching: null,
+        recursive: 1,
+        extensions: null,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    await restoreAppBackupData(backup, { mode: 'merge' });
+
+    const gallery = await get<{ autoScan: number }>(h.db, 'SELECT autoScan FROM galleries WHERE id = 8');
+    expect(gallery).toMatchObject({ autoScan: 1 });
+    expect(await all(h.db, 'SELECT * FROM gallery_folders')).toEqual([]);
+  });
+
+  it('merge 模式下旧绑定路径已被现有图集占用时按 INSERT OR IGNORE 保留现状（与启动迁移回填语义一致）', async () => {
+    const folder = normalizePath(path.join('M:', 'shared', 'gal'));
+    const existing = await seedGallery('Current');
+    await seedBinding(existing, folder);
+
+    const backup = buildLegacyBackup([
+      {
+        id: 99,
+        folderPath: folder,
+        name: 'LegacyDup',
+        coverImageId: null,
+        imageCount: 1,
+        lastScannedAt: null,
+        isWatching: 1,
+        recursive: 1,
+        extensions: null,
+        createdAt: '2025-01-01T00:00:00.000Z',
+        updatedAt: '2025-01-01T00:00:00.000Z',
+      },
+    ]);
+
+    await restoreAppBackupData(backup, { mode: 'merge' });
+
+    // 图集行本身恢复成功；folderPath 全局 UNIQUE 已被现有图集占用，绑定保持不变
+    expect(await get(h.db, 'SELECT id FROM galleries WHERE id = 99')).toBeTruthy();
+    const bindings = await all<{ galleryId: number; folderPath: string }>(h.db, 'SELECT galleryId, folderPath FROM gallery_folders');
+    expect(bindings).toEqual([{ galleryId: existing, folderPath: folder }]);
+  });
+});
+
+describe('恢复时未知列过滤（通用防御）', () => {
+  it('行内含目标表当前不存在的列时应被过滤而非整体失败', async () => {
+    const backup = buildLegacyBackup([]);
+    (backup.tables as Record<string, Record<string, unknown>[]>).galleries = [
+      {
+        id: 3,
+        name: 'WithBogus',
+        imageCount: 0,
+        autoScan: 1,
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        bogusColumn: 'boom', // 未来版本/异构备份多出的列
+      },
+    ];
+    (backup.tables as Record<string, Record<string, unknown>[]>).booru_sites = [
+      { id: 11, zzz: 'unknown' }, // booru_sites 最小结构只有 id 列
+    ];
+
+    await expect(restoreAppBackupData(backup, { mode: 'merge' })).resolves.toBeTruthy();
+
+    expect(await get(h.db, 'SELECT id, name FROM galleries WHERE id = 3')).toMatchObject({ id: 3, name: 'WithBogus' });
+    expect(await get(h.db, 'SELECT id FROM booru_sites WHERE id = 11')).toMatchObject({ id: 11 });
+  });
+
+  it('整行与当前表结构无共同列时跳过该行且不中断恢复', async () => {
+    const backup = buildLegacyBackup([]);
+    (backup.tables as Record<string, Record<string, unknown>[]>).booru_sites = [
+      { zzz: 'no-known-column' },
+      { id: 12 },
+    ];
+
+    await expect(restoreAppBackupData(backup, { mode: 'merge' })).resolves.toBeTruthy();
+
+    // 全未知列的行被跳过，正常行照常恢复
+    const rows = await all<{ id: number }>(h.db, 'SELECT id FROM booru_sites');
+    expect(rows).toEqual([{ id: 12 }]);
+  });
+});

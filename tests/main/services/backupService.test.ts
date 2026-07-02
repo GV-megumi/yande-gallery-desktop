@@ -215,7 +215,8 @@ describe('restoreAppBackupData', () => {
 
     await expect(restoreAppBackupData(backupData, { mode: 'replace' })).rejects.toThrow('save imported config failed');
     expect(saveConfigMock).toHaveBeenCalledTimes(1);
-    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length);
+    // 快照 SELECT 每表一次；备份里只有 booru_sites 有行，恢复循环对它懒取一次 PRAGMA table_info（未知列过滤）
+    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 1);
     expect(runInTransactionMock).toHaveBeenCalledTimes(2);
 
     const insertOriginalSiteCall = runMock.mock.calls.find(([_, sql, values]) =>
