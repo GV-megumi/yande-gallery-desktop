@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi, type Mock } from 'vitest';
 import sqlite3 from 'sqlite3';
 import path from 'path';
 
@@ -25,13 +25,15 @@ vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
   return {
     ...actual,
     getDatabase: vi.fn(async () => h.db),
+    // all 默认透传真实实现；包成 vi.fn 供 TOCTOU 用例注入"扫描期看不到某行"的模拟
+    all: vi.fn(actual.all),
   };
 });
 
 import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { getGalleryRootsSnapshot, loadGalleryRoots } from '../../../src/main/services/galleryRootRegistry';
-import { applyRelocateRoot } from '../../../src/main/services/galleryRelocateService';
+import { applyRelocateRoot, previewRelocateRoot } from '../../../src/main/services/galleryRelocateService';
 
 async function setupSchema(): Promise<void> {
   await run(h.db, `
@@ -404,5 +406,127 @@ describe('applyRelocateRoot — 图片身份无损', () => {
     expect(it).toMatchObject({ imageId: imgId, tagId: tag!.id });
     const cover = await get<{ coverImageId: number }>(h.db, 'SELECT coverImageId FROM galleries WHERE id = ?', [g]);
     expect(cover?.coverImageId).toBe(imgId);
+  });
+});
+
+describe('applyRelocateRoot — 链式/互换/自包含映射（两阶段改写消除瞬时 UNIQUE 碰撞）', () => {
+  // 这些映射的终态均无重复（preview 也放行），但"某行的改写目标 = 另一待改写行的当前路径"，
+  // 单遍逐行 UPDATE 会在中间状态误撞 SQLITE_CONSTRAINT。两阶段改写后必须全部可应用。
+
+  it('链式映射 [A→B, B→C]：preview 放行且 apply 成功，终态路径正确', async () => {
+    const mappings = [
+      { oldPrefix: normalizePath(path.join('X:', 'a')), newPrefix: normalizePath(path.join('X:', 'b')) },
+      { oldPrefix: normalizePath(path.join('X:', 'b')), newPrefix: normalizePath(path.join('X:', 'c')) },
+    ];
+    const img1 = await addImage(normalizePath(path.join('X:', 'a', '1.jpg')));
+    const img2 = await addImage(normalizePath(path.join('X:', 'b', '1.jpg')));
+
+    // 终态 X:\b\1.jpg / X:\c\1.jpg 无重复 → preview 判无冲突（该判定本身正确，作为契约锁定）
+    const preview = await previewRelocateRoot(mappings);
+    expect(preview.success).toBe(true);
+    expect(preview.data!.collisions).toEqual([]);
+
+    // preview 放行的批次 apply 必须成功（img1 的目标是 img2 的当前路径，单遍直写会瞬时撞 UNIQUE）
+    const result = await applyRelocateRoot(mappings);
+    expect(result.success).toBe(true);
+    expect(countFor(result.data!.affected, 'images', 'filepath')).toBe(2);
+    expect(await getFilepath(img1)).toBe(normalizePath(path.join('X:', 'b', '1.jpg')));
+    expect(await getFilepath(img2)).toBe(normalizePath(path.join('X:', 'c', '1.jpg')));
+  });
+
+  it('互换映射 [A→B, B→A]：images 与 gallery_folders 两个 UNIQUE 站点均成功互换', async () => {
+    const mappings = [
+      { oldPrefix: normalizePath(path.join('X:', 'a')), newPrefix: normalizePath(path.join('X:', 'b')) },
+      { oldPrefix: normalizePath(path.join('X:', 'b')), newPrefix: normalizePath(path.join('X:', 'a')) },
+    ];
+    const img1 = await addImage(normalizePath(path.join('X:', 'a', '1.jpg')));
+    const img2 = await addImage(normalizePath(path.join('X:', 'b', '1.jpg')));
+    const ga = await addGallery(normalizePath(path.join('X:', 'a')));
+    await addFolderBinding(ga, normalizePath(path.join('X:', 'a')));
+    const gb = await addGallery(normalizePath(path.join('X:', 'b')));
+    await addFolderBinding(gb, normalizePath(path.join('X:', 'b')));
+
+    const preview = await previewRelocateRoot(mappings);
+    expect(preview.success).toBe(true);
+    expect(preview.data!.collisions).toEqual([]);
+
+    // 互换任何改写顺序在单遍直写下都必然瞬时撞 UNIQUE，两阶段后必须成功
+    const result = await applyRelocateRoot(mappings);
+    expect(result.success).toBe(true);
+    expect(countFor(result.data!.affected, 'images', 'filepath')).toBe(2);
+    expect(countFor(result.data!.affected, 'gallery_folders', 'folderPath')).toBe(2);
+
+    expect(await getFilepath(img1)).toBe(normalizePath(path.join('X:', 'b', '1.jpg')));
+    expect(await getFilepath(img2)).toBe(normalizePath(path.join('X:', 'a', '1.jpg')));
+    const fa = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [ga]);
+    const fb = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [gb]);
+    expect(fa?.folderPath).toBe(normalizePath(path.join('X:', 'b')));
+    expect(fb?.folderPath).toBe(normalizePath(path.join('X:', 'a')));
+  });
+
+  it('自包含映射 old=X:\\gal → new=X:\\gal\\sub：源与目标同时在库时也能成功', async () => {
+    const mappings = [
+      { oldPrefix: normalizePath(path.join('X:', 'gal')), newPrefix: normalizePath(path.join('X:', 'gal', 'sub')) },
+    ];
+    // img1 的目标恰是 img2 的当前路径；img2 自身也被改写走 → 终态无重复
+    const img1 = await addImage(normalizePath(path.join('X:', 'gal', 'a.jpg')));
+    const img2 = await addImage(normalizePath(path.join('X:', 'gal', 'sub', 'a.jpg')));
+
+    const preview = await previewRelocateRoot(mappings);
+    expect(preview.success).toBe(true);
+    expect(preview.data!.collisions).toEqual([]);
+
+    const result = await applyRelocateRoot(mappings);
+    expect(result.success).toBe(true);
+    expect(countFor(result.data!.affected, 'images', 'filepath')).toBe(2);
+    expect(await getFilepath(img1)).toBe(normalizePath(path.join('X:', 'gal', 'sub', 'a.jpg')));
+    expect(await getFilepath(img2)).toBe(normalizePath(path.join('X:', 'gal', 'sub', 'sub', 'a.jpg')));
+  });
+
+  it('真终态冲突（扫描期看不到的既有占位行，模拟 TOCTOU 并发插入）→ 事务内撞 UNIQUE 整体回滚，零写入且无临时占位残留', async () => {
+    const actualDb = await vi.importActual<typeof import('../../../src/main/services/database.js')>(
+      '../../../src/main/services/database.js'
+    );
+    const oldPrefix = normalizePath(path.join('N:', 'src'));
+    const newPrefix = normalizePath(path.join('N:', 'dst'));
+
+    const srcImg = await addImage(normalizePath(path.join('N:', 'src', 'dup.jpg')));
+    // 真占位行：目标路径已被既有行占用，但对扫描隐藏（等价于 preview/apply 扫描后才并发插入）
+    const hiddenImg = await addImage(normalizePath(path.join('N:', 'dst', 'dup.jpg')));
+    // 排在 images 之前的站点（gallery_folders）会先被两阶段改写成功，必须一并回滚
+    const g = await addGallery(normalizePath(path.join('N:', 'src', 'gal')));
+    await addFolderBinding(g, normalizePath(path.join('N:', 'src', 'gal')));
+
+    loadGalleryRoots(['SENTINEL']);
+
+    const hiddenKey = normalizePath(path.join('N:', 'dst', 'dup.jpg'));
+    const allMock = all as unknown as Mock;
+    try {
+      // 让 scanSite 看不到 hiddenImg → 预检判无冲突 → 进事务 → 第二阶段写最终路径时撞真实 UNIQUE
+      allMock.mockImplementation(async (db: sqlite3.Database, sql: string, params?: any[]) => {
+        const rows = await actualDb.all<{ id: number; value?: string }>(db, sql, params ?? []);
+        return rows.filter((r) => r?.value !== hiddenKey);
+      });
+      const result = await applyRelocateRoot([{ oldPrefix, newPrefix }]);
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(/UNIQUE/i);
+    } finally {
+      allMock.mockImplementation(actualDb.all);
+    }
+
+    // 整体回滚：所有行保持原值（含已先行改写成功的 gallery_folders）
+    expect(await getFilepath(srcImg)).toBe(normalizePath(path.join('N:', 'src', 'dup.jpg')));
+    expect(await getFilepath(hiddenImg)).toBe(normalizePath(path.join('N:', 'dst', 'dup.jpg')));
+    const folder = await get<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders WHERE galleryId = ?', [g]);
+    expect(folder?.folderPath).toBe(normalizePath(path.join('N:', 'src', 'gal')));
+
+    // 两阶段的第一遍占位值也必须随回滚消失（临时值含 'relocate' 标记，可据此检漏）
+    const tmpImages = await get<{ c: number }>(h.db, "SELECT COUNT(*) AS c FROM images WHERE filepath LIKE '%relocate%'");
+    const tmpFolders = await get<{ c: number }>(h.db, "SELECT COUNT(*) AS c FROM gallery_folders WHERE folderPath LIKE '%relocate%'");
+    expect(tmpImages?.c).toBe(0);
+    expect(tmpFolders?.c).toBe(0);
+
+    // 白名单未刷新（仍是哨兵）
+    expect(getGalleryRootsSnapshot()).toEqual(['SENTINEL']);
   });
 });
