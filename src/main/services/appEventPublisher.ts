@@ -18,6 +18,7 @@ import type {
   RendererGalleryIgnoredFoldersChangedEvent,
   RendererGalleryImagesChangedEvent,
   RendererGalleryInvalidImagesChangedEvent,
+  RendererGalleryPathsRelocatedEvent,
   RendererAppEventSource,
 } from '../../shared/types.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
@@ -133,6 +134,14 @@ export function emitGalleryGalleriesChanged(payload: RendererGalleriesChangedEve
   emitBuiltRendererAppEvent<RendererGalleriesChangedEvent>({
     type: 'gallery:galleries-changed',
     source: 'galleryService',
+    payload,
+  });
+}
+
+export function emitGalleryPathsRelocated(payload: RendererGalleryPathsRelocatedEvent['payload']): void {
+  emitBuiltRendererAppEvent<RendererGalleryPathsRelocatedEvent>({
+    type: 'gallery:paths-relocated',
+    source: 'galleryRelocateService',
     payload,
   });
 }

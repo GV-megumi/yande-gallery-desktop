@@ -21,6 +21,7 @@ export type RendererAppEventSource =
   | 'booruService'
   | 'bulkDownloadService'
   | 'galleryService'
+  | 'galleryRelocateService'
   | 'imageService'
   | 'invalidImageService'
   | 'thumbnailService'
@@ -333,6 +334,25 @@ export type RendererGalleryIgnoredFoldersChangedEvent = RendererAppEventBase<
   RendererGalleryIgnoredFoldersChangedPayload
 >;
 
+/**
+ * 重定位根目录（applyRelocateRoot）成功提交后的全量失效事件。
+ * 语义与 app:data-restored 同强度：整库路径前缀已被改写（不动 updatedAt），
+ * 常驻缓存页面的既有增量事件（updatedAt 游标 / 按 id 补丁）感知不到变化，
+ * 订阅方应整体重载（图集列表 / 网格图片 / 「最近」游标 / 文件夹丢失标记）。
+ * payload 只带统计不带路径，避免本地路径经 API 事件桥外泄。
+ */
+export interface RendererGalleryPathsRelocatedPayload {
+  /** 每个 (表, 列) 实际改写的行数（与 applyRelocateRoot 返回的 affected 一致） */
+  affected: Array<{ table: string; column: string; count: number }>;
+  /** 全部站点合计改写行数（0 改写的幂等重跑不发事件，故恒 > 0） */
+  totalCount: number;
+}
+
+export type RendererGalleryPathsRelocatedEvent = RendererAppEventBase<
+  'gallery:paths-relocated',
+  RendererGalleryPathsRelocatedPayload
+>;
+
 export interface RendererThumbnailGeneratedPayload {
   imagePath: string;
   thumbnailPath?: string;
@@ -386,6 +406,7 @@ export type RendererAppEvent =
   | RendererGalleriesChangedEvent
   | RendererGalleryInvalidImagesChangedEvent
   | RendererGalleryIgnoredFoldersChangedEvent
+  | RendererGalleryPathsRelocatedEvent
   | RendererThumbnailGeneratedEvent
   | RendererConfigChangedEvent
   | RendererAppDataRestoredEvent

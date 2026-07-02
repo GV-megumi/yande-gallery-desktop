@@ -12,6 +12,7 @@ import { GalleryFolderManagerDialog } from '../components/GalleryFolderManagerDi
 import { localPathToAppUrl } from '../utils/url';
 import { colors, spacing, radius, fontSize, zIndex, shadows } from '../styles/tokens';
 import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
+import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 
 const areGalleryPreferencesEqual = (
   left?: GalleryPagePreferencesBySubTab,
@@ -169,6 +170,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const hydratedSubTabRef = useRef<'recent' | 'all' | 'galleries' | null>(null);
   const currentSubTabRef = useRef<'recent' | 'all' | 'galleries'>(subTab);
   const wasSuspendedRef = useRef(false);
+  // 修复轮 U11：重定位根目录后的全量失效令牌。gallery:paths-relocated 到达时 +1，
+  // 令水合 effect 重跑；配合作废 hydratedSubTabRef，激活态立即完整重新初始化
+  const [relocateRefreshToken, setRelocateRefreshToken] = useState(0);
   const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
@@ -475,6 +479,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       .map(segment => ({ ...segment, images: segment.images.filter(image => !idSet.has(image.id)) }))
       .filter(segment => segment.images.length > 0));
   };
+
+  // 修复轮 U11：重定位根目录（applyRelocateRoot）成功后主进程广播 gallery:paths-relocated。
+  // 重定位改写整库路径字符串但不动 updatedAt——「最近」的增量游标（getRecentImagesAfter）
+  // 与各按 id 补丁的域事件都感知不到变化，本页所有缓存（图集列表 / 网格图片 / 增量游标 /
+  // 「文件夹丢失」标记）必须整体失效。该订阅不随 suspended 挂起（active 缺省 true）：
+  // 事件恰恰在用户停留在设置页（本页处于导航缓存挂起态）时发出，若随域事件一起挂起丢弃
+  //（下方 replayDirtyOnActive: false），恢复激活时水合 effect 会命中缓存跳过重载，缺陷依旧。
+  // 处理方式：作废水合标记 + 令牌 +1——挂起态只标记不拉取，切回时走完整重新初始化；
+  // 激活态（如图集子窗口与主窗口设置页并存）由令牌触发水合 effect 立即整页重载。
+  useRendererAppEvent('gallery:paths-relocated', () => {
+    console.log('[GalleryPage] 收到 gallery:paths-relocated，整页缓存失效，等待重新初始化');
+    hydratedSubTabRef.current = null;
+    setRelocateRefreshToken((token) => token + 1);
+  });
 
   useGalleryDomainEvents({
     active: !suspended,
@@ -1150,7 +1168,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         preferencesHydratingRef.current = false;
       }
     };
-  }, [subTab, suspended]);
+    // relocateRefreshToken：gallery:paths-relocated 已作废 hydratedSubTabRef，
+    // 令牌变化驱动本 effect 重跑——激活态立即完整重新初始化；挂起态命中上方
+    // suspended 分支照常跳过，等切回时再水合
+  }, [subTab, suspended, relocateRefreshToken]);
 
   useEffect(() => {
     // bug1-I2：常驻缓存层下非活跃页面挂起保存副作用，避免切走后仍在后台

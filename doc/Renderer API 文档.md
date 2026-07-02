@@ -72,7 +72,7 @@
 ### 跨机器重定位与丢失文件夹检测
 
 - `previewRelocateRoot(mappings)`：重定位预检（dry-run，不写库）。`mappings: { oldPrefix, newPrefix }[]`，返回 `{ affected: {table,column,count}[], collisions: {table,column,path}[], warnings: {table,column,newPrefix,existingPrefix,count}[] }`。`collisions` 非空则禁止 apply；`warnings` 为**非阻断**提示——某映射规范化后的 `newPrefix` 与库内既有路径前缀仅大小写不同（字节不同），应用后库内会出现同一物理目录的两种大小写形态（后续按字节精确比较的绑定/去重判定会把它们当成不同目录），建议把新前缀改成与库内一致的大小写
-- `applyRelocateRoot(mappings)`：应用重定位。单事务内按 `旧前缀→新前缀` 边界感知地无损改写库内全部路径列（`gallery_folders.folderPath` / `images.filepath` / `booru_posts.localPath` / `booru_favorite_tag_download_bindings.downloadPath` / `gallery_ignored_folders.folderPath`）；有 UNIQUE 冲突则整体中止、零写入。用于"文件随库一起搬到新机器"。**写入侧大小写归一（win32）**：preview 与 apply 都会先把 `oldPrefix`/`newPrefix` 走同一规范化（盘符统一大写；路径在磁盘上存在时用 `fs.realpathSync.native` 取真实目录项大小写形态，同时展开 8.3 短名、会解析符号链接；不存在则回退归一化输入），preview 展示的目标路径字节 == apply 实际写入的字节，避免手输小写前缀（如 `d:\art`）以非规范字节整库落盘后，与系统对话框返回的 `D:\art` 字节不等导致重复绑定、整目录重复导入
+- `applyRelocateRoot(mappings)`：应用重定位。单事务内按 `旧前缀→新前缀` 边界感知地无损改写库内全部路径列（`gallery_folders.folderPath` / `images.filepath` / `booru_posts.localPath` / `booru_favorite_tag_download_bindings.downloadPath` / `gallery_ignored_folders.folderPath`）；有 UNIQUE 冲突则整体中止、零写入。用于"文件随库一起搬到新机器"。**写入侧大小写归一（win32）**：preview 与 apply 都会先把 `oldPrefix`/`newPrefix` 走同一规范化（盘符统一大写；路径在磁盘上存在时用 `fs.realpathSync.native` 取真实目录项大小写形态，同时展开 8.3 短名、会解析符号链接；不存在则回退归一化输入），preview 展示的目标路径字节 == apply 实际写入的字节，避免手输小写前缀（如 `d:\art`）以非规范字节整库落盘后，与系统对话框返回的 `D:\art` 字节不等导致重复绑定、整目录重复导入。成功提交且改写行数 > 0 时，在刷新 `app://` 白名单后广播 `gallery:paths-relocated` 全量失效事件（见「事件订阅」），常驻缓存的图库页据此整页重载——重定位不动 `updatedAt`，否则增量游标感知不到任何变化
 - `getMissingGalleryFolders()`：返回绑定文件夹在磁盘上不存在的项 `{ galleryId, folderPath }[]`（只读检测，供 UI 标记"文件夹丢失"）。**注意：直接返回数组，不是 `{ success }` 包裹**，调用方应 `try/catch`
 
 ### 图集忽略名单
@@ -421,6 +421,7 @@
   - `gallery:galleries-changed`：图集创建、更新、删除、统计或封面变化
   - `gallery:invalid-images-changed`：无效图片上报、删除或清空
   - `gallery:ignored-folders-changed`：忽略文件夹新增、编辑或删除
+  - `gallery:paths-relocated`：重定位根目录（`applyRelocateRoot`）成功改写库内路径（改写行数 > 0 才发）。payload 只含统计（`affected` 各表列改写行数 + `totalCount`），不带本地路径。语义为**全量失效**（与 `app:data-restored` 同强度）：重定位不动 `updatedAt`，增量游标/按 id 补丁感知不到变化，常驻缓存的图库页据此整页重新初始化（图集列表、网格图片、「最近」游标、「文件夹丢失」标记）
   - `thumbnail:generated`：缩略图生成、缺失或失败状态变化
   - `config:changed`：配置 section 变更，旧 `config.onConfigChanged` 兼容通道仍保留
   - `app:data-restored`：备份导入恢复成功
