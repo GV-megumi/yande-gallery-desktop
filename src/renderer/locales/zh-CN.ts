@@ -89,6 +89,13 @@ const zhCN = {
     imagesCount: '{count} 张',
     setCover: '设为封面',
     viewGallery: '查看图集',
+    // 「更改路径」破坏性操作二次确认（GalleryFolderManagerDialog）
+    changePathConfirmTitle: '确认更改文件夹路径？',
+    changePathConfirmWarning:
+      '更改路径相当于「解绑旧文件夹 + 绑定新文件夹重扫」：将移除旧文件夹的图片记录、本地标签与封面，并复位相关 booru 下载状态（后续批量下载可能重复下载）。',
+    changePathConfirmRelocateHint:
+      '若只是文件整体搬到了新位置，请改用设置页的「重定位根目录」（无损迁移）。',
+    changePathConfirmOk: '更改路径',
   },
 
   // === Booru 页面 ===

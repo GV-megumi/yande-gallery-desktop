@@ -91,6 +91,13 @@ const enUS: LocaleMessages = {
     imagesCount: '{count}',
     setCover: 'Set as Cover',
     viewGallery: 'View Album',
+    // Destructive "change path" confirmation (GalleryFolderManagerDialog)
+    changePathConfirmTitle: 'Change folder path?',
+    changePathConfirmWarning:
+      'Changing the path means unbinding the old folder and rebinding + rescanning the new one: image records, local tags and the cover from the old folder will be removed, and related booru download tracking will be reset (future bulk downloads may download them again).',
+    changePathConfirmRelocateHint:
+      'If the files were only moved to a new location as a whole, use "Relocate Root Directory" on the Settings page instead (lossless).',
+    changePathConfirmOk: 'Change Path',
   },
 
   // === Booru Page ===
