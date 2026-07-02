@@ -739,6 +739,7 @@ export const SettingsPage: React.FC = () => {
               const res = await window.electronAPI.system.selectFolder();
               return res.success ? res.data : undefined;
             }}
+            onLoadMissingFolders={() => window.electronAPI.gallery.getMissingGalleryFolders()}
           />
 
           {/* 下载设置 */}
