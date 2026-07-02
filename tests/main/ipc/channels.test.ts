@@ -190,7 +190,8 @@ describe('IPC_CHANNELS', () => {
     // Phase 8A contract 移除 2：GALLERY_GET_IMAGES_BY_FOLDER、GALLERY_SCAN_SUBFOLDERS（206→204）
     // [已停用] 注释停用绕过 gallery_images 成员的 3 个遗留图片导入通道：
     //   DB_ADD_IMAGE、IMAGE_SCAN_FOLDER、GALLERY_SCAN_AND_IMPORT_FOLDER（204→201）
-    expect(keys.length).toBe(201);
+    // 丢失文件夹横幅批量迁移新增 1：GALLERY_MIGRATE_MISSING_FOLDER_IMAGES（201→202）
+    expect(keys.length).toBe(202);
   });
 
   it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {

@@ -89,6 +89,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_RELOCATE_APPLY, mappings),
     getMissingGalleryFolders: () =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_MISSING_FOLDERS),
+    // 丢失文件夹横幅「全部迁入无效项」：显式批量迁移丢失文件夹下的成员图片
+    migrateMissingFolderImages: (galleryId: number, folderPath: string) =>
+      ipcRenderer.invoke(IPC_CHANNELS.GALLERY_MIGRATE_MISSING_FOLDER_IMAGES, galleryId, folderPath),
   },
 
   // 配置操作
@@ -465,6 +468,8 @@ declare global {
         applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }> }; error?: string }>;
         // 注意：getMissingGalleryFolders 直接返回数组（非 {success} 包裹），与上面两个不同
         getMissingGalleryFolders: () => Promise<Array<{ galleryId: number; folderPath: string; galleryName: string }>>;
+        // 丢失文件夹横幅「全部迁入无效项」：批量迁移丢失文件夹下的成员图片进无效列表
+        migrateMissingFolderImages: (galleryId: number, folderPath: string) => Promise<{ success: boolean; data?: { migrated: number; skipped: number }; error?: string }>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;

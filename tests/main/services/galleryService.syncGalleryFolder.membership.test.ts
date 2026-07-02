@@ -18,6 +18,22 @@ const h = vi.hoisted(() => ({
   db: null as unknown as import('sqlite3').Database,
   // 按 folderPath 返回扫描结果；默认全 0。测试按需写入具体文件夹的结果。
   scanByFolder: new Map<string, any>(),
+  // 视为"磁盘上不存在"的绑定文件夹（丢失文件夹防护会跳过它们）；默认全部存在。
+  missingPaths: new Set<string>(),
+}));
+
+// fs.access：missingPaths 命中 → 抛 ENOENT（文件夹丢失）；否则视为存在。
+vi.mock('fs/promises', () => ({
+  default: {
+    access: vi.fn(async (p: string) => {
+      if (h.missingPaths.has(p)) {
+        const err: NodeJS.ErrnoException = new Error('ENOENT: no such file or directory');
+        err.code = 'ENOENT';
+        throw err;
+      }
+      return undefined;
+    }),
+  },
 }));
 
 vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
@@ -132,6 +148,7 @@ beforeEach(async () => {
   await run(h.db, 'PRAGMA foreign_keys=ON');
   await setupSchema();
   h.scanByFolder = new Map();
+  h.missingPaths = new Set();
   vi.clearAllMocks();
 });
 
@@ -230,5 +247,36 @@ describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
     const result = await syncGalleryFolder(9999);
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
+  });
+
+  it('丢失的绑定文件夹被跳过不扫描（不当成空文件夹），其余文件夹照常同步', async () => {
+    const { scanAndImportFolder } = await import('../../../src/main/services/imageService');
+    const galleryFolder = normalizePath(path.join('M:', 'mixed'));
+    const galleryId = await addGallery(galleryFolder, 1);
+    const present = galleryFolder;
+    const missing = normalizePath(path.join('N:', 'unplugged'));
+    await addBinding(galleryId, present, 1);
+    await addBinding(galleryId, missing, 1);
+    h.missingPaths.add(missing);
+
+    const img = await addImage(normalizePath(path.join('M:', 'mixed', 'a.jpg')));
+    h.scanByFolder.set(present, { success: true, data: { imported: 1, skipped: 0 } });
+    // 若丢失文件夹被错误地扫描，会命中这条并把 imported 抬高
+    h.scanByFolder.set(missing, { success: true, data: { imported: 99, skipped: 0 } });
+
+    const result = await syncGalleryFolder(galleryId);
+
+    expect(result.success).toBe(true);
+    expect(result.data?.imported).toBe(1); // 只有存在的文件夹被扫
+    expect(result.data?.imageCount).toBe(1);
+    // 磁盘扫描只对存在的文件夹发起
+    const scannedFolders = (scanAndImportFolder as unknown as ReturnType<typeof vi.fn>).mock.calls.map((c: unknown[]) => c[0]);
+    expect(scannedFolders).toContain(present);
+    expect(scannedFolders).not.toContain(missing);
+
+    const members = (
+      await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
+    ).map((r) => r.imageId);
+    expect(members).toEqual([img]);
   });
 });

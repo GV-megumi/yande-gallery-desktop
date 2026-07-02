@@ -42,6 +42,8 @@ export const IPC_CHANNELS = {
   GALLERY_RELOCATE_PREVIEW: 'gallery:relocate-preview',
   GALLERY_RELOCATE_APPLY: 'gallery:relocate-apply',
   GALLERY_GET_MISSING_FOLDERS: 'gallery:get-missing-folders',
+  // 丢失文件夹横幅「全部迁入无效项」：用户显式批量迁移丢失文件夹下的成员图片
+  GALLERY_MIGRATE_MISSING_FOLDER_IMAGES: 'gallery:migrate-missing-folder-images',
   GALLERY_REPORT_INVALID_IMAGE: 'gallery:report-invalid-image',
   GALLERY_GET_INVALID_IMAGES: 'gallery:get-invalid-images',
   GALLERY_GET_INVALID_IMAGE_COUNT: 'gallery:get-invalid-image-count',

@@ -1,5 +1,6 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
+import fs from 'fs/promises';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
 import { normalizePath, escapeLike, isSubPath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
@@ -1521,7 +1522,18 @@ export async function syncGalleryFolder(id: number): Promise<{
   const defaultExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
   let totalImported = 0;
   let totalSkipped = 0;
+  let missingFolders = 0;
   for (const folder of folderRows) {
+    // 丢失文件夹防护：绑定文件夹不在磁盘上（未重定位/磁盘离线/搬库中）时跳过扫描，
+    // 避免把"丢失"当成"空文件夹"扫出 ENOENT 噪音；其余绑定文件夹照常同步。
+    // 图集卡片/详情横幅已有「文件夹丢失」提示，这里不改公开返回契约。
+    try {
+      await fs.access(folder.folderPath);
+    } catch {
+      missingFolders++;
+      console.warn(`[galleryService] 同步跳过丢失的绑定文件夹（磁盘上不存在）: ${folder.folderPath}`);
+      continue;
+    }
     const isRecursive = folder.recursive === 1 || (folder.recursive as unknown as boolean) === true;
     // 绑定行 extensions 存的是 JSON 字符串；解析失败或为空时回退默认扩展名
     let folderExtensions = defaultExtensions;
@@ -1554,7 +1566,7 @@ export async function syncGalleryFolder(id: number): Promise<{
   const imageCount = countRow?.cnt ?? 0;
 
   console.log(
-    `[galleryService] 同步完成: galleryId=${id}, folders=${folderRows.length}, imported=${totalImported}, skipped=${totalSkipped}, imageCount=${imageCount}`
+    `[galleryService] 同步完成: galleryId=${id}, folders=${folderRows.length}${missingFolders > 0 ? `(丢失跳过 ${missingFolders})` : ''}, imported=${totalImported}, skipped=${totalSkipped}, imageCount=${imageCount}`
   );
 
   // 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }

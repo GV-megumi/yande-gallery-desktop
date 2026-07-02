@@ -35,6 +35,14 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   scanAndImportFolder: (...args: any[]) => scanAndImportFolderMock(...args),
 }));
 
+// 丢失文件夹防护：syncGalleryFolder 会先 fs.access 绑定文件夹，缺失则跳过扫描。
+// 本文件的假路径不在磁盘上，mock 成"全部存在"以维持原有事件行为契约。
+vi.mock('fs/promises', () => ({
+  default: {
+    access: vi.fn(async () => undefined),
+  },
+}));
+
 vi.mock('../../../src/main/services/rendererEventBus.js', () => ({
   emitBuiltRendererAppEvent,
 }));
