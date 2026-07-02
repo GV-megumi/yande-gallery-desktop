@@ -142,7 +142,17 @@ const SettingsRow: React.FC<{
   </div>
 );
 
-export const SettingsPage: React.FC = () => {
+interface SettingsPageProps {
+  /** 丢失文件夹横幅「去重定位」跳转信号：为 true 时挂载后自动打开重定位弹窗 */
+  pendingRelocateOpen?: boolean;
+  /** 消费掉跳转信号（App 置回 false），避免下次正常打开设置页时误弹 */
+  onRelocateOpenConsumed?: () => void;
+}
+
+export const SettingsPage: React.FC<SettingsPageProps> = ({
+  pendingRelocateOpen = false,
+  onRelocateOpenConsumed,
+}) => {
   // antd v5 上下文化提示，替代静态 message / Modal（App.tsx 已包 <App>）
   const { message, modal } = App.useApp();
   const [saving, setSaving] = useState(false);
@@ -158,6 +168,13 @@ export const SettingsPage: React.FC = () => {
     skipped: ScanPlanSkipped[];
   } | null>(null);
   const [relocateOpen, setRelocateOpen] = useState(false);
+  // 丢失文件夹横幅「去重定位」跳转：设置页关闭即卸载，信号经 App 状态传入并在消费后清除，
+  // 保证只有本次跳转自动弹出，之后正常打开设置页不受影响
+  useEffect(() => {
+    if (!pendingRelocateOpen) return;
+    setRelocateOpen(true);
+    onRelocateOpenConsumed?.();
+  }, [pendingRelocateOpen, onRelocateOpenConsumed]);
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
   const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'api' | 'about'>('general');

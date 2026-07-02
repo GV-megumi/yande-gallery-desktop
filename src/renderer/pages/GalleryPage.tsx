@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import type { GalleryPagePreferencesBySubTab } from '../../main/services/config';
-import { Button, Empty, message, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Modal, Tooltip, Dropdown, Form } from 'antd';
+import { Alert, Button, Empty, message, Popconfirm, Spin, Card, Tag, Space, Input, Row, Col, Segmented, Modal, Tooltip, Dropdown, Form } from 'antd';
 import { FolderOpenOutlined, SearchOutlined, QuestionCircleOutlined, ReloadOutlined, SyncOutlined, EditOutlined, DeleteOutlined, ExportOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import { ImageGrid } from '../components/ImageGrid';
 import { ImageListWrapper } from '../components/ImageListWrapper';
@@ -116,6 +116,11 @@ interface GalleryPageProps {
    * "UI 常驻但不写配置"）独立共存。
    */
   suspended?: boolean;
+  /**
+   * 丢失文件夹横幅「去重定位」：请求跳转到设置页并打开重定位根目录弹窗。
+   * 未提供（如子窗口模式，无法操纵主窗口导航）时横幅不展示该按钮。
+   */
+  onOpenRelocate?: () => void;
 }
 
 
@@ -124,6 +129,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   initialGalleryId,
   disablePreferencesPersistence = false,
   suspended = false,
+  onOpenRelocate,
 }) => {
   // 分离不同模式的状态，避免相互干扰
   const [recentImages, setRecentImages] = useState<any[]>([]); // 最近图片数据（懒加载，一次2000张）
@@ -149,6 +155,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
   // Phase 7B：磁盘上已缺失绑定文件夹的图集 id 集合，用于在图集卡片上打「文件夹丢失」标记
   const [missingFolderGalleryIds, setMissingFolderGalleryIds] = useState<Set<number>>(new Set());
+  // 丢失文件夹横幅：图集 id → 缺失的绑定文件夹路径列表（详情页横幅展示与批量迁移入参）
+  const [missingFolderPathsByGallery, setMissingFolderPathsByGallery] = useState<Map<number, string[]>>(new Map());
+  // 横幅「忽略」：本会话内已忽略横幅的图集 id（重定位/迁移成功后 missing 集合刷新，横幅自然消失）
+  const [dismissedMissingBannerIds, setDismissedMissingBannerIds] = useState<Set<number>>(new Set());
   // 内容容器 ref，用于监听滚动和判断缓存恢复时是否可直接插入新增块
   const contentRef = useRef<HTMLDivElement>(null);
   const recentRefreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -217,6 +227,39 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     } finally {
       setSyncing(false);
     }
+  };
+
+  // 丢失文件夹横幅「全部迁入无效项」：把当前图集所有丢失绑定文件夹下的成员图片
+  // 显式批量迁入无效列表（主进程绕过自动上报的丢失文件夹防护，用户已明确选择放弃）
+  const handleMigrateMissingFolders = async () => {
+    if (!selectedGallery) return;
+    const paths = missingFolderPathsByGallery.get(selectedGallery.id) ?? [];
+    if (paths.length === 0) return;
+    let migrated = 0;
+    let failed = 0;
+    for (const folderPath of paths) {
+      try {
+        const res = await window.electronAPI.gallery.migrateMissingFolderImages(selectedGallery.id, folderPath);
+        if (res.success) {
+          migrated += res.data?.migrated ?? 0;
+        } else {
+          failed++;
+          console.error('[GalleryPage] 丢失文件夹批量迁移失败:', folderPath, res.error);
+        }
+      } catch (error) {
+        failed++;
+        console.error('[GalleryPage] 丢失文件夹批量迁移异常:', folderPath, error);
+      }
+    }
+    if (failed > 0) {
+      message.error(`部分文件夹迁移失败（${failed} 个），详见日志`);
+    } else {
+      message.success(`已迁入无效项：${migrated} 张`);
+    }
+    // 迁移是用户对该横幅的明确处置，本会话内不再提示；数据刷新反映最新成员/计数
+    setDismissedMissingBannerIds(prev => new Set(prev).add(selectedGallery.id));
+    await loadGalleryImages(selectedGallery.id);
+    await loadGalleries();
   };
 
   // 打开编辑图集模态框
@@ -667,14 +710,19 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         setAllGalleries(galleryList);
         setGalleries(filterAndSortGalleries(galleryList, nextQuery, nextSortKey, nextSortOrder));
 
-        // Phase 7B：加载磁盘缺失绑定文件夹集合，用于在图集卡片上打「文件夹丢失」标记。
+        // Phase 7B：加载磁盘缺失绑定文件夹集合，用于在图集卡片上打「文件夹丢失」标记
+        // 与详情页丢失文件夹横幅（按图集聚合缺失路径列表）。
         // getMissingGalleryFolders 直接返回裸数组（非 {success} 包裹），可能抛错 → try/catch 兜底。
         try {
           const missing = await window.electronAPI.gallery.getMissingGalleryFolders();
-          const ids = new Set<number>(
-            (Array.isArray(missing) ? missing : []).map((m) => m.galleryId)
-          );
-          setMissingFolderGalleryIds(ids);
+          const byGallery = new Map<number, string[]>();
+          for (const m of Array.isArray(missing) ? missing : []) {
+            const list = byGallery.get(m.galleryId) ?? [];
+            list.push(m.folderPath);
+            byGallery.set(m.galleryId, list);
+          }
+          setMissingFolderGalleryIds(new Set(byGallery.keys()));
+          setMissingFolderPathsByGallery(byGallery);
         } catch (missingError) {
           console.warn('[GalleryPage] 加载缺失文件夹集合失败:', missingError);
         }
@@ -1783,6 +1831,51 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                     </Tooltip>
                   </Space>
                 </div>
+              {(() => {
+                // 丢失文件夹横幅：该图集有绑定文件夹在磁盘上不存在（未重定位/磁盘离线/已移走）时提示，
+                // 提供三种处置：去重定位（无损，推荐）/ 全部迁入无效项（放弃记录）/ 忽略（本会话内关闭）
+                const missingPaths = missingFolderPathsByGallery.get(selectedGallery.id) ?? [];
+                if (missingPaths.length === 0 || dismissedMissingBannerIds.has(selectedGallery.id)) return null;
+                return (
+                  <Alert
+                    type="warning"
+                    showIcon
+                    closable
+                    onClose={() => setDismissedMissingBannerIds(prev => new Set(prev).add(selectedGallery.id))}
+                    style={{ marginBottom: spacing.lg }}
+                    message={`该图集有 ${missingPaths.length} 个绑定文件夹在磁盘上不存在`}
+                    description={
+                      <div>
+                        <ul style={{ margin: `${spacing.xs}px 0`, paddingLeft: spacing.lg }}>
+                          {missingPaths.map((p) => (
+                            <li key={p} style={{ wordBreak: 'break-all' }}>{p}</li>
+                          ))}
+                        </ul>
+                        文件随库搬走了？用「去重定位」无损改写路径；确认不要了再选「全部迁入无效项」。
+                      </div>
+                    }
+                    action={
+                      <Space direction="vertical">
+                        {onOpenRelocate && (
+                          <Button size="small" type="primary" onClick={onOpenRelocate}>
+                            去重定位
+                          </Button>
+                        )}
+                        <Popconfirm
+                          title="全部迁入无效项"
+                          description="将把丢失文件夹下的成员图片全部迁入无效列表（删除图片记录与本地标签、删除缩略图、复位 booru 下载状态），不可撤销。确认？"
+                          okText="迁入"
+                          cancelText="取消"
+                          okButtonProps={{ danger: true }}
+                          onConfirm={() => void handleMigrateMissingFolders()}
+                        >
+                          <Button size="small" danger>全部迁入无效项</Button>
+                        </Popconfirm>
+                      </Space>
+                    }
+                  />
+                );
+              })()}
               <ImageListWrapper
                 images={visibleGalleryImages}
                 loading={loading}
