@@ -703,11 +703,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               图集列表（重命名 / 删除 / 停止监视等）已迁至图库页。 */}
           <SettingsGroup
             title={t('settings.galleryFolders')}
-            footer="选择一个文件夹后会扫描其一级子文件夹并按需创建图集；同名时可选择合并或新建。重定位根目录用于跨机器迁移后整体改写路径前缀。"
+            footer="选择一个文件夹后：它本身和每个一级子文件夹中，含直接图片的各建一个图集，只导入各自的直接图片、不扫更深层；与已有图集同名时可选择合并或新建。重定位根目录用于跨机器迁移后整体改写路径前缀。"
           >
             <SettingsRow
               label="扫描文件夹"
-              description="选择目录扫描子文件夹并创建图集"
+              description="按目录及其一级子文件夹的直接图片创建图集（不递归深层）"
               extra={
                 <Button
                   type="primary"

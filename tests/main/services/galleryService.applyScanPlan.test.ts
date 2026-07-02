@@ -7,11 +7,12 @@ import fsp from 'fs/promises';
 /**
  * Phase 6B — applyScanPlan（按用户决议新建图集 / 合并到现有图集）
  *
- * applyScanPlan 是 plan→apply 两步式 API 的第二步：
- *   - resolution.create：逐项 createGallery({folderPath,name,isWatching:true,recursive:true,extensions})
- *     → scanFolderIntoGallery(newId, folderPath, true, extensions)，累加 created + imported/skipped；
- *   - resolution.merge：逐项 bindFolder(galleryId, folderPath, true, extensions)（加绑文件夹并扫描入成员），
- *     累加 merged + imported/skipped；
+ * applyScanPlan 是 plan→apply 两步式 API 的第二步。扫描入库语义：图集 = 文件夹的
+ * **直接图片**，全程不递归（planScanFolder 候选只有 root 自身 + 一级子文件夹）：
+ *   - resolution.create：逐项 createGallery({folderPath,name,isWatching:true,recursive:false,extensions})
+ *     → scanFolderIntoGallery(newId, folderPath, false, extensions)，累加 created + imported/skipped；
+ *   - resolution.merge：逐项 bindFolder(galleryId, folderPath, false, extensions)（非递归加绑文件夹
+ *     并扫描其直接图片入成员），累加 merged + imported/skipped；
  *   - 单项失败收集并继续（不因一个坏文件夹中止整批）。
  *
  * 用真实临时目录满足 createGallery 的 fs.access 文件夹存在校验；真实 :memory: sqlite 落库；
@@ -55,6 +56,7 @@ vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
 import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { applyScanPlan } from '../../../src/main/services/galleryService';
+import { scanAndImportFolder } from '../../../src/main/services/imageService';
 
 async function setupSchema(): Promise<void> {
   await run(h.db, `
@@ -151,15 +153,15 @@ afterEach(async () => {
 });
 
 describe('applyScanPlan', () => {
-  it('create：为每个候选新建图集（recursive=true）并写入成员', async () => {
+  it('create：为每个候选新建图集（recursive=false，只收直接图片）并写入成员', async () => {
     const folderA = path.join(tmpRoot, 'A');
     await fsp.mkdir(folderA, { recursive: true });
     const normA = normalizePath(folderA);
 
-    // 预置 A 下两张图片（含一张嵌套，验证 recursive=true 把嵌套也纳入成员）
+    // 预置 A 下一张直接图片 + 一张嵌套图片：非递归语义下嵌套图片不得被收编为成员
     const i1 = await addImage(normalizePath(path.join(folderA, 'a.jpg')));
-    const i2 = await addImage(normalizePath(path.join(folderA, 'sub', 'b.jpg')));
-    h.importByFolder[normA] = { imported: 2, skipped: 0 };
+    const nested = await addImage(normalizePath(path.join(folderA, 'sub', 'b.jpg')));
+    h.importByFolder[normA] = { imported: 1, skipped: 0 };
 
     const result = await applyScanPlan({
       create: [{ folderPath: normA, name: 'A' }],
@@ -169,9 +171,12 @@ describe('applyScanPlan', () => {
 
     expect(result.success).toBe(true);
     expect(result.data!.created).toBe(1);
-    expect(result.data!.imported).toBe(2);
+    expect(result.data!.imported).toBe(1);
 
-    // 新图集存在且其绑定 recursive=1（recursive 现在归 gallery_folders）
+    // 磁盘扫描以非递归执行（不深入子目录）
+    expect(vi.mocked(scanAndImportFolder)).toHaveBeenCalledWith(normA, ['.jpg'], false, []);
+
+    // 新图集存在且其绑定 recursive=0（后续「同步文件夹」也按非递归执行）
     const gallery = await get<{ id: number; recursive: number }>(
       h.db,
       `SELECT g.id, gf.recursive
@@ -180,21 +185,14 @@ describe('applyScanPlan', () => {
       [normA]
     );
     expect(gallery).toBeTruthy();
-    expect(gallery!.recursive).toBe(1);
+    expect(gallery!.recursive).toBe(0);
 
-    // gallery_folders 绑定 recursive=1
-    const binding = await get<{ recursive: number }>(
-      h.db,
-      'SELECT recursive FROM gallery_folders WHERE folderPath = ?',
-      [normA]
-    );
-    expect(binding!.recursive).toBe(1);
-
-    // 成员含直接 + 嵌套（recursive=true）
+    // 成员只含直接图片，嵌套图片不收编（ensureMembershipForFolder 非递归分支）
     const members = (
       await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ? ORDER BY imageId', [gallery!.id])
     ).map((r) => r.imageId);
-    expect(members).toEqual([i1, i2].sort((x, y) => x - y));
+    expect(members).toEqual([i1]);
+    expect(members).not.toContain(nested);
   });
 
   it('merge：把文件夹加绑到现有图集并写入其成员', async () => {
@@ -218,13 +216,14 @@ describe('applyScanPlan', () => {
     expect(result.data!.merged).toBe(1);
     expect(result.data!.imported).toBe(1);
 
-    // 现有图集获得了 mergeFolder 的绑定
-    const binding = await get<{ galleryId: number }>(
+    // 现有图集获得了 mergeFolder 的绑定，且绑定为非递归（只覆盖直接图片）
+    const binding = await get<{ galleryId: number; recursive: number }>(
       h.db,
-      'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',
+      'SELECT galleryId, recursive FROM gallery_folders WHERE folderPath = ?',
       [normMerge]
     );
     expect(binding!.galleryId).toBe(galleryId);
+    expect(binding!.recursive).toBe(0);
 
     // mergeFolder 的图片成为该图集成员
     const members = (
