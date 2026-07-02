@@ -64,6 +64,12 @@ describe('backupService constants', () => {
   it('备份表应包含 galleries（图库已归一到数据库）', () => {
     expect(BACKUP_TABLES).toContain('galleries');
   });
+
+  it('备份表应在 galleries 之后纳入 gallery_folders / gallery_images（图集解耦后绑定与成员随备份携带）', () => {
+    const tables = BACKUP_TABLES as readonly string[];
+    expect(tables.indexOf('gallery_folders')).toBeGreaterThan(tables.indexOf('galleries'));
+    expect(tables.indexOf('gallery_images')).toBeGreaterThan(tables.indexOf('gallery_folders'));
+  });
 });
 
 describe('isValidBackupData', () => {
@@ -102,6 +108,13 @@ describe('isValidBackupData', () => {
 
   it('rejects unknown versions', () => {
     expect(isValidBackupData({ ...validBackup, version: 2 })).toBe(false);
+  });
+
+  it('接受缺少 gallery_folders / gallery_images 的旧版备份（图集解耦前导出，两表按可选处理）', () => {
+    const legacy = { ...validBackup, tables: { ...validBackup.tables } } as any;
+    delete legacy.tables.gallery_folders;
+    delete legacy.tables.gallery_images;
+    expect(isValidBackupData(legacy)).toBe(true);
   });
 });
 
