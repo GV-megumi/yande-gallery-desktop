@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Modal, Button, Input, Space, Alert, Table, Popconfirm, Tooltip, message } from 'antd';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Modal, Button, Input, Space, Alert, Table, Popconfirm, Tag, Tooltip, message } from 'antd';
 import { FolderOpenOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { spacing, colors, fontSize } from '../styles/tokens';
 
@@ -57,6 +57,12 @@ interface Props {
   onPreview: (mappings: RelocateMapping[]) => Promise<{ success: boolean; data?: PreviewResult; error?: string }>;
   onApply: (mappings: RelocateMapping[]) => Promise<{ success: boolean; data?: { affected: PreviewAffected[] }; error?: string }>;
   onPickFolder: () => Promise<string | undefined>;
+  /**
+   * 可选：加载磁盘上已不存在的绑定文件夹（gallery.getMissingGalleryFolders）。
+   * 换机后旧路径在新机器上选不到，这些丢失路径正是旧前缀的天然候选——
+   * 提供后弹窗打开时展示为可点击候选，点击填入旧前缀输入框。
+   */
+  onLoadMissingFolders?: () => Promise<Array<{ galleryId: number; folderPath: string }>>;
 }
 
 /** 过滤出 old/new 都非空的有效映射（trim 后） */
@@ -66,15 +72,56 @@ function sanitizeMappings(rows: RelocateMapping[]): RelocateMapping[] {
     .filter(r => r.oldPrefix.length > 0 && r.newPrefix.length > 0);
 }
 
-export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, onApply, onPickFolder }) => {
+/**
+ * 丢失文件夹的段级公共目录前缀建议：按首段（盘符/根）分组，组内 ≥2 条时取
+ * 段级公共前缀（win32 语义下段比较大小写不敏感，保留首条的字节形态）。
+ * 典型场景「整个库根搬走」下，用户真正想填的旧前缀是公共根而非某个具体文件夹。
+ * 公共前缀不足 2 段（只剩盘符）时无意义，不给建议。
+ */
+function computeCommonPrefixSuggestions(paths: string[]): Array<{ prefix: string; count: number }> {
+  const groups = new Map<string, string[]>();
+  for (const p of paths) {
+    const head = (p.split(/[\\/]+/)[0] ?? '').toLowerCase();
+    if (!head) continue; // UNC 等异常首段不参与建议，仍以完整路径候选呈现
+    const list = groups.get(head) ?? [];
+    list.push(p);
+    groups.set(head, list);
+  }
+
+  const suggestions: Array<{ prefix: string; count: number }> = [];
+  for (const list of groups.values()) {
+    if (list.length < 2) continue;
+    const sep = list[0].includes('\\') ? '\\' : '/';
+    const segLists = list.map(p => p.split(/[\\/]+/));
+    const first = segLists[0];
+    let common = 0;
+    while (
+      common < first.length &&
+      segLists.every(segs => (segs[common] ?? '').toLowerCase() === first[common].toLowerCase())
+    ) {
+      common++;
+    }
+    if (common < 2) continue;
+    suggestions.push({ prefix: first.slice(0, common).join(sep), count: list.length });
+  }
+  return suggestions;
+}
+
+export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, onApply, onPickFolder, onLoadMissingFolders }) => {
   const [rows, setRows] = useState<RelocateMapping[]>([{ oldPrefix: '', newPrefix: '' }]);
   const [preview, setPreview] = useState<PreviewResult | null>(null);
   // 预览所针对的映射快照（JSON）。一旦当前映射与之不同，预览结果作废，禁止应用。
   const [previewedSignature, setPreviewedSignature] = useState<string | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [applying, setApplying] = useState(false);
+  // 丢失的绑定文件夹（去重排序后的路径），作为旧前缀候选
+  const [missingFolders, setMissingFolders] = useState<string[]>([]);
 
-  // 打开时重置为初始单行
+  // 调用方通常传内联箭头函数（每次渲染新引用），经 ref 消引用避免打开期间反复重拉
+  const loadMissingRef = useRef(onLoadMissingFolders);
+  loadMissingRef.current = onLoadMissingFolders;
+
+  // 打开时重置为初始单行，并加载丢失文件夹候选
   useEffect(() => {
     if (!open) return;
     setRows([{ oldPrefix: '', newPrefix: '' }]);
@@ -82,6 +129,27 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
     setPreviewedSignature(null);
     setPreviewing(false);
     setApplying(false);
+    setMissingFolders([]);
+
+    const load = loadMissingRef.current;
+    if (!load) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const rows = await load();
+        if (cancelled) return;
+        // getMissingGalleryFolders 直接返回裸数组（非 {success} 包裹），可能 throw → 兜底为空
+        const paths = Array.from(
+          new Set((Array.isArray(rows) ? rows : []).map(r => r?.folderPath).filter((p): p is string => Boolean(p)))
+        ).sort();
+        setMissingFolders(paths);
+      } catch (err) {
+        console.warn('[RelocateRootModal] 加载丢失文件夹候选失败:', err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [open]);
 
   const sanitized = useMemo(() => sanitizeMappings(rows), [rows]);
@@ -107,6 +175,17 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
   const pickInto = async (index: number, field: 'oldPrefix' | 'newPrefix') => {
     const picked = await onPickFolder();
     if (picked) updateRow(index, { [field]: picked });
+  };
+
+  const prefixSuggestions = useMemo(() => computeCommonPrefixSuggestions(missingFolders), [missingFolders]);
+
+  // 候选点击：填入第一行旧前缀为空的映射；都已填则追加一行
+  const fillOldPrefix = (value: string) => {
+    setRows(prev => {
+      const idx = prev.findIndex(r => r.oldPrefix.trim() === '');
+      if (idx === -1) return [...prev, { oldPrefix: value, newPrefix: '' }];
+      return prev.map((r, i) => (i === idx ? { ...r, oldPrefix: value } : r));
+    });
   };
 
   const handlePreview = async () => {
@@ -189,6 +268,36 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
         style={{ marginBottom: spacing.md }}
         message="跨机器迁移：文件随库一起搬到新位置后，把旧路径前缀整体改写为新前缀，无损、不重扫。"
       />
+
+      {missingFolders.length > 0 && (
+        // 换机后旧路径在本机选不到（目录选择器没用），丢失的绑定文件夹正是旧前缀该填什么的答案
+        <div style={{ marginBottom: spacing.md }}>
+          <div style={{ fontSize: fontSize.sm, color: colors.textSecondary, marginBottom: spacing.xs }}>
+            检测到 {missingFolders.length} 个丢失的绑定文件夹（磁盘上不存在），点击填入旧前缀：
+          </div>
+          <Space size={[spacing.xs, spacing.xs]} wrap>
+            {prefixSuggestions.map(s => (
+              <Tag
+                key={`prefix:${s.prefix}`}
+                color="blue"
+                style={{ cursor: 'pointer', wordBreak: 'break-all', whiteSpace: 'normal' }}
+                onClick={() => fillOldPrefix(s.prefix)}
+              >
+                公共前缀 {s.prefix}（{s.count} 个）
+              </Tag>
+            ))}
+            {missingFolders.map(p => (
+              <Tag
+                key={p}
+                style={{ cursor: 'pointer', wordBreak: 'break-all', whiteSpace: 'normal' }}
+                onClick={() => fillOldPrefix(p)}
+              >
+                {p}
+              </Tag>
+            ))}
+          </Space>
+        </div>
+      )}
 
       <Space direction="vertical" size={spacing.sm} style={{ width: '100%' }}>
         {rows.map((row, index) => (

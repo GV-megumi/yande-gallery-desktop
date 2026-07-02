@@ -159,6 +159,57 @@ describe('RelocateRootModal', () => {
     expect(screen.getAllByPlaceholderText(/旧路径前缀/)).toHaveLength(2);
   });
 
+  describe('丢失文件夹候选（旧前缀建议）', () => {
+    const missing = [
+      { galleryId: 1, folderPath: 'D:/pics/a' },
+      { galleryId: 2, folderPath: 'D:/pics/b' },
+      { galleryId: 3, folderPath: 'E:/solo' },
+    ];
+
+    it('打开时加载丢失文件夹并展示候选；点击填入第一行空的旧前缀', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
+
+      expect(await screen.findByText(/检测到 3 个丢失的绑定文件夹/)).toBeTruthy();
+      await userEvent.click(screen.getByText('D:/pics/a'));
+      expect((screen.getByPlaceholderText(/旧路径前缀/) as HTMLInputElement).value).toBe('D:/pics/a');
+    });
+
+    it('两条以上共享公共目录前缀时给出公共前缀候选，点击填入', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
+
+      const prefixTag = await screen.findByText(/公共前缀 D:\/pics（2 个）/);
+      await userEvent.click(prefixTag);
+      expect((screen.getByPlaceholderText(/旧路径前缀/) as HTMLInputElement).value).toBe('D:/pics');
+    });
+
+    it('旧前缀都已填时点击候选新增一行填入', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
+      await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
+
+      await userEvent.type(screen.getByPlaceholderText(/旧路径前缀/), 'X:/filled');
+      await userEvent.click(screen.getByText('E:/solo'));
+
+      const oldInputs = screen.getAllByPlaceholderText(/旧路径前缀/) as HTMLInputElement[];
+      expect(oldInputs).toHaveLength(2);
+      expect(oldInputs[1].value).toBe('E:/solo');
+    });
+
+    it('无丢失文件夹时不渲染候选区', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue([]);
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
+      await waitFor(() => expect(onLoadMissingFolders).toHaveBeenCalled());
+      expect(screen.queryByText(/丢失的绑定文件夹/)).toBeNull();
+    });
+
+    it('未提供 onLoadMissingFolders 时不渲染候选区（可选接线）', () => {
+      render(<RelocateRootModal {...makeProps()} />);
+      expect(screen.queryByText(/丢失的绑定文件夹/)).toBeNull();
+    });
+  });
+
   it('编辑映射后预览结果失效，应用重新被禁用', async () => {
     const onPreview = vi.fn().mockResolvedValue({
       success: true,
