@@ -194,6 +194,45 @@ describe('RelocateRootModal', () => {
       expect(screen.getByText('推断')).toBeTruthy();
     });
 
+    it('选中 UNC 新位置（NAS 共享目录）时推断保留 \\\\ 前缀，不产出相对形态坏值', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      const onPickFolder = vi.fn().mockResolvedValue('\\\\NAS\\photos\\a');
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder })} />);
+      await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+
+      const inputs = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(inputs[0].value).toBe('\\\\NAS\\photos\\a');
+      expect(inputs[1].value).toBe('\\\\NAS\\photos\\b'); // 同根推断：前导 \\ 必须保留
+      expect(inputs[2].value).toBe('');
+    });
+
+    it('选中 POSIX 绝对路径时推断保留前导 /', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      const onPickFolder = vi.fn().mockResolvedValue('/mnt/photos/a');
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder })} />);
+      await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+
+      const inputs = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(inputs[0].value).toBe('/mnt/photos/a');
+      expect(inputs[1].value).toBe('/mnt/photos/b'); // 同根推断：前导 / 必须保留
+    });
+
+    it('选中值为相对路径（防御场景）时不向其它项推断传播', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      const onPickFolder = vi.fn().mockResolvedValue('moved/pics/a');
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder })} />);
+      await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+
+      const inputs = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(inputs[1].value).toBe(''); // 相对形态无法可靠推断，宁可留空让用户手选
+    });
+
     it('推断不覆盖用户手选；清除只清当前行', async () => {
       const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
       const onPickFolder = vi.fn()
