@@ -78,6 +78,16 @@ async function setupSchema(): Promise<void> {
       FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
     )
   `);
+  // 与 database.ts 真实定义一致：scanFolderIntoGallery 会读忽略名单做整棵子树排除
+  await run(h.db, `
+    CREATE TABLE gallery_ignored_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folderPath TEXT NOT NULL UNIQUE,
+      note TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
 }
 
 /** 直接写一行 galleries + 对应 gallery_folders（模拟 createGallery 的双写） */

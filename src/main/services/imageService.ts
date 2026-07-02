@@ -2,6 +2,7 @@ import { Image, Tag } from '../../shared/types.js';
 import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
+import { normalizePath, isSubPath } from '../utils/path.js';
 import { enqueueThumbnailGeneration, deleteThumbnail } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
@@ -665,14 +666,25 @@ export async function getAllFolders(): Promise<{ success: boolean; data?: string
 
 /**
  * 递归扫描并导入文件夹中的图片
+ *
+ * @param excludeDirs 排除目录（黑名单整棵子树跳过，修复轮 U05）：递归遍历时命中
+ *   其中任一目录（或其后代）即整棵剪枝，不深入、不导入。调用方（galleryService.
+ *   scanFolderIntoGallery）传入忽略名单中位于扫描根内部的条目，防止「删除图集
+ *   自动拉黑」的子树被父级重扫整棵复活。
  */
 export async function scanAndImportFolder(
   folderPath: string,
   extensions: string[] = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'],
-  recursive: boolean = true
+  recursive: boolean = true,
+  excludeDirs: string[] = []
 ): Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }> {
   try {
-    const files = await scanDirectory(folderPath, recursive);
+    // 排除目录先归一化，遍历时与 normalizePath 后的候选目录做前缀判定
+    const normalizedExcludes = excludeDirs.map(dir => normalizePath(dir));
+    if (normalizedExcludes.length > 0) {
+      console.log(`[scanAndImportFolder] 携带排除目录 ${normalizedExcludes.length} 个（命中即整棵剪枝）`);
+    }
+    const files = await scanDirectory(folderPath, recursive, normalizedExcludes);
     const db = await getDatabase();
 
     // 只保留符合扩展名的文件
@@ -756,8 +768,11 @@ export async function scanAndImportFolder(
 
 /**
  * 辅助函数：递归扫描目录
+ *
+ * @param excludeDirs 已归一化的排除目录：子目录命中其中任一条目（或位于其内部，
+ *   isSubPath 对相等路径也返回 true）即整棵剪枝——不 readdir、不收集其文件。
  */
-async function scanDirectory(dirPath: string, recursive: boolean = true): Promise<string[]> {
+async function scanDirectory(dirPath: string, recursive: boolean = true, excludeDirs: string[] = []): Promise<string[]> {
   const files: string[] = [];
   try {
     const items = await fs.readdir(dirPath, { withFileTypes: true });
@@ -765,7 +780,15 @@ async function scanDirectory(dirPath: string, recursive: boolean = true): Promis
     for (const item of items) {
       const fullPath = path.join(dirPath, item.name);
       if (item.isDirectory() && recursive) {
-        const subFiles = await scanDirectory(fullPath, recursive);
+        // 黑名单整棵剪枝：命中排除目录或其后代即跳过整棵子树
+        if (excludeDirs.length > 0) {
+          const normalizedFull = normalizePath(fullPath);
+          if (excludeDirs.some(excluded => isSubPath(excluded, normalizedFull))) {
+            console.log(`[scanDirectory] 命中排除目录，整棵子树跳过: ${normalizedFull}`);
+            continue;
+          }
+        }
+        const subFiles = await scanDirectory(fullPath, recursive, excludeDirs);
         files.push(...subFiles);
       } else if (item.isFile()) {
         files.push(fullPath);

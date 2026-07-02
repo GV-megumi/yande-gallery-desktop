@@ -99,6 +99,16 @@ async function setupSchema(): Promise<void> {
       PRIMARY KEY (galleryId, imageId)
     )
   `);
+  // 与 database.ts 真实定义一致：scanFolderIntoGallery 会读忽略名单做整棵子树排除
+  await run(h.db, `
+    CREATE TABLE gallery_ignored_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folderPath TEXT NOT NULL UNIQUE,
+      note TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
 }
 
 async function addImage(filepath: string): Promise<number> {

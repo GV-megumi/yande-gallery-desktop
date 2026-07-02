@@ -1,7 +1,7 @@
 import { Image } from '../../shared/types.js';
 import path from 'path';
 import { getDatabase, run, runWithChanges, get, all, runInTransaction } from './database.js';
-import { normalizePath, escapeLike } from '../utils/path.js';
+import { normalizePath, escapeLike, isSubPath } from '../utils/path.js';
 import { scanAndImportFolder } from './imageService.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import {
@@ -456,7 +456,8 @@ export async function cleanupOrphanImages(
  *
  * 公开契约保持不变：返回 { success, error? }；图集不存在返回 success:false；
  * 发出 gallery:galleries-changed{action:'deleted'} 与 gallery:ignored-folders-changed{action:'created'}；
- * 每个绑定文件夹写入 gallery_ignored_folders（拉黑，下次扫描不重建）；原图文件不删。
+ * 每个绑定文件夹写入 gallery_ignored_folders（拉黑：planScanFolder 不再重建图集，
+ * 父级文件夹重扫时该子树也被整棵剪枝，见 scanFolderIntoGallery）；原图文件不删。
  *
  * 清理顺序：
  * 1. 校验 galleries 行存在（folderPath 旧列仅用于 deleted 事件载荷，向后兼容）；
@@ -607,33 +608,48 @@ export async function updateGalleryStats(
  * 注：likePrefix（含 path.sep）经 escapeLike 转义，配套 ESCAPE '\'——否则路径里的
  * _/% 会被当通配符，使兄弟目录（如 ...gal_1 误命中 ...galA1）被错误写入成员。
  *
+ * excludeDirs（黑名单整棵子树排除，修复轮 U05）：对每个排除目录 E 追加
+ *   AND NOT (filepath = E OR filepath LIKE 'E{sep}%' ESCAPE '\')
+ * 排除前缀与包含前缀同样经 escapeLike 转义（字节级同风格）——防止把库中已存在的
+ * 黑名单子树图片按前缀收编为成员（磁盘剪枝只挡新导入，挡不住已有行）。
+ *
  * @returns 本次新写入的成员行数（changes）。重复执行时已存在的成员被 OR IGNORE，返回 0。
  */
 export async function ensureMembershipForFolder(
   db: Awaited<ReturnType<typeof getDatabase>>,
   galleryId: number,
   folderPath: string,
-  recursive: boolean
+  recursive: boolean,
+  excludeDirs: string[] = []
 ): Promise<number> {
   const normalized = normalizePath(folderPath);
   const likePrefix = normalized + path.sep;
   const escapedPrefix = escapeLike(likePrefix);
   const now = new Date().toISOString();
 
+  // 黑名单排除谓词：逐条追加 AND NOT (= 或 前缀 LIKE)，与包含侧同一 escapeLike + ESCAPE '\' 风格
+  let exclusionSql = '';
+  const exclusionParams: string[] = [];
+  for (const dir of excludeDirs) {
+    const exNormalized = normalizePath(dir);
+    exclusionSql += ` AND NOT (filepath = ? OR filepath LIKE ? ESCAPE '\\')`;
+    exclusionParams.push(exNormalized, escapeLike(exNormalized + path.sep) + '%');
+  }
+
   const result = recursive
     ? await runWithChanges(
         db,
         `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
            SELECT ?, id, ? FROM images
-            WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
-        [galleryId, now, escapedPrefix + '%', normalized]
+            WHERE (filepath LIKE ? ESCAPE '\\' OR filepath = ?)${exclusionSql}`,
+        [galleryId, now, escapedPrefix + '%', normalized, ...exclusionParams]
       )
     : await runWithChanges(
         db,
         `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
            SELECT ?, id, ? FROM images
-            WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
-        [galleryId, now, escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
+            WHERE (filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\')${exclusionSql}`,
+        [galleryId, now, escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%', ...exclusionParams]
       );
 
   return result.changes;
@@ -643,11 +659,20 @@ export async function ensureMembershipForFolder(
  * 扫描某文件夹并把结果落到指定图集：导入图片 + 写成员 + 更新统计。
  *
  * Phase 2A 统一写入口：
- *   1. scanAndImportFolder(folderPath, extensions, recursive) —— 复用已有扫描导入；
- *   2. ensureMembershipForFolder —— 把该文件夹范围内的 images 写入 gallery_images；
+ *   0. 加载 gallery_ignored_folders 中严格位于目标文件夹内部的条目（后代）作为排除目录组；
+ *   1. scanAndImportFolder(folderPath, extensions, recursive, 排除目录) —— 复用已有扫描导入，
+ *      排除目录整棵剪枝（不深入、不导入）；
+ *   2. ensureMembershipForFolder（带同一组排除目录）—— 把该文件夹范围内的 images 写入
+ *      gallery_images，排除目录子树中库里已有的图片不收编；
  *   3. COUNT(*) gallery_images WHERE galleryId —— 以成员表为准统计图片数；
  *   4. updateGalleryStats —— 写回 galleries.imageCount / lastScannedAt；
  *   5. imported>0 时发出 gallery:images-imported（与 syncGalleryFolder 行为一致）。
+ *
+ * 黑名单整棵子树跳过（修复轮 U05）：deleteGallery 会把被删图集的绑定文件夹写入
+ * gallery_ignored_folders；若父级文件夹随后 recursive 重扫，没有第 0/1/2 步的排除，
+ * 已删除并拉黑的子树会被整棵重新导入并收编——用户明确清除的数据复活。
+ * 注意只排除**严格后代**：目标自身在黑名单时不拦截（显式扫描/绑定该路径的意图优先，
+ * planScanFolder 已在规划层对候选精确命中做跳过）。
  *
  * 注意：本阶段读路径未切换，imageCount 改以成员表 COUNT 为准只影响"统计数字"，
  * 与旧 folderPath 前缀 COUNT 在数据正确时等价（成员由同一前缀规则写入）。
@@ -660,16 +685,36 @@ export async function scanFolderIntoGallery(
   recursive: boolean,
   extensions: string[]
 ): Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number }; error?: string }> {
-  // 1. 复用已有扫描导入逻辑（filesystem → images 表）
-  const importResult = await scanAndImportFolder(folderPath, extensions, recursive);
+  const db = await getDatabase();
+  const normalized = normalizePath(folderPath);
+
+  // 0. 加载黑名单中严格位于目标文件夹内部的条目（后代），作为整棵剪枝的排除目录组
+  const ignoredRows = await all<{ folderPath: string }>(
+    db,
+    'SELECT folderPath FROM gallery_ignored_folders'
+  );
+  const excludedDirs: string[] = [];
+  for (const row of ignoredRows) {
+    const ignored = normalizePath(row.folderPath);
+    // isSubPath 对相等路径也返回 true，这里显式排掉目标自身（显式意图优先）
+    if (ignored !== normalized && isSubPath(normalized, ignored)) {
+      excludedDirs.push(ignored);
+    }
+  }
+  if (excludedDirs.length > 0) {
+    console.log(
+      `[galleryService] scanFolderIntoGallery 命中忽略名单后代 ${excludedDirs.length} 个，整棵剪枝: ${excludedDirs.join(', ')}`
+    );
+  }
+
+  // 1. 复用已有扫描导入逻辑（filesystem → images 表），黑名单子树整棵不导入
+  const importResult = await scanAndImportFolder(folderPath, extensions, recursive, excludedDirs);
   if (!importResult.success || !importResult.data) {
     return { success: false, error: importResult.error || '扫描导入失败' };
   }
 
-  const db = await getDatabase();
-
-  // 2. 写 gallery_images 成员（按 recursive 前缀，幂等）
-  await ensureMembershipForFolder(db, galleryId, folderPath, recursive);
+  // 2. 写 gallery_images 成员（按 recursive 前缀，幂等），黑名单子树中已有图片不收编
+  await ensureMembershipForFolder(db, galleryId, folderPath, recursive, excludedDirs);
 
   // 3. 以成员表为准统计图片数
   const countRow = await get<{ cnt: number }>(
@@ -1374,8 +1419,10 @@ export async function syncGalleryFolder(id: number): Promise<{
 
 // ---------------------------------------------------------------------------
 // gallery_ignored_folders CRUD（bug12）
-// 记录被用户标记为"不再扫描"的文件夹路径。删除图集时会自动写入，
-// 扫描器加载该集合后命中即跳过整棵子树，避免重新创建图集。
+// 记录被用户标记为"不再扫描"的文件夹路径。删除图集时会自动写入。消费方：
+//   - planScanFolder：候选路径精确命中 → skipped: ignored（不重建图集）；
+//   - scanFolderIntoGallery：严格位于扫描目标内部的条目 → 磁盘扫描与成员收编
+//     整棵剪枝（父级重扫不会整棵复活已拉黑子树，修复轮 U05）。
 // ---------------------------------------------------------------------------
 
 export interface IgnoredFolderRow {

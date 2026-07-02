@@ -134,4 +134,38 @@ describe('ensureMembershipForFolder', () => {
     expect(members).toContain(own);
     expect(members).not.toContain(sibling);
   });
+
+  /**
+   * 黑名单整棵子树排除（修复轮 U05）：excludeDirs 里的目录（= 忽略名单中位于目标文件夹
+   * 内部的条目）整棵不收编——否则库中已存在的黑名单子树图片会被父级前缀收编复活。
+   */
+  it('excludeDirs：排除目录及其后代中的已有图片不被按前缀收编', async () => {
+    const folder = normalizePath(path.join('M:', 'top', 'R'));
+    const excluded = normalizePath(path.join('M:', 'top', 'R', 'C'));
+    const own = await addImage(normalizePath(path.join('M:', 'top', 'R', 'a.jpg')));
+    const inExcluded = await addImage(normalizePath(path.join('M:', 'top', 'R', 'C', 'b.jpg')));
+    const inExcludedNested = await addImage(normalizePath(path.join('M:', 'top', 'R', 'C', 'deep', 'c.jpg')));
+
+    const count = await ensureMembershipForFolder(db, 10, folder, true, [excluded]);
+
+    expect(count).toBe(1);
+    const members = await memberIds(10);
+    expect(members).toContain(own);
+    expect(members).not.toContain(inExcluded);
+    expect(members).not.toContain(inExcludedNested);
+  });
+
+  it('excludeDirs 含 LIKE 通配符字符时不误伤兄弟目录（排除前缀须 escapeLike）', async () => {
+    const folder = normalizePath(path.join('M:', 'top2'));
+    // sub_1 的 _ 是 LIKE 通配符：排除前缀未转义时 'sub_1\%' 会误命中 'subA1\...'，把兄弟目录一并排除
+    const excluded = normalizePath(path.join('M:', 'top2', 'sub_1'));
+    const sibling = await addImage(normalizePath(path.join('M:', 'top2', 'subA1', 'a.jpg')));
+    const inExcluded = await addImage(normalizePath(path.join('M:', 'top2', 'sub_1', 'b.jpg')));
+
+    await ensureMembershipForFolder(db, 11, folder, true, [excluded]);
+
+    const members = await memberIds(11);
+    expect(members).toContain(sibling);
+    expect(members).not.toContain(inExcluded);
+  });
 });

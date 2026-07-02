@@ -27,6 +27,8 @@ vi.mock('../../../src/main/utils/path.js', () => ({
   normalizePath: (p: string) => p.replace(/\\/g, '/').replace(/\/+$/, ''),
   // ensureMembershipForFolder 现会调用 escapeLike 转义 LIKE 前缀；mock 须导出它（与真实实现一致）。
   escapeLike: (s: string) => s.replace(/[\\%_]/g, (c: string) => '\\' + c),
+  // scanFolderIntoGallery 现会用 isSubPath 判定忽略名单后代（修复轮 U05）；mock 须导出它。
+  isSubPath: (parent: string, child: string) => (child + '/').startsWith(parent + '/'),
 }));
 
 vi.mock('../../../src/main/services/imageService.js', () => ({
@@ -87,7 +89,8 @@ describe('galleryService.syncGalleryFolder app event', () => {
       skipped: 1,
       imageCount: 3,
     }));
-    expect(scanAndImportFolderMock).toHaveBeenCalledWith(folderPath, ['.jpg'], true);
+    // 第 4 参为忽略名单排除目录组（本用例无忽略条目 → 空数组）
+    expect(scanAndImportFolderMock).toHaveBeenCalledWith(folderPath, ['.jpg'], true, []);
     // COUNT 现在以成员表为准
     expect(getMock).toHaveBeenCalledWith(
       {},
