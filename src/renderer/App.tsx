@@ -214,6 +214,8 @@ export const AppContent: React.FC = () => {
   const [quickItems, setQuickItems] = useState<PinnedItem[]>([]);
   /** 设置页是否打开：设置是独立于三个分区的全局页面，不占用任何分区的二级页状态 */
   const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 丢失文件夹横幅「去重定位」：打开设置页并让其自动弹出重定位弹窗（一次性信号，消费后清除） */
+  const [pendingRelocateOpen, setPendingRelocateOpen] = useState(false);
   /** 本次会话中已挂载的页面 id Set（`${section}:${subKey}`） */
   const [mountedPageIds, setMountedPageIds] = useState<Set<string>>(new Set());
 
@@ -869,7 +871,17 @@ export const AppContent: React.FC = () => {
       // bug1-I2：常驻缓存层下非活跃时挂起 GalleryPage 内部副作用（水合/保存）。
       // 其它页面（BooruUserPage / SavedSearches / Google embeds）视后续性能观察
       // 决定是否补；当前先收口 GalleryPage。
-      return <GalleryPage subTab={key as 'recent' | 'all' | 'galleries'} suspended={!isActive} />;
+      return (
+        <GalleryPage
+          subTab={key as 'recent' | 'all' | 'galleries'}
+          suspended={!isActive}
+          onOpenRelocate={() => {
+            // 丢失文件夹横幅「去重定位」：跳设置页并自动打开重定位弹窗
+            setPendingRelocateOpen(true);
+            setSettingsOpen(true);
+          }}
+        />
+      );
     }
     if (section === 'booru') {
       if (key === 'posts') return <BooruPage onTagClick={navigateToTagSearch} onArtistClick={navigateToArtist} onCharacterClick={navigateToCharacter} suspended={baseSuspended} />;
@@ -1320,7 +1332,10 @@ export const AppContent: React.FC = () => {
               }}
             >
               <Suspense fallback={suspenseFallback}>
-                <SettingsPage />
+                <SettingsPage
+                  pendingRelocateOpen={pendingRelocateOpen}
+                  onRelocateOpenConsumed={() => setPendingRelocateOpen(false)}
+                />
               </Suspense>
             </div>
           )}

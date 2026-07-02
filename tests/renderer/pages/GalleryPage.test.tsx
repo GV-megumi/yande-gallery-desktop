@@ -16,6 +16,8 @@ const getGallerySourceFavoriteTags = vi.fn();
 // Phase 7B：GalleryFolderManagerDialog 与进入图集自动扫描、卡片缺失标记所需的新 mock
 const getGalleryFolders = vi.fn();
 const getMissingGalleryFolders = vi.fn();
+// 丢失文件夹横幅「全部迁入无效项」的批量迁移接口
+const migrateMissingFolderImages = vi.fn();
 const bindFolder = vi.fn();
 const unbindFolder = vi.fn();
 const changeFolderPath = vi.fn();
@@ -230,6 +232,7 @@ describe('GalleryPage gallery delete action', () => {
       data: [{ folderPath: 'D:/gallery/test', recursive: true, extensions: ['.jpg'] }],
     });
     getMissingGalleryFolders.mockResolvedValue([]);
+    migrateMissingFolderImages.mockResolvedValue({ success: true, data: { migrated: 0, skipped: 0 } });
     bindFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } });
     unbindFolder.mockResolvedValue({ success: true });
     changeFolderPath.mockResolvedValue({ success: true });
@@ -246,6 +249,7 @@ describe('GalleryPage gallery delete action', () => {
         getRecentImagesAfter,
         getGalleryFolders,
         getMissingGalleryFolders,
+        migrateMissingFolderImages,
         bindFolder,
         unbindFolder,
         changeFolderPath,
@@ -1475,6 +1479,76 @@ describe('GalleryPage gallery delete action', () => {
     });
     expect(await screen.findByText('文件夹丢失')).toBeTruthy();
   });
+
+  // ===== 丢失文件夹横幅：详情页三选项（去重定位 / 全部迁入无效项 / 忽略） =====
+
+  const missingBannerGallery = {
+    id: 9,
+    name: '丢失横幅图集',
+    createdAt: '2026-04-14T00:00:00.000Z',
+    updatedAt: '2026-04-14T00:00:00.000Z',
+    imageCount: 2,
+    recursive: true,
+    autoScan: false,
+  };
+
+  function mockMissingBannerGallery(missingPaths: string[]) {
+    getGalleries.mockResolvedValue({ success: true, data: [missingBannerGallery] });
+    getGallery.mockResolvedValue({ success: true, data: missingBannerGallery });
+    getMissingGalleryFolders.mockResolvedValue(
+      missingPaths.map((folderPath) => ({ galleryId: 9, folderPath, galleryName: '丢失横幅图集' }))
+    );
+  }
+
+  it('丢失文件夹横幅：进入命中图集展示缺失路径，「去重定位」触发 onOpenRelocate', async () => {
+    mockMissingBannerGallery(['D:/lost/a']);
+    const onOpenRelocate = vi.fn();
+    render(<GalleryPage subTab="galleries" onOpenRelocate={onOpenRelocate} />);
+
+    await userEvent.click(await screen.findByText('丢失横幅图集'));
+
+    expect(await screen.findByText(/1 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
+    expect(screen.getByText('D:/lost/a')).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('button', { name: /去重定位/ }));
+    expect(onOpenRelocate).toHaveBeenCalledTimes(1);
+  });
+
+  it('丢失文件夹横幅：「全部迁入无效项」确认后逐文件夹调用批量迁移并关闭横幅', async () => {
+    mockMissingBannerGallery(['D:/lost/a', 'D:/lost/b']);
+    migrateMissingFolderImages.mockResolvedValue({ success: true, data: { migrated: 2, skipped: 0 } });
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    expect(await screen.findByText(/2 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
+
+    await userEvent.click(screen.getByRole('button', { name: /全部迁入无效项/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^迁\s*入$/ }));
+
+    await waitFor(() => {
+      expect(migrateMissingFolderImages).toHaveBeenCalledWith(9, 'D:/lost/a');
+      expect(migrateMissingFolderImages).toHaveBeenCalledWith(9, 'D:/lost/b');
+    });
+    // 迁移是明确处置：横幅随之关闭
+    await waitFor(() => {
+      expect(screen.queryByText(/绑定文件夹在磁盘上不存在/)).toBeNull();
+    });
+  });
+
+  it('丢失文件夹横幅：未提供 onOpenRelocate（子窗口）时不渲染「去重定位」；忽略后横幅关闭', async () => {
+    mockMissingBannerGallery(['D:/lost/a']);
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    expect(await screen.findByText(/1 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /去重定位/ })).toBeNull();
+
+    // 忽略（关闭横幅）
+    await userEvent.click(screen.getByRole('button', { name: /close/i }));
+    await waitFor(() => {
+      expect(screen.queryByText(/绑定文件夹在磁盘上不存在/)).toBeNull();
+    });
+  });
 });
 
 describe('GalleryPage app event refresh', () => {
@@ -1515,6 +1589,7 @@ describe('GalleryPage app event refresh', () => {
     saveGalleryPagePreferences.mockResolvedValue({ success: true });
     getGalleryFolders.mockResolvedValue({ success: true, data: [] });
     getMissingGalleryFolders.mockResolvedValue([]);
+    migrateMissingFolderImages.mockResolvedValue({ success: true, data: { migrated: 0, skipped: 0 } });
     bindFolder.mockResolvedValue({ success: true, data: { imported: 0, skipped: 0 } });
     unbindFolder.mockResolvedValue({ success: true });
     changeFolderPath.mockResolvedValue({ success: true });
@@ -1531,6 +1606,7 @@ describe('GalleryPage app event refresh', () => {
         getRecentImagesAfter,
         getGalleryFolders,
         getMissingGalleryFolders,
+        migrateMissingFolderImages,
         bindFolder,
         unbindFolder,
         changeFolderPath,

@@ -725,6 +725,23 @@ describe('SettingsPage general tab behavior', () => {
     expect(within(dialog).getByText(/跨机器迁移/)).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /预\s*览/ })).toBeTruthy();
   });
+
+  it('丢失文件夹横幅跳转：pendingRelocateOpen 挂载即自动打开重定位弹窗并消费信号', async () => {
+    const onRelocateOpenConsumed = vi.fn();
+    render(
+      <App>
+        <SettingsPage pendingRelocateOpen onRelocateOpenConsumed={onRelocateOpenConsumed} />
+      </App>
+    );
+
+    // 无需任何点击：弹窗自动打开（来自图集详情「去重定位」跳转）
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText(/跨机器迁移/)).toBeTruthy();
+    // 一次性信号被消费，避免下次正常打开设置页误弹
+    await waitFor(() => {
+      expect(onRelocateOpenConsumed).toHaveBeenCalled();
+    });
+  });
 });
 
 describe('SettingsPage save behavior', () => {
