@@ -168,7 +168,7 @@
 - `generateThumbnail(imagePath, force?)`：生成缩略图
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
-- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）
+- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除后按 `gallery_images` 成员表刷新该图**全部归属图集**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐图集发 `gallery:galleries-changed`（`statsUpdated`）
 
 ## `booru`
 
