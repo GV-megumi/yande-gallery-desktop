@@ -447,9 +447,32 @@ export async function restoreAppBackupData(
         }
       }
 
+      // images 表按机重建、不随备份走：异机（或清库后）恢复时，备份携带的 imageId 引用
+      // 在本库不存在，FK OFF 期间会以悬挂引用落库。悬挂引用绝不能保留——后续重扫产生的
+      // 新图片会复用 AUTOINCREMENT id，使这些引用静默指向完全无关的图片（成员错误归属、
+      // 封面/下载关联错图）。统一在重算 imageCount 之前清理：成员行删除，SET NULL 语义的引用置空。
+      await run(db, `DELETE FROM gallery_images WHERE imageId NOT IN (SELECT id FROM images)`);
+      await run(db, `
+        UPDATE galleries
+           SET coverImageId = NULL
+         WHERE coverImageId IS NOT NULL
+           AND coverImageId NOT IN (SELECT id FROM images)
+      `);
+      // booru_posts.localImageId 同属指向 images 的引用（FK SET NULL）；
+      // 老库/精简测试库可能没有该列，按列存在性守卫。
+      const booruPostColumns = await getTableColumnSet(db, 'booru_posts');
+      if (booruPostColumns.has('localImageId')) {
+        await run(db, `
+          UPDATE booru_posts
+             SET localImageId = NULL
+           WHERE localImageId IS NOT NULL
+             AND localImageId NOT IN (SELECT id FROM images)
+        `);
+      }
+
       // §5.1 不变量：galleries.imageCount 是 gallery_images 成员数的缓存。
       // 备份行里携带的 imageCount 可能与恢复后的成员表不一致（merge 合并成员、
-      // 旧版备份无成员数据等），恢复末尾统一按成员表重算，避免恢复出陈旧计数。
+      // 旧版备份无成员数据、上方悬挂成员清理等），恢复末尾统一按成员表重算，避免恢复出陈旧计数。
       await run(db, `
         UPDATE galleries
            SET imageCount = (SELECT COUNT(*) FROM gallery_images WHERE gallery_images.galleryId = galleries.id)
