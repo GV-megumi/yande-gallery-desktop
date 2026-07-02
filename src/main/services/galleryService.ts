@@ -1017,12 +1017,19 @@ export async function unbindFolder(
  *     若解旧失败，返回错误并说明此刻新旧两者都已绑定（可人工恢复，无数据丢失），
  *     不尝试回滚已成功的新绑定。
  * 图集记录与 id 始终不变。
+ *
+ * recursive/extensions 语义（修复轮 U06）：调用方未显式传入时，继承旧绑定行
+ * （gallery_folders WHERE galleryId+oldPath）的 recursive/extensions——"改路径"
+ * 不应改变绑定语义，否则非递归绑定（如旧版"扫描子文件夹"回填的 recursive=0 行）
+ * 会被服务端默认 recursive=true 静默翻转为递归导入、全部嵌套子目录图片涌入本图集，
+ * 自定义扩展名也被重置。显式传入仍优先；旧绑定行不存在时回退修复前默认
+ * （recursive=true + 默认扩展名），不新增"旧绑定不存在"错误路径。
  */
 export async function changeFolderPath(
   galleryId: number,
   oldPath: string,
   newPath: string,
-  recursive: boolean = true,
+  recursive?: boolean,
   extensions?: string[]
 ): Promise<{ success: boolean; error?: string }> {
   // 新旧路径相同：无需重绑（对已绑定路径再 bindFolder 会撞 UNIQUE）。直接 no-op 成功，
@@ -1031,8 +1038,48 @@ export async function changeFolderPath(
     return { success: true };
   }
 
+  // 0. 调用方未显式传参 → 读旧绑定行继承其 recursive/extensions（见函数头注释）。
+  //    读取失败此刻尚未动任何数据，直接报错返回，避免静默回退默认改变绑定语义。
+  let effectiveRecursive = recursive;
+  let effectiveExtensions = extensions;
+  if (effectiveRecursive === undefined || effectiveExtensions === undefined) {
+    try {
+      const db = await getDatabase();
+      const oldBinding = await get<{ recursive: number; extensions: string | null }>(
+        db,
+        'SELECT recursive, extensions FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+        [galleryId, normalizePath(oldPath)]
+      );
+      if (oldBinding) {
+        if (effectiveRecursive === undefined) {
+          effectiveRecursive =
+            oldBinding.recursive === 1 || (oldBinding.recursive as unknown as boolean) === true;
+        }
+        if (effectiveExtensions === undefined && oldBinding.extensions) {
+          // 绑定行 extensions 存的是 JSON 字符串；解析失败或为空时保持 undefined
+          // （bindFolder 回退默认扩展名），与 syncGalleryFolder 的读取回退一致
+          try {
+            const parsed = JSON.parse(oldBinding.extensions);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              effectiveExtensions = parsed;
+            }
+          } catch {
+            console.warn(
+              `[galleryService] changeFolderPath 旧绑定 extensions 解析失败，回退默认扩展名: ${oldPath}`
+            );
+          }
+        }
+      }
+    } catch (inheritError) {
+      const inheritMessage = inheritError instanceof Error ? inheritError.message : String(inheritError);
+      console.error('[galleryService] changeFolderPath 读取旧绑定配置失败:', inheritMessage);
+      return { success: false, error: `读取旧绑定配置失败: ${inheritMessage}` };
+    }
+  }
+
   // 1. 先绑新。失败则原样保留旧绑定与成员，立即返回错误（无任何数据丢失）。
-  const bindResult = await bindFolder(galleryId, newPath, recursive, extensions);
+  //    effectiveRecursive 仍为 undefined（显式未传 + 旧绑定行不存在）时回退修复前默认 true。
+  const bindResult = await bindFolder(galleryId, newPath, effectiveRecursive ?? true, effectiveExtensions);
   if (!bindResult.success) {
     return { success: false, error: bindResult.error };
   }
