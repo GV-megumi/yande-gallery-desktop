@@ -169,7 +169,9 @@ describe('restoreAppBackupData', () => {
     const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
 
     await expect(restoreAppBackupData(backupData, { mode: 'replace' })).rejects.toThrow('restore table failed');
-    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length);
+    // 快照 SELECT 每表一次；备份负载无行故恢复循环无懒取 PRAGMA；
+    // 悬挂引用清理对 booru_posts 取一次列集（localImageId 列存在性守卫）
+    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 1);
     expect(saveConfigMock).not.toHaveBeenCalled();
     expect(runInTransactionMock).toHaveBeenCalledTimes(1);
   });
@@ -215,8 +217,9 @@ describe('restoreAppBackupData', () => {
 
     await expect(restoreAppBackupData(backupData, { mode: 'replace' })).rejects.toThrow('save imported config failed');
     expect(saveConfigMock).toHaveBeenCalledTimes(1);
-    // 快照 SELECT 每表一次；备份里只有 booru_sites 有行，恢复循环对它懒取一次 PRAGMA table_info（未知列过滤）
-    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 1);
+    // 快照 SELECT 每表一次；备份里只有 booru_sites 有行，恢复循环对它懒取一次 PRAGMA table_info（未知列过滤）；
+    // 悬挂引用清理再对 booru_posts 取一次列集（localImageId 列存在性守卫）
+    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 2);
     expect(runInTransactionMock).toHaveBeenCalledTimes(2);
 
     const insertOriginalSiteCall = runMock.mock.calls.find(([_, sql, values]) =>

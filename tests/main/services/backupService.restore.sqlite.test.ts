@@ -178,6 +178,16 @@ async function seedMember(galleryId: number, imageId: number): Promise<void> {
   await run(h.db, `INSERT INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, '2026-01-01')`, [galleryId, imageId]);
 }
 
+/** 模拟异机恢复：换成一个全新空库（images 从未有行，AUTOINCREMENT 从 1 重新计数） */
+async function resetToFreshDb(): Promise<void> {
+  await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
+  h.db = await new Promise<sqlite3.Database>((resolve, reject) => {
+    const database = new sqlite3.Database(':memory:', (err) => (err ? reject(err) : resolve(database)));
+  });
+  await run(h.db, 'PRAGMA foreign_keys=ON');
+  await setupSchema();
+}
+
 beforeEach(async () => {
   h.db = await new Promise<sqlite3.Database>((resolve, reject) => {
     const database = new sqlite3.Database(':memory:', (err) => (err ? reject(err) : resolve(database)));
@@ -474,5 +484,91 @@ describe('恢复时未知列过滤（通用防御）', () => {
     // 全未知列的行被跳过，正常行照常恢复
     const rows = await all<{ id: number }>(h.db, 'SELECT id FROM booru_sites');
     expect(rows).toEqual([{ id: 12 }]);
+  });
+});
+
+describe('恢复后悬挂 images 引用清理（images 表不随备份走）', () => {
+  it('异机（空库）replace 恢复：悬挂成员被清、imageCount 诚实为 0、悬挂封面置空；重扫复用 AUTOINCREMENT id 不会错误归属', async () => {
+    // 源机：G1 绑 A（图 1/2，封面=图1），G2 绑 B（图 3/4）
+    const folderA = normalizePath(path.join('M:', 'gal', 'A'));
+    const folderB = normalizePath(path.join('M:', 'gal', 'B'));
+    const g1 = await seedGallery('G1');
+    const g2 = await seedGallery('G2');
+    await seedBinding(g1, folderA);
+    await seedBinding(g2, folderB);
+    const a1 = await seedImage(normalizePath(path.join('M:', 'gal', 'A', 'a1.jpg')));
+    const a2 = await seedImage(normalizePath(path.join('M:', 'gal', 'A', 'a2.jpg')));
+    const b1 = await seedImage(normalizePath(path.join('M:', 'gal', 'B', 'b1.jpg')));
+    const b2 = await seedImage(normalizePath(path.join('M:', 'gal', 'B', 'b2.jpg')));
+    await seedMember(g1, a1);
+    await seedMember(g1, a2);
+    await seedMember(g2, b1);
+    await seedMember(g2, b2);
+    await run(h.db, 'UPDATE galleries SET coverImageId = ? WHERE id = ?', [a1, g1]);
+
+    const backup = await createAppBackupData();
+
+    // 异机：全新空库，images 表 0 行
+    await resetToFreshDb();
+    await restoreAppBackupData(backup, { mode: 'replace' });
+
+    // 成员行全部指向本库不存在的 imageId，必须被清理而非悬挂保留
+    expect(await all(h.db, 'SELECT * FROM gallery_images')).toHaveLength(0);
+    const galleries = await all<{ id: number; imageCount: number; coverImageId: number | null }>(
+      h.db,
+      'SELECT id, imageCount, coverImageId FROM galleries ORDER BY id'
+    );
+    expect(galleries.map((g) => g.imageCount)).toEqual([0, 0]);
+    expect(galleries[0].coverImageId).toBeNull();
+
+    // 绑定完整恢复：重扫入口仍在
+    const folders = await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_folders ORDER BY folderPath');
+    expect(folders.map((f) => f.folderPath)).toEqual([folderA, folderB].sort());
+
+    // 用户先重扫 B 文件夹：新图复用 AUTOINCREMENT id 1/2——若悬挂成员未清，
+    // G1 的 (g1,1)/(g1,2) 会立刻指向 B 的图片（静默错误归属）
+    const nb1 = await seedImage(normalizePath(path.join('M:', 'gal', 'B', 'b1.jpg')));
+    const nb2 = await seedImage(normalizePath(path.join('M:', 'gal', 'B', 'b2.jpg')));
+    expect([nb1, nb2]).toEqual([1, 2]); // 前提确认：id 复用确实发生
+    expect(await all(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [g1])).toHaveLength(0);
+  });
+
+  it('本机恢复：有效引用保留、仅悬挂引用被清；booru_posts.localImageId 悬挂时置空', async () => {
+    const folderA = normalizePath(path.join('M:', 'gal', 'A'));
+    const gid = await seedGallery('G1');
+    await seedBinding(gid, folderA);
+    const img1 = await seedImage(normalizePath(path.join('M:', 'gal', 'A', 'a.jpg')));
+    await seedMember(gid, img1);
+    // 最小 booru_posts 结构补上 localImageId 列（真实 schema 里 FK SET NULL 指向 images）
+    await run(h.db, 'ALTER TABLE booru_posts ADD COLUMN localImageId INTEGER');
+    await run(h.db, 'INSERT INTO booru_posts (id, localImageId) VALUES (1, ?)', [img1]);
+
+    const backup = await createAppBackupData();
+    // 注入悬挂引用：成员指向不存在的图 999、封面指向 997、booru 下载关联指向 998
+    (backup.tables as Record<string, Record<string, unknown>[]>).gallery_images.push({
+      galleryId: gid,
+      imageId: 999,
+      addedAt: '2026-01-01',
+    });
+    (backup.tables as Record<string, Record<string, unknown>[]>).galleries[0].coverImageId = 997;
+    (backup.tables as Record<string, Record<string, unknown>[]>).booru_posts.push({ id: 2, localImageId: 998 });
+
+    await restoreAppBackupData(backup, { mode: 'replace' });
+
+    // img1 仍在本机 images 表：有效成员与有效下载关联保留，悬挂的被清
+    const members = await all<{ galleryId: number; imageId: number }>(h.db, 'SELECT galleryId, imageId FROM gallery_images');
+    expect(members).toEqual([{ galleryId: gid, imageId: img1 }]);
+    expect(await get(h.db, 'SELECT imageCount, coverImageId FROM galleries WHERE id = ?', [gid])).toMatchObject({
+      imageCount: 1,
+      coverImageId: null,
+    });
+    const posts = await all<{ id: number; localImageId: number | null }>(
+      h.db,
+      'SELECT id, localImageId FROM booru_posts ORDER BY id'
+    );
+    expect(posts).toEqual([
+      { id: 1, localImageId: img1 },
+      { id: 2, localImageId: null },
+    ]);
   });
 });
