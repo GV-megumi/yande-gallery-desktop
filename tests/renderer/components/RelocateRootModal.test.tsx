@@ -51,7 +51,7 @@ describe('RelocateRootModal', () => {
     expect(container.querySelector('.ant-modal')).toBeNull();
   });
 
-  it('应用按钮在未预览前禁用', () => {
+  it('没有可应用的映射时应用按钮禁用', () => {
     render(<RelocateRootModal {...makeProps()} />);
     const applyBtn = screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement;
     expect(applyBtn.disabled).toBe(true);
@@ -159,72 +159,159 @@ describe('RelocateRootModal', () => {
     expect(screen.getAllByPlaceholderText(/旧路径前缀/)).toHaveLength(2);
   });
 
-  describe('丢失文件夹候选（旧前缀建议）', () => {
+  describe('丢失文件夹修复清单', () => {
     const missing = [
-      { galleryId: 1, folderPath: 'D:/pics/a' },
-      { galleryId: 2, folderPath: 'D:/pics/b' },
-      { galleryId: 3, folderPath: 'E:/solo' },
+      { galleryId: 1, folderPath: 'D:/pics/a', galleryName: 'Alpha' },
+      { galleryId: 2, folderPath: 'D:/pics/b', galleryName: 'Beta' },
+      { galleryId: 3, folderPath: 'E:/solo', galleryName: 'Gamma' },
     ];
 
-    it('打开时加载丢失文件夹并展示候选；点击填入第一行空的旧前缀', async () => {
+    it('打开时自动列出丢失文件夹：旧路径只读展示 + 小字标注归属图集', async () => {
       const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
       render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
 
       expect(await screen.findByText(/检测到 3 个丢失的绑定文件夹/)).toBeTruthy();
-      await userEvent.click(screen.getByText('D:/pics/a'));
-      expect((screen.getByPlaceholderText(/旧路径前缀/) as HTMLInputElement).value).toBe('D:/pics/a');
+      expect(screen.getByText('D:/pics/a')).toBeTruthy();
+      expect(screen.getByText(/图集：Alpha/)).toBeTruthy();
+      expect(screen.getByText(/图集：Gamma/)).toBeTruthy();
+      // 每项右侧一个"未选择新位置"输入
+      expect(screen.getAllByPlaceholderText(/未选择新位置/)).toHaveLength(3);
     });
 
-    it('两条以上共享公共目录前缀时给出公共前缀候选，点击填入', async () => {
+    it('为一项选择新位置后，同根其它项自动推断（带推断标记），不同根不受影响', async () => {
       const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
-      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
-
-      const prefixTag = await screen.findByText(/公共前缀 D:\/pics（2 个）/);
-      await userEvent.click(prefixTag);
-      expect((screen.getByPlaceholderText(/旧路径前缀/) as HTMLInputElement).value).toBe('D:/pics');
-    });
-
-    it('旧前缀都已填时点击候选新增一行填入', async () => {
-      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
-      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
+      const onPickFolder = vi.fn().mockResolvedValue('F:/moved/pics/a');
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder })} />);
       await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
 
-      await userEvent.type(screen.getByPlaceholderText(/旧路径前缀/), 'X:/filled');
-      await userEvent.click(screen.getByText('E:/solo'));
+      // 列表按 oldPath 排序：D:/pics/a、D:/pics/b、E:/solo
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
 
-      const oldInputs = screen.getAllByPlaceholderText(/旧路径前缀/) as HTMLInputElement[];
-      expect(oldInputs).toHaveLength(2);
-      expect(oldInputs[1].value).toBe('E:/solo');
+      const inputs = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(inputs[0].value).toBe('F:/moved/pics/a');
+      expect(inputs[1].value).toBe('F:/moved/pics/b'); // 同根推断
+      expect(inputs[2].value).toBe(''); // 不同根不推断
+      expect(screen.getByText('推断')).toBeTruthy();
     });
 
-    it('无丢失文件夹时不渲染候选区', async () => {
+    it('推断不覆盖用户手选；清除只清当前行', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
+      const onPickFolder = vi.fn()
+        .mockResolvedValueOnce('X:/manual/b') // 先手选第二行
+        .mockResolvedValueOnce('F:/moved/pics/a'); // 再选第一行触发推断
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder })} />);
+      await screen.findByText(/检测到 3 个丢失的绑定文件夹/);
+
+      const pickButtons = screen.getAllByRole('button', { name: '选择新位置' });
+      await userEvent.click(pickButtons[1]);
+      await userEvent.click(pickButtons[0]);
+
+      const inputs = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(inputs[0].value).toBe('F:/moved/pics/a');
+      expect(inputs[1].value).toBe('X:/manual/b'); // 手选未被推断覆盖
+
+      // 清除第一行：只影响自己
+      await userEvent.click(screen.getAllByRole('button', { name: '清除' })[0]);
+      const after = screen.getAllByPlaceholderText(/未选择新位置/) as HTMLInputElement[];
+      expect(after[0].value).toBe('');
+      expect(after[1].value).toBe('X:/manual/b');
+    });
+
+    it('预览/应用只携带已选择新位置的项', async () => {
+      const twoRoots = [
+        { galleryId: 1, folderPath: 'D:/pics/a', galleryName: 'Alpha' },
+        { galleryId: 3, folderPath: 'E:/solo', galleryName: 'Gamma' },
+      ];
+      const onLoadMissingFolders = vi.fn().mockResolvedValue(twoRoots);
+      const onPickFolder = vi.fn().mockResolvedValue('F:/moved/pics/a');
+      const onPreview = vi.fn().mockResolvedValue({ success: true, data: { affected: [], collisions: [] } });
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder, onPreview })} />);
+      await screen.findByText(/检测到 2 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+      await userEvent.click(screen.getByRole('button', { name: /预\s*览/ }));
+
+      await waitFor(() => {
+        expect(onPreview).toHaveBeenCalledWith([{ oldPrefix: 'D:/pics/a', newPrefix: 'F:/moved/pics/a' }]);
+      });
+    });
+
+    it('未手动预览直接应用：内置预检通过后执行 onApply', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue([missing[0]]);
+      const onPickFolder = vi.fn().mockResolvedValue('F:/x/a');
+      const onPreview = vi.fn().mockResolvedValue({ success: true, data: { affected: [], collisions: [] } });
+      const onApply = vi.fn().mockResolvedValue({ success: true, data: { affected: [] } });
+      const onCancel = vi.fn();
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder, onPreview, onApply, onCancel })} />);
+      await screen.findByText(/检测到 1 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+      const applyBtn = screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement;
+      await waitFor(() => expect(applyBtn.disabled).toBe(false));
+      await userEvent.click(applyBtn);
+      await userEvent.click(await screen.findByRole('button', { name: /继续重定位/ }));
+
+      await waitFor(() => {
+        expect(onPreview).toHaveBeenCalledWith([{ oldPrefix: 'D:/pics/a', newPrefix: 'F:/x/a' }]);
+        expect(onApply).toHaveBeenCalledWith([{ oldPrefix: 'D:/pics/a', newPrefix: 'F:/x/a' }]);
+      });
+      await waitFor(() => expect(onCancel).toHaveBeenCalled());
+    });
+
+    it('内置预检发现冲突：不执行 onApply 并展示冲突明细', async () => {
+      const onLoadMissingFolders = vi.fn().mockResolvedValue([missing[0]]);
+      const onPickFolder = vi.fn().mockResolvedValue('F:/x/a');
+      const onPreview = vi.fn().mockResolvedValue({
+        success: true,
+        data: { affected: [], collisions: [{ table: 'images', column: 'filepath', path: 'F:/x/a/1.jpg' }] },
+      });
+      const onApply = vi.fn();
+      render(<RelocateRootModal {...makeProps({ onLoadMissingFolders, onPickFolder, onPreview, onApply })} />);
+      await screen.findByText(/检测到 1 个丢失的绑定文件夹/);
+
+      await userEvent.click(screen.getAllByRole('button', { name: '选择新位置' })[0]);
+      await userEvent.click(screen.getByRole('button', { name: /应\s*用/ }));
+      await userEvent.click(await screen.findByRole('button', { name: /继续重定位/ }));
+
+      expect(await screen.findByText(/存在路径冲突，无法应用/)).toBeTruthy();
+      expect(onApply).not.toHaveBeenCalled();
+    });
+
+    it('无丢失文件夹时提示空态并自动展开高级前缀映射', async () => {
       const onLoadMissingFolders = vi.fn().mockResolvedValue([]);
       render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
-      await waitFor(() => expect(onLoadMissingFolders).toHaveBeenCalled());
-      expect(screen.queryByText(/丢失的绑定文件夹/)).toBeNull();
-    });
 
-    it('未提供 onLoadMissingFolders 时不渲染候选区（可选接线）', () => {
-      render(<RelocateRootModal {...makeProps()} />);
-      expect(screen.queryByText(/丢失的绑定文件夹/)).toBeNull();
+      expect(await screen.findByText(/未检测到丢失的绑定文件夹/)).toBeTruthy();
+      // 高级区自动展开：手动前缀映射输入可用
+      expect(await screen.findByPlaceholderText(/旧路径前缀/)).toBeTruthy();
     });
   });
 
-  it('编辑映射后预览结果失效，应用重新被禁用', async () => {
+  it('编辑映射后预览结果失效（结果区隐藏），应用仍可用并在点击时自动重新预检', async () => {
     const onPreview = vi.fn().mockResolvedValue({
       success: true,
       data: { affected: [{ table: 'gallery_folders', column: 'folderPath', count: 5 }], collisions: [] },
     });
-    render(<RelocateRootModal {...makeProps({ onPreview })} />);
+    const onApply = vi.fn().mockResolvedValue({ success: true, data: { affected: [] } });
+    render(<RelocateRootModal {...makeProps({ onPreview, onApply })} />);
 
     await fillFirstRow('D:/old', 'E:/new');
     await userEvent.click(screen.getByRole('button', { name: /预\s*览/ }));
     await screen.findByText(/gallery_folders/);
-    await waitFor(() => expect((screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement).disabled).toBe(false));
 
-    // 改动旧前缀 → 预览结果作废，应用禁用
+    // 改动旧前缀 → 预览结果作废（结果区隐藏），但应用不禁用（点击时会自动重新预检）
     const oldInput = screen.getByPlaceholderText(/旧路径前缀/);
     await userEvent.type(oldInput, 'X');
-    expect((screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText(/gallery_folders/)).toBeNull();
+    const applyBtn = screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement;
+    expect(applyBtn.disabled).toBe(false);
+
+    await userEvent.click(applyBtn);
+    await userEvent.click(await screen.findByRole('button', { name: /继续重定位/ }));
+    await waitFor(() => {
+      // 自动重新预检携带编辑后的映射，然后才应用
+      expect(onPreview).toHaveBeenLastCalledWith([{ oldPrefix: 'D:/oldX', newPrefix: 'E:/new' }]);
+      expect(onApply).toHaveBeenCalledWith([{ oldPrefix: 'D:/oldX', newPrefix: 'E:/new' }]);
+    });
   });
 });
