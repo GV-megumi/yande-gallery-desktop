@@ -41,7 +41,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { realpathSync } from 'fs';
-import { getDatabase, all, run, runInTransaction } from './database.js';
+import { getDatabase, all, runBatch, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { getAllGalleryFolderPaths } from './galleryService.js';
@@ -426,26 +426,21 @@ export async function applyRelocateRoot(
     // 路径冲突的临时值（NUL 字符不可能出现在文件路径中，拼主键 id 保证批内唯一），
     // 腾空所有旧路径后第二遍再写入最终 newPath。这样凡 preview 判无冲突（终态无重复）
     // 的批次，应用必然成功；非 UNIQUE 列无约束可撞，维持单遍直写。
+    // 逐行 UPDATE 走 runBatch 预编译复用：整库搬迁时 images.filepath 可达数十万行，
+    // 两阶段再翻倍；prepare 一次逐行 run 把线程池往返降为约 1/3（逐行语义与顺序不变，
+    // NUL 占位值经参数绑定传入，安全）。大库耗时预期仍是分钟级且事务持锁、其它写操作
+    // 排队——维护型操作可接受，preview 已让用户知晓改写规模。
     await runInTransaction(db, async () => {
       for (const scan of scans) {
+        const updateSql = `UPDATE ${scan.site.table} SET ${scan.site.column} = ? WHERE id = ?`;
         if (scan.site.isUnique) {
           // 第一阶段：全部占位为临时值，腾出所有旧路径
-          for (const m of scan.matched) {
-            await run(
-              db,
-              `UPDATE ${scan.site.table} SET ${scan.site.column} = ? WHERE id = ?`,
-              [`\u0000relocate\u0000${m.id}`, m.id]
-            );
-          }
+          await runBatch(db, updateSql,
+            scan.matched.map((m) => [`\u0000relocate\u0000${m.id}`, m.id]));
         }
         // 第二阶段（非 UNIQUE 站点即唯一一遍）：写入最终新路径
-        for (const m of scan.matched) {
-          await run(
-            db,
-            `UPDATE ${scan.site.table} SET ${scan.site.column} = ? WHERE id = ?`,
-            [m.newPath, m.id]
-          );
-        }
+        await runBatch(db, updateSql,
+          scan.matched.map((m) => [m.newPath, m.id]));
       }
     });
 
