@@ -13,6 +13,8 @@ export const IPC_CHANNELS = {
   IMAGE_GET_THUMBNAIL: 'image:get-thumbnail',
   IMAGE_DELETE: 'image:delete',
   IMAGE_DELETE_THUMBNAIL: 'image:delete-thumbnail',
+  // 维护动作：清理与库内图片/无效项都不再对应的孤儿缩略图文件
+  IMAGE_CLEANUP_ORPHAN_THUMBNAILS: 'image:cleanup-orphan-thumbnails',
 
   // 图库操作
   GALLERY_GET_RECENT_IMAGES: 'gallery:get-recent-images',

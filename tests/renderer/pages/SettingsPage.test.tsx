@@ -33,6 +33,8 @@ const planScanFolder = vi.fn();
 const applyScanPlan = vi.fn();
 const previewRelocateRoot = vi.fn();
 const applyRelocateRoot = vi.fn();
+// 维护动作：清理孤儿缩略图
+const cleanupOrphanThumbnails = vi.fn();
 const getSites = vi.fn();
 const addSite = vi.fn();
 const updateSite = vi.fn();
@@ -271,6 +273,7 @@ beforeEach(() => {
   });
   previewRelocateRoot.mockResolvedValue({ success: true, data: { affected: [], collisions: [] } });
   applyRelocateRoot.mockResolvedValue({ success: true, data: { affected: [] } });
+  cleanupOrphanThumbnails.mockResolvedValue({ success: true, data: { scanned: 0, deleted: 0, freedBytes: 0 } });
   getSites.mockResolvedValue({ success: true, data: [] });
   addSite.mockResolvedValue({ success: true });
   updateSite.mockResolvedValue({ success: true });
@@ -367,6 +370,9 @@ beforeEach(() => {
       applyScanPlan,
       previewRelocateRoot,
       applyRelocateRoot,
+    },
+    image: {
+      cleanupOrphanThumbnails,
     },
     apiService: {
       getConfig: getApiServiceConfig,
@@ -724,6 +730,21 @@ describe('SettingsPage general tab behavior', () => {
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/跨机器迁移/)).toBeTruthy();
     expect(within(dialog).getByRole('button', { name: /预\s*览/ })).toBeTruthy();
+  });
+
+  it('清理孤儿缩略图：点击后调用维护接口并给出结果提示', async () => {
+    cleanupOrphanThumbnails.mockResolvedValue({
+      success: true,
+      data: { scanned: 12, deleted: 3, freedBytes: 2.5 * 1024 * 1024 },
+    });
+    render(<App><SettingsPage /></App>);
+
+    await userEvent.click(await screen.findByRole('button', { name: /清理孤儿缩略图/ }));
+
+    await waitFor(() => {
+      expect(cleanupOrphanThumbnails).toHaveBeenCalled();
+    });
+    expect(await screen.findByText(/已清理 3 个孤儿缩略图（释放 2\.5 MB），共对账 12 个/)).toBeTruthy();
   });
 
   it('丢失文件夹横幅跳转：pendingRelocateOpen 挂载即自动打开重定位弹窗并消费信号', async () => {

@@ -96,6 +96,8 @@ vi.mock('../../../src/main/services/galleryRelocateService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
+  cleanupOrphanThumbnails: vi.fn(),
   generateThumbnail: vi.fn(),
   requestThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration: vi.fn(),
@@ -174,6 +176,7 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.IMAGE_GET_THUMBNAIL,
       IPC_CHANNELS.IMAGE_DELETE,
       IPC_CHANNELS.IMAGE_DELETE_THUMBNAIL,
+      IPC_CHANNELS.IMAGE_CLEANUP_ORPHAN_THUMBNAILS,
       IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES,
       IPC_CHANNELS.GALLERY_GET_RECENT_IMAGES_AFTER,
       IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY,

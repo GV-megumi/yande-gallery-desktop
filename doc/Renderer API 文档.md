@@ -170,6 +170,7 @@
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
 - `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除后按 `gallery_images` 成员表刷新该图**全部归属图集**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐图集发 `gallery:galleries-changed`（`statsUpdated`）
+- `cleanupOrphanThumbnails()`：维护动作（设置页入口）——清理缩略图目录中与库内任何图片都不再对应的孤儿缩略图文件，返回 `{ success, data?: { scanned, deleted, freedBytes } }`。按文件名 hash 段（`md5(filepath)`）对账、不看扩展名；保护 `images` 在库图片与 `invalid_images.thumbnailPath` 引用（无效列表页仍展示）；非缩略图命名的文件一概不动。主进程删除路径已内置"先取消队列生成任务再删文件"（等待中的移除、生成中的打墓碑丢弃产物），本接口用于清理历史竞态遗留的存量孤儿
 
 ## `booru`
 

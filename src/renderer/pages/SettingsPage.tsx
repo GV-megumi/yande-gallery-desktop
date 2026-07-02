@@ -3,7 +3,7 @@
  */
 import React, { useState, useEffect } from 'react';
 import { Form, Input, Button, Switch, Select, Spin, Segmented, Space, Popconfirm, App, Alert, Tooltip } from 'antd';
-import { SaveOutlined, FolderOutlined, ScanOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined, SwapOutlined } from '@ant-design/icons';
+import { SaveOutlined, FolderOutlined, ScanOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined, SwapOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
 import { useLocale, type LocaleType } from '../locales';
@@ -168,6 +168,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     skipped: ScanPlanSkipped[];
   } | null>(null);
   const [relocateOpen, setRelocateOpen] = useState(false);
+  // 维护动作：清理孤儿缩略图
+  const [thumbCleanupLoading, setThumbCleanupLoading] = useState(false);
   // 丢失文件夹横幅「去重定位」跳转：设置页关闭即卸载，信号经 App 状态传入并在消费后清除，
   // 保证只有本次跳转自动弹出，之后正常打开设置页不受影响
   useEffect(() => {
@@ -539,6 +541,27 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
   };
 
+  // 维护动作：清理孤儿缩略图（与库内图片/无效项都不再对应的缩略图缓存文件，只清无主项）
+  const handleCleanupOrphanThumbnails = async () => {
+    if (!window.electronAPI) { message.error('系统功能不可用'); return; }
+    setThumbCleanupLoading(true);
+    try {
+      const result = await window.electronAPI.image.cleanupOrphanThumbnails();
+      if (result.success && result.data) {
+        const { scanned, deleted, freedBytes } = result.data;
+        const freedMb = (freedBytes / (1024 * 1024)).toFixed(1);
+        message.success(`已清理 ${deleted} 个孤儿缩略图（释放 ${freedMb} MB），共对账 ${scanned} 个`);
+      } else {
+        message.error(result.error || '清理孤儿缩略图失败');
+      }
+    } catch (error) {
+      console.error('[SettingsPage] 清理孤儿缩略图失败:', error);
+      message.error('清理孤儿缩略图失败');
+    } finally {
+      setThumbCleanupLoading(false);
+    }
+  };
+
   const handleSelectDownloadPath = async () => {
     if (!window.electronAPI) return;
     try {
@@ -698,7 +721,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               }
             />
             <SettingsRow
-              isLast
               label="重定位根目录"
               description="跨机器迁移后整体改写图库路径前缀（无损、不重扫）"
               extra={
@@ -711,6 +733,21 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     重定位根目录
                   </Button>
                 </Tooltip>
+              }
+            />
+            <SettingsRow
+              isLast
+              label="清理孤儿缩略图"
+              description="删除与库内图片已无对应关系的缩略图缓存文件（只清无主项，安全）"
+              extra={
+                <Button
+                  size="small"
+                  icon={<ClearOutlined />}
+                  loading={thumbCleanupLoading}
+                  onClick={() => void handleCleanupOrphanThumbnails()}
+                >
+                  清理孤儿缩略图
+                </Button>
               }
             />
             <div style={{

@@ -100,6 +100,8 @@ vi.mock('../../../src/main/services/booruService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
+  cleanupOrphanThumbnails: vi.fn(),
   generateThumbnail: vi.fn(),
   requestThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration: vi.fn(),
@@ -285,6 +287,7 @@ describe('setupIPC source-level registration coverage', () => {
     expect(channelsSource).toContain("IMAGE_GET_THUMBNAIL: 'image:get-thumbnail'");
     expect(channelsSource).toContain("IMAGE_DELETE: 'image:delete'");
     expect(channelsSource).toContain("IMAGE_DELETE_THUMBNAIL: 'image:delete-thumbnail'");
+    expect(channelsSource).toContain("IMAGE_CLEANUP_ORPHAN_THUMBNAILS: 'image:cleanup-orphan-thumbnails'");
     expect(channelsSource).toContain("GALLERY_GET_RECENT_IMAGES: 'gallery:get-recent-images'");
     expect(channelsSource).toContain("GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders'");
     expect(channelsSource).toContain("GALLERY_GET_GALLERIES: 'gallery:get-galleries'");
