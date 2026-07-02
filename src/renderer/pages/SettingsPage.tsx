@@ -554,13 +554,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       if (result.success && result.data) {
         const { scanned, deleted, freedBytes } = result.data;
         const freedMb = (freedBytes / (1024 * 1024)).toFixed(1);
-        message.success(`已清理 ${deleted} 个孤儿缩略图（释放 ${freedMb} MB），共对账 ${scanned} 个`);
+        message.success(t('settings.cleanupOrphanThumbsSuccess', { deleted, freedMb, scanned }));
       } else {
-        message.error(result.error || '清理孤儿缩略图失败');
+        message.error(result.error || t('settings.cleanupOrphanThumbsFailed'));
       }
     } catch (error) {
       console.error('[SettingsPage] 清理孤儿缩略图失败:', error);
-      message.error('清理孤儿缩略图失败');
+      message.error(t('settings.cleanupOrphanThumbsFailed'));
     } finally {
       setThumbCleanupLoading(false);
     }
@@ -741,8 +741,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             />
             <SettingsRow
               isLast
-              label="清理孤儿缩略图"
-              description="删除与库内图片已无对应关系的缩略图缓存文件（只清无主项，安全）"
+              label={t('settings.cleanupOrphanThumbs')}
+              description={t('settings.cleanupOrphanThumbsDesc')}
               extra={
                 <Button
                   size="small"
@@ -750,7 +750,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   loading={thumbCleanupLoading}
                   onClick={() => void handleCleanupOrphanThumbnails()}
                 >
-                  清理孤儿缩略图
+                  {t('settings.cleanupOrphanThumbs')}
                 </Button>
               }
             />

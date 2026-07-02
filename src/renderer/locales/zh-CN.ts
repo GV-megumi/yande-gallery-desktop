@@ -96,6 +96,16 @@ const zhCN = {
     changePathConfirmRelocateHint:
       '若只是文件整体搬到了新位置，请改用设置页的「重定位根目录」（无损迁移）。',
     changePathConfirmOk: '更改路径',
+    // 丢失文件夹横幅（GalleryPage 图集详情：去重定位 / 全部迁入无效项 / 忽略）
+    missingFoldersBannerTitle: '该图集有 {count} 个绑定文件夹在磁盘上不存在',
+    missingFoldersBannerHint: '文件随库搬走了？用「去重定位」无损改写路径；确认不要了再选「全部迁入无效项」。',
+    missingFoldersRelocate: '去重定位',
+    missingFoldersMigrate: '全部迁入无效项',
+    missingFoldersMigrateConfirmTitle: '全部迁入无效项',
+    missingFoldersMigrateConfirmDesc: '将把丢失文件夹下的成员图片全部迁入无效列表（删除图片记录与本地标签、删除缩略图、复位 booru 下载状态），不可撤销。确认？',
+    missingFoldersMigrateOk: '迁入',
+    missingFoldersMigrateSuccess: '已迁入无效项：{migrated} 张',
+    missingFoldersMigrateFailed: '部分文件夹迁移失败（{failed} 个），详见日志',
   },
 
   // === Booru 页面 ===
@@ -455,6 +465,11 @@ const zhCN = {
     scanComplete: '扫描完成：创建图集 {created} 个，跳过 {skipped} 个，导入图片 {imported} 张',
     // 扫描入库 applyScanPlan 汇总：文件夹级失败与文件级已存在分开表述（单位不同，不能合并计数）
     scanApplySummary: '新增 {created} 个图集，合并 {merged} 个，失败 {failedFolders} 个文件夹，{skippedFiles} 张图片已存在',
+    // 维护动作：清理孤儿缩略图
+    cleanupOrphanThumbs: '清理孤儿缩略图',
+    cleanupOrphanThumbsDesc: '删除与库内图片已无对应关系的缩略图缓存文件（只清无主项，安全）',
+    cleanupOrphanThumbsSuccess: '已清理 {deleted} 个孤儿缩略图（释放 {freedMb} MB），共对账 {scanned} 个',
+    cleanupOrphanThumbsFailed: '清理孤儿缩略图失败',
     download: '下载',
     downloadPath: '下载路径',
     notSet: '未设置',
