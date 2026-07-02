@@ -62,24 +62,38 @@ interface InvalidCandidateImage {
   format: string;
 }
 
+/** 数组分块（与 galleryService 的同名私有 helper 一致；避免跨服务耦合各自持有） */
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
+  }
+  return chunks;
+}
+
+/** 批量迁移：单个分块事务处理的成员图片数（块间放行其它写事务，避免长期独占事务队列） */
+const MIGRATE_TX_BATCH = 200;
+/** 批量迁移：IN(...) 查询每批变量数（SQLite 默认变量上限 999，留足余量） */
+const SQL_VAR_BATCH = 500;
+
 /**
- * 迁移核心：把一张 images 行迁进 invalid_images（事务内插入无效记录、清封面、
- * 删 images 行、按成员表重算全部归属图集的 imageCount），可选发领域事件。
+ * 迁移语句核心（**须在调用方事务内执行**）：读归属 → 插 invalid_images → 清封面 →
+ * 复位 booru 下载状态 → 删 images 行。不含 imageCount 重算与事件——
+ * 单张入口（migrateImageToInvalid）在自己的事务里随手重算；
+ * 批量入口（migrateMissingFolderImages）在分块事务末尾对整块归属去重后一次性重算。
  *
- * 供两个入口共用：
- * - reportInvalidImage（自动上报，带丢失文件夹防护，逐张发事件）；
- * - migrateMissingFolderImages（用户显式批量迁移，绕过防护，聚合发事件）。
- *
+ * @param thumbnailPath 事务外预先解析好的缩略图路径（fs 探测不进事务）
  * @returns 本图片的全部归属图集 id（调用方聚合统计/事件用）
  */
-async function migrateImageToInvalid(
+async function migrateImageToInvalidInTx(
   db: Awaited<ReturnType<typeof getDatabase>>,
   image: InvalidCandidateImage,
-  options: { emitEvents: boolean }
+  thumbnailPath: string | null,
+  now: string
 ): Promise<number[]> {
   // 查找所属 gallery（Phase 4：通过 gallery_images 成员归属，而非 galleries.folderPath 前缀匹配）。
   // 一张图可同时归属多个图集（多归属）；删除图片会 FK CASCADE 清掉它在所有图集的成员行，
-  // 故必须读出全部归属图集，逐个刷新统计——否则共同归属的图集 imageCount/事件会陈旧。
+  // 故必须读出全部归属图集，供调用方逐个刷新统计——否则共同归属的图集 imageCount/事件会陈旧。
   // 须在删 images 前读取——删除会触发 FK CASCADE 清掉 gallery_images 成员行。
   const memberships = await all<{ galleryId: number }>(db,
     'SELECT galleryId FROM gallery_images WHERE imageId = ?',
@@ -95,31 +109,64 @@ async function migrateImageToInvalid(
         [representativeGalleryId])
     : null;
 
-  // 获取缩略图路径
-  const thumbnailPath = await getThumbnailIfExists(image.filepath);
+  // 插入无效图片记录（galleryId 记录单个代表归属，保持单列语义）
+  await run(db, `
+    INSERT INTO invalid_images (originalImageId, filename, filepath, fileSize, width, height, format, thumbnailPath, detectedAt, galleryId)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `, [image.id, image.filename, image.filepath, image.fileSize, image.width, image.height, image.format, thumbnailPath, now, representativeGalleryId]);
 
+  // 如果该图片是代表图集的封面，清除封面
+  if (gallery && gallery.coverImageId === image.id) {
+    await run(db, 'UPDATE galleries SET coverImageId = NULL WHERE id = ?', [gallery.id]);
+  }
+
+  // 复位对应 booru 帖子的下载状态（对齐 cleanupOrphanImages / imageService.deleteImage）：
+  // 本地文件已失效，帖子应可重新下载。必须在 DELETE images 之前——删除后 FK 仅
+  // SET NULL 清 localImageId 引用，downloaded=1 与陈旧 localPath 会永久残留，
+  // 按路径去重的批量下载将永远跳过该帖。丢失文件夹横幅的确认弹窗与本函数头注释
+  // 历来承诺「复位 booru 下载状态」，此处兑现。
+  await run(
+    db,
+    'UPDATE booru_posts SET downloaded = 0, localPath = NULL WHERE localImageId = ? OR localPath = ?',
+    [image.id, image.filepath]
+  );
+
+  // 从 images 表删除（ON DELETE CASCADE 会自动清理 image_tags 与全部 gallery_images 成员行）
+  await run(db, 'DELETE FROM images WHERE id = ?', [image.id]);
+
+  return ownerGalleryIds;
+}
+
+/**
+ * 迁移核心（单张入口）：把一张 images 行迁进 invalid_images（事务内执行语句核心、
+ * 按成员表重算全部归属图集的 imageCount），可选发领域事件。
+ *
+ * 供两个入口共用：
+ * - reportInvalidImage（自动上报，带丢失文件夹防护，逐张发事件）；
+ * - migrateMissingFolderImages（用户显式批量迁移，绕过防护，聚合发事件，
+ *   走分块事务直接调 migrateImageToInvalidInTx，不经本包装）。
+ *
+ * @returns 本图片的全部归属图集 id（调用方聚合统计/事件用）
+ */
+async function migrateImageToInvalid(
+  db: Awaited<ReturnType<typeof getDatabase>>,
+  image: InvalidCandidateImage,
+  options: { emitEvents: boolean }
+): Promise<number[]> {
+  // 缩略图路径解析走 fs，放事务外
+  const thumbnailPath = await getThumbnailIfExists(image.filepath);
   const now = new Date().toISOString();
 
+  let ownerGalleryIds: number[] = [];
   await runInTransaction(db, async () => {
-    // 插入无效图片记录（galleryId 记录单个代表归属，保持单列语义）
-    await run(db, `
-      INSERT INTO invalid_images (originalImageId, filename, filepath, fileSize, width, height, format, thumbnailPath, detectedAt, galleryId)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [image.id, image.filename, image.filepath, image.fileSize, image.width, image.height, image.format, thumbnailPath, now, representativeGalleryId]);
-
-    // 如果该图片是代表图集的封面，清除封面
-    if (gallery && gallery.coverImageId === image.id) {
-      await run(db, 'UPDATE galleries SET coverImageId = NULL WHERE id = ?', [gallery.id]);
-    }
-
-    // 从 images 表删除（ON DELETE CASCADE 会自动清理 image_tags 与全部 gallery_images 成员行）
-    await run(db, 'DELETE FROM images WHERE id = ?', [image.id]);
-
+    ownerGalleryIds = await migrateImageToInvalidInTx(db, image, thumbnailPath, now);
     // 刷新全部归属图集的 imageCount（Phase 4：以 gallery_images 成员表为准）。
     // 此处已在删 images 之后，本图片在各图集的成员行已被 FK CASCADE 清掉，故各 COUNT 自然排除它。
     // 多归属时必须逐个刷新，否则共同归属的图集计数会陈旧（共享 helper，与 imageService.deleteImage 同一逻辑）。
     await recalcGalleriesImageCount(db, ownerGalleryIds);
   });
+
+  const representativeGalleryId: number | null = ownerGalleryIds[0] ?? null;
 
   if (options.emitEvents) {
     emitGalleryInvalidImagesChanged({
@@ -241,28 +288,58 @@ export async function migrateMissingFolderImages(
       [galleryId]);
     const candidates = members.filter(m => isSubPath(folderPath, m.filepath));
 
+    // 预取已在无效列表的成员 id（幂等跳过）。原先逐张 SELECT，万张级丢失文件夹
+    // 会放大为万次队列往返，这里按批 IN 查询一次性取回。
+    const existingInvalidIds = new Set<number>();
+    for (const idBatch of chunkArray(candidates.map(c => c.id), SQL_VAR_BATCH)) {
+      const placeholders = idBatch.map(() => '?').join(',');
+      const rows = await all<{ originalImageId: number }>(db,
+        `SELECT originalImageId FROM invalid_images WHERE originalImageId IN (${placeholders})`,
+        idBatch);
+      rows.forEach(r => existingInvalidIds.add(r.originalImageId));
+    }
+
     let migrated = 0;
     let skipped = 0;
     const affectedGalleryIds = new Set<number>();
-    for (const image of candidates) {
-      // 已在无效列表的跳过（幂等）
-      const existing = await get<{ id: number }>(db,
-        'SELECT id FROM invalid_images WHERE originalImageId = ?', [image.id]);
-      if (existing) {
-        skipped++;
-        continue;
+    // 分块事务：每块一个事务、块末对整块归属去重后一次性重算 imageCount——
+    // 取代逐张事务+逐张重算（万张级一次点击 = 数万次语句串行过事务队列，
+    // 期间其它写操作被长期排队）。块间放行其它写事务；某块失败整块回滚并向上抛
+    //（已完成块保留，与原逐张中止语义一致）：调用方返回错误、横幅保留，
+    // 用户可重试（已迁成员经上面的幂等预取被跳过）。
+    for (const chunk of chunkArray(candidates, MIGRATE_TX_BATCH)) {
+      // 事务外过滤与缩略图路径解析（fs 探测不进事务）
+      const toMigrate: Array<{ image: InvalidCandidateImage; thumbnailPath: string | null }> = [];
+      for (const image of chunk) {
+        // 已在无效列表的跳过（幂等）
+        if (existingInvalidIds.has(image.id)) {
+          skipped++;
+          continue;
+        }
+        // 源文件仍存在的跳过（磁盘部分恢复等极端情况，不做破坏性迁移）
+        try {
+          await fs.access(image.filepath);
+          skipped++;
+          continue;
+        } catch {
+          // 文件确实不存在，迁移
+        }
+        toMigrate.push({ image, thumbnailPath: await getThumbnailIfExists(image.filepath) });
       }
-      // 源文件仍存在的跳过（磁盘部分恢复等极端情况，不做破坏性迁移）
-      try {
-        await fs.access(image.filepath);
-        skipped++;
-        continue;
-      } catch {
-        // 文件确实不存在，迁移
-      }
-      const owners = await migrateImageToInvalid(db, image, { emitEvents: false });
-      owners.forEach(id => affectedGalleryIds.add(id));
-      migrated++;
+      if (toMigrate.length === 0) continue;
+
+      const now = new Date().toISOString();
+      await runInTransaction(db, async () => {
+        const chunkOwnerIds = new Set<number>();
+        for (const { image, thumbnailPath } of toMigrate) {
+          const owners = await migrateImageToInvalidInTx(db, image, thumbnailPath, now);
+          owners.forEach(id => chunkOwnerIds.add(id));
+        }
+        // 整块一次性重算涉及图集的 imageCount（此时块内成员行都已 CASCADE 清掉）
+        await recalcGalleriesImageCount(db, Array.from(chunkOwnerIds));
+        chunkOwnerIds.forEach(id => affectedGalleryIds.add(id));
+      });
+      migrated += toMigrate.length;
     }
 
     if (migrated > 0) {
