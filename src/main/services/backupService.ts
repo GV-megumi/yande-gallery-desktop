@@ -7,7 +7,7 @@ import {
   type ConfigSaveInput,
   type RendererSafeAppConfig,
 } from './config.js';
-import { all, getDatabase, run, runInTransaction } from './database.js';
+import { all, getDatabase, run, runExclusive, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { getAllGalleryFolderPaths } from './galleryService.js';
@@ -381,104 +381,130 @@ export async function restoreAppBackupData(
   const previousTables = await snapshotCurrentBackupTables(db);
   let importedConfigApplied = false;
 
-  await run(db, 'PRAGMA foreign_keys = OFF');
-
-  try {
-    await runInTransaction(db, async () => {
-      if (mode === 'replace') {
-        for (const table of [...BACKUP_RESTORE_ORDER].reverse()) {
-          await run(db, `DELETE FROM ${table}`);
-        }
-      }
-
-      for (const table of BACKUP_RESTORE_ORDER) {
-        const rows = backupData.tables[table] ?? [];
-        if (rows.length === 0) {
-          continue;
-        }
-
-        // 目标表当前列集：懒取（仅对有行的表查一次 PRAGMA），供插入前过滤备份行中的未知列。
-        // 真实存在的表 PRAGMA table_info 必非空；空集只会出现在表缺失或测试 mock 环境，
-        // 此时过滤没有意义（缺表时 INSERT 本就会失败），跳过过滤保持原行为。
-        const columns = await getTableColumnSet(db, table);
-
-        for (const row of rows) {
-          // 即便备份文件中残留了 salt / apiKey / passwordHash 这类敏感列，
-          // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
-          let sanitized = sanitizeBackupRow(table, row);
-
-          // 旧版（图集解耦前）备份的 galleries 行：isWatching→autoScan 语义映射，
-          // folderPath/recursive/extensions 转写为 gallery_folders 绑定（见 mapLegacyGalleryRow）。
-          let legacyBinding: LegacyGalleryFolderBinding | null = null;
-          if (table === 'galleries') {
-            const mapped = mapLegacyGalleryRow(sanitized);
-            sanitized = mapped.row;
-            legacyBinding = mapped.binding;
+  // FK 开关必须在事务外执行才生效，且必须与全部排队事务互斥（runExclusive）：
+  // 若收尾的 PRAGMA ON 恰落进某个并发开放事务的窗口，SQLite 会静默忽略它，
+  // 外键从此进程级保持 OFF——deleteGallery 依赖的 CASCADE 失效、悄然产生僵尸成员行。
+  // 独占段内不能再用 runInTransaction（它在同一条队列上自等而死锁），改用裸
+  // BEGIN/COMMIT + began 标志（防 BEGIN 失败还 ROLLBACK 掉别人的事务），
+  // 与 contractGalleriesTable 同一模式。
+  await runExclusive(db, async () => {
+    await run(db, 'PRAGMA foreign_keys = OFF');
+    try {
+      let began = false;
+      try {
+        await run(db, 'BEGIN TRANSACTION');
+        began = true;
+        if (mode === 'replace') {
+          for (const table of [...BACKUP_RESTORE_ORDER].reverse()) {
+            await run(db, `DELETE FROM ${table}`);
           }
+        }
 
-          const filtered = columns.size > 0 ? pickKnownColumns(sanitized, columns) : sanitized;
-          if (Object.keys(filtered).length === 0 && Object.keys(row).length > 0) {
-            // 整行与当前表结构无共同列：跳过并告警，不让单行异构数据拖垮整个恢复事务。
-            // （原始空行 {} 不走这里，仍由 buildInsertStatement 按坏数据抛错。）
-            console.warn(`[backupService] 备份表 ${table} 行与当前表结构无共同列，已跳过该行`);
+        for (const table of BACKUP_RESTORE_ORDER) {
+          const rows = backupData.tables[table] ?? [];
+          if (rows.length === 0) {
             continue;
           }
 
-          const { sql, values } = buildInsertStatement(table, filtered);
-          await run(db, sql, values as any[]);
+          // 目标表当前列集：懒取（仅对有行的表查一次 PRAGMA），供插入前过滤备份行中的未知列。
+          // 真实存在的表 PRAGMA table_info 必非空；空集只会出现在表缺失或测试 mock 环境，
+          // 此时过滤没有意义（缺表时 INSERT 本就会失败），跳过过滤保持原行为。
+          const columns = await getTableColumnSet(db, table);
 
-          if (legacyBinding) {
-            // INSERT OR IGNORE：folderPath 全局唯一，若该路径已被现有图集绑定则保留现状，
-            // 与启动迁移 backfillGalleryFolders 的幂等回填语义一致。
-            await run(
-              db,
-              `INSERT OR IGNORE INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
-               VALUES (?, ?, ?, ?, ?, ?)`,
-              [
-                legacyBinding.galleryId,
-                legacyBinding.folderPath,
-                legacyBinding.recursive,
-                legacyBinding.extensions,
-                legacyBinding.createdAt,
-                legacyBinding.updatedAt,
-              ] as any[]
-            );
+          for (const row of rows) {
+            // 即便备份文件中残留了 salt / apiKey / passwordHash 这类敏感列，
+            // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
+            let sanitized = sanitizeBackupRow(table, row);
+
+            // 旧版（图集解耦前）备份的 galleries 行：isWatching→autoScan 语义映射，
+            // folderPath/recursive/extensions 转写为 gallery_folders 绑定（见 mapLegacyGalleryRow）。
+            let legacyBinding: LegacyGalleryFolderBinding | null = null;
+            if (table === 'galleries') {
+              const mapped = mapLegacyGalleryRow(sanitized);
+              sanitized = mapped.row;
+              legacyBinding = mapped.binding;
+            }
+
+            const filtered = columns.size > 0 ? pickKnownColumns(sanitized, columns) : sanitized;
+            if (Object.keys(filtered).length === 0 && Object.keys(row).length > 0) {
+              // 整行与当前表结构无共同列：跳过并告警，不让单行异构数据拖垮整个恢复事务。
+              // （原始空行 {} 不走这里，仍由 buildInsertStatement 按坏数据抛错。）
+              console.warn(`[backupService] 备份表 ${table} 行与当前表结构无共同列，已跳过该行`);
+              continue;
+            }
+
+            const { sql, values } = buildInsertStatement(table, filtered);
+            await run(db, sql, values as any[]);
+
+            if (legacyBinding) {
+              // INSERT OR IGNORE：folderPath 全局唯一，若该路径已被现有图集绑定则保留现状，
+              // 与启动迁移 backfillGalleryFolders 的幂等回填语义一致。
+              await run(
+                db,
+                `INSERT OR IGNORE INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+                 VALUES (?, ?, ?, ?, ?, ?)`,
+                [
+                  legacyBinding.galleryId,
+                  legacyBinding.folderPath,
+                  legacyBinding.recursive,
+                  legacyBinding.extensions,
+                  legacyBinding.createdAt,
+                  legacyBinding.updatedAt,
+                ] as any[]
+              );
+            }
           }
         }
-      }
 
-      // images 表按机重建、不随备份走：异机（或清库后）恢复时，备份携带的 imageId 引用
-      // 在本库不存在，FK OFF 期间会以悬挂引用落库。悬挂引用绝不能保留——后续重扫产生的
-      // 新图片会复用 AUTOINCREMENT id，使这些引用静默指向完全无关的图片（成员错误归属、
-      // 封面/下载关联错图）。统一在重算 imageCount 之前清理：成员行删除，SET NULL 语义的引用置空。
-      await run(db, `DELETE FROM gallery_images WHERE imageId NOT IN (SELECT id FROM images)`);
-      await run(db, `
-        UPDATE galleries
-           SET coverImageId = NULL
-         WHERE coverImageId IS NOT NULL
-           AND coverImageId NOT IN (SELECT id FROM images)
-      `);
-      // booru_posts.localImageId 同属指向 images 的引用（FK SET NULL）；
-      // 老库/精简测试库可能没有该列，按列存在性守卫。
-      const booruPostColumns = await getTableColumnSet(db, 'booru_posts');
-      if (booruPostColumns.has('localImageId')) {
+        // images 表按机重建、不随备份走：异机（或清库后）恢复时，备份携带的 imageId 引用
+        // 在本库不存在，FK OFF 期间会以悬挂引用落库。悬挂引用绝不能保留——后续重扫产生的
+        // 新图片会复用 AUTOINCREMENT id，使这些引用静默指向完全无关的图片（成员错误归属、
+        // 封面/下载关联错图）。统一在重算 imageCount 之前清理：成员行删除，SET NULL 语义的引用置空。
+        await run(db, `DELETE FROM gallery_images WHERE imageId NOT IN (SELECT id FROM images)`);
         await run(db, `
-          UPDATE booru_posts
-             SET localImageId = NULL
-           WHERE localImageId IS NOT NULL
-             AND localImageId NOT IN (SELECT id FROM images)
+          UPDATE galleries
+             SET coverImageId = NULL
+           WHERE coverImageId IS NOT NULL
+             AND coverImageId NOT IN (SELECT id FROM images)
         `);
+        // booru_posts.localImageId 同属指向 images 的引用（FK SET NULL）；
+        // 老库/精简测试库可能没有该列，按列存在性守卫。
+        const booruPostColumns = await getTableColumnSet(db, 'booru_posts');
+        if (booruPostColumns.has('localImageId')) {
+          await run(db, `
+            UPDATE booru_posts
+               SET localImageId = NULL
+             WHERE localImageId IS NOT NULL
+               AND localImageId NOT IN (SELECT id FROM images)
+          `);
+        }
+
+        // §5.1 不变量：galleries.imageCount 是 gallery_images 成员数的缓存。
+        // 备份行里携带的 imageCount 可能与恢复后的成员表不一致（merge 合并成员、
+        // 旧版备份无成员数据、上方悬挂成员清理等），恢复末尾统一按成员表重算，避免恢复出陈旧计数。
+        await run(db, `
+          UPDATE galleries
+             SET imageCount = (SELECT COUNT(*) FROM gallery_images WHERE gallery_images.galleryId = galleries.id)
+        `);
+        await run(db, 'COMMIT');
+      } catch (error) {
+        if (began) {
+          try {
+            await run(db, 'ROLLBACK');
+          } catch (rollbackError) {
+            console.error('[backupService] 恢复事务 ROLLBACK 失败:', rollbackError);
+          }
+        }
+        throw error;
       }
+    } finally {
+      await run(db, 'PRAGMA foreign_keys = ON');
+    }
+  });
 
-      // §5.1 不变量：galleries.imageCount 是 gallery_images 成员数的缓存。
-      // 备份行里携带的 imageCount 可能与恢复后的成员表不一致（merge 合并成员、
-      // 旧版备份无成员数据、上方悬挂成员清理等），恢复末尾统一按成员表重算，避免恢复出陈旧计数。
-      await run(db, `
-        UPDATE galleries
-           SET imageCount = (SELECT COUNT(*) FROM gallery_images WHERE gallery_images.galleryId = galleries.id)
-      `);
-    });
-
+  // 表数据已提交后再落导入配置；保存失败用启动前快照回滚表数据并抛错。
+  // restoreBackupTablesSnapshot 内部走 runInTransaction，必须在独占段之外调用。
+  try {
     const importedConfigSaveResult = await saveConfig(sanitizeImportedBackupConfig(backupData.config));
     if (!importedConfigSaveResult.success) {
       await restoreBackupTablesSnapshot(db, previousTables);
@@ -490,8 +516,6 @@ export async function restoreAppBackupData(
       await saveConfig(previousConfig);
     }
     throw error;
-  } finally {
-    await run(db, 'PRAGMA foreign_keys = ON');
   }
 
   // 恢复直接改写了表，但 galleryRootRegistry 是进程内同步缓存（app:// 文件白名单来源），

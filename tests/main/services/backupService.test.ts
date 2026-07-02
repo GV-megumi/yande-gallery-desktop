@@ -147,10 +147,16 @@ describe('restoreAppBackupData', () => {
 
     const saveConfigMock = vi.fn(async () => ({ success: true }));
     const allMock = vi.fn(async () => []);
-    const runMock = vi.fn(async () => undefined);
+    // 恢复事务已改为 runExclusive 独占段内的裸 BEGIN/COMMIT（PRAGMA FK 开关需与
+    // 排队事务互斥），失败注入点改为事务体内第一条语句（replace 模式的 DELETE）
+    const runMock = vi.fn(async (_db: unknown, sql: string) => {
+      if (typeof sql === 'string' && sql.startsWith('DELETE FROM')) {
+        throw new Error('restore table failed');
+      }
+      return undefined;
+    });
     const runInTransactionMock = vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => {
       await callback();
-      throw new Error('restore table failed');
     });
 
     vi.doMock('../../../src/main/services/config.js', () => ({
@@ -164,16 +170,20 @@ describe('restoreAppBackupData', () => {
       all: allMock,
       run: runMock,
       runInTransaction: runInTransactionMock,
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
 
     await expect(restoreAppBackupData(backupData, { mode: 'replace' })).rejects.toThrow('restore table failed');
-    // 快照 SELECT 每表一次；备份负载无行故恢复循环无懒取 PRAGMA；
-    // 悬挂引用清理对 booru_posts 取一次列集（localImageId 列存在性守卫）
-    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 1);
+    // 快照 SELECT 每表一次；事务体在第一条 DELETE 即失败，走不到懒取 PRAGMA 与悬挂引用清理
+    expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length);
     expect(saveConfigMock).not.toHaveBeenCalled();
-    expect(runInTransactionMock).toHaveBeenCalledTimes(1);
+    // 恢复事务不再走 runInTransaction；失败也未触达快照回滚（表数据尚未提交无需回滚）
+    expect(runInTransactionMock).not.toHaveBeenCalled();
+    // BEGIN 成功后失败：必须回滚自己的事务，且 finally 里恢复 PRAGMA FK ON
+    expect(runMock.mock.calls.some(([, sql]) => sql === 'ROLLBACK')).toBe(true);
+    expect(runMock.mock.calls.some(([, sql]) => sql === 'PRAGMA foreign_keys = ON')).toBe(true);
   });
 
   it('配置写入失败时应回滚已恢复的数据库，避免配置和数据库分裂', async () => {
@@ -211,6 +221,7 @@ describe('restoreAppBackupData', () => {
       all: allMock,
       run: runMock,
       runInTransaction: runInTransactionMock,
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
@@ -220,7 +231,8 @@ describe('restoreAppBackupData', () => {
     // 快照 SELECT 每表一次；备份里只有 booru_sites 有行，恢复循环对它懒取一次 PRAGMA table_info（未知列过滤）；
     // 悬挂引用清理再对 booru_posts 取一次列集（localImageId 列存在性守卫）
     expect(allMock).toHaveBeenCalledTimes(BACKUP_TABLES.length + 2);
-    expect(runInTransactionMock).toHaveBeenCalledTimes(2);
+    // 恢复事务已改为独占段内裸 BEGIN/COMMIT；runInTransaction 只剩配置失败后的快照回滚这一次
+    expect(runInTransactionMock).toHaveBeenCalledTimes(1);
 
     const insertOriginalSiteCall = runMock.mock.calls.find(([_, sql, values]) =>
       typeof sql === 'string'
@@ -258,6 +270,7 @@ describe('restoreAppBackupData', () => {
       all: vi.fn(async () => []),
       run: vi.fn(async () => undefined),
       runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
@@ -300,6 +313,7 @@ describe('restoreAppBackupData', () => {
       all: allMock,
       run: vi.fn(async () => undefined),
       runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     // 先 import backupService（会拉入对应的 galleryRootRegistry 实例），
@@ -376,6 +390,7 @@ describe('booru_sites backup column sanitization', () => {
       all: allMock,
       run: vi.fn(async () => undefined),
       runInTransaction: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     const { createAppBackupData } = await import('../../../src/main/services/backupService');
@@ -441,6 +456,7 @@ describe('booru_sites backup column sanitization', () => {
       all: allMock,
       run: runMock,
       runInTransaction: runInTransactionMock,
+      runExclusive: vi.fn(async (_db: unknown, callback: () => Promise<unknown>) => callback()),
     }));
 
     const { restoreAppBackupData } = await import('../../../src/main/services/backupService');
