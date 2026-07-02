@@ -460,7 +460,8 @@ declare global {
         // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
         getGalleryFolders: (galleryId: number) => Promise<{ success: boolean; data?: Array<{ folderPath: string; recursive: boolean; extensions: string[] }>; error?: string }>;
         // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
-        previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }>; collisions: Array<{ table: string; column: string; path: string }> }; error?: string }>;
+        // warnings：newPrefix 与库内既有路径前缀仅大小写不同的非阻断提示（win32），不禁止 apply
+        previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }>; collisions: Array<{ table: string; column: string; path: string }>; warnings: Array<{ table: string; column: string; newPrefix: string; existingPrefix: string; count: number }> }; error?: string }>;
         applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }> }; error?: string }>;
         // 注意：getMissingGalleryFolders 直接返回数组（非 {success} 包裹），与上面两个不同
         getMissingGalleryFolders: () => Promise<Array<{ galleryId: number; folderPath: string }>>;

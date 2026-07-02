@@ -10,7 +10,14 @@
  *   - applyRelocateRoot 在单个事务内改写，任一 UNIQUE 冲突先于写入被发现则整体中止、零写入
  *     （UNIQUE 列两阶段改写：终态无重复的链式/互换/自包含映射不产生瞬时冲突，预检放行即可应用）；
  *   - 前缀匹配是"目录边界感知"的（M:\art 不匹配兄弟目录 M:\artists\x），
- *     且权威匹配在 JS 侧做，避免 SQL LIKE 的 _ / % / \ 通配符语义引入误判。
+ *     且权威匹配在 JS 侧做，避免 SQL LIKE 的 _ / % / \ 通配符语义引入误判；
+ *   - 写入侧大小写归一（win32）：preview 与 apply 都先经 canonicalizeRootPrefix 统一
+ *     old/new 前缀的字节形态（盘符大写 + 磁盘存在时取 realpath 规范大小写）。重定位
+ *     对话框允许手输前缀，而库内 folderPath/filepath 的唯一性、已绑定判定与图片导入
+ *     去重全部按字节精确比较（SQLite BINARY）——手输 `d:\art` 原样写库后，系统对话框 /
+ *     readdir 返回的规范形态 `D:\art` 字节不等，会导致同一物理文件夹被判为未绑定 →
+ *     重复绑定 + 整目录重复导入。preview 另对"newPrefix 与库内既有路径仅大小写不同"
+ *     给出非阻断 warnings，提示用户统一大小写。
  *
  * 涉及的 5 个 (表, 列) 改写点（均存归一化后的路径）：
  *   - gallery_folders.folderPath          （UNIQUE）
@@ -33,6 +40,7 @@
  */
 import path from 'path';
 import fs from 'fs/promises';
+import { realpathSync } from 'fs';
 import { getDatabase, all, run, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
@@ -67,6 +75,59 @@ const RELOCATE_SITES: RelocateSite[] = [
  */
 function toCompareKey(p: string): string {
   return process.platform === 'win32' ? p.toLowerCase() : p;
+}
+
+/**
+ * 归一化"将参与改写的路径前缀"，并在 win32 下把大小写规范到磁盘真实形态。
+ *
+ * 为什么写入侧必须归一：重定位对话框允许手输前缀，NTFS 大小写不敏感，但库内
+ * folderPath/filepath 的唯一性（UNIQUE）、已绑定判定（planScanFolder / bindFolder）
+ * 与图片导入去重全部按字节精确比较。把手输的 `d:\art` 原样写库后，系统对话框 /
+ * readdir 返回的规范形态 `D:\art` 字节不等 → 同一物理文件夹被判为未绑定 →
+ * 重复绑定 + 整目录重复导入。故 oldPrefix/newPrefix 在 preview 与 apply 两侧
+ * 都先经本函数归一（同一 helper，保证 preview 展示的目标字节 == apply 写入的字节）。
+ *
+ * 规则（win32）：
+ *   1. normalizePath 归一分隔符与尾分隔符；
+ *   2. 盘符统一大写（`d:` → `D:`，系统对话框与 readdir 返回的盘符恒为大写）；
+ *   3. 路径在磁盘上存在时，用 fs.realpathSync.native 取目录项的真实大小写形态
+ *      （同时会展开 8.3 短名）。取舍：realpath 会一并解析符号链接 / junction——
+ *      若前缀本身是链接，得到的是链接目标的真实路径。迁移目标绝大多数是真实目录
+ *      （realpath 仅校正大小写）；链接场景写入的真实路径与物理数据仍一致，接受该副作用；
+ *   4. 失败（路径不存在——旧前缀在迁移后通常已不在磁盘——或不可访问）时回退
+ *      第 1+2 步的形态，不阻断重定位。
+ *
+ * 非 win32：文件系统大小写敏感，用户输入的字节即真值，且 realpath 只会引入符号链接
+ * 解析副作用（可能改写用户指定的前缀形态），故仅做 normalizePath。
+ */
+export function canonicalizeRootPrefix(p: string): string {
+  const normalized = normalizePath(p);
+  if (process.platform !== 'win32') {
+    return normalized;
+  }
+  // 盘符统一大写：`d:\art` → `D:\art`（仅小写盘符需要改写；UNC 路径无盘符，原样跳过）
+  let canonical = /^[a-z]:/.test(normalized)
+    ? normalized[0].toUpperCase() + normalized.slice(1)
+    : normalized;
+  try {
+    // 磁盘上存在 → 取目录项真实大小写形态（GetFinalPathNameByHandle 语义）
+    canonical = normalizePath(realpathSync.native(canonical));
+  } catch {
+    // 路径不存在或不可访问：回退"归一化 + 盘符大写"的形态（迁移后的旧前缀走的就是这里）
+  }
+  return canonical;
+}
+
+/**
+ * 把整批映射的 old/new 前缀统一规范化。preview 与 apply 必须共用本函数，
+ * 保证两侧的匹配集合、冲突判定与最终写入字节完全一致。
+ * （win32 匹配本就大小写不敏感，规范化 oldPrefix 不改变命中集合。）
+ */
+function canonicalizeMappings(mappings: RelocateMapping[]): RelocateMapping[] {
+  return mappings.map((m) => ({
+    oldPrefix: canonicalizeRootPrefix(m.oldPrefix),
+    newPrefix: canonicalizeRootPrefix(m.newPrefix),
+  }));
 }
 
 /**
@@ -111,12 +172,34 @@ export function rewritePathWithMappings(
   return null;
 }
 
+/**
+ * 仅大小写差异提示项（win32）：某映射规范化后的 newPrefix 与库内既有行的字节前缀
+ * compare key 相同、字节不同。按 (表, 列, 既有前缀变体) 聚合，count 为该变体下的行数。
+ */
+export interface RelocateCaseWarning {
+  table: string;
+  column: string;
+  /** 规范化后将写入的新前缀（字节形态） */
+  newPrefix: string;
+  /** 库内既有行（不在本次改写集合内）的字节前缀，与 newPrefix 仅大小写不同 */
+  existingPrefix: string;
+  /** 该 (table, column) 下前缀为 existingPrefix 的既有行数 */
+  count: number;
+}
+
 /** previewRelocateRoot 的返回数据形态。 */
 export interface RelocatePreviewData {
   /** 每个 (表, 列) 会被改写的行数。 */
   affected: Array<{ table: string; column: string; count: number }>;
   /** UNIQUE 列改写后会撞上既有行的冲突列表（存在任一则禁止 apply）。 */
   collisions: Array<{ table: string; column: string; path: string }>;
+  /**
+   * 非阻断提示：newPrefix 与库内既有路径前缀仅大小写不同（win32 才会出现）。
+   * 不禁止 apply，但应用后库内会同时存在同一物理目录的两种大小写前缀——后续
+   * byte-exact 判定（绑定唯一性 / 已绑定判定 / 图片导入去重）会把它们当成不同目录，
+   * 建议用户把新前缀大小写改成与库内一致。
+   */
+  warnings: RelocateCaseWarning[];
 }
 
 /** 单个站点的扫描结果（供 preview 计数与 apply 改写复用）。 */
@@ -126,6 +209,8 @@ interface SiteScan {
   matched: Array<{ id: number; newPath: string }>;
   /** 改写后与既有行冲突的目标路径（仅 UNIQUE 列）。 */
   collisions: string[];
+  /** 与某映射 newPrefix 仅大小写不同的既有行前缀变体（非阻断，供 preview 提示）。 */
+  caseVariants: Array<{ newPrefix: string; existingPrefix: string; count: number }>;
 }
 
 /**
@@ -163,6 +248,40 @@ async function scanSite(
     }
   }
 
+  // 仅大小写差异提示（win32 才会出现：toCompareKey 相同、字节不同；非 win32 下
+  // compare key 即字节本身，slice 出的前缀必然与 normNew 相等，天然不产生条目）：
+  // 非改写行若落在某 mapping 的 newPrefix 之下（大小写不敏感）而字节前缀不同，
+  // apply 后库内将同时存在同一物理目录的两种大小写前缀——后续 byte-exact 判定
+  // （绑定唯一性 / planScanFolder 已绑定判定 / 图片导入去重）会把它们当成不同目录。
+  // 改写行不计入：其前缀 apply 后即为规范化的 newPrefix 字节，不构成变体。
+  const variantMap = new Map<string, { newPrefix: string; existingPrefix: string; count: number }>();
+  for (const row of rows) {
+    const normValue = normalizePath(row.value);
+    const valueKey = toCompareKey(normValue);
+    if (matchedKeys.has(valueKey)) {
+      continue;
+    }
+    for (const mapping of mappings) {
+      const normNew = normalizePath(mapping.newPrefix);
+      const newKey = toCompareKey(normNew);
+      if (valueKey !== newKey && !valueKey.startsWith(newKey + path.sep)) {
+        continue;
+      }
+      // 命中 newPrefix 的 compare key：取该行等长的字节前缀与规范形态比对
+      const existingPrefix = normValue.slice(0, normNew.length);
+      if (existingPrefix !== normNew) {
+        const dedupeKey = JSON.stringify([normNew, existingPrefix]);
+        const entry = variantMap.get(dedupeKey);
+        if (entry) {
+          entry.count += 1;
+        } else {
+          variantMap.set(dedupeKey, { newPrefix: normNew, existingPrefix, count: 1 });
+        }
+      }
+      break; // 一行只归入首个命中的 mapping（与改写的 first-match 语义一致）
+    }
+  }
+
   const collisions: string[] = [];
   if (site.isUnique) {
     // seenTargets：本批已经"占用"的改写目标。用于拦截批内多源→同一目标
@@ -185,7 +304,7 @@ async function scanSite(
     }
   }
 
-  return { site, matched, collisions };
+  return { site, matched, collisions, caseVariants: [...variantMap.values()] };
 }
 
 /** 扫描全部 5 个站点（preview 与 apply 共用）。 */
@@ -203,13 +322,15 @@ async function scanAllSites(
 /**
  * 预检（dry-run，不写库）：统计每个 (表, 列) 会改多少行，并检测 UNIQUE 冲突。
  * 供 UI 在真正 apply 前展示影响面与风险。
+ * 映射先经 canonicalizeMappings 规范化（与 apply 同一 helper），
+ * 因此冲突项里展示的目标路径字节 == apply 实际写入的字节。
  */
 export async function previewRelocateRoot(
   mappings: RelocateMapping[]
 ): Promise<{ success: boolean; data?: RelocatePreviewData; error?: string }> {
   try {
     const db = await getDatabase();
-    const scans = await scanAllSites(db, mappings);
+    const scans = await scanAllSites(db, canonicalizeMappings(mappings));
 
     const affected = scans.map((s) => ({
       table: s.site.table,
@@ -224,7 +345,15 @@ export async function previewRelocateRoot(
       }
     }
 
-    return { success: true, data: { affected, collisions } };
+    // 非阻断提示：newPrefix 与库内既有路径前缀仅大小写不同（详见 RelocateCaseWarning）
+    const warnings: RelocateCaseWarning[] = [];
+    for (const s of scans) {
+      for (const v of s.caseVariants) {
+        warnings.push({ table: s.site.table, column: s.site.column, ...v });
+      }
+    }
+
+    return { success: true, data: { affected, collisions, warnings } };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryRelocateService] previewRelocateRoot 失败:', errorMessage);
@@ -242,6 +371,8 @@ export interface RelocateApplyData {
  * 应用重定位（单事务、无损）。
  *
  * 流程：
+ *   0. 映射先经 canonicalizeMappings 规范化（与 preview 同一 helper），写库字节 ==
+ *      preview 展示字节，杜绝手输小写前缀以非规范字节整库落盘；
  *   1. 先扫描全部站点（== preview 的逻辑）；任一 UNIQUE 冲突 → 直接返回失败、不写任何行；
  *   2. 否则在单个 runInTransaction 内，对每个站点按主键 id 逐行 UPDATE 为 JS 预计算的新路径
  *      （per-row UPDATE keyed by id 最稳，不依赖 SQL 侧的边界正确性）；UNIQUE 站点分两阶段
@@ -258,7 +389,7 @@ export async function applyRelocateRoot(
 ): Promise<{ success: boolean; data?: RelocateApplyData; error?: string }> {
   try {
     const db = await getDatabase();
-    const scans = await scanAllSites(db, mappings);
+    const scans = await scanAllSites(db, canonicalizeMappings(mappings));
 
     // 任一 UNIQUE 冲突 → 中止，零写入（先于事务发现，连 BEGIN 都不进）。
     const collisionCount = scans.reduce((sum, s) => sum + s.collisions.length, 0);
@@ -269,6 +400,14 @@ export async function applyRelocateRoot(
         `（例如 ${firstCollision.site.table}.${firstCollision.site.column} → ${firstCollision.collisions[0]}）`;
       console.error('[galleryRelocateService] applyRelocateRoot:', errorMessage);
       return { success: false, error: errorMessage };
+    }
+
+    // 仅大小写差异的既有前缀变体不阻断（preview 已提示用户），这里留一条告警便于事后排查
+    const caseVariantCount = scans.reduce((sum, s) => sum + s.caseVariants.length, 0);
+    if (caseVariantCount > 0) {
+      console.warn(
+        `[galleryRelocateService] applyRelocateRoot: 检测到 ${caseVariantCount} 处与新前缀仅大小写不同的既有路径前缀（不阻断，建议统一大小写）`
+      );
     }
 
     // 单事务内改写：任一失败整体回滚（runInTransaction 内部已处理 ROLLBACK）。

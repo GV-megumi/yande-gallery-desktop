@@ -126,6 +126,32 @@ describe('RelocateRootModal', () => {
     });
   });
 
+  it('预览返回仅大小写差异 warnings 时展示非阻断提示，应用仍可用', async () => {
+    const onPreview = vi.fn().mockResolvedValue({
+      success: true,
+      data: {
+        affected: [{ table: 'images', column: 'filepath', count: 4 }],
+        collisions: [],
+        warnings: [
+          { table: 'images', column: 'filepath', newPrefix: 'E:/New', existingPrefix: 'E:/new', count: 3 },
+        ],
+      },
+    });
+    render(<RelocateRootModal {...makeProps({ onPreview })} />);
+
+    await fillFirstRow('D:/old', 'E:/New');
+    await userEvent.click(screen.getByRole('button', { name: /预\s*览/ }));
+
+    // 非阻断提示出现（含既有前缀字节形态与行数）
+    expect(await screen.findByText(/仅大小写不同的路径/)).toBeTruthy();
+    expect(screen.getByText(/E:\/new/)).toBeTruthy();
+    expect(screen.getByText(/3\s*行/)).toBeTruthy();
+
+    // 与 collisions 不同：应用不被禁用
+    const applyBtn = screen.getByRole('button', { name: /应\s*用/ }) as HTMLButtonElement;
+    await waitFor(() => expect(applyBtn.disabled).toBe(false));
+  });
+
   it('点击新增行后可填写第二条映射', async () => {
     render(<RelocateRootModal {...makeProps()} />);
     expect(screen.getAllByPlaceholderText(/旧路径前缀/)).toHaveLength(1);
