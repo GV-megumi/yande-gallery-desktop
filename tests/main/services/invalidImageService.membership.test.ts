@@ -100,6 +100,14 @@ async function setupSchema(): Promise<void> {
       FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
     )
   `);
+  // booru 帖子（失效迁移须复位 downloaded/localPath；仅建代码触达的列）
+  await run(h.db, `
+    CREATE TABLE booru_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      downloaded INTEGER NOT NULL DEFAULT 0, localPath TEXT, localImageId INTEGER,
+      FOREIGN KEY (localImageId) REFERENCES images (id) ON DELETE SET NULL
+    )
+  `);
 }
 
 async function addImage(filepath: string): Promise<number> {
@@ -350,6 +358,27 @@ describe('丢失文件夹防护与显式批量迁移', () => {
     expect(await get(h.db, 'SELECT id FROM images WHERE id = ?', [keep])).toBeTruthy();
     const gRow = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [g]);
     expect(gRow?.imageCount).toBe(1);
+  });
+
+  it('失效迁移复位对应 booru 帖子的下载状态（localImageId 或 localPath 命中，无关帖子不动）', async () => {
+    const g = await addGallery(normalizePathLike('M:/booru-root'));
+    await addBinding(g, 'M:/booru');
+    h.existing.add('M:/booru'); // 文件夹在、文件缺失 → 走正常自动迁移
+    const img = await addImage('M:/booru/post.jpg');
+    await addMember(g, img);
+    // 三行帖子：按 localImageId 关联 / 仅按 localPath 关联（引用早已 SET NULL 的历史行）/ 无关
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/booru/post.jpg', ?)`, [img]);
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/booru/post.jpg', NULL)`);
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/other/x.jpg', NULL)`);
+
+    const result = await reportInvalidImage(img);
+    expect(result.success).toBe(true);
+
+    const rows = await all<{ downloaded: number; localPath: string | null }>(
+      h.db, 'SELECT downloaded, localPath FROM booru_posts ORDER BY id');
+    expect(rows[0]).toEqual({ downloaded: 0, localPath: null });
+    expect(rows[1]).toEqual({ downloaded: 0, localPath: null });
+    expect(rows[2]).toEqual({ downloaded: 1, localPath: 'M:/other/x.jpg' });
   });
 
   it('migrateMissingFolderImages：非绑定文件夹报错；源文件仍存在的成员跳过不迁', async () => {
