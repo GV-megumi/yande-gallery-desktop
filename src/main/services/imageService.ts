@@ -305,6 +305,18 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     //（与 invalidImageService.reportInvalidImage 的代表选取一致）
     const representativeGalleryId: number | null = ownerGalleryIds[0] ?? null;
 
+    // 复位对应 booru 帖子的下载状态（对齐 cleanupOrphanImages 的孤儿清理语义）：
+    // 本地图删除后帖子应可重新下载。必须在 DELETE images 之前——删除后 FK 仅
+    // SET NULL 清 localImageId 引用，downloaded=1 与陈旧 localPath 会永久残留，
+    // 按路径去重的批量下载将永远跳过该帖。
+    if (row) {
+      await run(
+        db,
+        'UPDATE booru_posts SET downloaded = 0, localPath = NULL WHERE localImageId = ? OR localPath = ?',
+        [id, row.filepath]
+      );
+    }
+
     // 删除数据库记录（images 行被删时 gallery_images 成员行随 FK CASCADE 一并清理）
     await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
     await run(db, 'DELETE FROM images WHERE id = ?', [id]);

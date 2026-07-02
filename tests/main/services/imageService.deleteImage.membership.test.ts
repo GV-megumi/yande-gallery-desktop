@@ -83,6 +83,14 @@ async function setupSchema(): Promise<void> {
       FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE
     )
   `);
+  // booru 帖子（deleteImage 须复位 downloaded/localPath；仅建代码触达的列）
+  await run(h.db, `
+    CREATE TABLE booru_posts (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      downloaded INTEGER NOT NULL DEFAULT 0, localPath TEXT, localImageId INTEGER,
+      FOREIGN KEY (localImageId) REFERENCES images (id) ON DELETE SET NULL
+    )
+  `);
 }
 
 async function addImage(filepath: string): Promise<number> {
@@ -194,6 +202,26 @@ describe('deleteImage 归属图集统计刷新（gallery_images 成员表）', (
     const g = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [galleryId]);
     expect(g?.imageCount).toBe(1);
     expect(statsUpdatedGalleryIds()).toContain(galleryId);
+  });
+
+  it('删除本地图片复位对应 booru 帖子的下载状态（localImageId 或 localPath 命中，无关帖子不动）', async () => {
+    const galleryId = await addGallery('M:/bp');
+    const img = await addImage('M:/bp/post.jpg');
+    await addMember(galleryId, img);
+    // 三行帖子：按 localImageId 关联 / 仅按 localPath 关联（引用早已 SET NULL 的历史行）/ 无关
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/bp/post.jpg', ?)`, [img]);
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/bp/post.jpg', NULL)`);
+    await run(h.db, `INSERT INTO booru_posts (downloaded, localPath, localImageId) VALUES (1, 'M:/other/x.jpg', NULL)`);
+
+    const result = await deleteImage(img);
+    expect(result.success).toBe(true);
+
+    // 命中的两行复位为可重新下载；无关行原样保留
+    const rows = await all<{ downloaded: number; localPath: string | null }>(
+      h.db, 'SELECT downloaded, localPath FROM booru_posts ORDER BY id');
+    expect(rows[0]).toEqual({ downloaded: 0, localPath: null });
+    expect(rows[1]).toEqual({ downloaded: 0, localPath: null });
+    expect(rows[2]).toEqual({ downloaded: 1, localPath: 'M:/other/x.jpg' });
   });
 
   it('无归属图片删除：事件 galleryId 为 null 且不发 statsUpdated', async () => {
