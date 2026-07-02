@@ -61,7 +61,7 @@ vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
   removeGalleryRoot: vi.fn((p: string) => { h.removeRootCalls.push(p); }),
 }));
 
-import { run, get, all } from '../../../src/main/services/database';
+import { run, get, all, runInTransaction } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { deleteGallery } from '../../../src/main/services/galleryService';
 
@@ -435,6 +435,42 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     // 不应清缩略图、不应发 deleted 事件
     expect(h.deleteThumbnailCalls).toEqual([]);
     expect(h.galleriesChanged.some((p) => p.action === 'deleted')).toBe(false);
+  });
+
+  /**
+   * 并发竞态修复（修复轮 U08）：成员快照必须在删除事务内读取。
+   * 旧实现在事务外先读快照：扫描侧在「快照后、DELETE galleries 前」提交的成员
+   * （其事务在队列上排在删除事务之前）不在快照内 → CASCADE 清掉成员行后，
+   * cleanupOrphanImages 不认识这些图片 → 永久零归属僵尸行（无任何 GC 路径）。
+   * 用事务队列顺序确定性模拟：先占住队列、延迟提交新图片+成员，再发起 deleteGallery——
+   * 快照在事务内时必然排在该提交之后、能看到新成员。
+   */
+  it('快照点后、删除事务前提交的成员不产生零归属僵尸行（快照进事务）', async () => {
+    const folder = normalizePath(path.join('M:', 'race'));
+    const galleryId = await addGallery(folder, 1);
+    await addFolderBinding(galleryId, folder, 1);
+    const early = await addImage(normalizePath(path.join('M:', 'race', 'early.jpg')));
+    await addMembership(galleryId, early);
+
+    // T1：模拟扫描侧成员写入——先占住事务队列，睡 100ms 后才插入新图片+成员并提交。
+    // 旧实现的快照在事务外立即执行（此时 late 尚未写入，读不到）；删除事务排在 T1 之后。
+    let lateId = 0;
+    const t1 = runInTransaction(h.db, async () => {
+      await new Promise((r) => setTimeout(r, 100));
+      lateId = await addImage(normalizePath(path.join('M:', 'race', 'late.jpg')));
+      await addMembership(galleryId, lateId);
+    });
+
+    // 立即发起删除（不等 T1）：其删除事务在队列上必然排在 T1 提交之后
+    const [, result] = await Promise.all([t1, deleteGallery(galleryId)]);
+
+    expect(result.success).toBe(true);
+    expect(lateId).toBeGreaterThan(0);
+    // early 与 late 都仅归属本图集：删除后不允许任何零归属僵尸行残留
+    const leftovers = (await all<{ id: number }>(h.db, 'SELECT id FROM images')).map((r) => r.id);
+    expect(leftovers).toEqual([]);
+    // late 的缩略图也应被清（证明它进了孤儿回收，而非被遗漏）
+    expect(h.deleteThumbnailCalls).toContain(normalizePath(path.join('M:', 'race', 'late.jpg')));
   });
 
   /**

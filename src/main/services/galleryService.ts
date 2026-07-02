@@ -461,11 +461,14 @@ export async function cleanupOrphanImages(
  *
  * 清理顺序：
  * 1. 校验 galleries 行存在（folderPath 旧列仅用于 deleted 事件载荷，向后兼容）；
- * 2. 读 gallery_images 成员 imageId 与 gallery_folders 绑定文件夹（只读）；
+ * 2. 读 gallery_folders 绑定文件夹（只读，供拉黑/事件载荷）；
  * 3. 事务内：
- *    a. DELETE invalid_images WHERE galleryId（须在删 galleries 前，避免 FK SET NULL 后丢失定位）；
- *    b. DELETE galleries 本行（FK CASCADE 连带删 gallery_folders / gallery_images）；
- *    c. 每个绑定文件夹 INSERT OR REPLACE 写入 gallery_ignored_folders；
+ *    a. 读 gallery_images 成员 imageId 快照（修复轮 U08：必须与 DELETE 同事务——
+ *       事务外读会留下「快照后、删除前」窗口，期间扫描侧提交的成员不在快照内，
+ *       CASCADE 清成员行后 cleanupOrphanImages 不认识它们 → 永久零归属僵尸行）；
+ *    b. DELETE invalid_images WHERE galleryId（须在删 galleries 前，避免 FK SET NULL 后丢失定位）；
+ *    c. DELETE galleries 本行（FK CASCADE 连带删 gallery_folders / gallery_images）；
+ *    d. 每个绑定文件夹 INSERT OR REPLACE 写入 gallery_ignored_folders；
  *    任一条失败 → ROLLBACK；
  * 4. cleanupOrphanImages(成员 imageId)：此时本图集成员行已被 CASCADE 删除，
  *    仅本图集独占的图片成为孤儿被删（清缩略图 + 重置 booru.downloaded/localPath）；
@@ -490,14 +493,8 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       return { success: false, error: 'Gallery not found' };
     }
 
-    // 2. 读成员图片 id 与绑定文件夹（按成员表 / 绑定表，而非 folderPath 前缀）。
-    const memberRows = await all<{ imageId: number }>(
-      db,
-      'SELECT imageId FROM gallery_images WHERE galleryId = ?',
-      [id]
-    );
-    const memberImageIds = memberRows.map(r => r.imageId);
-
+    // 2. 读绑定文件夹（按绑定表，而非 folderPath 前缀）。
+    //    成员快照不在这里读：必须进删除事务（见下方 3a），否则与并发扫描互撞产生僵尸行。
     const folderRows = await all<{ folderPath: string }>(
       db,
       'SELECT folderPath FROM gallery_folders WHERE galleryId = ?',
@@ -509,19 +506,31 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
     // deleted 事件 folderPath 字段：用首个绑定文件夹（图集可能无绑定文件夹，回退空串）。
     const eventFolderPath = boundFolders[0] ?? '';
 
-    // 3. 事务内：删图集行（FK CASCADE 连带删 gallery_folders / gallery_images）
+    // 3. 事务内：读成员快照 + 删图集行（FK CASCADE 连带删 gallery_folders / gallery_images）
     //    + 清 invalid_images（表定义 ON DELETE SET NULL，这里显式删更干净，避免孤儿行）
     //    + 每个绑定文件夹写入忽略名单（INSERT OR REPLACE 保留 createdAt）。
     //    任一写失败整体 ROLLBACK，外层 catch 返回 success:false。
     const now = new Date().toISOString();
+    let memberImageIds: number[] = [];
     await runInTransaction(db, async () => {
-      // 3a. invalid_images 按 galleryId 显式清（须在删 galleries 前，否则 FK SET NULL 后无法按 galleryId 定位）
+      // 3a. 成员快照在删除事务内、DELETE galleries 之前读取（修复轮 U08）：
+      //     与 DELETE 同事务保证读写一致——事务外先读快照会留下「快照后、删除前」
+      //     窗口，期间并发扫描（事务队列上排在本事务之前）提交的成员不在快照内，
+      //     CASCADE 清掉成员行后 cleanupOrphanImages 无从回收 → 永久零归属僵尸行。
+      const memberRows = await all<{ imageId: number }>(
+        db,
+        'SELECT imageId FROM gallery_images WHERE galleryId = ?',
+        [id]
+      );
+      memberImageIds = memberRows.map(r => r.imageId);
+
+      // 3b. invalid_images 按 galleryId 显式清（须在删 galleries 前，否则 FK SET NULL 后无法按 galleryId 定位）
       await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
 
-      // 3b. 删图集行：FK CASCADE 连带清掉本图集的 gallery_folders / gallery_images 成员行
+      // 3c. 删图集行：FK CASCADE 连带清掉本图集的 gallery_folders / gallery_images 成员行
       await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
 
-      // 3c. 逐个绑定文件夹拉黑（下次扫描不重建）
+      // 3d. 逐个绑定文件夹拉黑（下次扫描不重建）
       for (const folder of boundFolders) {
         await run(
           db,
