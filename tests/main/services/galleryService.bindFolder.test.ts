@@ -24,6 +24,7 @@ const h = vi.hoisted(() => ({
   scanImpl: null as null | (() => Promise<any>),
   addRootCalls: [] as string[],
   galleriesChanged: [] as any[],
+  ignoredChanged: [] as any[],
 }));
 
 vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
@@ -44,7 +45,7 @@ vi.mock('../../../src/main/services/rendererEventBus.js', () => ({
 
 vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
   emitGalleryGalleriesChanged: vi.fn((p: any) => { h.galleriesChanged.push(p); }),
-  emitGalleryIgnoredFoldersChanged: vi.fn(),
+  emitGalleryIgnoredFoldersChanged: vi.fn((p: any) => { h.ignoredChanged.push(p); }),
 }));
 
 vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
@@ -151,8 +152,18 @@ beforeEach(async () => {
   h.scanImpl = null;
   h.addRootCalls = [];
   h.galleriesChanged = [];
+  h.ignoredChanged = [];
   vi.clearAllMocks();
 });
+
+async function addIgnoredFolder(folderPath: string): Promise<void> {
+  await run(
+    h.db,
+    `INSERT INTO gallery_ignored_folders (folderPath, note, createdAt, updatedAt)
+     VALUES (?, '删除图集自动忽略', '2024-01-01', '2024-01-01')`,
+    [folderPath]
+  );
+}
 
 afterEach(async () => {
   await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
@@ -274,6 +285,49 @@ describe('bindFolder', () => {
     expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE folderPath = ?', [extra])).toHaveLength(0);
     expect(await all(h.db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [galleryId])).toHaveLength(0);
     expect(h.addRootCalls).not.toContain(extra);
+  });
+
+  /**
+   * 显式操作覆盖黑名单（修复轮 U05）：路径此前被「删除图集自动忽略」拉黑，用户又
+   * 显式把它绑回某图集 → 绑定成功后移除黑名单中该路径的**精确条目**（显式意图优先）。
+   * 若保留条目，其它父级图集重扫会把这棵子树整棵剪枝，与用户当前意图相悖。
+   * 其它条目（无关路径/后代路径）不动。
+   */
+  it('显式绑定被拉黑路径：绑定成功且黑名单精确条目被移除，其它条目不动', async () => {
+    const baseFolder = normalizePath(path.join('M:', 'galA'));
+    const galleryId = await addGallery(baseFolder, 1);
+    const extra = normalizePath(path.join('M:', 'blacklisted'));
+    const unrelated = normalizePath(path.join('M:', 'other'));
+    const descendant = normalizePath(path.join('M:', 'blacklisted', 'sub'));
+    await addIgnoredFolder(extra);
+    await addIgnoredFolder(unrelated);
+    await addIgnoredFolder(descendant);
+
+    const result = await bindFolder(galleryId, extra, true, ['.jpg']);
+
+    expect(result.success).toBe(true);
+    // 精确条目被移除
+    expect(await all(h.db, 'SELECT * FROM gallery_ignored_folders WHERE folderPath = ?', [extra])).toHaveLength(0);
+    // 无关条目与后代条目保留（后代仍按整棵剪枝语义生效）
+    expect(await all(h.db, 'SELECT * FROM gallery_ignored_folders WHERE folderPath = ?', [unrelated])).toHaveLength(1);
+    expect(await all(h.db, 'SELECT * FROM gallery_ignored_folders WHERE folderPath = ?', [descendant])).toHaveLength(1);
+    // 广播 ignored-folders-changed deleted（忽略名单 UI 需要感知）
+    expect(h.ignoredChanged.some((p) => p.action === 'deleted' && p.folderPath === extra)).toBe(true);
+  });
+
+  it('扫描失败补偿解绑时黑名单条目保持不动（绑定未成功，显式意图未达成）', async () => {
+    const baseFolder = normalizePath(path.join('M:', 'galA'));
+    const galleryId = await addGallery(baseFolder, 1);
+    const extra = normalizePath(path.join('M:', 'blacklistedFail'));
+    await addIgnoredFolder(extra);
+    h.scanResult = { success: false, error: '目录不存在' };
+
+    const result = await bindFolder(galleryId, extra, true, ['.jpg']);
+
+    expect(result.success).toBe(false);
+    // 黑名单精确条目保留
+    expect(await all(h.db, 'SELECT * FROM gallery_ignored_folders WHERE folderPath = ?', [extra])).toHaveLength(1);
+    expect(h.ignoredChanged.some((p) => p.action === 'deleted')).toBe(false);
   });
 
   /**

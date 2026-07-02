@@ -772,6 +772,9 @@ export async function scanFolderIntoGallery(
  * - 扫描失败（返回失败或抛错）→ 补偿回滚：复用 unbindFolder 既有语义（删除绑定行 +
  *   重叠感知移除成员 + 孤儿 GC），保证失败后无残留绑定。changeFolderPath 的
  *   "先绑新后解旧"安全性因此不变（新侧失败 → 补偿删新绑定 → 旧绑定原样）；
+ * - 绑定成功后移除 gallery_ignored_folders 中该路径的**精确条目**（修复轮 U05：
+ *   显式操作覆盖黑名单——用户显式绑定即当前意图，保留条目会让其它父级图集重扫时
+ *   把这棵子树整棵剪枝）；失败路径不移除（意图未达成）；
  * - addGalleryRoot(folderPath)（app:// 白名单增量维护）；
  * - emit gallery:galleries-changed{action:'updated'}。
  *
@@ -840,6 +843,34 @@ export async function bindFolder(
         );
       }
       return { success: false, error: scanResult.error || '扫描文件夹失败' };
+    }
+
+    // 显式操作覆盖黑名单（修复轮 U05）：该路径此前可能被「删除图集自动忽略」拉黑，
+    // 用户如今显式把它绑回图集——显式意图优先，移除黑名单中该路径的**精确条目**
+    // （只删精确命中，不动祖先/后代条目：后代条目的整棵剪枝语义继续生效）。
+    // 若保留该条目，其它父级图集重扫会把这棵子树整棵剪掉，与用户当前意图相悖。
+    // 绑定本身已成功，清理失败只告警不改变返回结果。
+    try {
+      const ignoredRow = await get<{ id: number }>(
+        db,
+        'SELECT id FROM gallery_ignored_folders WHERE folderPath = ?',
+        [normalized]
+      );
+      if (ignoredRow) {
+        await run(db, 'DELETE FROM gallery_ignored_folders WHERE id = ?', [ignoredRow.id]);
+        emitGalleryIgnoredFoldersChanged({
+          action: 'deleted',
+          ignoredFolderId: ignoredRow.id,
+          folderPath: normalized,
+          affectedCount: 1,
+        });
+        console.log(`[galleryService] bindFolder 显式绑定覆盖黑名单，已移除精确条目: ${normalized}`);
+      }
+    } catch (cleanupError) {
+      const cleanupMessage = cleanupError instanceof Error ? cleanupError.message : String(cleanupError);
+      console.warn(
+        `[galleryService] bindFolder 移除黑名单精确条目失败（不影响绑定结果）: ${normalized}, ${cleanupMessage}`
+      );
     }
 
     addGalleryRoot(normalized);
@@ -1422,7 +1453,8 @@ export async function syncGalleryFolder(id: number): Promise<{
 // 记录被用户标记为"不再扫描"的文件夹路径。删除图集时会自动写入。消费方：
 //   - planScanFolder：候选路径精确命中 → skipped: ignored（不重建图集）；
 //   - scanFolderIntoGallery：严格位于扫描目标内部的条目 → 磁盘扫描与成员收编
-//     整棵剪枝（父级重扫不会整棵复活已拉黑子树，修复轮 U05）。
+//     整棵剪枝（父级重扫不会整棵复活已拉黑子树，修复轮 U05）；
+//   - bindFolder：显式绑定成功后移除该路径的精确条目（显式意图覆盖黑名单）。
 // ---------------------------------------------------------------------------
 
 export interface IgnoredFolderRow {
