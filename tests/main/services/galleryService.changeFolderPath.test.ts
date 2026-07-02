@@ -50,6 +50,7 @@ vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
 import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { changeFolderPath } from '../../../src/main/services/galleryService';
+import { scanAndImportFolder } from '../../../src/main/services/imageService';
 
 async function setupSchema(): Promise<void> {
   await run(h.db, `
@@ -150,12 +151,17 @@ async function addGallery(folderPath: string, recursive: number): Promise<number
   return row!.id;
 }
 
-async function addFolderBinding(galleryId: number, folderPath: string, recursive: number): Promise<void> {
+async function addFolderBinding(
+  galleryId: number,
+  folderPath: string,
+  recursive: number,
+  extensions: string[] = ['.jpg']
+): Promise<void> {
   await run(
     h.db,
     `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
      VALUES (?, ?, ?, ?, '2024-01-01', '2024-01-01')`,
-    [galleryId, folderPath, recursive, JSON.stringify(['.jpg'])]
+    [galleryId, folderPath, recursive, JSON.stringify(extensions)]
   );
 }
 
@@ -313,6 +319,97 @@ describe('changeFolderPath', () => {
     expect(members).toEqual([oldImg]);
     const imgRow = await get<{ id: number }>(h.db, 'SELECT id FROM images WHERE id = ?', [oldImg]);
     expect(imgRow?.id).toBe(oldImg);
+  });
+
+  /**
+   * 修复轮 U06：调用方未显式传 recursive/extensions 时，changeFolderPath 必须继承
+   * 旧绑定行的配置，而不是吃服务端默认（recursive=true + 默认扩展名）——否则
+   * 非递归绑定（如旧版"扫描子文件夹"回填的 recursive=0 行）改路径后被静默翻转为
+   * 递归导入全部嵌套子目录，自定义扩展名也被重置。
+   */
+  it('未显式传参时继承旧绑定行的 recursive=0 与自定义 extensions', async () => {
+    const oldFolder = normalizePath(path.join('M:', 'flatOld'));
+    const newFolder = normalizePath(path.join('M:', 'flatNew'));
+    const galleryId = await addGallery(oldFolder, 0);
+    await addFolderBinding(galleryId, oldFolder, 0, ['.png']);
+
+    const result = await changeFolderPath(galleryId, oldFolder, newFolder);
+
+    expect(result.success).toBe(true);
+
+    // 新绑定行继承旧行的 recursive=0 与自定义扩展名
+    const row = await get<{ recursive: number; extensions: string }>(
+      h.db,
+      'SELECT recursive, extensions FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, newFolder]
+    );
+    expect(row?.recursive).toBe(0);
+    expect(JSON.parse(row!.extensions)).toEqual(['.png']);
+
+    // 扫描导入也按继承配置执行（非递归 + 自定义扩展名），而非默认递归全量导入
+    expect(vi.mocked(scanAndImportFolder)).toHaveBeenCalledWith(newFolder, ['.png'], false, []);
+  });
+
+  it('显式传入 recursive/extensions 时覆盖旧绑定行的继承值', async () => {
+    const oldFolder = normalizePath(path.join('M:', 'ovOld'));
+    const newFolder = normalizePath(path.join('M:', 'ovNew'));
+    const galleryId = await addGallery(oldFolder, 0);
+    await addFolderBinding(galleryId, oldFolder, 0, ['.png']);
+
+    const result = await changeFolderPath(galleryId, oldFolder, newFolder, true, ['.gif']);
+
+    expect(result.success).toBe(true);
+    const row = await get<{ recursive: number; extensions: string }>(
+      h.db,
+      'SELECT recursive, extensions FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, newFolder]
+    );
+    expect(row?.recursive).toBe(1);
+    expect(JSON.parse(row!.extensions)).toEqual(['.gif']);
+  });
+
+  it('旧绑定行不存在时不新增报错：按旧默认 recursive=true + 默认扩展名绑定新路径', async () => {
+    const baseFolder = normalizePath(path.join('M:', 'base'));
+    const oldFolder = normalizePath(path.join('M:', 'ghostOld'));
+    const newFolder = normalizePath(path.join('M:', 'ghostNew'));
+    // 图集存在，但 oldFolder 没有对应绑定行（继承查询落空 → 回退修复前默认，不报错）
+    const galleryId = await addGallery(baseFolder, 1);
+    await addFolderBinding(galleryId, baseFolder, 1);
+
+    const result = await changeFolderPath(galleryId, oldFolder, newFolder);
+
+    expect(result.success).toBe(true);
+    const row = await get<{ recursive: number; extensions: string }>(
+      h.db,
+      'SELECT recursive, extensions FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, newFolder]
+    );
+    expect(row?.recursive).toBe(1);
+    expect(JSON.parse(row!.extensions)).toEqual(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']);
+  });
+
+  it('旧绑定行 extensions 为损坏 JSON 时回退默认扩展名，recursive 仍继承', async () => {
+    const oldFolder = normalizePath(path.join('M:', 'brokenOld'));
+    const newFolder = normalizePath(path.join('M:', 'brokenNew'));
+    const galleryId = await addGallery(oldFolder, 0);
+    // 直接写入损坏的 extensions 字符串（绕过 helper 的 JSON.stringify）
+    await run(
+      h.db,
+      `INSERT INTO gallery_folders (galleryId, folderPath, recursive, extensions, createdAt, updatedAt)
+       VALUES (?, ?, 0, 'not-json', '2024-01-01', '2024-01-01')`,
+      [galleryId, oldFolder]
+    );
+
+    const result = await changeFolderPath(galleryId, oldFolder, newFolder);
+
+    expect(result.success).toBe(true);
+    const row = await get<{ recursive: number; extensions: string }>(
+      h.db,
+      'SELECT recursive, extensions FROM gallery_folders WHERE galleryId = ? AND folderPath = ?',
+      [galleryId, newFolder]
+    );
+    expect(row?.recursive).toBe(0);
+    expect(JSON.parse(row!.extensions)).toEqual(['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp']);
   });
 
   it('新旧路径相同时为 no-op 成功（不触发 UNIQUE 自冲突，旧绑定与成员保留）', async () => {

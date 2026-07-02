@@ -67,7 +67,7 @@
 - `getGalleryFolders(galleryId)`：读取某图集的全部绑定文件夹（每项含 `folderPath` / `recursive` / `extensions`）
 - `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给图集新增一个绑定文件夹并扫描入成员。绑定成功后会移除忽略名单中该路径的**精确条目**（显式绑定意图覆盖"删除图集自动忽略"的拉黑），并广播 `gallery:ignored-folders-changed{action:'deleted'}`
 - `unbindFolder(galleryId, folderPath)`：解除某文件夹绑定，删除其带来的成员并回收孤儿（保留图集记录、不写黑名单）。覆盖感知：仍被该图集其它绑定文件夹覆盖的图片不会被移除
-- `changeFolderPath(galleryId, oldPath, newPath, recursive?, extensions?)`：更改某绑定文件夹路径（先绑新、成功后再解旧；新路径失败则旧绑定与成员零损失）
+- `changeFolderPath(galleryId, oldPath, newPath, recursive?, extensions?)`：更改某绑定文件夹路径（先绑新、成功后再解旧；新路径失败则旧绑定与成员零损失）。`recursive` / `extensions` 未显式传入时**继承旧绑定行的配置**（改路径不改变绑定语义，非递归绑定不会被翻转为递归、自定义扩展名不被重置）；显式传入优先；旧绑定行不存在时回退默认（递归 + 默认扩展名）
 
 ### 跨机器重定位与丢失文件夹检测
 
