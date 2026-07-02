@@ -51,6 +51,7 @@ vi.mock('../../../src/main/services/galleryRootRegistry.js', () => ({
 import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { scanFolderIntoGallery } from '../../../src/main/services/galleryService';
+import { scanAndImportFolder } from '../../../src/main/services/imageService';
 
 async function setupSchema(): Promise<void> {
   await run(h.db, `
@@ -89,6 +90,25 @@ async function setupSchema(): Promise<void> {
       PRIMARY KEY (galleryId, imageId)
     )
   `);
+  // 与 database.ts 真实定义一致：scanFolderIntoGallery 会读忽略名单做整棵子树排除
+  await run(h.db, `
+    CREATE TABLE gallery_ignored_folders (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      folderPath TEXT NOT NULL UNIQUE,
+      note TEXT,
+      createdAt TEXT NOT NULL,
+      updatedAt TEXT NOT NULL
+    )
+  `);
+}
+
+async function addIgnoredFolder(folderPath: string): Promise<void> {
+  await run(
+    h.db,
+    `INSERT INTO gallery_ignored_folders (folderPath, note, createdAt, updatedAt)
+     VALUES (?, '删除图集自动忽略', '2024-01-01', '2024-01-01')`,
+    [folderPath]
+  );
 }
 
 async function addImage(filepath: string): Promise<number> {
@@ -184,6 +204,55 @@ describe('scanFolderIntoGallery', () => {
     const importedEvents = h.emitted.filter((e) => e.type === 'gallery:images-imported');
     expect(importedEvents.length).toBe(1);
     expect(importedEvents[0].payload).toMatchObject({ galleryId, imported: 1, imageCount: 1 });
+  });
+
+  /**
+   * 黑名单整棵子树跳过（修复轮 U05）：忽略名单中严格位于目标文件夹内部的条目（后代），
+   * 扫描与成员收编都要整棵排除——否则「删除图集自动拉黑」的子树会在父级重扫时整棵复活。
+   */
+  it('忽略名单后代子树整棵排除：排除目录传给磁盘扫描，库中已有的子树图片不被收编', async () => {
+    const folder = normalizePath(path.join('M:', 'top', 'R'));
+    const blacklisted = normalizePath(path.join('M:', 'top', 'R', 'C'));
+    await addIgnoredFolder(blacklisted);
+    const galleryId = await addGallery(folder, 1);
+    const own = await addImage(normalizePath(path.join('M:', 'top', 'R', 'a.jpg')));
+    const inBlack = await addImage(normalizePath(path.join('M:', 'top', 'R', 'C', 'b.jpg')));
+    const inBlackNested = await addImage(normalizePath(path.join('M:', 'top', 'R', 'C', 'deep', 'c.jpg')));
+    h.scanResult = { success: true, data: { imported: 1, skipped: 0 } };
+
+    const result = await scanFolderIntoGallery(galleryId, folder, true, ['.jpg']);
+
+    expect(result.success).toBe(true);
+    // 排除目录组传给了磁盘扫描（scanAndImportFolder 第 4 参，整棵剪枝）
+    expect(vi.mocked(scanAndImportFolder)).toHaveBeenCalledWith(folder, ['.jpg'], true, [blacklisted]);
+    // 库中已存在的黑名单子树图片不被按前缀收编为成员
+    const members = (
+      await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
+    ).map((r) => r.imageId);
+    expect(members).toContain(own);
+    expect(members).not.toContain(inBlack);
+    expect(members).not.toContain(inBlackNested);
+    expect(result.data?.imageCount).toBe(1);
+  });
+
+  it('忽略名单命中目标自身或目标外部时不参与剪枝（显式扫描该文件夹的意图优先）', async () => {
+    const folder = normalizePath(path.join('M:', 'top', 'S'));
+    // 目标自身被拉黑：显式扫描/绑定该路径时意图优先，不能因此拦截（精确跳过由 planScanFolder 负责）
+    await addIgnoredFolder(folder);
+    // 目标外部的无关条目：与本次扫描无关
+    await addIgnoredFolder(normalizePath(path.join('M:', 'other')));
+    const galleryId = await addGallery(folder, 1);
+    const own = await addImage(normalizePath(path.join('M:', 'top', 'S', 'a.jpg')));
+    h.scanResult = { success: true, data: { imported: 1, skipped: 0 } };
+
+    const result = await scanFolderIntoGallery(galleryId, folder, true, ['.jpg']);
+
+    expect(result.success).toBe(true);
+    expect(vi.mocked(scanAndImportFolder)).toHaveBeenCalledWith(folder, ['.jpg'], true, []);
+    const members = (
+      await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
+    ).map((r) => r.imageId);
+    expect(members).toContain(own);
   });
 
   it('扫描失败时返回 success:false 且不写成员/不更新统计', async () => {
