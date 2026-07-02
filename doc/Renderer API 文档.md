@@ -65,7 +65,7 @@
 图集与文件夹解耦后，一个图集可绑定多个文件夹（`gallery_folders` 表，`folderPath` 全局唯一），图片归属走 `gallery_images` 成员表。
 
 - `getGalleryFolders(galleryId)`：读取某图集的全部绑定文件夹（每项含 `folderPath` / `recursive` / `extensions`）
-- `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给图集新增一个绑定文件夹并扫描入成员
+- `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给图集新增一个绑定文件夹并扫描入成员。绑定成功后会移除忽略名单中该路径的**精确条目**（显式绑定意图覆盖"删除图集自动忽略"的拉黑），并广播 `gallery:ignored-folders-changed{action:'deleted'}`
 - `unbindFolder(galleryId, folderPath)`：解除某文件夹绑定，删除其带来的成员并回收孤儿（保留图集记录、不写黑名单）。覆盖感知：仍被该图集其它绑定文件夹覆盖的图片不会被移除
 - `changeFolderPath(galleryId, oldPath, newPath, recursive?, extensions?)`：更改某绑定文件夹路径（先绑新、成功后再解旧；新路径失败则旧绑定与成员零损失）
 
@@ -82,7 +82,7 @@
 - `updateIgnoredFolder(id, patch)`：更新忽略记录（当前主要是修改 `note`）
 - `removeIgnoredFolder(id)`：从忽略名单中移除（允许下次扫描再次创建）
 
-忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的全部绑定文件夹追加进来。
+忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的全部绑定文件夹追加进来。消费语义：`planScanFolder` 对候选路径做精确匹配跳过（不重建图集）；扫描/同步链路（`scanFolderIntoGallery`）对严格位于扫描目标内部的条目整棵剪枝——磁盘扫描不深入、库中已有图片也不会被按前缀收编，父级文件夹重扫不会复活已拉黑子树；`bindFolder` 显式绑定成功后移除该路径的精确条目（显式意图优先）。
 
 ### 最近图片游标查询
 
