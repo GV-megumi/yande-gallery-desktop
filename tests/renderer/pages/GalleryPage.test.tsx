@@ -1563,6 +1563,31 @@ describe('GalleryPage gallery delete action', () => {
     });
   });
 
+  it('丢失文件夹横幅：全部迁移失败时不关闭横幅（保留重试入口）', async () => {
+    mockMissingBannerGallery(['D:/lost/a', 'D:/lost/b']);
+    migrateMissingFolderImages.mockResolvedValue({ success: false, error: '该文件夹不是此图集的绑定文件夹' });
+    renderGalleriesPage();
+
+    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    expect(await screen.findByText(/2 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
+
+    const galleriesCallsBefore = getGalleries.mock.calls.length;
+    await userEvent.click(screen.getByRole('button', { name: /全部迁入无效项/ }));
+    await userEvent.click(await screen.findByRole('button', { name: /^迁\s*入$/ }));
+
+    await waitFor(() => {
+      expect(migrateMissingFolderImages).toHaveBeenCalledTimes(2);
+    });
+    // dismiss 决策在批量调用全部返回后同步做出、随后才刷新列表；等到列表重新拉取
+    // 说明 handler 已走完（不依赖 antd 静态 message 容器，避免跨用例顺序抖动）
+    await waitFor(() => {
+      expect(getGalleries.mock.calls.length).toBeGreaterThan(galleriesCallsBefore);
+    });
+    // 全部失败不算「已处置」：横幅必须留着（GalleryPage 常驻缓存，dismissed 活一整个会话，
+    // 关掉等于让用户失去该场景的主要处置入口）
+    expect(screen.getByText(/2 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
+  });
+
   it('丢失文件夹横幅：未提供 onOpenRelocate（子窗口）时不渲染「去重定位」；忽略后横幅关闭', async () => {
     mockMissingBannerGallery(['D:/lost/a']);
     renderGalleriesPage();
