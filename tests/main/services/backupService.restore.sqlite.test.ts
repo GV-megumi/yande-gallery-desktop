@@ -64,7 +64,7 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
 
 vi.mock('electron', () => ({}));
 
-import { run, get, all } from '../../../src/main/services/database';
+import { run, get, all, runInTransaction } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import {
   BACKUP_TABLES,
@@ -570,5 +570,34 @@ describe('恢复后悬挂 images 引用清理（images 表不随备份走）', (
       { id: 1, localImageId: img1 },
       { id: 2, localImageId: null },
     ]);
+  });
+});
+
+describe('恢复与并发事务互斥（runExclusive）', () => {
+  it('恢复期间并发的 runInTransaction 不会让 PRAGMA foreign_keys 永久失效', async () => {
+    const gid = await seedGallery('并发期图集');
+    await seedBinding(gid, normalizePath('M:/con/root'));
+    const backup = await createAppBackupData();
+
+    // 并发发起：恢复（独占段内 FK OFF → 恢复事务 → FK ON）与一个普通写事务。
+    // 修复前 PRAGMA 不排队，FK ON 可能落进并发开放事务的窗口被 SQLite 静默忽略
+    // （外键从此进程级 OFF）；修复后两者在同一条事务队列上严格互斥。
+    const concurrentWrite = runInTransaction(h.db, async () => {
+      await run(h.db, 'INSERT INTO booru_search_history (id) VALUES (999)');
+    });
+    await Promise.all([restoreAppBackupData(backup, { mode: 'replace' }), concurrentWrite]);
+
+    // FK 必须回到 ON
+    const fk = await get<{ foreign_keys: number }>(h.db, 'PRAGMA foreign_keys');
+    expect(fk?.foreign_keys).toBe(1);
+
+    // 且约束确实在生效：插入悬挂成员行应被外键拒绝
+    await expect(
+      run(h.db, "INSERT INTO gallery_images (galleryId, imageId, addedAt) VALUES (99999, 88888, '2026-01-01')")
+    ).rejects.toThrow(/FOREIGN KEY/i);
+
+    // 恢复内容本身完好：绑定行按备份回来了
+    const folder = await get<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_folders WHERE folderPath = ?', [normalizePath('M:/con/root')]);
+    expect(folder?.galleryId).toBe(gid);
   });
 });
