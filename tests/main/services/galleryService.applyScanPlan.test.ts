@@ -280,6 +280,83 @@ describe('applyScanPlan', () => {
     expect(dMembers).toContain(di);
   });
 
+  it('create 同名去重：与现有图集重名时按规则追加 " (2)" 后缀，原图集不受影响', async () => {
+    // 预置一个名为 D 的图集（模拟碰撞决议里用户选了「新建独立图集」并携带原名 D）
+    await addGallery(normalizePath(path.join('M:', 'existingD')), 'D');
+
+    const folderD = path.join(tmpRoot, 'D');
+    await fsp.mkdir(folderD, { recursive: true });
+    const normD = normalizePath(folderD);
+    h.importByFolder[normD] = { imported: 0, skipped: 0 };
+
+    const result = await applyScanPlan({
+      create: [{ folderPath: normD, name: 'D' }],
+      merge: [],
+      extensions: ['.jpg'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data!.created).toBe(1);
+
+    // 新图集名应为 "D (2)"（galleries.name 无 UNIQUE，靠服务层去重避免两个不可区分的「D」）
+    const newRow = await get<{ name: string }>(
+      h.db,
+      `SELECT g.name FROM galleries g JOIN gallery_folders gf ON gf.galleryId = g.id WHERE gf.folderPath = ?`,
+      [normD]
+    );
+    expect(newRow!.name).toBe('D (2)');
+
+    // 全库不存在重名
+    const names = (await all<{ name: string }>(h.db, 'SELECT name FROM galleries ORDER BY id')).map((r) => r.name);
+    expect(names).toEqual(['D', 'D (2)']);
+  });
+
+  it('create 同批内重名也去重：同批两个同名项 + 已有同名图集 → 依次取 "(2)"、"(3)"', async () => {
+    // 已有图集名为 X；同一批 plan 内又有两个 basename 相同的候选（如 root 自身与其一级子目录同名）
+    await addGallery(normalizePath(path.join('M:', 'existingX')), 'X');
+
+    const folderX1 = path.join(tmpRoot, 'a', 'X');
+    const folderX2 = path.join(tmpRoot, 'b', 'X');
+    await fsp.mkdir(folderX1, { recursive: true });
+    await fsp.mkdir(folderX2, { recursive: true });
+    const normX1 = normalizePath(folderX1);
+    const normX2 = normalizePath(folderX2);
+    h.importByFolder[normX1] = { imported: 0, skipped: 0 };
+    h.importByFolder[normX2] = { imported: 0, skipped: 0 };
+
+    const result = await applyScanPlan({
+      create: [
+        { folderPath: normX1, name: 'X' },
+        { folderPath: normX2, name: 'X' },
+      ],
+      merge: [],
+      extensions: ['.jpg'],
+    });
+
+    expect(result.success).toBe(true);
+    expect(result.data!.created).toBe(2);
+
+    const names = (await all<{ name: string }>(h.db, 'SELECT name FROM galleries ORDER BY id')).map((r) => r.name);
+    expect(names).toEqual(['X', 'X (2)', 'X (3)']);
+  });
+
+  it('create 无重名时保留原名，不加后缀', async () => {
+    const folderPlain = path.join(tmpRoot, 'Plain');
+    await fsp.mkdir(folderPlain, { recursive: true });
+    const normPlain = normalizePath(folderPlain);
+    h.importByFolder[normPlain] = { imported: 0, skipped: 0 };
+
+    const result = await applyScanPlan({
+      create: [{ folderPath: normPlain, name: 'Plain' }],
+      merge: [],
+      extensions: ['.jpg'],
+    });
+
+    expect(result.success).toBe(true);
+    const names = (await all<{ name: string }>(h.db, 'SELECT name FROM galleries')).map((r) => r.name);
+    expect(names).toEqual(['Plain']);
+  });
+
   it('单项失败不中止整批：坏的 merge 不阻止好的 create', async () => {
     const folderOk = path.join(tmpRoot, 'OK');
     await fsp.mkdir(folderOk, { recursive: true });
