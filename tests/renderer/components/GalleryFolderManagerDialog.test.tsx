@@ -5,6 +5,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, cleanup, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { GalleryFolderManagerDialog } from '../../../src/renderer/components/GalleryFolderManagerDialog';
+import { LocaleContext, useLocaleProvider } from '../../../src/renderer/locales';
+
+/**
+ * 「更改路径」二次确认文案走 useLocale()，默认 Context 的 t 返回空串，
+ * 需要真实 Provider（真实 zh-CN 语言包）才能断言确认框文案。
+ */
+const LocaleWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const value = useLocaleProvider();
+  return <LocaleContext.Provider value={value}>{children}</LocaleContext.Provider>;
+};
+
+/** Modal.confirm 渲染在独立 React root，取 DOM 中最后一个确认框（防上个用例残留） */
+async function findLastConfirmDialog(): Promise<HTMLElement> {
+  let dialog: HTMLElement | null = null;
+  await waitFor(() => {
+    const all = document.querySelectorAll('.ant-modal-confirm');
+    if (all.length === 0) throw new Error('confirm dialog not found');
+    dialog = all[all.length - 1] as HTMLElement;
+  });
+  return dialog!;
+}
 
 const getGalleryFolders = vi.fn();
 const getMissingGalleryFolders = vi.fn();
@@ -96,6 +117,9 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  // Modal.confirm 渲染在 RTL 容器之外的独立 React root，cleanup 不会移除，
+  // 手动清空 body 防止确认框残留串到下一个用例
+  document.body.innerHTML = '';
 });
 
 describe('GalleryFolderManagerDialog', () => {
@@ -195,8 +219,12 @@ describe('GalleryFolderManagerDialog', () => {
     });
   });
 
-  it('「更改路径」选新目录后调用 changeFolderPath(oldPath,newPath) 并刷新列表', async () => {
-    render(<GalleryFolderManagerDialog {...makeProps()} />);
+  it('「更改路径」选新目录后弹出二次确认（展示旧→新路径与破坏性警告），取消则不调用 changeFolderPath', async () => {
+    render(
+      <LocaleWrapper>
+        <GalleryFolderManagerDialog {...makeProps()} />
+      </LocaleWrapper>
+    );
     await screen.findByText('D:/gallery/a');
 
     const changeButtons = screen.getAllByRole('button', { name: '更改路径' });
@@ -204,7 +232,51 @@ describe('GalleryFolderManagerDialog', () => {
 
     await waitFor(() => {
       expect(selectFolder).toHaveBeenCalled();
+    });
+
+    // 选完目录后应先弹确认框，而不是直接执行
+    const dialog = await findLastConfirmDialog();
+    // 展示旧→新路径
+    expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+    expect(within(dialog).getByText(/D:\/gallery\/new/)).toBeTruthy();
+    // 破坏性警告 + 重定位根目录指引（真实 zh-CN 文案）
+    expect(within(dialog).getByText(/解绑旧文件夹/)).toBeTruthy();
+    expect(within(dialog).getByText(/重定位根目录/)).toBeTruthy();
+    // 弹确认阶段不应已调用 IPC
+    expect(changeFolderPath).not.toHaveBeenCalled();
+
+    // 取消 → 始终不执行
+    const cancelBtn = within(dialog).getByRole('button', { name: /取\s*消/ });
+    await userEvent.click(cancelBtn);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(changeFolderPath).not.toHaveBeenCalled();
+  });
+
+  it('「更改路径」二次确认通过后才调用 changeFolderPath(oldPath,newPath) 并刷新列表', async () => {
+    render(
+      <LocaleWrapper>
+        <GalleryFolderManagerDialog {...makeProps()} />
+      </LocaleWrapper>
+    );
+    await screen.findByText('D:/gallery/a');
+
+    const changeButtons = screen.getAllByRole('button', { name: '更改路径' });
+    await userEvent.click(changeButtons[0]);
+
+    const dialog = await findLastConfirmDialog();
+    expect(changeFolderPath).not.toHaveBeenCalled();
+
+    // danger 确认按钮文案「更改路径」（4 个 CJK 字符，antd 不插空格）
+    const okBtn = within(dialog).getByRole('button', { name: '更改路径' });
+    expect(okBtn.className).toContain('ant-btn-dangerous');
+    await userEvent.click(okBtn);
+
+    await waitFor(() => {
       expect(changeFolderPath).toHaveBeenCalledWith(1, 'D:/gallery/a', 'D:/gallery/new');
+    });
+    // 确认后应刷新列表（首次打开 1 次 + 更改后 1 次）
+    await waitFor(() => {
+      expect(getGalleryFolders).toHaveBeenCalledTimes(2);
     });
   });
 

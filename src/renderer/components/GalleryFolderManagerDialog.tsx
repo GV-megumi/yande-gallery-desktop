@@ -19,6 +19,7 @@ import {
   PlusOutlined,
 } from '@ant-design/icons';
 import { colors } from '../styles/tokens';
+import { useLocale } from '../locales';
 
 /**
  * Phase 7B — 图集多文件夹管理对话框（取代旧的只读「图集信息」Modal + Popover）。
@@ -66,6 +67,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
   onClose,
   onChanged,
 }) => {
+  const { t } = useLocale();
   const [folders, setFolders] = useState<GalleryFolderRow[]>([]);
   const [missingPaths, setMissingPaths] = useState<Set<string>>(new Set());
   const [sourceFavoriteTags, setSourceFavoriteTags] = useState<any[]>([]);
@@ -249,15 +251,11 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
     }
   };
 
-  // 更改路径：选新目录 → changeFolderPath(old,new) → 刷新
-  const handleChangePath = async (oldPath: string) => {
+  // 更改路径确认通过后的实际执行：changeFolderPath(old,new) → 刷新
+  const doChangeFolderPath = async (oldPath: string, newPath: string) => {
     setRowBusyPath(oldPath);
     try {
-      const picked = await window.electronAPI.system.selectFolder();
-      if (!picked?.success || !picked.data) {
-        return;
-      }
-      const result = await window.electronAPI.gallery.changeFolderPath(gallery.id, oldPath, picked.data);
+      const result = await window.electronAPI.gallery.changeFolderPath(gallery.id, oldPath, newPath);
       if (result.success) {
         message.success('文件夹路径已更新');
         await loadFolders();
@@ -269,6 +267,49 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
       console.error('[GalleryFolderManagerDialog] 更改路径失败:', error);
       message.error('更改路径失败');
     } finally {
+      if (mountedRef.current) setRowBusyPath(null);
+    }
+  };
+
+  // 更改路径：选新目录 → 二次确认 → doChangeFolderPath(old,new)。
+  // 更改路径 = 解绑旧文件夹（孤儿回收：删图片记录/本地标签/封面 + 复位 booru 下载状态）+ 绑定新文件夹重扫，
+  // 破坏面与「解绑」等价，必须像解绑（Popconfirm）/删除图集（Modal.confirm）一样二次确认；
+  // 用 Modal.confirm 而非 Popconfirm 是为了完整展示旧→新路径与「重定位根目录」无损替代方案指引。
+  const handleChangePath = async (oldPath: string) => {
+    setRowBusyPath(oldPath);
+    try {
+      const picked = await window.electronAPI.system.selectFolder();
+      if (!picked?.success || !picked.data) {
+        return;
+      }
+      const newPath = picked.data;
+      Modal.confirm({
+        title: t('gallery.changePathConfirmTitle'),
+        content: (
+          <div>
+            <div style={{ wordBreak: 'break-all', marginBottom: 8 }}>
+              <div>{oldPath}</div>
+              <div>→ {newPath}</div>
+            </div>
+            <div>{t('gallery.changePathConfirmWarning')}</div>
+            <div style={{ marginTop: 8, color: colors.textTertiary }}>
+              {t('gallery.changePathConfirmRelocateHint')}
+            </div>
+          </div>
+        ),
+        okText: t('gallery.changePathConfirmOk'),
+        okType: 'danger',
+        cancelText: t('common.cancel'),
+        closable: false,
+        width: 480,
+        // onOk 返回 Promise：确认按钮转 loading，执行完毕后自动关闭
+        onOk: () => doChangeFolderPath(oldPath, newPath),
+      });
+    } catch (error) {
+      console.error('[GalleryFolderManagerDialog] 更改路径失败:', error);
+      message.error('更改路径失败');
+    } finally {
+      // 目录选择结束即恢复行内按钮；确认执行期间的 loading 由 doChangeFolderPath 重新标记
       if (mountedRef.current) setRowBusyPath(null);
     }
   };
