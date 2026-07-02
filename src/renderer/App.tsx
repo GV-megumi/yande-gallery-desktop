@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useMemo, useCallback, Suspense, createContext, useContext } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, Suspense, createContext, useContext } from 'react';
+import { useViewScrollMemory } from './hooks/useViewScrollMemory';
 
 /** 标题栏右侧插槽 context，供子页面注入操作按钮 */
 export const HeaderExtraContext = createContext<(node: React.ReactNode) => void>(() => {});
@@ -178,6 +179,38 @@ type NavigationEntry =
   | { type: 'user'; userId?: number; username?: string; siteId?: number | null }
   | { type: 'character'; name: string; siteId?: number | null };
 
+/** 栈内条目：push 时分配单调递增 navId，作为滚动记忆的视图标识（同型条目重复压栈不共享位置） */
+type NavigationStackItem = NavigationEntry & { navId: number };
+
+/**
+ * 缓存页外壳：每个缓存页的滚动容器。基础页与导航栈叠加页共用这一个容器，
+ * 用 useViewScrollMemory 按 viewKey（'base' / `nav:${navId}`）分别记住滚动位置，
+ * 否则叠加页里的滚动会"漏"回基础页（pop 后基础页不在离开时的位置）。
+ */
+const CachedPageShell: React.FC<{
+  visible: boolean;
+  viewKey: string;
+  children: React.ReactNode;
+}> = ({ visible, viewKey, children }) => {
+  const shellRef = useRef<HTMLDivElement>(null);
+  useViewScrollMemory(shellRef, viewKey);
+  return (
+    <div
+      ref={shellRef}
+      className="ios-page-enter noise-bg"
+      style={{
+        padding: `${spacing.lg}px`,
+        overflowY: 'auto',
+        overflowX: 'hidden',
+        height: '100%',
+        display: visible ? undefined : 'none',
+      }}
+    >
+      {children}
+    </div>
+  );
+};
+
 export const AppContent: React.FC = () => {
   /** 侧边栏当前展示哪组二级菜单（仅控制左侧列表，不影响右侧内容） */
   const [sidebarSection, setSidebarSection] = useState<'gallery' | 'booru' | 'google'>('gallery');
@@ -192,7 +225,9 @@ export const AppContent: React.FC = () => {
   /** 是否正在拖拽调整侧边栏宽度（拖拽期间禁用宽度过渡动画） */
   const [isResizing, setIsResizing] = useState(false);
   // 导航栈：支持嵌套页面（详情→标签搜索→详情→标签搜索→...）
-  const [navigationStack, setNavigationStack] = useState<NavigationEntry[]>([]);
+  const [navigationStack, setNavigationStack] = useState<NavigationStackItem[]>([]);
+  // 栈条目 navId 分配器（滚动记忆的视图标识，见 CachedPageShell）
+  const navIdRef = useRef(0);
   const { isDark, themeMode, setThemeMode } = useTheme();
   const { t } = useLocale();
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
@@ -659,7 +694,8 @@ export const AppContent: React.FC = () => {
         ? (entry.username || (entry.userId ? `#${entry.userId}` : 'user'))
         : entry.name;
     console.log('[App] 导航栈 push:', entry.type, label);
-    setNavigationStack(prev => [...prev, entry]);
+    const navId = ++navIdRef.current;
+    setNavigationStack(prev => [...prev, { ...entry, navId }]);
   }, []);
 
   const popNavigation = useCallback(() => {
@@ -1287,18 +1323,12 @@ export const AppContent: React.FC = () => {
             }
             // 只在当前活跃页且导航栈非空时，用栈顶覆盖本页（与历史 renderBaseContent 行为一致）
             const shouldOverlayNavStack = isActive && navigationStack.length > 0;
+            // 滚动记忆视图标识：基础页与每个栈条目各记各的位置（见 CachedPageShell）
+            const scrollViewKey = shouldOverlayNavStack
+              ? `nav:${navigationStack[navigationStack.length - 1].navId}`
+              : 'base';
             return (
-              <div
-                key={`page-${pageId}`}
-                className="ios-page-enter noise-bg"
-                style={{
-                  padding: `${spacing.lg}px`,
-                  overflowY: 'auto',
-                  overflowX: 'hidden',
-                  height: '100%',
-                  display: isActive ? undefined : 'none',
-                }}
-              >
+              <CachedPageShell key={`page-${pageId}`} visible={isActive} viewKey={scrollViewKey}>
                 <Suspense fallback={suspenseFallback}>
                   {shouldOverlayNavStack ? (
                     <>
@@ -1316,7 +1346,7 @@ export const AppContent: React.FC = () => {
                     </>
                   ) : renderPageForId(sec, subKey, isActive, pageDefaultTab)}
                 </Suspense>
-              </div>
+              </CachedPageShell>
             );
           })}
 

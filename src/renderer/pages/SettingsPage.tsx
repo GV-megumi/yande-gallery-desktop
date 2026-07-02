@@ -1,11 +1,12 @@
 /**
  * 设置页面 — iOS Grouped Inset 风格
  */
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Form, Input, Button, Switch, Select, Spin, Segmented, Space, Popconfirm, App, Alert, Tooltip } from 'antd';
 import { SaveOutlined, FolderOutlined, ScanOutlined, InboxOutlined, ExportOutlined, StopOutlined, CopyOutlined, SwapOutlined, ClearOutlined } from '@ant-design/icons';
 import { useTheme, ThemeMode } from '../hooks/useTheme';
 import { useRendererAppEvent } from '../hooks/useRendererAppEvent';
+import { useViewScrollMemory } from '../hooks/useViewScrollMemory';
 import { useLocale, type LocaleType } from '../locales';
 import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { ApiLogEntry, ApiServiceConfig, ApiServicePermissionKey, ApiServiceStatus, UpdateCheckResult } from '../../shared/types';
@@ -180,6 +181,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const { themeMode, setThemeMode } = useTheme();
   const { t, locale, setLocale } = useLocale();
   const [activeTab, setActiveTab] = useState<'general' | 'proxy' | 'api' | 'about'>('general');
+  // 四个子页共用设置层滚动容器，按 tab 分别记住滚动位置（切 tab 不再带着上个 tab 的滚动走）
+  const rootRef = useRef<HTMLDivElement>(null);
+  useViewScrollMemory(rootRef, activeTab);
 
   // 表单值状态（用于即时渲染）
   const [downloadPath, setDownloadPath] = useState('');
@@ -681,7 +685,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   return (
-    <div style={{ maxWidth: 680, margin: '0 auto', padding: `0 ${spacing.lg}px` }}>
+    <div ref={rootRef} style={{ maxWidth: 680, margin: '0 auto', padding: `0 ${spacing.lg}px` }}>
       {/* ===== 子页面切换 ===== */}
       <div style={{ display: 'flex', justifyContent: 'center', marginBottom: spacing.xl }}>
         <Segmented

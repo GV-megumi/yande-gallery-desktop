@@ -811,6 +811,34 @@ describe('GalleryPage gallery delete action', () => {
     expect(payload.galleries.selectedGalleryId).toBeNull();
   });
 
+  it('滚动位置记忆：进入图集下拉后返回，列表恢复进入前的滚动位置', async () => {
+    // 列表与详情共用同一个页级滚动容器（App 缓存页外壳），用带 overflowY:auto 的
+    // 包装 div 模拟它；useViewScrollMemory 按视图分别记住 scrollTop
+    render(
+      <div data-testid="page-scroller" style={{ overflowY: 'auto' }}>
+        <GalleryPage subTab="galleries" />
+      </div>,
+    );
+    const scroller = screen.getByTestId('page-scroller');
+
+    // 列表就绪后滚到 300（模拟用户浏览列表到中部）
+    const galleryName = await screen.findByText('测试图集');
+    scroller.scrollTop = 300;
+    scroller.dispatchEvent(new Event('scroll'));
+
+    // 进入详情：详情视图应从顶部开始，而不是带着列表的 300
+    await userEvent.click(galleryName);
+    const backButton = await screen.findByRole('button', { name: /返\s*回/ });
+    expect(scroller.scrollTop).toBe(0);
+
+    // 详情里下拉到 500 后返回：列表应恢复进入前的 300，而不是详情留下的 500
+    scroller.scrollTop = 500;
+    scroller.dispatchEvent(new Event('scroll'));
+    await userEvent.click(backButton);
+    await screen.findByText('测试图集');
+    expect(scroller.scrollTop).toBe(300);
+  });
+
   it('切换 subTab 时应等待新子页 hydrate，且不应在 hydrate 后立即回写对应页面偏好', async () => {
     const allPreferences = {
       searchQuery: 'persisted all query',
