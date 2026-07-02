@@ -323,6 +323,106 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
+  it('图集绑定多个文件夹时下载路径应渲染为 Select，可改选任一绑定文件夹并提交', async () => {
+    const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
+    upsertFavoriteTagDownloadBinding.mockResolvedValueOnce({ success: true });
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    // 覆盖 mockPageData 的单文件夹默认：该图集绑定两个文件夹
+    getGalleryFolders.mockResolvedValue({
+      success: true,
+      data: [
+        { folderPath: 'D:/gallery/a', recursive: true, extensions: ['.jpg'] },
+        { folderPath: 'D:/gallery/b', recursive: true, extensions: ['.jpg'] },
+      ],
+    });
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    // 下载路径从只读输入框切换为绑定文件夹 Select，默认选中首个文件夹
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
+    await waitFor(() => {
+      expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+    });
+
+    // 改选第二个绑定文件夹（后端集合校验允许任一绑定文件夹）
+    // options 模式下 rc-select 的隐藏无障碍列表也会渲染 label 文本，需定位可见下拉项再点击
+    fireEvent.mouseDown(pathSelect);
+    const optionB = (await screen.findAllByText('D:/gallery/b'))
+      .find(el => el.classList.contains('ant-select-item-option-content'));
+    expect(optionB).toBeTruthy();
+    fireEvent.click(optionB!);
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(upsertFavoriteTagDownloadBinding).toHaveBeenCalledWith(expect.objectContaining({
+        favoriteTagId: 1,
+        galleryId: 1,
+        downloadPath: 'D:/gallery/b',
+      }));
+      expect(successSpy).toHaveBeenCalledWith('favoriteTags.saveConfigSuccess');
+    });
+  });
+
+  it('图集没有绑定文件夹时应提示原因并拦截保存，清空图集选择后恢复手动选目录', async () => {
+    const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    // 覆盖 mockPageData 的单文件夹默认：该图集没有任何绑定文件夹
+    getGalleryFolders.mockResolvedValue({ success: true, data: [] });
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    // 明确提示：该图集没有绑定文件夹，无法作为下载目标（不再是无解释的死锁）
+    expect(await within(dialog).findByText('favoriteTags.galleryHasNoFolders')).toBeTruthy();
+    // 不能开放任意目录（后端要求路径 ∈ 绑定文件夹），选择文件夹按钮保持禁用
+    expect((within(dialog).getByRole('button', { name: '选择文件夹' }) as HTMLButtonElement).disabled).toBe(true);
+
+    // 保存被校验友好拦截，不会提交绑定
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('common.failed');
+    });
+    expect(upsertFavoriteTagDownloadBinding).not.toHaveBeenCalled();
+    // 校验错误与界面提示给出同一原因
+    expect(within(dialog).getAllByText('favoriteTags.galleryHasNoFolders').length).toBeGreaterThanOrEqual(1);
+
+    // 脱困路径：清空图集选择后，手动选目录按钮恢复可用
+    const clearIcon = dialog.querySelector('.ant-select-clear');
+    expect(clearIcon).not.toBeNull();
+    fireEvent.mouseDown(clearIcon!);
+    await waitFor(() => {
+      expect((within(dialog).getByRole('button', { name: '选择文件夹' }) as HTMLButtonElement).disabled).toBe(false);
+    });
+  });
+
   it('选择文件夹成功后保存配置应提交用户选择的下载路径', async () => {
     const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
     let resolveSelectFolder!: (value: { success: boolean; data?: string; error?: string }) => void;

@@ -84,6 +84,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [editingTag, setEditingTag] = useState<FavoriteTag | null>(null);
   const [configuringTag, setConfiguringTag] = useState<FavoriteTagWithDownloadState | null>(null);
+  // 下载配置弹窗：当前选中图集的绑定文件夹列表（null=未选图集或尚未取到，[]=该图集没有绑定文件夹）
+  const [selectedGalleryFolders, setSelectedGalleryFolders] = useState<string[] | null>(null);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [galleries, setGalleries] = useState<GalleryOption[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
@@ -535,6 +537,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const openDownloadConfig = (record: FavoriteTagWithDownloadState) => {
     setConfiguringTag(record);
     downloadForm.setFieldsValue(buildDownloadBindingFormValues(record));
+    const boundGalleryId = record.downloadBinding?.galleryId;
+    if (boundGalleryId) {
+      // 已绑定图集：按需拉取其文件夹列表，让多文件夹 Select / 零文件夹提示在重开弹窗时同样生效
+      void loadSelectedGalleryFolders(boundGalleryId, { preserveExistingPath: true });
+    } else {
+      galleryFolderRequestSeqRef.current += 1; // 作废在途查询，避免上次弹窗的结果串台
+      setSelectedGalleryFolders(null);
+    }
   };
 
   // 按需拉取指定图集的绑定文件夹路径列表（选中图集 / 修复绑定时各调一次）；返回 null 表示查询失败
@@ -552,20 +562,48 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     }
   }, []);
 
-  const handleGalleryChange = async (galleryId?: number) => {
-    if (!galleryId) {
-      // 清空图集选择：保留当前路径并恢复手动选目录（既有行为），同时作废在途的文件夹查询
-      galleryFolderRequestSeqRef.current += 1;
-      return;
-    }
+  // 加载选中图集的绑定文件夹并联动下载路径：
+  // - 多个文件夹：下载路径渲染为可选 Select（默认首个；后端集合校验本就允许任一绑定文件夹）
+  // - 零文件夹：清空路径并由界面提示引导（后端要求 galleryId 存在时路径 ∈ 绑定文件夹，不能开放任意目录）
+  // - preserveExistingPath：重开弹窗回填已保存绑定时保留原路径，不悄悄改值
+  const loadSelectedGalleryFolders = async (galleryId: number, options?: { preserveExistingPath?: boolean }) => {
     const requestSeq = galleryFolderRequestSeqRef.current + 1;
     galleryFolderRequestSeqRef.current = requestSeq;
     const folders = await fetchGalleryFolderPaths(galleryId);
     if (galleryFolderRequestSeqRef.current !== requestSeq) {
       return; // 选择已变更，丢弃过期结果
     }
-    // 默认取首个绑定文件夹；无绑定文件夹时回退空串
-    downloadForm.setFieldsValue({ downloadPath: folders && folders.length > 0 ? folders[0] : '' });
+    if (folders === null) {
+      // 查询失败：提示并回退为未选图集，避免误报「无绑定文件夹」或把用户锁死在只读输入框
+      message.error(t('common.failed'));
+      if (!options?.preserveExistingPath) {
+        downloadForm.setFieldsValue({ galleryId: undefined });
+      }
+      setSelectedGalleryFolders(null);
+      return;
+    }
+    setSelectedGalleryFolders(folders);
+    if (folders.length === 0) {
+      // 零绑定文件夹：清空默认路径，界面提示与保存校验都会给出同一原因（galleryHasNoFolders）
+      if (!options?.preserveExistingPath) {
+        downloadForm.setFieldsValue({ downloadPath: '' });
+      }
+      return;
+    }
+    if (options?.preserveExistingPath && downloadForm.getFieldValue('downloadPath')) {
+      return; // 已保存路径保持原样；若与绑定文件夹不一致由既有 mismatch 告警与后端校验兜底
+    }
+    downloadForm.setFieldsValue({ downloadPath: folders[0] });
+  };
+
+  const handleGalleryChange = (galleryId?: number) => {
+    if (!galleryId) {
+      // 清空图集选择：保留当前路径并恢复手动选目录（既有行为），同时作废在途的文件夹查询
+      galleryFolderRequestSeqRef.current += 1;
+      setSelectedGalleryFolders(null);
+      return;
+    }
+    void loadSelectedGalleryFolders(galleryId);
   };
 
   const handleSelectFavoriteTagDownloadPath = async () => {
@@ -668,11 +706,20 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     }
     // 修复 = 把下载路径重置为该图集首个绑定文件夹，此处按需拉取一次（列表期不再预取）
     const folders = await fetchGalleryFolderPaths(gallery.id);
+    if (folders === null) {
+      message.error(t('common.failed'));
+      return;
+    }
+    if (folders.length === 0) {
+      // 图集已无任何绑定文件夹：不存在合法下载路径可修复，引导先到图集信息添加文件夹
+      message.error(t('favoriteTags.galleryHasNoFolders'));
+      return;
+    }
     try {
       const result = await window.electronAPI.booru.upsertFavoriteTagDownloadBinding({
         favoriteTagId: record.id,
         galleryId: gallery.id,
-        downloadPath: folders && folders.length > 0 ? folders[0] : '',
+        downloadPath: folders[0],
         enabled: record.downloadBinding.enabled,
         autoCreateGallery: record.downloadBinding.autoCreateGallery,
         autoSyncGalleryAfterDownload: record.downloadBinding.autoSyncGalleryAfterDownload,
@@ -1170,28 +1217,62 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
           <Form.Item
             label={t('favoriteTags.downloadPath')}
             required
+            htmlFor="downloadPath"
             style={{ marginBottom: 0 }}
           >
-            <Space.Compact style={{ width: '100%' }}>
-              <Form.Item
-                name="downloadPath"
-                noStyle
-                rules={[{ required: true, message: t('favoriteTags.selectPathFirst') }]}
-              >
-                <Input readOnly aria-label={t('favoriteTags.downloadPath')} style={{ flex: 1 }} />
-              </Form.Item>
-              <Form.Item shouldUpdate={(prev, curr) => prev.galleryId !== curr.galleryId} noStyle>
-                {({ getFieldValue }) => (
-                  <Button
-                    aria-label={t('favoriteTags.selectFolder')}
-                    onClick={handleSelectFavoriteTagDownloadPath}
-                    disabled={Boolean(getFieldValue('galleryId'))}
-                  >
-                    {t('favoriteTags.selectFolder')}
-                  </Button>
-                )}
-              </Form.Item>
-            </Space.Compact>
+            <Form.Item shouldUpdate={(prev, curr) => prev.galleryId !== curr.galleryId} noStyle>
+              {({ getFieldValue }) => {
+                const selectedGalleryId = getFieldValue('galleryId');
+                // 选中图集但该图集没有任何绑定文件夹：无合法下载路径可选（后端要求路径 ∈ 绑定文件夹）
+                const galleryHasNoFolders = Boolean(selectedGalleryId)
+                  && selectedGalleryFolders !== null
+                  && selectedGalleryFolders.length === 0;
+                const downloadPathRules = [{
+                  validator: async (_rule: unknown, value: string) => {
+                    // 保存校验与界面提示给出同一原因，引导先到图集信息添加文件夹
+                    if (getFieldValue('galleryId') && selectedGalleryFolders !== null && selectedGalleryFolders.length === 0) {
+                      throw new Error(t('favoriteTags.galleryHasNoFolders'));
+                    }
+                    if (!value) {
+                      throw new Error(t('favoriteTags.selectPathFirst'));
+                    }
+                  },
+                }];
+                return (
+                  <>
+                    {Boolean(selectedGalleryId) && selectedGalleryFolders !== null && selectedGalleryFolders.length > 1 ? (
+                      // 图集绑定多个文件夹：下载路径渲染为该图集绑定文件夹的 Select（默认首个，可改选任一）
+                      <Form.Item name="downloadPath" noStyle rules={downloadPathRules}>
+                        <Select
+                          options={selectedGalleryFolders.map(folderPath => ({ label: folderPath, value: folderPath }))}
+                        />
+                      </Form.Item>
+                    ) : (
+                      <Space.Compact style={{ width: '100%' }}>
+                        <Form.Item name="downloadPath" noStyle rules={downloadPathRules}>
+                          <Input readOnly aria-label={t('favoriteTags.downloadPath')} style={{ flex: 1 }} />
+                        </Form.Item>
+                        <Button
+                          aria-label={t('favoriteTags.selectFolder')}
+                          onClick={handleSelectFavoriteTagDownloadPath}
+                          disabled={Boolean(selectedGalleryId)}
+                        >
+                          {t('favoriteTags.selectFolder')}
+                        </Button>
+                      </Space.Compact>
+                    )}
+                    {galleryHasNoFolders && (
+                      <Alert
+                        type="warning"
+                        showIcon
+                        message={t('favoriteTags.galleryHasNoFolders')}
+                        style={{ marginTop: 8 }}
+                      />
+                    )}
+                  </>
+                );
+              }}
+            </Form.Item>
           </Form.Item>
           <Form.Item name="autoCreateGallery" label={t('favoriteTags.autoCreateGallery')} valuePropName="checked">
             <Switch />

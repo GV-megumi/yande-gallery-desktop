@@ -298,6 +298,7 @@ const enUS: LocaleMessages = {
     fixBinding: 'Fix binding',
     galleryBindingFixed: 'Gallery binding fixed',
     galleryNotFoundForFix: 'Bound gallery not found, please reconfigure manually',
+    galleryHasNoFolders: 'This gallery has no bound folders and cannot be used as a download target. Add a folder in the gallery info first.',
     retryFailed: 'Retry failed',
     retryStarted: 'Retry started',
     historyTotal: 'Total',
