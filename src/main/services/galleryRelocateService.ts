@@ -7,7 +7,8 @@
  *
  * 安全是第一位的（relocateRoot 会横跨整库改路径）：
  *   - previewRelocateRoot 先做 dry-run 预检：统计会改多少行 + 检测 UNIQUE 冲突，不写库；
- *   - applyRelocateRoot 在单个事务内改写，任一 UNIQUE 冲突先于写入被发现则整体中止、零写入；
+ *   - applyRelocateRoot 在单个事务内改写，任一 UNIQUE 冲突先于写入被发现则整体中止、零写入
+ *     （UNIQUE 列两阶段改写：终态无重复的链式/互换/自包含映射不产生瞬时冲突，预检放行即可应用）；
  *   - 前缀匹配是"目录边界感知"的（M:\art 不匹配兄弟目录 M:\artists\x），
  *     且权威匹配在 JS 侧做，避免 SQL LIKE 的 _ / % / \ 通配符语义引入误判。
  *
@@ -243,7 +244,8 @@ export interface RelocateApplyData {
  * 流程：
  *   1. 先扫描全部站点（== preview 的逻辑）；任一 UNIQUE 冲突 → 直接返回失败、不写任何行；
  *   2. 否则在单个 runInTransaction 内，对每个站点按主键 id 逐行 UPDATE 为 JS 预计算的新路径
- *      （per-row UPDATE keyed by id 最稳，不依赖 SQL 侧的边界正确性）；
+ *      （per-row UPDATE keyed by id 最稳，不依赖 SQL 侧的边界正确性）；UNIQUE 站点分两阶段
+ *      （先占位临时值、再写终值），链式/互换/自包含映射不会误撞瞬时 UNIQUE 约束；
  *   3. 提交后用 getAllGalleryFolderPaths 重新装载 app:// 白名单——直接 SQL 改了 folderPath，
  *      但 galleryRootRegistry 是进程内同步缓存，不会自动跟随，必须显式刷新
  *      （与 backupService.restore 的处理一致）。
@@ -269,9 +271,28 @@ export async function applyRelocateRoot(
       return { success: false, error: errorMessage };
     }
 
-    // 单事务内逐行改写：任一失败整体回滚（runInTransaction 内部已处理 ROLLBACK）。
+    // 单事务内改写：任一失败整体回滚（runInTransaction 内部已处理 ROLLBACK）。
+    //
+    // UNIQUE 站点采用两阶段改写：SQLite 的 UNIQUE 约束按语句立即检查（不延迟到 COMMIT），
+    // 若某行的改写目标恰是另一待改写行的"当前"路径——链式 [A→B, B→C]、互换 [A→B, B→A]、
+    // 自包含 old=X → new=X\sub 都会出现——单遍逐行直写会在中间状态误撞 SQLITE_CONSTRAINT，
+    // 尽管终态并无重复、preview 也已放行。故第一遍先把全部 matched 行占位为不可能与真实
+    // 路径冲突的临时值（NUL 字符不可能出现在文件路径中，拼主键 id 保证批内唯一），
+    // 腾空所有旧路径后第二遍再写入最终 newPath。这样凡 preview 判无冲突（终态无重复）
+    // 的批次，应用必然成功；非 UNIQUE 列无约束可撞，维持单遍直写。
     await runInTransaction(db, async () => {
       for (const scan of scans) {
+        if (scan.site.isUnique) {
+          // 第一阶段：全部占位为临时值，腾出所有旧路径
+          for (const m of scan.matched) {
+            await run(
+              db,
+              `UPDATE ${scan.site.table} SET ${scan.site.column} = ? WHERE id = ?`,
+              [`\u0000relocate\u0000${m.id}`, m.id]
+            );
+          }
+        }
+        // 第二阶段（非 UNIQUE 站点即唯一一遍）：写入最终新路径
         for (const m of scan.matched) {
           await run(
             db,
