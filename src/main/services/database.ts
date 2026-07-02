@@ -936,6 +936,33 @@ export async function runExclusive<T>(db: sqlite3.Database, fn: () => Promise<T>
 }
 
 /**
+ * 预编译批量执行：同一条参数化 SQL 对多组参数按序逐组执行（prepare 一次、run N 次、finalize）。
+ *
+ * node-sqlite3 的 db.run 每次调用都要 prepare→run→finalize 三次线程池往返；
+ * 大批量逐行改写（如重定位整库 UPDATE，单表可达数十万行）用本函数省去逐行重编译，
+ * 往返数降为约 1/3。只做语句复用，不改变逐行语义与执行顺序；参数经绑定传入
+ *（嵌入 NUL 等特殊字符安全）；在事务内调用时随事务一并回滚。
+ */
+export async function runBatch(db: sqlite3.Database, sql: string, paramRows: unknown[][]): Promise<void> {
+  if (paramRows.length === 0) return;
+  const stmt = await new Promise<sqlite3.Statement>((resolve, reject) => {
+    const prepared: sqlite3.Statement = db.prepare(sql, (err) => (err ? reject(err) : resolve(prepared)));
+  });
+  try {
+    for (const params of paramRows) {
+      await new Promise<void>((resolve, reject) => {
+        stmt.run(params as any[], (err) => (err ? reject(err) : resolve()));
+      });
+    }
+  } finally {
+    // finalize 失败不掩盖循环里的原始错误（只释放语句句柄）
+    await new Promise<void>((resolve) => {
+      stmt.finalize(() => resolve());
+    });
+  }
+}
+
+/**
  * 检查数据库是否已初始化
  */
 export async function isDatabaseInitialized(): Promise<boolean> {
