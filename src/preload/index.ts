@@ -433,11 +433,12 @@ declare global {
           };
           error?: string;
         }>;
+        // 修复轮 U07：计数拆分——failedFolders（整项失败的文件夹数）与 skippedFiles（扫描时已存在被跳过的文件数），不再混用同一 skipped
         applyScanPlan: (resolution: {
           create: Array<{ folderPath: string; name: string }>;
           merge: Array<{ folderPath: string; galleryId: number }>;
           extensions?: string[];
-        }) => Promise<{ success: boolean; data?: { created: number; merged: number; imported: number; skipped: number }; error?: string }>;
+        }) => Promise<{ success: boolean; data?: { created: number; merged: number; imported: number; failedFolders: number; skippedFiles: number }; error?: string }>;
         reportInvalidImage: (imageId: number) => Promise<{ success: boolean; error?: string }>;
         getInvalidImages: (page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
         getInvalidImageCount: () => Promise<{ success: boolean; data?: number; error?: string }>;

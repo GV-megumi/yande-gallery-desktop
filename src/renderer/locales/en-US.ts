@@ -447,6 +447,8 @@ const enUS: LocaleMessages = {
     scanLater: 'Later',
     scanning: 'Scanning subfolders...',
     scanComplete: 'Scan complete: {created} albums created, {skipped} skipped, {imported} images imported',
+    // 扫描入库 applyScanPlan 汇总：文件夹级失败与文件级已存在分开表述（单位不同，不能合并计数）
+    scanApplySummary: '{created} albums created, {merged} merged, {failedFolders} folders failed, {skippedFiles} images already existed',
     download: 'Downloads',
     downloadPath: 'Download Path',
     notSet: 'Not set',

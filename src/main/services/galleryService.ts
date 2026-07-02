@@ -1283,27 +1283,36 @@ export interface ApplyScanResolution {
  * 按 planScanFolder 给出、并经用户在碰撞对话框确认的决议逐项执行：
  *   - create：createGallery({folderPath,name,isWatching:true,recursive:true,extensions})
  *     → scanFolderIntoGallery(newId, folderPath, true, extensions)。recursive=true 是深度修复的关键：
- *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skipped。
+ *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skippedFiles。
  *     图集名同名去重（修复轮 U07）：与现有图集或同批已建项重名时按 "名称 (2)" / "名称 (3)"
  *     规则追加后缀（galleries.name 无 UNIQUE，靠此处保证图库页不出现不可区分的重名图集）；
  *   - merge：bindFolder(galleryId, folderPath, true, extensions)（加绑文件夹 + 扫描入成员，
- *     bindFolder 透传扫描计数）。累加 merged + imported/skipped。
+ *     bindFolder 透传扫描计数）。累加 merged + imported/skippedFiles。
  *
- * 单项失败收集并继续，不因一个坏文件夹中止整批（失败项计入 skipped，good 项仍落库）。
- * 整体返回 success:true（除非发生非预期异常）；逐项失败通过 skipped 计数反映。
+ * 单项失败收集并继续，不因一个坏文件夹中止整批（good 项仍落库）。
+ * 整体返回 success:true（除非发生非预期异常）；逐项失败通过 failedFolders 计数反映。
  *
- * @returns { created, merged, imported, skipped }。
+ * 计数单位（修复轮 U07 拆分，此前混在同一个 skipped 里导致设置页汇总数值错误）：
+ *   - failedFolders：整项失败的**文件夹**数（create 建集失败/异常、merge 绑定失败/异常）；
+ *   - skippedFiles：扫描时因已在 images 表而被跳过的**文件**数（幂等重扫的正常现象）。
+ *
+ * @returns { created, merged, imported, failedFolders, skippedFiles }。
  */
 export async function applyScanPlan(
   resolution: ApplyScanResolution
-): Promise<{ success: boolean; data?: { created: number; merged: number; imported: number; skipped: number }; error?: string }> {
+): Promise<{
+  success: boolean;
+  data?: { created: number; merged: number; imported: number; failedFolders: number; skippedFiles: number };
+  error?: string;
+}> {
   try {
     const extensions = resolution.extensions ?? DEFAULT_IMAGE_EXTENSIONS;
 
     let created = 0;
     let merged = 0;
     let imported = 0;
-    let skipped = 0;
+    let failedFolders = 0; // 文件夹级：整项失败的 create/merge 项数
+    let skippedFiles = 0;  // 文件级：扫描时已存在被跳过的文件数
 
     // create：逐项新建图集（recursive=true）+ 扫描入成员；单项失败收集并继续
     const createItems = resolution.create ?? [];
@@ -1339,7 +1348,7 @@ export async function applyScanPlan(
         });
         if (!createResult.success || !createResult.data) {
           console.warn(`[galleryService] applyScanPlan 新建图集失败: ${item.folderPath}, error=${createResult.error}`);
-          skipped++;
+          failedFolders++;
           continue;
         }
         // 建集成功才占用名字（失败不烧后缀），供同批后续项去重
@@ -1356,11 +1365,11 @@ export async function applyScanPlan(
 
         created++;
         imported += scanResult.data.imported;
-        skipped += scanResult.data.skipped;
+        skippedFiles += scanResult.data.skipped;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[galleryService] applyScanPlan 新建项异常: ${item.folderPath}, ${msg}`);
-        skipped++;
+        failedFolders++;
       }
     }
 
@@ -1370,24 +1379,24 @@ export async function applyScanPlan(
         const bindResult = await bindFolder(item.galleryId, item.folderPath, true, extensions);
         if (!bindResult.success) {
           console.warn(`[galleryService] applyScanPlan 合并绑定失败: ${item.folderPath}, error=${bindResult.error}`);
-          skipped++;
+          failedFolders++;
           continue;
         }
         merged++;
         imported += bindResult.data?.imported ?? 0;
-        skipped += bindResult.data?.skipped ?? 0;
+        skippedFiles += bindResult.data?.skipped ?? 0;
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         console.warn(`[galleryService] applyScanPlan 合并项异常: ${item.folderPath}, ${msg}`);
-        skipped++;
+        failedFolders++;
       }
     }
 
     console.log(
-      `[galleryService] applyScanPlan 完成: created=${created}, merged=${merged}, imported=${imported}, skipped=${skipped}`
+      `[galleryService] applyScanPlan 完成: created=${created}, merged=${merged}, imported=${imported}, failedFolders=${failedFolders}, skippedFiles=${skippedFiles}`
     );
 
-    return { success: true, data: { created, merged, imported, skipped } };
+    return { success: true, data: { created, merged, imported, failedFolders, skippedFiles } };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryService] applyScanPlan 失败:', errorMessage);

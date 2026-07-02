@@ -458,11 +458,14 @@ export const SettingsPage: React.FC = () => {
   });
 
   // applyScanPlan 的成功结果 → 统一汇总提示
-  const toastScanSummary = (data?: { created: number; merged: number; imported: number; skipped: number }) => {
+  // 修复轮 U07：failedFolders（整项失败的文件夹数）与 skippedFiles（扫描时已存在被跳过的文件数）
+  // 单位不同，分开表述，不再混成一个语义不明的「跳过 N 个」
+  const toastScanSummary = (data?: { created: number; merged: number; imported: number; failedFolders: number; skippedFiles: number }) => {
     const created = data?.created ?? 0;
     const merged = data?.merged ?? 0;
-    const skipped = data?.skipped ?? 0;
-    message.success(`新增 ${created} 个图集，合并 ${merged} 个，跳过 ${skipped} 个`);
+    const failedFolders = data?.failedFolders ?? 0;
+    const skippedFiles = data?.skippedFiles ?? 0;
+    message.success(t('settings.scanApplySummary', { created, merged, failedFolders, skippedFiles }));
   };
 
   // 扫描文件夹：选目录 → 规划 → 无碰撞直接应用 / 有碰撞打开解决弹窗
