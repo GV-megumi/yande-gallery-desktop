@@ -1237,10 +1237,13 @@ export async function planScanFolder(
         continue;
       }
 
-      // 4. 存在同名图集 → collisions（带现有图集 id+name）
+      // 4. 存在同名图集 → collisions（带现有图集 id+name）。
+      //    修复轮 U07：库内可能已存在多个同名图集（历史数据/去重规则引入前产生），
+      //    无 ORDER BY 的 LIMIT 1 取行不确定，合并目标会在同名图集间漂移——
+      //    确定性取 id 最小（最早创建）的那个。
       const sameName = await get<{ id: number; name: string }>(
         db,
-        'SELECT id, name FROM galleries WHERE name = ? LIMIT 1',
+        'SELECT id, name FROM galleries WHERE name = ? ORDER BY id ASC LIMIT 1',
         [name]
       );
       if (sameName) {
@@ -1280,7 +1283,9 @@ export interface ApplyScanResolution {
  * 按 planScanFolder 给出、并经用户在碰撞对话框确认的决议逐项执行：
  *   - create：createGallery({folderPath,name,isWatching:true,recursive:true,extensions})
  *     → scanFolderIntoGallery(newId, folderPath, true, extensions)。recursive=true 是深度修复的关键：
- *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skipped；
+ *     新建的图集本身包含其嵌套图片（不再为每层子目录单独建图集）。累加 created + imported/skipped。
+ *     图集名同名去重（修复轮 U07）：与现有图集或同批已建项重名时按 "名称 (2)" / "名称 (3)"
+ *     规则追加后缀（galleries.name 无 UNIQUE，靠此处保证图库页不出现不可区分的重名图集）；
  *   - merge：bindFolder(galleryId, folderPath, true, extensions)（加绑文件夹 + 扫描入成员，
  *     bindFolder 透传扫描计数）。累加 merged + imported/skipped。
  *
@@ -1301,11 +1306,33 @@ export async function applyScanPlan(
     let skipped = 0;
 
     // create：逐项新建图集（recursive=true）+ 扫描入成员；单项失败收集并继续
-    for (const item of resolution.create ?? []) {
+    const createItems = resolution.create ?? [];
+
+    // 同名去重（修复轮 U07）：galleries.name 无 UNIQUE 约束，碰撞决议选「新建独立图集」
+    // 会携带与现有图集相同的原名进来（ScanCollisionModal 原样透传），直接插入会产生
+    // 图库页不可区分的重名图集。按设计 §6.2 现有规则追加 " (2)" / " (3)" 后缀；
+    // usedNames 预载全部现有图集名，成功建集后回填，同一批 plan 内的重名
+    // （如 root 自身与其一级子目录同名）也一并去重，先到者保留原名。
+    let usedNames = new Set<string>();
+    if (createItems.length > 0) {
+      const db = await getDatabase();
+      const nameRows = await all<{ name: string }>(db, 'SELECT name FROM galleries');
+      usedNames = new Set(nameRows.map((r) => r.name));
+    }
+
+    for (const item of createItems) {
       try {
+        // 生成唯一图集名：原名未被占用则保留，否则依次尝试 "原名 (2)"、"原名 (3)"…
+        let galleryName = item.name;
+        let suffix = 2;
+        while (usedNames.has(galleryName)) {
+          galleryName = `${item.name} (${suffix})`;
+          suffix++;
+        }
+
         const createResult = await createGallery({
           folderPath: item.folderPath,
-          name: item.name,
+          name: galleryName,
           isWatching: true,
           recursive: true,
           extensions,
@@ -1315,6 +1342,8 @@ export async function applyScanPlan(
           skipped++;
           continue;
         }
+        // 建集成功才占用名字（失败不烧后缀），供同批后续项去重
+        usedNames.add(galleryName);
 
         const newId = createResult.data;
         const scanResult = await scanFolderIntoGallery(newId, item.folderPath, true, extensions);

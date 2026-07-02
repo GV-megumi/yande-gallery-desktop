@@ -232,4 +232,21 @@ describe('planScanFolder', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
   });
+
+  it('库内存在多个同名图集时，碰撞目标确定性取 id 最小（最早创建）的那个', async () => {
+    // 历史数据可能已存在重名图集（去重规则引入前产生）；同名匹配必须确定性取最早的，
+    // 否则「合并」目标会在多个同名图集间漂移。锁定 ORDER BY id ASC 语义。
+    const folderD = path.join(tmpRoot, 'D');
+    await touchImage(folderD, 'd.jpg');
+
+    const earliestId = await addGallery(normalizePath(path.join('M:', 'firstD')), 'D');
+    await addGallery(normalizePath(path.join('M:', 'secondD')), 'D');
+
+    const result = await planScanFolder(tmpRoot, ['.jpg']);
+    expect(result.success).toBe(true);
+
+    const dCollision = result.data!.collisions.find((c) => c.folderPath === normalizePath(folderD));
+    expect(dCollision).toBeTruthy();
+    expect(dCollision!.existingGalleryId).toBe(earliestId);
+  });
 });
