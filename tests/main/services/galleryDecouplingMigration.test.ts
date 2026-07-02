@@ -168,6 +168,46 @@ describe('backfillGalleryImages', () => {
     expect(members).toHaveLength(1);
   });
 
+  it('集合式回填：每个图集只执行一条 INSERT 语句（语句数不随图片数增长）', async () => {
+    // 大库升级首启性能约束：回填必须用 INSERT OR IGNORE ... SELECT 集合式写入
+    //（与 ensureMembershipForFolder 同形态），而不是把命中行拉回 JS 逐行 INSERT——
+    // 否则 20 万张图片的旧库要做 20 万+ 次语句往返，首启阻塞数十秒。
+    const galA = normalizePath(path.join('M:', 'galA')); // recursive=1
+    const galB = normalizePath(path.join('M:', 'galB')); // recursive=0
+    const aId = await addGallery(galA, 'galA', 1);
+    const bId = await addGallery(galB, 'galB', 0);
+    for (let i = 0; i < 5; i++) {
+      await addImage(normalizePath(path.join('M:', 'galA', `a${i}.jpg`)));
+      await addImage(normalizePath(path.join('M:', 'galB', `b${i}.jpg`)));
+    }
+
+    await ensureDecouplingTables(db);
+
+    // 用 sqlite3 trace 统计实际执行的 gallery_images INSERT 语句数：
+    // 集合式实现 = 每图集 1 条（此例 2 条）；旧逐行实现 = 每张命中图片 1 条（此例 10 条）。
+    const insertStatements: string[] = [];
+    const onTrace = (sql: string) => {
+      if (/INSERT OR IGNORE INTO gallery_images/i.test(sql)) insertStatements.push(sql);
+    };
+    db.on('trace', onTrace);
+    try {
+      await backfillGalleryImages(db);
+      // trace 事件经事件循环异步派发；补一条空查询 + setImmediate 确保全部落地后再断言
+      await all(db, 'SELECT 1');
+      await new Promise((resolve) => setImmediate(resolve));
+    } finally {
+      db.removeListener('trace', onTrace);
+    }
+
+    expect(insertStatements).toHaveLength(2);
+
+    // 集合式写入的成员结果必须与逐行版一致（递归含全部、非递归仅直接层，此例各 5 张）
+    const aMembers = await all(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [aId]);
+    const bMembers = await all(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [bId]);
+    expect(aMembers).toHaveLength(5);
+    expect(bMembers).toHaveLength(5);
+  });
+
   it('文件夹名含下划线时不把兄弟目录图片回填进来（LIKE 通配符 _ 须转义）', async () => {
     // gal_1 的下划线是 LIKE 通配符；未转义时 'gal_1\%' 会误命中兄弟目录 'galA1\...'
     const gal = normalizePath(path.join('M:', 'gal_1'));
