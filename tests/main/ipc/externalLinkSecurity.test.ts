@@ -72,6 +72,8 @@ vi.mock('../../../src/main/services/booruService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
+  cleanupOrphanThumbnails: vi.fn(),
   generateThumbnail: vi.fn(),
   requestThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration: vi.fn(),

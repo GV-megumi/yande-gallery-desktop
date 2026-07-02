@@ -32,6 +32,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  cancelThumbnailGeneration: vi.fn(),
   generateThumbnail: vi.fn(),
 }));
 
