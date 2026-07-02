@@ -1360,7 +1360,7 @@ export async function applyScanPlan(
     let failedFolders = 0; // 文件夹级：整项失败的 create/merge 项数
     let skippedFiles = 0;  // 文件级：扫描时已存在被跳过的文件数
 
-    // create：逐项新建图集（recursive=true）+ 扫描入成员；单项失败收集并继续
+    // create：逐项新建图集（recursive=false，只收直接图片）+ 扫描入成员；单项失败收集并继续
     const createItems = resolution.create ?? [];
 
     // 同名去重（修复轮 U07）：galleries.name 无 UNIQUE 约束，碰撞决议选「新建独立图集」
