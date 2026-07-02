@@ -480,22 +480,29 @@ export async function applyRelocateRoot(
  * 逐条检查 gallery_folders.folderPath 是否可 fs.access；不存在的行返回出来，
  * 供 UI 在搬库/迁移后高亮"需要重定位"的图集。一次 access 失败（含 ENOENT、
  * 权限等任何错误）都视为缺失——目标只是给用户一个需要关注的清单。
+ * 附带图集名（galleryName）供重定位弹窗按行标注归属；LEFT JOIN 防御悬挂绑定行，
+ * 图集缺失时回退空串。
  */
-export async function getMissingGalleryFolders(): Promise<Array<{ galleryId: number; folderPath: string }>> {
+export async function getMissingGalleryFolders(): Promise<
+  Array<{ galleryId: number; folderPath: string; galleryName: string }>
+> {
   const db = await getDatabase();
-  const rows = await all<{ galleryId: number; folderPath: string }>(
+  const rows = await all<{ galleryId: number; folderPath: string; galleryName: string | null }>(
     db,
-    "SELECT galleryId, folderPath FROM gallery_folders WHERE folderPath IS NOT NULL AND folderPath <> ''"
+    `SELECT gf.galleryId, gf.folderPath, g.name AS galleryName
+       FROM gallery_folders gf
+       LEFT JOIN galleries g ON g.id = gf.galleryId
+      WHERE gf.folderPath IS NOT NULL AND gf.folderPath <> ''`
   );
 
-  const missing: Array<{ galleryId: number; folderPath: string }> = [];
+  const missing: Array<{ galleryId: number; folderPath: string; galleryName: string }> = [];
   for (const row of rows) {
     try {
       // 入库值本已归一化，这里再过一遍 normalizePath 仅为与本文件其它路径处理保持一致，
       // 不改变行为；返回时仍回传 DB 原值 row.folderPath。
       await fs.access(normalizePath(row.folderPath));
     } catch {
-      missing.push({ galleryId: row.galleryId, folderPath: row.folderPath });
+      missing.push({ galleryId: row.galleryId, folderPath: row.folderPath, galleryName: row.galleryName ?? '' });
     }
   }
   return missing;

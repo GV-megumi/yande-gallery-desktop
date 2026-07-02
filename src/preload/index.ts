@@ -464,7 +464,7 @@ declare global {
         previewRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }>; collisions: Array<{ table: string; column: string; path: string }>; warnings: Array<{ table: string; column: string; newPrefix: string; existingPrefix: string; count: number }> }; error?: string }>;
         applyRelocateRoot: (mappings: { oldPrefix: string; newPrefix: string }[]) => Promise<{ success: boolean; data?: { affected: Array<{ table: string; column: string; count: number }> }; error?: string }>;
         // 注意：getMissingGalleryFolders 直接返回数组（非 {success} 包裹），与上面两个不同
-        getMissingGalleryFolders: () => Promise<Array<{ galleryId: number; folderPath: string }>>;
+        getMissingGalleryFolders: () => Promise<Array<{ galleryId: number; folderPath: string; galleryName: string }>>;
       };
       config: {
         get: () => Promise<{ success: boolean; data?: RendererSafeAppConfig; error?: string }>;
