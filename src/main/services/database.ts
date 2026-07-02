@@ -1016,6 +1016,10 @@ export async function backfillGalleryFolders(database: sqlite3.Database): Promis
  * 其中 F = normalizePath(folderPath)，sep = path.sep（与入库 filepath 分隔符一致）。
  * 字面前缀 F{sep} 经 escapeLike 转义（_/% 不再当通配符），故兄弟目录（如 F=...gal_1
  * 误匹配 ...galA1）不会被错误塞进成员表；末尾 % 与 {sep}% 段保留为通配符。
+ *
+ * 性能：每个图集用单条集合式 INSERT OR IGNORE ... SELECT 完成（与
+ * galleryService.ensureMembershipForFolder 同形态），语句数只随图集数增长、不随
+ * 图片数增长——避免大库升级首启时"命中行拉回 JS 再逐行 INSERT"的数十万次语句往返。
  */
 export async function backfillGalleryImages(database: sqlite3.Database): Promise<void> {
   const galleries = await all<{ id: number; folderPath: string; recursive: number }>(
@@ -1032,23 +1036,21 @@ export async function backfillGalleryImages(database: sqlite3.Database): Promise
 
     // 前缀经 escapeLike 转义（_/% 不再当通配符），配套 ESCAPE '\'；末尾 % 与 sep% 段保留为通配符。
     const escapedPrefix = escapeLike(likePrefix);
-    const images = isRecursive
-      ? await all<{ id: number }>(
-          database,
-          `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
-          [escapedPrefix + '%', normalized]
-        )
-      : await all<{ id: number }>(
-          database,
-          `SELECT id FROM images WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
-          [escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
-        );
-
-    for (const img of images) {
+    if (isRecursive) {
       await run(
         database,
-        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, ?)`,
-        [g.id, img.id, now]
+        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
+           SELECT ?, id, ? FROM images
+            WHERE filepath LIKE ? ESCAPE '\\' OR filepath = ?`,
+        [g.id, now, escapedPrefix + '%', normalized]
+      );
+    } else {
+      await run(
+        database,
+        `INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt)
+           SELECT ?, id, ? FROM images
+            WHERE filepath LIKE ? ESCAPE '\\' AND filepath NOT LIKE ? ESCAPE '\\'`,
+        [g.id, now, escapedPrefix + '%', escapedPrefix + '%' + escapeLike(path.sep) + '%']
       );
     }
   }
