@@ -22,7 +22,6 @@ interface SiteOption {
 interface GalleryOption {
   id: number;
   name: string;
-  folderPath: string;
 }
 
 interface DownloadBindingFormValues {
@@ -118,6 +117,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const favoriteTagsRequestSeqRef = useRef(0);
   const latestFavoriteTagsQueryKeyRef = useRef('');
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // 下载配置弹窗内按需拉取图集绑定文件夹的请求序号，用于丢弃过期结果（快速切换图集时）
+  const galleryFolderRequestSeqRef = useRef(0);
 
   const buildFavoriteTagsQueryKey = useCallback((
     nextFilterSiteId: number | undefined,
@@ -217,27 +218,12 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success && result.data) {
         // Phase 8B：gallery DTO 不再带 folderPath（folderPath/recursive/extensions 已归 gallery_folders）。
-        // 选择图集时下载路径的默认值改为「该图集首个绑定文件夹」，故这里逐个图集拉取绑定文件夹，
-        // 取首个 folderPath 作为默认下载路径；无绑定文件夹时回退空串（用户可手动选目录）。
-        const galleryOptions: GalleryOption[] = await Promise.all(
-          result.data.map(async (gallery: any) => {
-            let folderPath = '';
-            try {
-              const foldersResult = await window.electronAPI.gallery.getGalleryFolders(gallery.id);
-              if (foldersResult.success && foldersResult.data && foldersResult.data.length > 0) {
-                folderPath = foldersResult.data[0].folderPath;
-              }
-            } catch (error) {
-              console.warn('[FavoriteTagsPage] 读取图集绑定文件夹失败:', gallery.id, error);
-            }
-            return {
-              id: gallery.id,
-              name: gallery.name,
-              folderPath,
-            };
-          })
-        );
-        setGalleries(galleryOptions);
+        // 绑定文件夹只在用户选中具体图集时按需拉取（handleGalleryChange / handleFixGalleryBinding），
+        // 列表期不做逐图集预取——大库下那是每次进页 N 次并发 IPC 的 N+1 反模式。
+        setGalleries(result.data.map((gallery: any) => ({
+          id: gallery.id,
+          name: gallery.name,
+        })));
       }
     } catch (error) {
       console.error('[FavoriteTagsPage] 加载图集列表失败:', error);
@@ -551,12 +537,35 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     downloadForm.setFieldsValue(buildDownloadBindingFormValues(record));
   };
 
-  const handleGalleryChange = (galleryId?: number) => {
-    if (!galleryId) return;
-    const gallery = galleries.find(item => item.id === galleryId);
-    if (gallery) {
-      downloadForm.setFieldsValue({ downloadPath: gallery.folderPath });
+  // 按需拉取指定图集的绑定文件夹路径列表（选中图集 / 修复绑定时各调一次）；返回 null 表示查询失败
+  const fetchGalleryFolderPaths = useCallback(async (galleryId: number): Promise<string[] | null> => {
+    try {
+      const result = await window.electronAPI.gallery.getGalleryFolders(galleryId);
+      if (result.success && result.data) {
+        return result.data.map(folder => folder.folderPath);
+      }
+      console.warn('[FavoriteTagsPage] 读取图集绑定文件夹失败:', galleryId, result.error);
+      return null;
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 读取图集绑定文件夹失败:', galleryId, error);
+      return null;
     }
+  }, []);
+
+  const handleGalleryChange = async (galleryId?: number) => {
+    if (!galleryId) {
+      // 清空图集选择：保留当前路径并恢复手动选目录（既有行为），同时作废在途的文件夹查询
+      galleryFolderRequestSeqRef.current += 1;
+      return;
+    }
+    const requestSeq = galleryFolderRequestSeqRef.current + 1;
+    galleryFolderRequestSeqRef.current = requestSeq;
+    const folders = await fetchGalleryFolderPaths(galleryId);
+    if (galleryFolderRequestSeqRef.current !== requestSeq) {
+      return; // 选择已变更，丢弃过期结果
+    }
+    // 默认取首个绑定文件夹；无绑定文件夹时回退空串
+    downloadForm.setFieldsValue({ downloadPath: folders && folders.length > 0 ? folders[0] : '' });
   };
 
   const handleSelectFavoriteTagDownloadPath = async () => {
@@ -657,11 +666,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       message.error(t('favoriteTags.galleryNotFoundForFix'));
       return;
     }
+    // 修复 = 把下载路径重置为该图集首个绑定文件夹，此处按需拉取一次（列表期不再预取）
+    const folders = await fetchGalleryFolderPaths(gallery.id);
     try {
       const result = await window.electronAPI.booru.upsertFavoriteTagDownloadBinding({
         favoriteTagId: record.id,
         galleryId: gallery.id,
-        downloadPath: gallery.folderPath,
+        downloadPath: folders && folders.length > 0 ? folders[0] : '',
         enabled: record.downloadBinding.enabled,
         autoCreateGallery: record.downloadBinding.autoCreateGallery,
         autoSyncGalleryAfterDownload: record.downloadBinding.autoSyncGalleryAfterDownload,
