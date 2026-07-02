@@ -37,6 +37,11 @@ vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
   };
 });
 
+// apply 成功后会发 gallery:paths-relocated（修复轮 U11），本套件不关心事件，mock 掉保持用例封闭
+vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
+  emitGalleryPathsRelocated: vi.fn(),
+}));
+
 import { run, get } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { loadGalleryRoots } from '../../../src/main/services/galleryRootRegistry';

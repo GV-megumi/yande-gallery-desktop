@@ -1576,7 +1576,9 @@ describe('GalleryPage app event refresh', () => {
 
     render(<GalleryPage subTab="recent" suspended />);
 
-    expect(onAppEvent).toHaveBeenCalledTimes(1);
+    // 两个传输层订阅：gallery:paths-relocated 全量失效订阅（修复轮 U11，不随 suspended
+    // 挂起）在前，域事件订阅在后——appEventCallback 捕获到的是后注册的域事件回调
+    expect(onAppEvent).toHaveBeenCalledTimes(2);
     getRecentImagesAfter.mockClear();
 
     act(() => {
@@ -1648,6 +1650,100 @@ describe('GalleryPage app event refresh', () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
 
     expect(getRecentImagesAfter).toHaveBeenCalledTimes(1);
+  });
+
+  // 修复轮 U11：重定位根目录（applyRelocateRoot）成功后主进程广播 gallery:paths-relocated。
+  // 重定位只改路径字符串、不动 updatedAt，「最近」的增量游标与各按 id 补丁事件都感知不到，
+  // 本页必须整体失效：挂起态（用户停在设置页应用重定位）作废水合标记、恢复激活时完整重新
+  // 初始化；激活态（如图集子窗口）立即重载。
+  it('suspended 期间收到 gallery:paths-relocated → 恢复激活时完整重新初始化而非增量游标', async () => {
+    // 该事件订阅不随 suspended 挂起，页面存在两个 onAppEvent 订阅（域事件 + 重定位失效），
+    // 按真实 preload 多路分发语义收集全部回调并逐一派发
+    const appEventCallbacks: Array<(event: any) => void> = [];
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallbacks.push(callback);
+      return vi.fn();
+    });
+
+    getRecentImages.mockResolvedValueOnce({
+      success: true,
+      data: [{ id: 51, name: 'stale-old-path-image', updatedAt: '2026-04-20T00:00:00.000Z' }],
+    });
+
+    const view = render(<GalleryPage subTab="recent" suspended={false} />);
+    expect(await screen.findByText('stale-old-path-image')).toBeTruthy();
+    expect(getRecentImages).toHaveBeenCalledTimes(1);
+
+    // 用户切到设置页（本页进入导航缓存挂起态），此时应用重定位
+    view.rerender(<GalleryPage subTab="recent" suspended />);
+
+    // 非 Once：避免断言失败时残留的 once 队列泄漏到后续用例（beforeEach 会重置默认实现）
+    getRecentImages.mockResolvedValue({
+      success: true,
+      data: [{ id: 51, name: 'relocated-fresh-image', updatedAt: '2026-04-20T00:00:00.000Z' }],
+    });
+    getRecentImagesAfter.mockClear();
+
+    act(() => {
+      appEventCallbacks.forEach((callback) => callback({
+        type: 'gallery:paths-relocated',
+        version: 1,
+        occurredAt: '2026-07-02T00:00:00.000Z',
+        source: 'galleryRelocateService',
+        payload: { affected: [{ table: 'images', column: 'filepath', count: 1 }], totalCount: 1 },
+      }));
+    });
+
+    // 挂起期间只作废水合标记，不发起任何拉取
+    expect(getRecentImages).toHaveBeenCalledTimes(1);
+
+    // 切回图库页：完整重新初始化（重新 getRecentImages），而不是 updatedAt 游标增量
+    //（重定位不改 updatedAt，游标路径什么都看不到——正是缺陷场景）
+    view.rerender(<GalleryPage subTab="recent" suspended={false} />);
+
+    expect(await screen.findByText('relocated-fresh-image')).toBeTruthy();
+    expect(getRecentImages).toHaveBeenCalledTimes(2);
+    expect(getRecentImagesAfter).not.toHaveBeenCalled();
+  });
+
+  it('激活态的 galleries 页收到 gallery:paths-relocated → 立即重载图集列表与缺失文件夹集合', async () => {
+    const appEventCallbacks: Array<(event: any) => void> = [];
+    (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
+      appEventCallbacks.push(callback);
+      return vi.fn();
+    });
+
+    getGalleries.mockResolvedValue({
+      success: true,
+      data: [{ id: 1, name: 'relocate-gallery', imageCount: 1, createdAt: '2026-04-20', updatedAt: '2026-04-20' }],
+    });
+
+    render(<GalleryPage subTab="galleries" suspended={false} />);
+
+    await waitFor(() => {
+      expect(getGalleries).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(getMissingGalleryFolders).toHaveBeenCalledTimes(1);
+    });
+
+    act(() => {
+      appEventCallbacks.forEach((callback) => callback({
+        type: 'gallery:paths-relocated',
+        version: 1,
+        occurredAt: '2026-07-02T00:00:00.000Z',
+        source: 'galleryRelocateService',
+        payload: { affected: [{ table: 'gallery_folders', column: 'folderPath', count: 1 }], totalCount: 1 },
+      }));
+    });
+
+    // 图集列表与「文件夹丢失」标记集合都按新路径重新拉取（丢失标记应随重定位消失）
+    await waitFor(() => {
+      expect(getGalleries).toHaveBeenCalledTimes(2);
+    });
+    await waitFor(() => {
+      expect(getMissingGalleryFolders).toHaveBeenCalledTimes(2);
+    });
   });
 
   it('clears pending recent refresh timer when leaving recent page', async () => {

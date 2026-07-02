@@ -45,6 +45,7 @@ import { getDatabase, all, run, runInTransaction } from './database.js';
 import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { getAllGalleryFolderPaths } from './galleryService.js';
+import { emitGalleryPathsRelocated } from './appEventPublisher.js';
 
 /** 单条前缀映射：把 oldPrefix 开头的存储路径改写为 newPrefix 开头。 */
 export interface RelocateMapping {
@@ -379,9 +380,15 @@ export interface RelocateApplyData {
  *      （先占位临时值、再写终值），链式/互换/自包含映射不会误撞瞬时 UNIQUE 约束；
  *   3. 提交后用 getAllGalleryFolderPaths 重新装载 app:// 白名单——直接 SQL 改了 folderPath，
  *      但 galleryRootRegistry 是进程内同步缓存，不会自动跟随，必须显式刷新
- *      （与 backupService.restore 的处理一致）。
+ *      （与 backupService.restore 的处理一致）；
+ *   4. 白名单刷新后发 gallery:paths-relocated 全量失效事件（改写行数 > 0 才发）——
+ *      重定位不动 updatedAt，常驻导航缓存的图库页靠既有增量事件（updatedAt 游标）
+ *      感知不到任何变化，会继续展示旧破损路径与过期「文件夹丢失」标记；该事件
+ *      与 backupService 恢复后的 app:data-restored 同强度，让订阅方整体重载。
+ *      必须晚于白名单刷新：订阅方收到事件立即按新路径经 app:// 重载图片。
  *
- * 幂等：再次对同一映射调用时，已无行落在 oldPrefix 下，matched 为空 → 0 改写、不报错。
+ * 幂等：再次对同一映射调用时，已无行落在 oldPrefix 下，matched 为空 → 0 改写、不报错
+ * （此时库内数据未变，也不发失效事件）。
  * 无损：只改路径字符串列，images.id / gallery_images / image_tags / 封面引用等均不动。
  */
 export async function applyRelocateRoot(
@@ -450,6 +457,15 @@ export async function applyRelocateRoot(
       column: s.site.column,
       count: s.matched.length,
     }));
+
+    // 步骤 4：发全量失效领域事件（详见函数头注释）。放在白名单刷新之后，
+    // 订阅方（常驻缓存的图库页）收到事件会立即按新路径经 app:// 重载图片；
+    // 幂等重跑 0 改写时库内数据未变，不发事件，避免无谓的整页重载。
+    const totalCount = scans.reduce((sum, s) => sum + s.matched.length, 0);
+    if (totalCount > 0) {
+      console.log(`[galleryRelocateService] applyRelocateRoot: 改写 ${totalCount} 行，广播 gallery:paths-relocated`);
+      emitGalleryPathsRelocated({ affected, totalCount });
+    }
     return { success: true, data: { affected } };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);

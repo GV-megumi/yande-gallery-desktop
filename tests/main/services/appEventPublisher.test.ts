@@ -68,6 +68,7 @@ describe('appEventPublisher', () => {
     publisher.emitGalleryInvalidImagesChanged({ action: 'reported', originalImageId: 12, galleryId: 2, affectedCount: 1 });
     publisher.emitGalleryIgnoredFoldersChanged({ action: 'created', ignoredFolderId: 5, folderPath: 'D:/gallery/ignore' });
     publisher.emitGalleryGalleriesChanged({ action: 'statsUpdated', galleryId: 2, affectedCount: 1 });
+    publisher.emitGalleryPathsRelocated({ affected: [{ table: 'images', column: 'filepath', count: 3 }], totalCount: 3 });
 
     const cases = [
       { type: 'gallery:images-changed', source: 'imageService', payload: { action: 'deleted', imageId: 12, affectedImageIds: [12], affectedCount: 1 } },
@@ -75,6 +76,7 @@ describe('appEventPublisher', () => {
       { type: 'gallery:invalid-images-changed', source: 'invalidImageService', payload: { action: 'reported', originalImageId: 12, galleryId: 2, affectedCount: 1 } },
       { type: 'gallery:ignored-folders-changed', source: 'galleryService', payload: { action: 'created', ignoredFolderId: 5, folderPath: 'D:/gallery/ignore' } },
       { type: 'gallery:galleries-changed', source: 'galleryService', payload: { action: 'statsUpdated', galleryId: 2, affectedCount: 1 } },
+      { type: 'gallery:paths-relocated', source: 'galleryRelocateService', payload: { affected: [{ table: 'images', column: 'filepath', count: 3 }], totalCount: 3 } },
     ];
     expect(state.emitBuiltRendererAppEvent).toHaveBeenCalledTimes(cases.length);
     cases.forEach((item, index) => {
