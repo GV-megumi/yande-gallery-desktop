@@ -27,7 +27,18 @@ export const BACKUP_TABLES = [
   'booru_blacklisted_tags',
   'booru_saved_searches',
   'galleries',
+  // 图集解耦（gallery_folders + gallery_images）后，文件夹绑定与图片成员是图集数据的一部分，
+  // 必须随备份导出/恢复，否则异机恢复只剩无文件夹、无成员的空壳图集且无法重扫重建。
+  // 排在 galleries 之后：恢复正序先父后子、replace/回滚删除逆序先子后父，天然满足 FK 依赖；
+  // 同时 replace 模式显式清这两张表，消除 FK OFF 下 DELETE galleries 不触发 CASCADE 留下的
+  // 幽灵绑定（悬挂行会永久占用 folderPath 全局 UNIQUE、阻塞孤儿 GC、污染 app:// 白名单）。
+  'gallery_folders',
+  'gallery_images',
 ] as const;
+
+// 旧版本（图集解耦前）导出的备份文件不含这两张表：格式校验时按可选处理（缺失视为空表），
+// 避免历史备份被一刀切判为格式无效；恢复循环里对缺失表按空数组处理。
+const OPTIONAL_BACKUP_TABLES: ReadonlySet<string> = new Set(['gallery_folders', 'gallery_images']);
 
 export const BACKUP_RESTORE_ORDER = [...BACKUP_TABLES];
 
@@ -150,7 +161,15 @@ export function isValidBackupData(value: unknown): value is AppBackupData {
     return false;
   }
 
-  return BACKUP_TABLES.every((table) => Array.isArray(candidate.tables?.[table]));
+  return BACKUP_TABLES.every((table) => {
+    const rows = candidate.tables?.[table];
+    // 旧版备份（图集解耦前导出）没有 gallery_folders / gallery_images：缺失时放行；
+    // 若存在则仍必须是数组，防止畸形数据混进恢复流程。
+    if (rows === undefined && OPTIONAL_BACKUP_TABLES.has(table)) {
+      return true;
+    }
+    return Array.isArray(rows);
+  });
 }
 
 function buildInsertStatement(table: BackupTableName, row: Record<string, unknown>): { sql: string; values: unknown[] } {
@@ -299,6 +318,14 @@ export async function restoreAppBackupData(
           await run(db, sql, values as any[]);
         }
       }
+
+      // §5.1 不变量：galleries.imageCount 是 gallery_images 成员数的缓存。
+      // 备份行里携带的 imageCount 可能与恢复后的成员表不一致（merge 合并成员、
+      // 旧版备份无成员数据等），恢复末尾统一按成员表重算，避免恢复出陈旧计数。
+      await run(db, `
+        UPDATE galleries
+           SET imageCount = (SELECT COUNT(*) FROM gallery_images WHERE gallery_images.galleryId = galleries.id)
+      `);
     });
 
     const importedConfigSaveResult = await saveConfig(sanitizeImportedBackupConfig(backupData.config));
