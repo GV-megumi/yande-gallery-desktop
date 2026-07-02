@@ -296,6 +296,7 @@ const zhCN = {
     fixBinding: '修复绑定',
     galleryBindingFixed: '图集绑定已修复',
     galleryNotFoundForFix: '找不到绑定的图集，请手动重新配置',
+    galleryHasNoFolders: '该图集没有绑定文件夹，无法作为下载目标，请先到图集信息添加文件夹',
     retryFailed: '重试失败项',
     retryStarted: '已开始重试',
     historyTotal: '总计',
