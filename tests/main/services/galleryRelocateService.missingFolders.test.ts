@@ -64,8 +64,8 @@ async function setupSchema(): Promise<void> {
   `);
 }
 
-async function addGallery(): Promise<number> {
-  await run(h.db, `INSERT INTO galleries (name, createdAt, updatedAt) VALUES ('g', '2024-01-01', '2024-01-01')`);
+async function addGallery(name = 'g'): Promise<number> {
+  await run(h.db, `INSERT INTO galleries (name, createdAt, updatedAt) VALUES (?, '2024-01-01', '2024-01-01')`, [name]);
   const row = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
   return row!.id;
 }
@@ -110,10 +110,25 @@ describe('getMissingGalleryFolders', () => {
     expect(result).toHaveLength(2);
     const paths = result.map((r) => r.folderPath).sort();
     expect(paths).toEqual([missing1, missing2].sort());
-    // 每行带 galleryId
+    // 每行带 galleryId 与图集名（供重定位 UI 小字标注归属）
     expect(result.every((r) => r.galleryId === g)).toBe(true);
+    expect(result.every((r) => r.galleryName === 'g')).toBe(true);
     // 存在的那个没被返回
     expect(paths).not.toContain(present);
+  });
+
+  it('多图集缺失时各行带各自的图集名', async () => {
+    const ga = await addGallery('Alpha');
+    const gb = await addGallery('Beta');
+    await addFolderBinding(ga, normalizePath(path.join('N:', 'lost-a')));
+    await addFolderBinding(gb, normalizePath(path.join('N:', 'lost-b')));
+
+    const result = await getMissingGalleryFolders();
+
+    expect(result).toHaveLength(2);
+    const byPath = new Map(result.map((r) => [r.folderPath, r.galleryName]));
+    expect(byPath.get(normalizePath(path.join('N:', 'lost-a')))).toBe('Alpha');
+    expect(byPath.get(normalizePath(path.join('N:', 'lost-b')))).toBe('Beta');
   });
 
   it('全部存在 → 返回空数组', async () => {
