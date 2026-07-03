@@ -146,3 +146,4 @@ skills-lock.json
 # 打包目录
 dist-v*
 .superpowers/
+.toolchain/
