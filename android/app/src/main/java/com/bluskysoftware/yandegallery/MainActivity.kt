@@ -3,11 +3,14 @@ package com.bluskysoftware.yandegallery
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
+import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
+import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
+import com.bluskysoftware.yandegallery.ui.albums.AlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.photos.PhotosScreen
 import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
@@ -26,7 +29,6 @@ class MainActivity : ComponentActivity() {
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
                 AppScaffold(
                     navController = nav,
-                    // Task 11 再替换相册/图集详情占位
                     photosContent = {
                         val photosVm: PhotosViewModel = viewModel(factory = PhotosViewModel.factory(graph))
                         PhotosScreen(
@@ -34,8 +36,21 @@ class MainActivity : ComponentActivity() {
                             onAddServer = { nav.navigate(Routes.Servers) },
                         )
                     },
-                    albumsContent = { Text("相册页占位") },
-                    albumDetailContent = { Text("图集详情占位") },
+                    albumsContent = {
+                        val albumsVm: AlbumsViewModel = viewModel(factory = AlbumsViewModel.factory(graph))
+                        AlbumsScreen(
+                            viewModel = albumsVm,
+                            navController = nav,
+                        )
+                    },
+                    albumDetailContent = { galleryId ->
+                        val detailVm: AlbumDetailViewModel =
+                            viewModel(factory = AlbumDetailViewModel.factory(graph, galleryId))
+                        AlbumDetailScreen(
+                            viewModel = detailVm,
+                            onBack = { nav.popBackStack() },
+                        )
+                    },
                     serversContent = {
                         ServersScreen(
                             vm = serversVm,
