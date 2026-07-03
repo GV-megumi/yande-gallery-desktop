@@ -280,7 +280,7 @@ export type RendererGalleryImagesImportedEvent = RendererAppEventBase<
 >;
 
 export interface RendererGalleryImagesChangedPayload {
-  action: 'created' | 'deleted' | 'tagsUpdated' | 'invalidated' | 'batchImported';
+  action: 'created' | 'deleted' | 'tagsUpdated' | 'invalidated' | 'batchImported' | 'membershipChanged';
   imageId?: number;
   galleryId?: number | null;
   affectedGalleryIds?: number[];
