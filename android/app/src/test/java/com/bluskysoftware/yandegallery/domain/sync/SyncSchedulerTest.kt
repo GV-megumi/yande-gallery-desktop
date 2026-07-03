@@ -24,23 +24,46 @@ class SyncSchedulerTest {
         ConnectionMonitor(activeServerName = flowOf<String?>("srv"), scope = scope)
 
     @Test
-    fun `并发两次 requestSync 只执行一次（互斥合并，忽略式）`() = runTest(UnconfinedTestDispatcher()) {
-        val gate = CompletableDeferred<Unit>()
+    fun `运行中到达的第二次请求在首次完成后补跑一次（合并式 pending）`() = runTest(UnconfinedTestDispatcher()) {
+        val gate1 = CompletableDeferred<Unit>()
         val runs = AtomicInteger(0)
         val syncRun: suspend () -> SyncOutcome = {
-            runs.incrementAndGet()
-            gate.await()
+            val n = runs.incrementAndGet()
+            if (n == 1) gate1.await()   // 首轮挂在门上；补跑的第二轮直接返回
             SyncOutcome(fullRebuild = false, upserted = 0, deleted = 0)
         }
         val mon = monitor(backgroundScope)
         val scheduler = SyncScheduler(syncRun, mon, backgroundScope, hadMirrorBefore = { false })
 
-        scheduler.requestSync("a")   // 即时执行到 gate.await() 挂起，runs=1
-        scheduler.requestSync("b")   // 进行中 → 直接忽略，不第二次执行
+        scheduler.requestSync("a")   // 即时执行到 gate1.await() 挂起，runs=1
+        scheduler.requestSync("b")   // 运行中 → 记 pending，尚未第二次执行
         assertEquals(1, runs.get())
 
-        gate.complete(Unit)          // 放行第一个，走成功上报
+        gate1.complete(Unit)         // 放行首轮 → 收尾发现 pending → 补跑第二轮
+        assertEquals(2, runs.get())  // 不再被丢弃：恰好补跑一次
         assertTrue(mon.state.value.online)
+    }
+
+    @Test
+    fun `运行中的多次请求也只合并成一轮补跑`() = runTest(UnconfinedTestDispatcher()) {
+        val gate1 = CompletableDeferred<Unit>()
+        val runs = AtomicInteger(0)
+        val syncRun: suspend () -> SyncOutcome = {
+            val n = runs.incrementAndGet()
+            if (n == 1) gate1.await()
+            SyncOutcome(fullRebuild = false, upserted = 0, deleted = 0)
+        }
+        val mon = monitor(backgroundScope)
+        val scheduler = SyncScheduler(syncRun, mon, backgroundScope, hadMirrorBefore = { false })
+
+        scheduler.requestSync("a")   // runs=1，挂起
+        scheduler.requestSync("b")   // pending
+        scheduler.requestSync("c")   // pending（已置位，幂等）
+        scheduler.requestSync("d")   // pending
+        assertEquals(1, runs.get())
+
+        gate1.complete(Unit)         // 首轮完成 → 补跑一轮即清 pending
+        assertEquals(2, runs.get())  // 运行期多次请求合并为单轮补跑，不逐个排队
     }
 
     @Test

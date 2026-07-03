@@ -4,14 +4,17 @@ import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.unwrap
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import kotlinx.coroutines.test.runTest
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.util.concurrent.TimeUnit
 
 /**
  * 回归测试：AppGraph.api() 的缓存键必须与 Bearer 快照（activeSnapshot）解耦。
@@ -30,7 +33,8 @@ class AppGraphTest {
     @Before
     fun setup() {
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
-        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        // 这两个用例逐一断言 FIFO 响应与请求计数——关掉激活变化的自动同步，避免 collector 抢响应。
+        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db, autoSyncOnActiveChange = false)
     }
 
     @After
@@ -39,6 +43,24 @@ class AppGraphTest {
     private fun metaResponse(serverId: String) = MockResponse()
         .setBody("""{"success":true,"data":{"serverId":"$serverId","dataVersion":1,"imageCount":0,"latestCursor":null}}""")
         .addHeader("Content-Type", "application/json")
+
+    /** 按 path 幂等应答完整同步链路（meta/images/image-ids/galleries/tags），供自动同步用例跑到收尾不阻塞。 */
+    private fun syncDispatcher(serverId: String) = object : Dispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val path = request.path ?: ""
+            val json = when {
+                path.startsWith("/api/v1/sync/meta") ->
+                    """{"success":true,"data":{"serverId":"$serverId","dataVersion":1,"imageCount":0,"latestCursor":null}}"""
+                path.startsWith("/api/v1/sync/images") ->
+                    """{"success":true,"data":{"items":[],"nextCursor":null,"hasMore":false}}"""
+                path.startsWith("/api/v1/sync/image-ids") -> """{"success":true,"data":{"ids":[]}}"""
+                path.startsWith("/api/v1/sync/galleries") -> """{"success":true,"data":{"items":[]}}"""
+                path.startsWith("/api/v1/sync/tags") -> """{"success":true,"data":{"items":[]}}"""
+                else -> return MockResponse().setResponseCode(404)
+            }
+            return MockResponse().setBody(json).addHeader("Content-Type", "application/json")
+        }
+    }
 
     @Test
     fun `切换激活服务器后 api() 重建客户端并指向新 baseUrl`() = runTest {
@@ -68,6 +90,24 @@ class AppGraphTest {
                 assertEquals(1, serverA.requestCount)
                 assertEquals(1, serverB.requestCount)
             }
+        }
+    }
+
+    @Test
+    fun `新增激活服务器后自动触发同步（server-changed）`() = runTest {
+        MockWebServer().use { server ->
+            server.dispatcher = syncDispatcher("auto")
+            server.start()
+
+            // 默认 autoSyncOnActiveChange=true 的 graph：激活服务器变化即由 collector 自动发起同步。
+            val autoGraph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+            autoGraph.serverRepository.addAndActivate("auto", server.url("/").toString(), "key")
+
+            // collector 在 Dispatchers.IO 真实时间追平 Room 发射后自动 requestSync → syncEngine.sync()。
+            // 首个自动请求必是 meta；未修复（不自动触发）时 takeRequest 超时返回 null。
+            val req = server.takeRequest(5, TimeUnit.SECONDS)
+            assertNotNull("激活服务器后应自动发起同步（应收到 meta 请求）", req)
+            assertEquals("/api/v1/sync/meta", req!!.path)
         }
     }
 

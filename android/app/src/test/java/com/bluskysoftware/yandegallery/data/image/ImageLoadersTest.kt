@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.data.image
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Test
 
 /**
@@ -26,7 +27,9 @@ class ImageLoadersTest {
     }
 
     @Test
-    fun `thumbnailCacheKey 是稳定 key，与 baseUrl 无关`() {
-        assertEquals("thumb:7", thumbnailCacheKey(7L))
+    fun `thumbnailCacheKey 按 serverId 命名空间——不同 serverId 得不同 key`() {
+        assertEquals("s1:t7", thumbnailCacheKey(1L, 7L))
+        // 同 imageId、不同服务器 → 键必须不同，避免跨服务器缓存串图
+        assertNotEquals(thumbnailCacheKey(1L, 7L), thumbnailCacheKey(2L, 7L))
     }
 }

@@ -72,6 +72,7 @@ fun PhotosScreen(
     }
 
     val baseUrl = server.baseUrl
+    val serverId = server.id
     val loader = viewModel.thumbnailLoader
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -94,7 +95,7 @@ fun PhotosScreen(
                         items = items,
                         photoCell = { photo ->
                             AsyncImage(
-                                model = thumbnailRequest(LocalContext.current, baseUrl, photo.image.id),
+                                model = thumbnailRequest(LocalContext.current, baseUrl, serverId, photo.image.id),
                                 imageLoader = loader,
                                 contentDescription = photo.image.filename,
                                 contentScale = ContentScale.Crop,
