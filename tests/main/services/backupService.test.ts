@@ -146,6 +146,7 @@ describe('restoreAppBackupData', () => {
     };
 
     const saveConfigMock = vi.fn(async () => ({ success: true }));
+    const bumpSyncDataVersionMock = vi.fn(async () => undefined);
     const allMock = vi.fn(async () => []);
     // 恢复事务已改为 runExclusive 独占段内的裸 BEGIN/COMMIT（PRAGMA FK 开关需与
     // 排队事务互斥），失败注入点改为事务体内第一条语句（replace 模式的 DELETE）
@@ -163,7 +164,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => currentConfig),
       saveConfig: saveConfigMock,
       toRendererSafeUiConfig,
-      bumpSyncDataVersion: vi.fn(async () => undefined),
+      bumpSyncDataVersion: bumpSyncDataVersionMock,
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -185,6 +186,8 @@ describe('restoreAppBackupData', () => {
     // BEGIN 成功后失败：必须回滚自己的事务，且 finally 里恢复 PRAGMA FK ON
     expect(runMock.mock.calls.some(([, sql]) => sql === 'ROLLBACK')).toBe(true);
     expect(runMock.mock.calls.some(([, sql]) => sql === 'PRAGMA foreign_keys = ON')).toBe(true);
+    // 恢复中途抛错回滚：不得 bump dataVersion（spec §5.3 仅成功尾部代际 +1，失败不能让手机端白白全量重建）
+    expect(bumpSyncDataVersionMock).not.toHaveBeenCalled();
   });
 
   it('配置写入失败时应回滚已恢复的数据库，避免配置和数据库分裂', async () => {
@@ -199,6 +202,7 @@ describe('restoreAppBackupData', () => {
     const saveConfigMock = vi
       .fn(async () => ({ success: true }))
       .mockResolvedValueOnce({ success: false, error: 'save imported config failed' });
+    const bumpSyncDataVersionMock = vi.fn(async () => undefined);
     const allMock = vi
       .fn(async (_db: unknown, sql: string) => {
         if (sql === 'SELECT * FROM booru_sites') {
@@ -215,7 +219,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => currentConfig),
       saveConfig: saveConfigMock,
       toRendererSafeUiConfig,
-      bumpSyncDataVersion: vi.fn(async () => undefined),
+      bumpSyncDataVersion: bumpSyncDataVersionMock,
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -243,6 +247,8 @@ describe('restoreAppBackupData', () => {
       && values.includes('original-site')
     );
     expect(insertOriginalSiteCall).toBeTruthy();
+    // 配置写入失败已整体回滚：不得 bump dataVersion（spec §5.3 仅成功尾部代际 +1）
+    expect(bumpSyncDataVersionMock).not.toHaveBeenCalled();
   });
 
   it('恢复成功后应同时广播旧 CONFIG_CHANGED 频道，兼容尚未迁移到新事件总线的订阅方', async () => {
@@ -502,6 +508,8 @@ describe('backup config sanitization', () => {
       appearance: { gridSize: 330, previewQuality: 'auto', itemsPerPage: 20, paginationPosition: 'bottom', pageMode: 'pagination', spacing: 16, borderRadius: 8, margin: 24 },
       download: { filenameTemplate: '{id}.{extension}', tokenDefaults: {} },
     },
+    // 本机同步身份/代际：白名单投影必须丢弃（见下方导出用例断言）
+    sync: { serverId: 'machine-local-uuid', dataVersion: 7 },
     ui: {
       menuOrder: {
         main: ['gallery', 'booru', 'google'],
@@ -537,6 +545,9 @@ describe('backup config sanitization', () => {
     expect(result.ui).not.toHaveProperty('menuOrder');
     expect(result.ui).not.toHaveProperty('pinnedItems');
     expect(result.ui.pagePreferences).not.toHaveProperty('appShell');
+    // spec §5.3 不变量守卫：sync（serverId/dataVersion）是本机身份/代际，绝不随备份导出——
+    // 否则恢复导入会把备份携带的旧代际写回，抵消恢复尾部的 bump
+    expect('sync' in result).toBe(false);
   });
 
   it('导入备份时也应再次收口敏感凭证字段，避免备份内容越界写回', () => {
