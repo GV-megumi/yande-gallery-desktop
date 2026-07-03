@@ -3,13 +3,13 @@ package com.bluskysoftware.yandegallery
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.material3.Text
+import com.bluskysoftware.yandegallery.ui.AppNavForTest
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            Text("Yande Gallery")
+            AppNavForTest()   // Task 10/11/8 逐步替换为真实屏幕装配
         }
     }
 }
