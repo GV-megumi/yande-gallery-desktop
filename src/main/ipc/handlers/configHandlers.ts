@@ -1,3 +1,4 @@
+import os from 'os';
 import { app, BrowserWindow, ipcMain, type IpcMainInvokeEvent } from 'electron';
 import { IPC_CHANNELS } from '../channels.js';
 import {
@@ -6,9 +7,10 @@ import {
   generateAndSaveApiKey,
 } from '../../api/apiServiceManager.js';
 import { queryApiLogs } from '../../services/apiLogService.js';
-import type { ApiLogQuery, ApiServiceStatus, ConfigChangedSummary } from '../../../shared/types.js';
+import type { ApiLogQuery, ApiPairingInfo, ApiServiceStatus, ConfigChangedSummary } from '../../../shared/types.js';
 import {
   getConfig,
+  getApiServiceConfig,
   getBooruAppearancePreference,
   saveConfig,
   reloadConfig,
@@ -167,6 +169,31 @@ export function setupConfigHandlers() {
   ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_LOGS, async (_event: IpcMainInvokeEvent, query: ApiLogQuery = {}) => {
     try {
       return { success: true, data: await queryApiLogs(query) };
+    } catch (error) {
+      return { success: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO, async () => {
+    try {
+      // getApiServiceConfig 返回带默认值的规范化配置（apiService 在 AppConfig 上为可选）
+      const apiService = getApiServiceConfig();
+      const status = getApiServiceStatus();
+      // status.baseUrl 在 LAN 模式恒为 127.0.0.1，配对必须用真实网卡地址：
+      // 枚举所有 IPv4 非环回地址（网线 / WiFi / 虚拟网卡可能多个，弹窗给用户选择）。
+      const lanAddresses = Object.values(os.networkInterfaces())
+        .flatMap((list) => list ?? [])
+        .filter((item) => item.family === 'IPv4' && !item.internal)
+        .map((item) => item.address);
+      const data: ApiPairingInfo = {
+        name: os.hostname(),
+        port: apiService.port,
+        mode: apiService.mode,
+        running: status.running,
+        apiKey: apiService.apiKey,
+        lanAddresses,
+      };
+      return { success: true, data };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }

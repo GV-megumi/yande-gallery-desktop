@@ -3,7 +3,7 @@ import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { normalizePath, isSubPath } from '../utils/path.js';
-import { enqueueThumbnailGeneration, deleteThumbnail, cancelThumbnailGeneration } from './thumbnailService.js';
+import { enqueueThumbnailGeneration, deleteThumbnail, deletePreview, cancelThumbnailGeneration } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
@@ -341,6 +341,10 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
       await deleteThumbnail(row.filepath).catch((err: any) => {
         console.warn(`[imageService] 删除缩略图失败: ${row.filepath}`, err?.message ?? err);
       });
+      // 联动清理 1600px 预览档（deletePreview 内部已对 ENOENT 容错）
+      await deletePreview(row.filepath).catch((err: any) => {
+        console.warn(`[imageService] 删除预览档失败: ${row.filepath}`, err?.message ?? err);
+      });
     }
 
     if (row) {
@@ -396,6 +400,83 @@ export async function updateImageTags(imageId: number, tags: string[]): Promise<
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('Error updating image tags:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 追加标签（移动端写接口用，spec §5.4）。不存在的标签自动创建；
+ * updatedAt 由 image_tags 触发器触碰，无需手动 UPDATE。
+ */
+export async function addImageTags(
+  imageId: number,
+  tagNames: string[],
+): Promise<{ success: boolean; error?: string; missing?: boolean }> {
+  try {
+    const db = await getDatabase();
+    const row = await get<{ id: number }>(db, 'SELECT id FROM images WHERE id = ?', [imageId]);
+    if (!row) {
+      return { success: false, missing: true, error: 'Image not found' };
+    }
+
+    const names = tagNames.map((name) => name.trim()).filter(Boolean);
+    if (names.length > 0) {
+      // addTagsToImage 自带事务，不得再包 runInTransaction
+      await addTagsToImage(imageId, names);
+    }
+
+    emitGalleryImagesChanged({
+      action: 'tagsUpdated',
+      imageId,
+      affectedImageIds: [imageId],
+      affectedCount: 1,
+    });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error adding image tags:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 移除标签（按名、大小写不敏感）。只删关联不删 tags 行。
+ */
+export async function removeImageTags(
+  imageId: number,
+  tagNames: string[],
+): Promise<{ success: boolean; error?: string; missing?: boolean }> {
+  try {
+    const db = await getDatabase();
+    const row = await get<{ id: number }>(db, 'SELECT id FROM images WHERE id = ?', [imageId]);
+    if (!row) {
+      return { success: false, missing: true, error: 'Image not found' };
+    }
+
+    const names = tagNames.map((name) => name.trim().toLowerCase()).filter(Boolean);
+    if (names.length > 0) {
+      const placeholders = names.map(() => '?').join(',');
+      await run(
+        db,
+        `DELETE FROM image_tags
+          WHERE imageId = ?
+            AND tagId IN (SELECT id FROM tags WHERE LOWER(name) IN (${placeholders}))`,
+        [imageId, ...names],
+      );
+    }
+
+    emitGalleryImagesChanged({
+      action: 'tagsUpdated',
+      imageId,
+      affectedImageIds: [imageId],
+      affectedCount: 1,
+    });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error removing image tags:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }

@@ -13,6 +13,7 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import { load as loadYaml } from 'js-yaml';
 import type { ApiServiceConfig, ApiServiceLogsConfig, ApiServicePermissions } from '../../shared/types.js';
@@ -148,6 +149,14 @@ export interface AppConfig {
     quality: number;
     format: string;
     effort: number;
+    preview: {
+      cachePath: string;
+      maxWidth: number;
+      maxHeight: number;
+      quality: number;
+      format: string;
+      effort: number;
+    };
   };
   app: {
     autoScan: boolean;
@@ -221,6 +230,11 @@ export interface AppConfig {
     hardwareAcceleration?: boolean;
   };
   apiService?: ApiServiceConfig;
+  /** 移动端同步身份与代际（机器生成，勿手改）*/
+  sync: {
+    serverId: string;
+    dataVersion: number;
+  };
 }
 
 export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
@@ -229,11 +243,12 @@ export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'usern
 export type RendererSafeApiServiceConfig = Omit<ApiServiceConfig, 'apiKey'> & {
   hasApiKey: boolean;
 };
-export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'apiService'> & {
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'apiService' | 'sync'> & {
   network: {
     proxy: RendererSafeProxyConfig;
   };
   apiService?: RendererSafeApiServiceConfig;
+  sync?: AppConfig['sync'];
 };
 
 export type DeepPartial<T> = {
@@ -263,7 +278,15 @@ const DEFAULT_CONFIG: AppConfig = {
     maxHeight: 800,
     quality: 92,
     format: 'webp',
-    effort: 3
+    effort: 3,
+    preview: {
+      cachePath: 'previews',
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 88,
+      format: 'webp',
+      effort: 3
+    }
   },
   app: {
     autoScan: true
@@ -305,6 +328,8 @@ const DEFAULT_CONFIG: AppConfig = {
       galleryRead: true,
       imageRead: true,
       imageBinary: false,
+      imageWrite: false,
+      galleryWrite: false,
       booruRead: true,
       booruWrite: false,
       favoriteTagsRead: true,
@@ -320,6 +345,10 @@ const DEFAULT_CONFIG: AppConfig = {
       retentionDays: 14,
       maxEntries: 1000,
     },
+  },
+  sync: {
+    serverId: '',
+    dataVersion: 1,
   },
   booru: {
     appearance: {
@@ -521,6 +550,7 @@ export async function ensureDataDirectories(): Promise<void> {
     getConfigDir(),             // configDir（存放 config.yaml 和 db）
     getDataDir(),               // dataDir（存放运行数据）
     getThumbnailsPath(),        // 缩略图目录
+    getPreviewsPath(),          // 1600px 预览档目录
     getCachePath(),             // Booru 图片缓存目录
   ];
 
@@ -1073,6 +1103,8 @@ function normalizeApiServiceConfig(
       galleryRead: normalizeBoolean(inputPermissions.galleryRead, normalizeBoolean(currentPermissions.galleryRead, defaults.permissions.galleryRead)),
       imageRead: normalizeBoolean(inputPermissions.imageRead, normalizeBoolean(currentPermissions.imageRead, defaults.permissions.imageRead)),
       imageBinary: normalizeBoolean(inputPermissions.imageBinary, normalizeBoolean(currentPermissions.imageBinary, defaults.permissions.imageBinary)),
+      imageWrite: normalizeBoolean(inputPermissions.imageWrite, normalizeBoolean(currentPermissions.imageWrite, defaults.permissions.imageWrite)),
+      galleryWrite: normalizeBoolean(inputPermissions.galleryWrite, normalizeBoolean(currentPermissions.galleryWrite, defaults.permissions.galleryWrite)),
       booruRead: normalizeBoolean(inputPermissions.booruRead, normalizeBoolean(currentPermissions.booruRead, defaults.permissions.booruRead)),
       booruWrite: normalizeBoolean(inputPermissions.booruWrite, normalizeBoolean(currentPermissions.booruWrite, defaults.permissions.booruWrite)),
       favoriteTagsRead: normalizeBoolean(inputPermissions.favoriteTagsRead, normalizeBoolean(currentPermissions.favoriteTagsRead, defaults.permissions.favoriteTagsRead)),
@@ -1111,6 +1143,14 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       quality: input.thumbnails?.quality ?? currentConfig.thumbnails.quality,
       format: input.thumbnails?.format ?? currentConfig.thumbnails.format,
       effort: input.thumbnails?.effort ?? currentConfig.thumbnails.effort,
+      preview: {
+        cachePath: input.thumbnails?.preview?.cachePath ?? currentConfig.thumbnails.preview.cachePath,
+        maxWidth: input.thumbnails?.preview?.maxWidth ?? currentConfig.thumbnails.preview.maxWidth,
+        maxHeight: input.thumbnails?.preview?.maxHeight ?? currentConfig.thumbnails.preview.maxHeight,
+        quality: input.thumbnails?.preview?.quality ?? currentConfig.thumbnails.preview.quality,
+        format: input.thumbnails?.preview?.format ?? currentConfig.thumbnails.preview.format,
+        effort: input.thumbnails?.preview?.effort ?? currentConfig.thumbnails.preview.effort,
+      },
     },
     app: {
       autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
@@ -1176,6 +1216,10 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       hardwareAcceleration: input.desktop?.hardwareAcceleration ?? currentConfig.desktop?.hardwareAcceleration ?? false,
     },
     apiService: normalizeApiServiceConfig(currentConfig, input.apiService),
+    sync: {
+      serverId: input.sync?.serverId ?? currentConfig.sync.serverId,
+      dataVersion: input.sync?.dataVersion ?? currentConfig.sync.dataVersion,
+    },
   };
 }
 
@@ -1287,6 +1331,35 @@ export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string
   return savePromise;
 }
 
+/**
+ * 懒生成并持久化同步 serverId（GET /api/v1/sync/meta 用，spec §5.3）。
+ * 首次为空时生成 UUID 并 saveConfig；持久化失败抛错。二次调用返回既有值。
+ */
+export async function ensureSyncServerId(): Promise<string> {
+  const current = getConfig().sync.serverId;
+  if (current) {
+    return current;
+  }
+  const serverId = randomUUID();
+  const result = await saveConfig({ sync: { serverId } });
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to persist sync serverId');
+  }
+  return serverId;
+}
+
+/**
+ * 破坏性操作（备份恢复、根目录迁移）后递增 dataVersion，手机端发现变化即全量重建镜像。
+ * 保存失败不阻断宿主操作，仅记录错误。
+ */
+export async function bumpSyncDataVersion(): Promise<void> {
+  const next = getConfig().sync.dataVersion + 1;
+  const result = await saveConfig({ sync: { dataVersion: next } });
+  if (!result.success) {
+    console.error('[config] bump sync dataVersion 失败:', result.error);
+  }
+}
+
 // ============= 路径获取快捷方法 =============
 
 /**
@@ -1316,6 +1389,14 @@ export function getDownloadsPath(): string {
 export function getThumbnailsPath(): string {
   const cfg = getConfig();
   return resolveDataPath(cfg.thumbnails.cachePath);
+}
+
+/**
+ * 获取 1600px 预览档缓存目录（移动端全屏大图用，spec §5.1）
+ */
+export function getPreviewsPath(): string {
+  const cfg = getConfig();
+  return resolveDataPath(cfg.thumbnails.preview.cachePath);
 }
 
 /**

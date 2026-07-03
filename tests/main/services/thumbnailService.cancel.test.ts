@@ -51,9 +51,13 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('../../../src/main/services/config.js', () => ({
   getConfig: vi.fn(() => ({
-    thumbnails: { maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+    thumbnails: {
+      maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3,
+      preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 },
+    },
   })),
   getThumbnailsPath: vi.fn(() => 'M:/thumbs'),
+  getPreviewsPath: vi.fn(() => 'M:/previews'),
 }));
 
 const emitBuiltRendererAppEvent = vi.fn();
@@ -65,6 +69,7 @@ import {
   generateThumbnail,
   enqueueThumbnailGeneration,
   cancelThumbnailGeneration,
+  generatePreview,
 } from '../../../src/main/services/thumbnailService';
 import path from 'path';
 
@@ -77,6 +82,11 @@ const flush = async (times = 5) => {
 function expectedThumbPath(imagePath: string): string {
   const hash = crypto.createHash('md5').update(imagePath).digest('hex');
   return path.join('M:/thumbs', `${hash}.webp`);
+}
+
+function expectedPreviewPath(imagePath: string): string {
+  const hash = crypto.createHash('md5').update(imagePath).digest('hex');
+  return path.join('M:/previews', `${hash}.webp`);
 }
 
 beforeEach(() => {
@@ -152,5 +162,36 @@ describe('cancelThumbnailGeneration', () => {
       .filter(Boolean);
     expect(notified).toContain('M:/src/ok.jpg');
     expect(h.unlinked).not.toContain(expectedThumbPath('M:/src/ok.jpg'));
+  });
+
+  it('cancelThumbnailGeneration 传裸路径时同时投毒 thumbnail:/preview: 两档：排队中的预览档任务也被取消', async () => {
+    // 占满 3 个运行槽位（缩略图档，background 优先级）。
+    // 注意：ThumbnailQueue 是模块级单例、beforeEach 不重置——占位路径必须与其它
+    // 用例不同名（t4- 前缀），否则前序用例未排干的同名 key 会把这里的入队去重吞掉。
+    enqueueThumbnailGeneration('M:/src/t4-1.jpg');
+    enqueueThumbnailGeneration('M:/src/t4-2.jpg');
+    enqueueThumbnailGeneration('M:/src/t4-3.jpg');
+    await flush();
+    expect(h.toFileStarted).toEqual(['M:/src/t4-1.jpg', 'M:/src/t4-2.jpg', 'M:/src/t4-3.jpg']);
+
+    // 预览档任务（generatePreview 走 preview:${path} key）——运行槽位已满，排队等待
+    const previewPromise = generatePreview('M:/src/t4-deleted.jpg');
+    await flush();
+    expect(h.toFileStarted).not.toContain('M:/src/t4-deleted.jpg');
+
+    // 只传裸路径（不带 tier 前缀）：cancelPending 需自行扇出 thumbnail:/preview: 两个 key，
+    // 否则排队中的预览档任务（key 为 preview:t4-deleted.jpg）不会被命中而永远挂起。
+    cancelThumbnailGeneration(['M:/src/t4-deleted.jpg']);
+    const result = await previewPromise;
+    expect(result.success).toBe(false);
+    expect((result as { cancelled?: boolean }).cancelled).toBe(true);
+
+    // 放行三个运行中的缩略图任务，队列继续消化——被取消的预览档任务永远不会启动 sharp
+    for (const p of ['M:/src/t4-1.jpg', 'M:/src/t4-2.jpg', 'M:/src/t4-3.jpg']) {
+      h.toFileControls.get(p)!.resolve();
+    }
+    await flush();
+    expect(h.toFileStarted).not.toContain('M:/src/t4-deleted.jpg');
+    expect(h.unlinked).not.toContain(expectedPreviewPath('M:/src/t4-deleted.jpg'));
   });
 });

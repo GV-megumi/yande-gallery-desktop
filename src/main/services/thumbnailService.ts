@@ -15,7 +15,7 @@ async function getSharp() {
 import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
-import { getConfig, getThumbnailsPath } from './config.js';
+import { getConfig, getThumbnailsPath, getPreviewsPath } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import type { RendererThumbnailGeneratedEvent } from '../../shared/types.js';
 
@@ -48,15 +48,20 @@ function emitThumbnailGenerated(imagePath: string, result: ThumbnailResult): voi
   });
 }
 
-class ThumbnailQueue {
-  private queue: Array<{
-    imagePath: string;
-    priorityWeight: number;
-    resolve: (value: ThumbnailResult) => void;
-    reject: (error: Error) => void;
-  }> = [];
+type ThumbnailQueueTask = {
+  key: string;                                  // `${tier}:${imagePath}`，两档同源不撞车
+  imagePath: string;                            // 裸路径：事件/日志/墓碑判定用
+  run: () => Promise<ThumbnailResult>;          // 档位对应的生成函数闭包
+  priorityWeight: number;
+  resolve: (value: ThumbnailResult) => void;
+  reject: (error: Error) => void;
+};
 
-  private queuedPaths: Map<string, { imagePath: string; priorityWeight: number; resolve: (value: ThumbnailResult) => void; reject: (error: Error) => void }> = new Map();
+class ThumbnailQueue {
+  private queue: Array<ThumbnailQueueTask> = [];
+
+  // 以下 Map/Set 全部以 task.key（`${tier}:${imagePath}`）为索引，两档同源互不干扰。
+  private queuedPaths: Map<string, ThumbnailQueueTask> = new Map();
   private running: Map<string, Promise<ThumbnailResult>> = new Map();
   private notifyPaths: Set<string> = new Set();
   // 墓碑：任务开跑后其图片被删除（无法中断 sharp），完成时丢弃产物、不通知渲染层。
@@ -67,18 +72,20 @@ class ThumbnailQueue {
   /**
    * 取消一批路径的缩略图生成（图片删除/孤儿回收路径调用）：
    * - 还在等待队列中的：直接移除，以 cancelled 结果 resolve（不 reject，免得后台任务的 .catch 刷告警）；
-   * - 正在生成中的：打墓碑，完成后删除刚生成的缩略图文件并跳过 thumbnail:generated 通知。
+   * - 正在生成中的：打墓碑，完成后删除刚生成的产物文件并跳过 thumbnail:generated 通知。
+   *
+   * 对每个裸路径生成两档 target key（thumbnail:/preview:），双档一并投毒取消。
    */
   cancelPending(imagePaths: string[]): void {
     if (imagePaths.length === 0) return;
-    const targets = new Set(imagePaths);
+    const targets = new Set(imagePaths.flatMap((p) => [`thumbnail:${p}`, `preview:${p}`]));
 
     if (this.queue.length > 0) {
       const remaining: typeof this.queue = [];
       for (const task of this.queue) {
-        if (targets.has(task.imagePath)) {
-          this.queuedPaths.delete(task.imagePath);
-          this.notifyPaths.delete(task.imagePath);
+        if (targets.has(task.key)) {
+          this.queuedPaths.delete(task.key);
+          this.notifyPaths.delete(task.key);
           task.resolve({ success: false, error: '已取消（图片已删除）', cancelled: true });
         } else {
           remaining.push(task);
@@ -87,28 +94,32 @@ class ThumbnailQueue {
       this.queue = remaining;
     }
 
-    for (const imagePath of targets) {
-      if (this.running.has(imagePath)) {
-        this.cancelledRunning.add(imagePath);
+    for (const key of targets) {
+      if (this.running.has(key)) {
+        this.cancelledRunning.add(key);
       }
     }
   }
 
-  async enqueue(
-    imagePath: string,
-    options: { priority?: ThumbnailPriority; notify?: boolean } = {}
-  ): Promise<ThumbnailResult> {
-    const priorityWeight = THUMBNAIL_PRIORITY_WEIGHT[options.priority ?? 'background'];
-    if (options.notify) {
-      this.notifyPaths.add(imagePath);
+  async enqueue(task: {
+    key: string;
+    imagePath: string;
+    run: () => Promise<ThumbnailResult>;
+    priority?: ThumbnailPriority;
+    notify?: boolean;
+  }): Promise<ThumbnailResult> {
+    const { key, imagePath, run } = task;
+    const priorityWeight = THUMBNAIL_PRIORITY_WEIGHT[task.priority ?? 'background'];
+    if (task.notify) {
+      this.notifyPaths.add(key);
     }
 
-    const existingTask = this.running.get(imagePath);
+    const existingTask = this.running.get(key);
     if (existingTask) {
       return existingTask;
     }
 
-    const existingInQueue = this.queuedPaths.get(imagePath);
+    const existingInQueue = this.queuedPaths.get(key);
     if (existingInQueue) {
       existingInQueue.priorityWeight = Math.max(existingInQueue.priorityWeight, priorityWeight);
       this.queue.sort((a, b) => b.priorityWeight - a.priorityWeight);
@@ -121,10 +132,10 @@ class ThumbnailQueue {
     }
 
     return new Promise<ThumbnailResult>((resolve, reject) => {
-      const task = { imagePath, priorityWeight, resolve, reject };
-      this.queue.push(task);
+      const queueTask: ThumbnailQueueTask = { key, imagePath, run, priorityWeight, resolve, reject };
+      this.queue.push(queueTask);
       this.queue.sort((a, b) => b.priorityWeight - a.priorityWeight);
-      this.queuedPaths.set(imagePath, task);
+      this.queuedPaths.set(key, queueTask);
       this.processQueue();
     });
   }
@@ -137,18 +148,18 @@ class ThumbnailQueue {
     const task = this.queue.shift();
     if (!task) return;
 
-    const { imagePath, resolve, reject } = task;
-    this.queuedPaths.delete(imagePath);
+    const { key, imagePath, run, resolve, reject } = task;
+    this.queuedPaths.delete(key);
 
     const taskPromise = (async () => {
       try {
         console.log(`[ThumbnailQueue] start generating thumbnail: ${imagePath} (running: ${this.running.size + 1}/${this.maxConcurrent})`);
-        const result = await generateThumbnailInternal(imagePath, false);
+        const result = await run();
 
-        // 墓碑命中：生成期间图片被删除——丢弃产物（否则成为永远无人清理的孤儿缩略图），
+        // 墓碑命中：生成期间图片被删除——丢弃产物（否则成为永远无人清理的孤儿文件），
         // 不向渲染层通知，向调用方返回 cancelled 结果。
-        if (this.cancelledRunning.has(imagePath)) {
-          this.cancelledRunning.delete(imagePath);
+        if (this.cancelledRunning.has(key)) {
+          this.cancelledRunning.delete(key);
           if (result.success && result.data) {
             try {
               await fs.unlink(result.data);
@@ -162,7 +173,7 @@ class ThumbnailQueue {
           return cancelledResult;
         }
 
-        if (this.notifyPaths.has(imagePath)) {
+        if (this.notifyPaths.has(key)) {
           emitThumbnailGenerated(imagePath, result);
         }
 
@@ -170,9 +181,9 @@ class ThumbnailQueue {
         return result;
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (this.cancelledRunning.has(imagePath)) {
-          this.cancelledRunning.delete(imagePath);
-        } else if (this.notifyPaths.has(imagePath)) {
+        if (this.cancelledRunning.has(key)) {
+          this.cancelledRunning.delete(key);
+        } else if (this.notifyPaths.has(key)) {
           emitThumbnailGenerated(imagePath, {
             success: false,
             error: errorMessage,
@@ -182,14 +193,14 @@ class ThumbnailQueue {
         reject(new Error(errorMessage));
         return { success: false, error: errorMessage };
       } finally {
-        this.running.delete(imagePath);
-        this.notifyPaths.delete(imagePath);
+        this.running.delete(key);
+        this.notifyPaths.delete(key);
         console.log(`[ThumbnailQueue] finished thumbnail: ${imagePath} (running: ${this.running.size}/${this.maxConcurrent})`);
         this.processQueue();
       }
     })();
 
-    this.running.set(imagePath, taskPromise);
+    this.running.set(key, taskPromise);
   }
 }
 
@@ -261,16 +272,77 @@ async function generateThumbnailInternal(
   }
 }
 
-async function getThumbnailPath(imagePath: string): Promise<string> {
-  const config = getConfig();
-  const thumbnailsDir = getThumbnailsPath();
+/**
+ * 生成 1600px 预览档内部实现（结构镜像 generateThumbnailInternal）：
+ * - 含源文件 fs.access 预检——缺失返回 missing:true，路由层据此映射 404 而非 500
+ *   （与缩略图路由及 spec §6.3 "二进制 404 触发对账" 契约一致）；
+ * - 无 GIF 分支（GIF 在 generatePreview 层直接回源文件、不进此函数）；
+ * - 不 emit thumbnail:generated 事件（预览档不参与渲染层缩略图缓存）。
+ */
+async function generatePreviewInternal(imagePath: string, force: boolean): Promise<ThumbnailResult> {
+  try {
+    try {
+      await fs.access(imagePath);
+    } catch {
+      return { success: false, error: `原图不存在: ${imagePath}`, missing: true };
+    }
 
-  await fs.mkdir(thumbnailsDir, { recursive: true });
+    const config = getConfig();
+    const previewPath = await getTierCachePath('preview', imagePath);
+
+    if (!force && await thumbnailExists(previewPath)) {
+      return { success: true, data: previewPath };
+    }
+
+    const { maxWidth, maxHeight, quality, format } = config.thumbnails.preview;
+    const effort = normalizeThumbnailEffort(config.thumbnails.preview.effort);
+    const sharpLib = await getSharp();
+
+    const sharpInstance = sharpLib(imagePath)
+      .resize(maxWidth, maxHeight, {
+        fit: 'inside',
+        withoutEnlargement: true
+      });
+
+    if (format === 'webp') {
+      await sharpInstance.webp({ quality, effort }).toFile(previewPath);
+    } else if (format === 'jpeg' || format === 'jpg') {
+      await sharpInstance.jpeg({ quality, mozjpeg: true }).toFile(previewPath);
+    } else if (format === 'png') {
+      await sharpInstance.png({ quality, compressionLevel: 9 }).toFile(previewPath);
+    } else {
+      await sharpInstance.webp({ quality, effort }).toFile(previewPath);
+    }
+
+    return { success: true, data: previewPath };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`生成预览档失败 ${imagePath}:`, errorMessage);
+    return { success: false, error: errorMessage, missing: isMissingSourceError(errorMessage) };
+  }
+}
+
+type ImageTier = 'thumbnail' | 'preview';
+
+/**
+ * 计算某档位（缩略图 / 1600px 预览档）的缓存文件路径。
+ * 两档同用 md5(源绝对路径) 命名，但落在各自目录，扩展名取各档 format（GIF 恒为 .gif）。
+ */
+async function getTierCachePath(tier: ImageTier, imagePath: string): Promise<string> {
+  const config = getConfig();
+  const settings = tier === 'preview' ? config.thumbnails.preview : config.thumbnails;
+  const dir = tier === 'preview' ? getPreviewsPath() : getThumbnailsPath();
+
+  await fs.mkdir(dir, { recursive: true });
 
   const hash = crypto.createHash('md5').update(imagePath).digest('hex');
   const ext = path.extname(imagePath).toLowerCase();
-  const thumbnailExt = ext === '.gif' ? '.gif' : `.${config.thumbnails.format}`;
-  return path.join(thumbnailsDir, `${hash}${thumbnailExt}`);
+  const cacheExt = ext === '.gif' ? '.gif' : `.${settings.format}`;
+  return path.join(dir, `${hash}${cacheExt}`);
+}
+
+async function getThumbnailPath(imagePath: string): Promise<string> {
+  return getTierCachePath('thumbnail', imagePath);
 }
 
 async function thumbnailExists(thumbnailPath: string): Promise<boolean> {
@@ -297,7 +369,13 @@ export async function generateThumbnail(
     return { success: true, data: thumbnailPath };
   }
 
-  return await thumbnailQueue.enqueue(imagePath, { priority: 'foreground', notify: true });
+  return await thumbnailQueue.enqueue({
+    key: `thumbnail:${imagePath}`,
+    imagePath,
+    run: () => generateThumbnailInternal(imagePath, false),
+    priority: 'foreground',
+    notify: true,
+  });
 }
 
 export async function requestThumbnailGeneration(
@@ -308,7 +386,13 @@ export async function requestThumbnailGeneration(
     return { success: true, data: thumbnailPath };
   }
 
-  thumbnailQueue.enqueue(imagePath, { priority: 'foreground', notify: true }).catch((error) => {
+  thumbnailQueue.enqueue({
+    key: `thumbnail:${imagePath}`,
+    imagePath,
+    run: () => generateThumbnailInternal(imagePath, false),
+    priority: 'foreground',
+    notify: true,
+  }).catch((error) => {
     console.warn(`[ThumbnailQueue] foreground thumbnail failed: ${imagePath}`, error);
   });
 
@@ -316,7 +400,13 @@ export async function requestThumbnailGeneration(
 }
 
 export function enqueueThumbnailGeneration(imagePath: string): void {
-  thumbnailQueue.enqueue(imagePath, { priority: 'background', notify: false }).catch((error) => {
+  thumbnailQueue.enqueue({
+    key: `thumbnail:${imagePath}`,
+    imagePath,
+    run: () => generateThumbnailInternal(imagePath, false),
+    priority: 'background',
+    notify: false,
+  }).catch((error) => {
     console.warn(`[ThumbnailQueue] background thumbnail failed: ${imagePath}`, error);
   });
 }
@@ -346,6 +436,67 @@ export async function deleteThumbnail(imagePath: string): Promise<{ success: boo
   try {
     const thumbnailPath = await getThumbnailPath(imagePath);
     await fs.unlink(thumbnailPath);
+    return { success: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { success: true };
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 生成 1600px 预览档（移动端全屏大图，spec §5.1）。
+ * GIF 不转码，直接返回源文件路径。结构镜像 generateThumbnail：force 直跑不进队列；
+ * 缓存命中短路；否则入队（foreground 阻塞等待、notify:false 不污染渲染层缩略图缓存）。
+ */
+export async function generatePreview(imagePath: string, force: boolean = false): Promise<ThumbnailResult> {
+  if (path.extname(imagePath).toLowerCase() === '.gif') {
+    return { success: true, data: imagePath };
+  }
+
+  if (force) {
+    return generatePreviewInternal(imagePath, true);
+  }
+
+  const cached = await getPreviewIfExists(imagePath);
+  if (cached) {
+    return { success: true, data: cached };
+  }
+
+  return thumbnailQueue.enqueue({
+    key: `preview:${imagePath}`,
+    imagePath,
+    run: () => generatePreviewInternal(imagePath, false),
+    priority: 'foreground',   // HTTP 请求阻塞等待
+    notify: false,            // 预览档不发 thumbnail:generated（避免污染渲染层缩略图缓存）
+  });
+}
+
+/**
+ * 返回已存在的预览档路径；不存在返回 null。GIF 直接回源文件路径（无预览档产物）。
+ */
+export async function getPreviewIfExists(imagePath: string): Promise<string | null> {
+  if (path.extname(imagePath).toLowerCase() === '.gif') {
+    return imagePath;
+  }
+  try {
+    const previewPath = await getTierCachePath('preview', imagePath);
+    return (await thumbnailExists(previewPath)) ? previewPath : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 删除某图片的预览档文件（ENOENT 容忍）。结构镜像 deleteThumbnail。
+ * GIF 无预览档产物，previews 目录里恒无对应文件，unlink 命中 ENOENT 视为成功。
+ */
+export async function deletePreview(imagePath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const previewPath = await getTierCachePath('preview', imagePath);
+    await fs.unlink(previewPath);
     return { success: true };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
@@ -391,37 +542,48 @@ export async function cleanupOrphanThumbnails(): Promise<{
       }
     }
 
-    const thumbnailsDir = getThumbnailsPath();
-    let entries: string[] = [];
-    try {
-      entries = await fs.readdir(thumbnailsDir);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
-        return { success: true, data: { scanned: 0, deleted: 0, freedBytes: 0 } };
-      }
-      throw err;
-    }
-
-    let scanned = 0;
-    let deleted = 0;
-    let freedBytes = 0;
-    for (const name of entries) {
-      const match = /^([0-9a-f]{32})\.[a-z0-9]+$/i.exec(name);
-      if (!match) continue;
-      scanned++;
-      if (validHashes.has(match[1].toLowerCase())) continue;
-      const fullPath = path.join(thumbnailsDir, name);
+    // 单目录清扫：thumbnails 与 previews 复用同一 validHashes 集合（两档同用 md5(源路径) 命名）。
+    // 语义决策（写死）：invalid_images 引用的 hash 段命中的 preview 文件同样被保留——
+    // 无害（图片修复回库后 preview 直接复用）、零额外集合，与缩略图目录的保护语义对称。
+    const scanDir = async (dir: string): Promise<{ scanned: number; deleted: number; freedBytes: number }> => {
+      let entries: string[] = [];
       try {
-        const stat = await fs.stat(fullPath);
-        if (!stat.isFile()) continue;
-        await fs.unlink(fullPath);
-        deleted++;
-        freedBytes += stat.size;
+        entries = await fs.readdir(dir);
       } catch (err) {
-        // 单个文件删除失败（占用/权限）不中断整体清理
-        console.warn(`[thumbnailService] 清理孤儿缩略图失败: ${name}`, err instanceof Error ? err.message : err);
+        if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+          return { scanned: 0, deleted: 0, freedBytes: 0 };
+        }
+        throw err;
       }
-    }
+
+      let scanned = 0;
+      let deleted = 0;
+      let freedBytes = 0;
+      for (const name of entries) {
+        const match = /^([0-9a-f]{32})\.[a-z0-9]+$/i.exec(name);
+        if (!match) continue;
+        scanned++;
+        if (validHashes.has(match[1].toLowerCase())) continue;
+        const fullPath = path.join(dir, name);
+        try {
+          const stat = await fs.stat(fullPath);
+          if (!stat.isFile()) continue;
+          await fs.unlink(fullPath);
+          deleted++;
+          freedBytes += stat.size;
+        } catch (err) {
+          // 单个文件删除失败（占用/权限）不中断整体清理
+          console.warn(`[thumbnailService] 清理孤儿缩略图失败: ${name}`, err instanceof Error ? err.message : err);
+        }
+      }
+      return { scanned, deleted, freedBytes };
+    };
+
+    const thumbResult = await scanDir(getThumbnailsPath());
+    const previewResult = await scanDir(getPreviewsPath());
+    const scanned = thumbResult.scanned + previewResult.scanned;
+    const deleted = thumbResult.deleted + previewResult.deleted;
+    const freedBytes = thumbResult.freedBytes + previewResult.freedBytes;
 
     console.log(`[thumbnailService] 孤儿缩略图清理完成: scanned=${scanned}, deleted=${deleted}, freed=${freedBytes}B`);
     return { success: true, data: { scanned, deleted, freedBytes } };

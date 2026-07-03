@@ -14,15 +14,20 @@ import crypto from 'crypto';
 
 const h = vi.hoisted(() => ({
   tmpDir: '',
+  previewsDir: '',
   imageRows: [] as Array<{ filepath: string }>,
   invalidRows: [] as Array<{ thumbnailPath: string | null }>,
 }));
 
 vi.mock('../../../src/main/services/config.js', () => ({
   getConfig: vi.fn(() => ({
-    thumbnails: { maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+    thumbnails: {
+      maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3,
+      preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 },
+    },
   })),
   getThumbnailsPath: vi.fn(() => h.tmpDir),
+  getPreviewsPath: vi.fn(() => h.previewsDir),
 }));
 
 vi.mock('../../../src/main/services/database.js', () => ({
@@ -42,12 +47,14 @@ function md5(s: string): string {
 
 beforeEach(async () => {
   h.tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'thumb-cleanup-'));
+  h.previewsDir = await fs.mkdtemp(path.join(os.tmpdir(), 'preview-cleanup-'));
   h.imageRows = [];
   h.invalidRows = [];
 });
 
 afterEach(async () => {
   await fs.rm(h.tmpDir, { recursive: true, force: true });
+  await fs.rm(h.previewsDir, { recursive: true, force: true });
 });
 
 describe('cleanupOrphanThumbnails', () => {
@@ -89,5 +96,44 @@ describe('cleanupOrphanThumbnails', () => {
     const missing = await cleanupOrphanThumbnails();
     expect(missing.success).toBe(true);
     expect(missing.data).toEqual({ scanned: 0, deleted: 0, freedBytes: 0 });
+  });
+});
+
+describe('cleanupOrphanThumbnails 双档（previews 目录联动）', () => {
+  it('previews 目录：孤儿预览档被删、命中 images.filepath 的保留，两目录计数聚合', async () => {
+    const keepHash = md5('M:/lib/keep.jpg');
+    const orphanHash = md5('M:/lib/gone.jpg');
+
+    // thumbnails 目录：1 保留 + 1 孤儿（2 bytes）
+    await fs.writeFile(path.join(h.tmpDir, `${keepHash}.webp`), 'k');
+    await fs.writeFile(path.join(h.tmpDir, `${orphanHash}.webp`), 'oo');
+    // previews 目录：1 保留 + 1 孤儿（3 bytes）——复用同一 validHashes 集合
+    await fs.writeFile(path.join(h.previewsDir, `${keepHash}.webp`), 'k');
+    await fs.writeFile(path.join(h.previewsDir, `${orphanHash}.webp`), 'ooo');
+
+    h.imageRows = [{ filepath: 'M:/lib/keep.jpg' }];
+
+    const result = await cleanupOrphanThumbnails();
+
+    expect(result.success).toBe(true);
+    // scanned=2+2；deleted=1+1；freed=2+3——两目录聚合累加
+    expect(result.data).toEqual({ scanned: 4, deleted: 2, freedBytes: 5 });
+
+    expect((await fs.readdir(h.tmpDir)).sort()).toEqual([`${keepHash}.webp`]);
+    expect((await fs.readdir(h.previewsDir)).sort()).toEqual([`${keepHash}.webp`]);
+  });
+
+  it('命中 invalid_images.thumbnailPath hash 段的预览档同样被保留（Step 4f 写死语义）', async () => {
+    const invalidHash = md5('M:/lib/invalid.jpg');
+    // previews 目录里以无效项 hash 命名的预览档（images 表为空——不复用保护集则会被误删）
+    await fs.writeFile(path.join(h.previewsDir, `${invalidHash}.webp`), 'i');
+    h.invalidRows = [{ thumbnailPath: path.join(h.tmpDir, `${invalidHash}.webp`) }];
+
+    const result = await cleanupOrphanThumbnails();
+
+    expect(result.success).toBe(true);
+    // thumbnails 空目录 scanned=0；previews 那 1 个被扫描但保留
+    expect(result.data).toEqual({ scanned: 1, deleted: 0, freedBytes: 0 });
+    expect(await fs.readdir(h.previewsDir)).toEqual([`${invalidHash}.webp`]);
   });
 });

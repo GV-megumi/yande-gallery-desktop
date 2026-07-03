@@ -41,6 +41,8 @@ const defaultApiServiceConfig = {
     imageBinary: false,
     booruRead: true,
     booruWrite: false,
+    imageWrite: false,
+    galleryWrite: false,
     favoriteTagsRead: true,
     favoriteTagsWrite: false,
     downloadsRead: true,

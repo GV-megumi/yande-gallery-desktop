@@ -27,6 +27,20 @@ vi.mock('electron', () => ({
   ipcMain: { handle: mocks.handle },
 }));
 
+vi.mock('os', () => ({
+  default: {
+    hostname: vi.fn(() => 'test-host'),
+    networkInterfaces: vi.fn(() => ({
+      lo: [{ family: 'IPv4', internal: true, address: '127.0.0.1' }],
+      eth0: [
+        { family: 'IPv4', internal: false, address: '192.168.1.10' },
+        { family: 'IPv6', internal: false, address: 'fe80::1' },
+      ],
+      wlan0: [{ family: 'IPv4', internal: false, address: '10.0.0.5' }],
+    })),
+  },
+}));
+
 vi.mock('../../../src/main/api/apiServiceManager.js', () => ({
   getApiServiceStatus: mocks.getApiServiceStatus,
   syncApiServiceFromConfig: mocks.syncApiServiceFromConfig,
@@ -91,6 +105,7 @@ describe('api service IPC handlers', () => {
       IPC_CHANNELS.API_SERVICE_GET_STATUS,
       IPC_CHANNELS.API_SERVICE_GENERATE_KEY,
       IPC_CHANNELS.API_SERVICE_GET_LOGS,
+      IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO,
     ]));
   });
 
@@ -234,5 +249,21 @@ describe('api service IPC handlers', () => {
     });
 
     expect(mocks.queryApiLogs).toHaveBeenCalledWith(query);
+  });
+
+  it('API_SERVICE_GET_PAIRING_INFO 返回主机名、端口、key 与 IPv4 非环回地址', async () => {
+    const { IPC_CHANNELS, handlers } = await registerHandlers();
+
+    await expect(handlers.get(IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO)?.({})).resolves.toEqual({
+      success: true,
+      data: {
+        name: 'test-host',
+        port: 38947,
+        mode: 'localhost',
+        running: false,
+        apiKey: expect.any(String),
+        lanAddresses: ['192.168.1.10', '10.0.0.5'],
+      },
+    });
   });
 });

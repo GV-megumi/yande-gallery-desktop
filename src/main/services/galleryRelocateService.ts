@@ -46,6 +46,7 @@ import { normalizePath } from '../utils/path.js';
 import { loadGalleryRoots } from './galleryRootRegistry.js';
 import { getAllGalleryFolderPaths } from './galleryService.js';
 import { emitGalleryPathsRelocated } from './appEventPublisher.js';
+import { bumpSyncDataVersion } from './config.js';
 
 /** 单条前缀映射：把 oldPrefix 开头的存储路径改写为 newPrefix 开头。 */
 export interface RelocateMapping {
@@ -459,6 +460,9 @@ export async function applyRelocateRoot(
     const totalCount = scans.reduce((sum, s) => sum + s.matched.length, 0);
     if (totalCount > 0) {
       console.log(`[galleryRelocateService] applyRelocateRoot: 改写 ${totalCount} 行，广播 gallery:paths-relocated`);
+      // 根目录迁移不触碰 updatedAt（见上方注释），由 dataVersion 代际让移动端全量重建镜像（spec §5.3）。
+      // 0 行改写的幂等重跑不进本守卫、不 bump。
+      await bumpSyncDataVersion();
       emitGalleryPathsRelocated({ affected, totalCount });
     }
     return { success: true, data: { affected } };

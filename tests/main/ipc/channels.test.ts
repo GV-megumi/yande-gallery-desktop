@@ -164,6 +164,7 @@ describe('IPC_CHANNELS', () => {
     expect(IPC_CHANNELS.API_SERVICE_GET_STATUS).toBe('api-service:get-status');
     expect(IPC_CHANNELS.API_SERVICE_GENERATE_KEY).toBe('api-service:generate-key');
     expect(IPC_CHANNELS.API_SERVICE_GET_LOGS).toBe('api-service:get-logs');
+    expect(IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO).toBe('api-service:get-pairing-info');
     expect(IPC_CHANNELS.API_SERVICE_STATUS_CHANGED).toBe('api-service:status-changed');
     expect(IPC_CHANNELS.API_SERVICE_LOG_RECEIVED).toBe('api-service:log-received');
   });
@@ -192,7 +193,8 @@ describe('IPC_CHANNELS', () => {
     //   DB_ADD_IMAGE、IMAGE_SCAN_FOLDER、GALLERY_SCAN_AND_IMPORT_FOLDER（204→201）
     // 丢失文件夹横幅批量迁移新增 1：GALLERY_MIGRATE_MISSING_FOLDER_IMAGES（201→202）
     // 孤儿缩略图清理维护动作新增 1：IMAGE_CLEANUP_ORPHAN_THUMBNAILS（202→203）
-    expect(keys.length).toBe(203);
+    // M1-T13 移动端扫码配对新增 1：API_SERVICE_GET_PAIRING_INFO（203→204）
+    expect(keys.length).toBe(204);
   });
 
   it('Phase 6B：应包含扫描入库 plan/apply 通道', () => {

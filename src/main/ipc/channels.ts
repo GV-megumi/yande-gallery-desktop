@@ -67,6 +67,7 @@ export const IPC_CHANNELS = {
   API_SERVICE_GET_STATUS: 'api-service:get-status',
   API_SERVICE_GENERATE_KEY: 'api-service:generate-key',
   API_SERVICE_GET_LOGS: 'api-service:get-logs',
+  API_SERVICE_GET_PAIRING_INFO: 'api-service:get-pairing-info',
   API_SERVICE_STATUS_CHANGED: 'api-service:status-changed',
   API_SERVICE_LOG_RECEIVED: 'api-service:log-received',
   BOORU_PREFERENCES_GET_APPEARANCE: 'booru-preferences:get-appearance',
