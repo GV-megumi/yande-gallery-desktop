@@ -17,6 +17,10 @@ const documentedEndpoints = [
   ['GET', '/api/v1/images/:imageId/thumbnail'],
   ['GET', '/api/v1/images/:imageId/preview'],
   ['GET', '/api/v1/images/:imageId/file'],
+  ['DELETE', '/api/v1/images/:imageId'],
+  ['POST', '/api/v1/images/batch-delete'],
+  ['POST', '/api/v1/images/:imageId/tags'],
+  ['DELETE', '/api/v1/images/:imageId/tags'],
   ['GET', '/api/v1/booru-sites'],
   ['GET', '/api/v1/booru-sites/active'],
   ['GET', '/api/v1/booru-posts/search'],
@@ -57,6 +61,7 @@ describe('API endpoint coverage', () => {
   it('assembles all documented Phase 1 routes', async () => {
     const { createServiceRoutes } = await import('../../../src/main/api/routes/serviceRoutes.js');
     const { createGalleryRoutes } = await import('../../../src/main/api/routes/galleryRoutes.js');
+    const { createGalleryWriteRoutes } = await import('../../../src/main/api/routes/galleryWriteRoutes.js');
     const { createBooruRoutes } = await import('../../../src/main/api/routes/booruRoutes.js');
     const { createApiLogRoutes } = await import('../../../src/main/api/routes/apiLogRoutes.js');
     const { createEventRoutes } = await import('../../../src/main/api/routes/eventRoutes.js');
@@ -65,6 +70,7 @@ describe('API endpoint coverage', () => {
     const routes = [
       ...createServiceRoutes({ getStatus: () => ({}) as any }),
       ...createGalleryRoutes(),
+      ...createGalleryWriteRoutes(),
       ...createBooruRoutes(),
       ...createApiLogRoutes(),
       ...createEventRoutes({ subscribe: () => undefined } as any),

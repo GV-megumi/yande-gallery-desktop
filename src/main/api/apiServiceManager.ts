@@ -7,6 +7,7 @@ import { createApiLogRoutes } from './routes/apiLogRoutes.js';
 import { createBooruRoutes } from './routes/booruRoutes.js';
 import { createEventRoutes } from './routes/eventRoutes.js';
 import { createGalleryRoutes } from './routes/galleryRoutes.js';
+import { createGalleryWriteRoutes } from './routes/galleryWriteRoutes.js';
 import { createServiceRoutes } from './routes/serviceRoutes.js';
 import { createSyncRoutes } from './routes/syncRoutes.js';
 import { generateApiKey } from './security.js';
@@ -47,6 +48,7 @@ function createRoutes() {
   return [
     ...createServiceRoutes({ getStatus: getApiServiceStatus }),
     ...createGalleryRoutes(),
+    ...createGalleryWriteRoutes(),
     ...createBooruRoutes(),
     ...createApiLogRoutes(),
     ...createEventRoutes(apiEventHub),
