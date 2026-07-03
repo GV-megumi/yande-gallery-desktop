@@ -1,0 +1,4 @@
+# Gradle wrapper：批处理文件保持 CRLF 且不参与空白检查
+*.bat        text eol=crlf -whitespace
+gradlew      text eol=lf
+gradle-wrapper.jar binary

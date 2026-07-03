@@ -4,10 +4,36 @@ import androidx.paging.PagingSource
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
+/**
+ * 相册卡片投影：图集字段 + 相关子查询一次性算出的兜底封面 id。
+ * 用于替代 ViewModel 里“逐个 coverImageId==null 的图集单查 coverFallback”的 N+1（spec §7.2）。
+ */
+data class AlbumCardRow(
+    val id: Long,
+    val name: String,
+    val coverImageId: Long?,
+    val imageCount: Int,
+    val fallbackCoverId: Long?,
+)
+
 @Dao
 interface GalleryDao {
     @Query("SELECT * FROM galleries ORDER BY name")
     fun observeAll(): Flow<List<GalleryEntity>>
+
+    /**
+     * 相册卡片单查询：每个图集带一个相关子查询算出的兜底封面 id（图集内最新一张），
+     * 避免 ViewModel 逐项回查 coverFallback 形成 N+1。排序与 observeAll 一致（按 name）。
+     */
+    @Query(
+        """SELECT g.id, g.name, g.coverImageId, g.imageCount,
+             (SELECT i.id FROM images i
+                JOIN gallery_images gi ON gi.imageId = i.id
+                WHERE gi.galleryId = g.id
+                ORDER BY i.createdAt DESC, i.id DESC LIMIT 1) AS fallbackCoverId
+           FROM galleries g ORDER BY g.name"""
+    )
+    fun observeAlbumCards(): Flow<List<AlbumCardRow>>
 
     @Query("SELECT * FROM galleries WHERE id = :id")
     suspend fun byId(id: Long): GalleryEntity?
