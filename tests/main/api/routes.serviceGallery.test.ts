@@ -40,6 +40,12 @@ vi.mock('fs', () => ({
   createReadStream: vi.fn(),
 }));
 
+vi.mock('fs/promises', () => ({
+  default: {
+    stat: vi.fn(async () => ({ size: 16, mtimeMs: 1000, isFile: () => true })),
+  },
+}));
+
 vi.mock('stream/promises', () => ({
   pipeline: vi.fn(),
 }));
@@ -69,9 +75,10 @@ function context(options: {
   res?: Partial<ApiRequestContext['res']>;
 } = {}): ApiRequestContext {
   return {
-    req: {} as ApiRequestContext['req'],
+    req: { headers: {} } as unknown as ApiRequestContext['req'],
     res: {
       setHeader: vi.fn(),
+      removeHeader: vi.fn(),
       ...options.res,
     } as ApiRequestContext['res'],
     method: 'GET',
@@ -294,13 +301,18 @@ describe('gallery and image API routes', () => {
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
     const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
-    await expect(route.handler(context({ params: { imageId: '66' }, res }))).resolves.toBeUndefined();
+    const ctx = context({ params: { imageId: '66' }, res });
+    await expect(route.handler(ctx)).resolves.toBeUndefined();
 
     expect(mockGetImageById).toHaveBeenCalledWith(66);
     expect(mockGenerateThumbnail).toHaveBeenCalledWith('M:/gallery/cats/source.jpg');
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+    expect(res.setHeader).toHaveBeenCalledWith('ETag', 'W/"16-1000"');
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=604800');
+    expect(res.setHeader).toHaveBeenCalledWith('Accept-Ranges', 'bytes');
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Length', 16);
     expect(mockCreateReadStream).toHaveBeenCalledWith('M:/thumbs/source.webp');
-    expect(mockPipeline).toHaveBeenCalledWith(stream, res);
+    expect(mockPipeline).toHaveBeenCalledWith(stream, ctx.res);
   });
 
   it('sets thumbnail content type from the generated thumbnail extension', async () => {
@@ -311,10 +323,11 @@ describe('gallery and image API routes', () => {
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
     const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
-    await expect(route.handler(context({ params: { imageId: '67' }, res }))).resolves.toBeUndefined();
+    const ctx = context({ params: { imageId: '67' }, res });
+    await expect(route.handler(ctx)).resolves.toBeUndefined();
 
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/gif');
-    expect(mockPipeline).toHaveBeenCalledWith(stream, res);
+    expect(mockPipeline).toHaveBeenCalledWith(stream, ctx.res);
   });
 
   it('sets jpeg content type for jpg thumbnails', async () => {
@@ -330,20 +343,21 @@ describe('gallery and image API routes', () => {
     expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
   });
 
-  it('streams original image files', async () => {
-    const expectedImage = image({ id: 77, filepath: 'M:/gallery/cats/original.png' });
+  it('streams original image files with an extension-based content type', async () => {
+    const expectedImage = image({ id: 77, filepath: 'M:/gallery/cats/original.jpg' });
     const stream = {};
     mockGetImageById.mockResolvedValue({ success: true, data: expectedImage });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
     const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
 
-    await expect(route.handler(context({ params: { imageId: '77' }, res }))).resolves.toBeUndefined();
+    const ctx = context({ params: { imageId: '77' }, res });
+    await expect(route.handler(ctx)).resolves.toBeUndefined();
 
     expect(mockGetImageById).toHaveBeenCalledWith(77);
-    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/octet-stream');
-    expect(mockCreateReadStream).toHaveBeenCalledWith('M:/gallery/cats/original.png');
-    expect(mockPipeline).toHaveBeenCalledWith(stream, res);
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
+    expect(mockCreateReadStream).toHaveBeenCalledWith('M:/gallery/cats/original.jpg');
+    expect(mockPipeline).toHaveBeenCalledWith(stream, ctx.res);
   });
 
   it('waits for file streams to finish before resolving', async () => {
