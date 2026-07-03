@@ -15,13 +15,14 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 
 class PhotosViewModel(private val graph: AppGraph) : ViewModel() {
 
@@ -35,6 +36,12 @@ class PhotosViewModel(private val graph: AppGraph) : ViewModel() {
 
     /** 首同步/增量进度直通同步引擎（Task 7）。 */
     val syncPhase: StateFlow<SyncPhase> = graph.syncEngine.progress
+
+    /** 连接状态：驱动顶部横幅（offline/unauthorized）。 */
+    val connState: StateFlow<ConnState> = graph.connectionMonitor.state
+
+    /** 全量重建提示：dataVersion/serverId 变化时发一次，PhotosScreen 弹 Snackbar。 */
+    val rebuildNotices: SharedFlow<Unit> = graph.syncScheduler.rebuildNotices
 
     /**
      * 时间轴分页流：Pager → map 成 Photo → 按本地时区日界 insertSeparators 插 Header → cachedIn。
@@ -55,9 +62,9 @@ class PhotosViewModel(private val graph: AppGraph) : ViewModel() {
             }
             .cachedIn(viewModelScope)
 
-    /** 手动下拉刷新：直接触发一次全量同步（Task 12 前的临时实现，届时改走 SyncScheduler）。 */
+    /** 手动下拉刷新：走调度器合并请求（与前台/SSE/二进制404 互斥，失败静默上报横幅）。 */
     fun refresh() {
-        viewModelScope.launch { runCatching { graph.syncEngine.sync() } }
+        graph.syncScheduler.requestSync("pull-refresh")
     }
 
     companion object {

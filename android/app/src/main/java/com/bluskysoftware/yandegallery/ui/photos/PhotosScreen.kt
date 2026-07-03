@@ -14,10 +14,14 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -32,6 +36,7 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
+import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 
 /**
  * 下拉刷新转圈的时机：增量/对账阶段（这两者无数字进度）。
@@ -48,7 +53,16 @@ fun PhotosScreen(
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val syncPhase by viewModel.syncPhase.collectAsStateWithLifecycle()
+    val connState by viewModel.connState.collectAsStateWithLifecycle()
     val items = viewModel.pagingFlow.collectAsLazyPagingItems()
+
+    // dataVersion/serverId 变化触发的全量重建 → Snackbar 提示（spec §8）
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) {
+        viewModel.rebuildNotices.collect {
+            snackbarHostState.showSnackbar("服务器数据已变化，已全量重建本地镜像")
+        }
+    }
 
     // 无激活服务器：不进网格分支，直接渲染引导态。
     val server = activeServer
@@ -59,32 +73,39 @@ fun PhotosScreen(
 
     val baseUrl = server.baseUrl
     val loader = viewModel.thumbnailLoader
-    PullToRefreshBox(
-        isRefreshing = syncPhase.showsRefreshSpinner(),
-        onRefresh = viewModel::refresh,
-        modifier = Modifier.fillMaxSize(),
-    ) {
+    Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            (syncPhase as? SyncPhase.FullSync)?.let { phase ->
-                val fraction = if (phase.total > 0) phase.done.toFloat() / phase.total else 0f
-                LinearProgressIndicator(
-                    progress = { fraction },
-                    modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
-                )
-            }
-            PhotosGrid(
-                items = items,
-                photoCell = { photo ->
-                    AsyncImage(
-                        model = thumbnailRequest(LocalContext.current, baseUrl, photo.image.id),
-                        imageLoader = loader,
-                        contentDescription = photo.image.filename,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.aspectRatio(1f).padding(1.dp),
+            // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
+            ConnectionBanner(state = connState, onReconnectAuth = onAddServer)
+            PullToRefreshBox(
+                isRefreshing = syncPhase.showsRefreshSpinner(),
+                onRefresh = viewModel::refresh,
+                modifier = Modifier.fillMaxSize(),
+            ) {
+                Column(Modifier.fillMaxSize()) {
+                    (syncPhase as? SyncPhase.FullSync)?.let { phase ->
+                        val fraction = if (phase.total > 0) phase.done.toFloat() / phase.total else 0f
+                        LinearProgressIndicator(
+                            progress = { fraction },
+                            modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
+                        )
+                    }
+                    PhotosGrid(
+                        items = items,
+                        photoCell = { photo ->
+                            AsyncImage(
+                                model = thumbnailRequest(LocalContext.current, baseUrl, photo.image.id),
+                                imageLoader = loader,
+                                contentDescription = photo.image.filename,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.aspectRatio(1f).padding(1.dp),
+                            )
+                        },
                     )
-                },
-            )
+                }
+            }
         }
+        SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
     }
 }
 

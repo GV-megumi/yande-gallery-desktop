@@ -8,12 +8,17 @@ import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
+import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
+import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
+import com.bluskysoftware.yandegallery.domain.sync.SyncScheduler
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import java.util.concurrent.TimeUnit
 
 /** 手写组合根：单例依赖都挂在这里（v1 单模块，不引 Hilt）。 */
 class AppGraph(
@@ -42,6 +47,8 @@ class AppGraph(
         // 启动即跟踪激活服务器：冷启动时 Coil 的首个缩略图请求也要带上 Bearer，
         // 不能等到第一次 api() 调用才填 snapshot
         scope.launch { serverRepository.observeActive().collect { activeSnapshot = it } }
+        // 二进制 404 → 触发一次对账（spec §6.3-4；钩子在 Task 3 拦截器里，此处接到调度器）
+        onBinaryNotFound = { syncScheduler.requestSync("binary-404") }
     }
 
     val okHttp by lazy {
@@ -74,6 +81,43 @@ class AppGraph(
             api = RetrofitSyncApi { api() },
             store = mirrorStore,
             now = { java.time.Instant.now().toString() },
+        )
+    }
+
+    /** 连接监视器：激活服务器名喂给横幅；同步成功/失败经 scheduler 汇入。 */
+    val connectionMonitor by lazy {
+        ConnectionMonitor(
+            activeServerName = serverRepository.observeActive().map { it?.name },
+            scope = scope,
+        )
+    }
+
+    /** 同步调度器：前台/下拉/SSE/二进制404 请求合并串行，注入 sync 函数（final class 不可 fake）。 */
+    val syncScheduler by lazy {
+        SyncScheduler(
+            syncRun = syncEngine::sync,
+            monitor = connectionMonitor,
+            scope = scope,
+            hadMirrorBefore = { mirrorStore.readSyncState() != null },
+        )
+    }
+
+    // SSE 专用客户端：readTimeout=0，避免桌面无心跳空闲流被 30s 超时误杀成断连循环。
+    private val sseHttpClient by lazy {
+        okHttp.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
+    }
+
+    /** 事件订阅：/api/v1/events/system 有 gallery 事件 → 触发一次对账。 */
+    val sseClient by lazy {
+        SseClient(
+            client = sseHttpClient,
+            urlProvider = {
+                activeSnapshot?.baseUrl?.let { base ->
+                    "${base.trimEnd('/')}/api/v1/events/system"
+                }
+            },
+            onGalleryEvent = { syncScheduler.requestSync("sse") },
+            scope = scope,
         )
     }
 }
