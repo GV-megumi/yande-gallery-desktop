@@ -8,6 +8,7 @@ import { createBooruRoutes } from './routes/booruRoutes.js';
 import { createEventRoutes } from './routes/eventRoutes.js';
 import { createGalleryRoutes } from './routes/galleryRoutes.js';
 import { createServiceRoutes } from './routes/serviceRoutes.js';
+import { createSyncRoutes } from './routes/syncRoutes.js';
 import { generateApiKey } from './security.js';
 import { createApiHttpServer } from './server.js';
 import { emitApiServiceStatusChanged } from '../services/appEventPublisher.js';
@@ -49,6 +50,7 @@ function createRoutes() {
     ...createBooruRoutes(),
     ...createApiLogRoutes(),
     ...createEventRoutes(apiEventHub),
+    ...createSyncRoutes(),
   ];
 }
 

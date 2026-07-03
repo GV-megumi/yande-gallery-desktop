@@ -46,6 +46,11 @@ const documentedEndpoints = [
   ['POST', '/api/v1/downloads/sessions/:sessionId/cancel'],
   ['GET', '/api/v1/api-logs'],
   ['GET', '/api/v1/events/:channel'],
+  ['GET', '/api/v1/sync/meta'],
+  ['GET', '/api/v1/sync/images'],
+  ['GET', '/api/v1/sync/galleries'],
+  ['GET', '/api/v1/sync/tags'],
+  ['GET', '/api/v1/sync/image-ids'],
 ];
 
 describe('API endpoint coverage', () => {
@@ -55,6 +60,7 @@ describe('API endpoint coverage', () => {
     const { createBooruRoutes } = await import('../../../src/main/api/routes/booruRoutes.js');
     const { createApiLogRoutes } = await import('../../../src/main/api/routes/apiLogRoutes.js');
     const { createEventRoutes } = await import('../../../src/main/api/routes/eventRoutes.js');
+    const { createSyncRoutes } = await import('../../../src/main/api/routes/syncRoutes.js');
 
     const routes = [
       ...createServiceRoutes({ getStatus: () => ({}) as any }),
@@ -62,6 +68,7 @@ describe('API endpoint coverage', () => {
       ...createBooruRoutes(),
       ...createApiLogRoutes(),
       ...createEventRoutes({ subscribe: () => undefined } as any),
+      ...createSyncRoutes(),
     ];
     const actual = routes.map((route) => [route.method, route.pattern]);
 

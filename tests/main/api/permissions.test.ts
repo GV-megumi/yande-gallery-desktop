@@ -44,6 +44,11 @@ describe('api permission mapping', () => {
     ['GET', '/api/v1/events/api-logs', 'eventsSubscribe'],
     ['GET', '/api/v1/events/system', 'eventsSubscribe'],
     ['GET', '/api/v1/api-logs', 'apiLogsRead'],
+    ['GET', '/api/v1/sync/meta', 'galleryRead'],
+    ['GET', '/api/v1/sync/images', 'galleryRead'],
+    ['GET', '/api/v1/sync/galleries', 'galleryRead'],
+    ['GET', '/api/v1/sync/tags', 'galleryRead'],
+    ['GET', '/api/v1/sync/image-ids', 'galleryRead'],
   ] as const)('maps %s %s to %s', (method, pathname, permission) => {
     expect(resolvePermissionForRequest(method, pathname)).toBe(permission);
   });

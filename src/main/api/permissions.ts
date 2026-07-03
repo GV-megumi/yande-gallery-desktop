@@ -38,6 +38,8 @@ const apiPermissionRules: ApiPermissionRule[] = [
 
   { method: 'GET', path: new RegExp(`^/api/v1/events/(?:${eventChannelPattern})/?$`), permissionKey: 'eventsSubscribe' },
   { method: 'GET', path: /^\/api\/v1\/api-logs\/?$/, permissionKey: 'apiLogsRead' },
+
+  { method: 'GET', path: /^\/api\/v1\/sync\/(?:meta|images|galleries|tags|image-ids)\/?$/, permissionKey: 'galleryRead' },
 ];
 
 export function resolvePermissionForRequest(
