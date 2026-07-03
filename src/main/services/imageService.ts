@@ -405,6 +405,83 @@ export async function updateImageTags(imageId: number, tags: string[]): Promise<
 }
 
 /**
+ * 追加标签（移动端写接口用，spec §5.4）。不存在的标签自动创建；
+ * updatedAt 由 image_tags 触发器触碰，无需手动 UPDATE。
+ */
+export async function addImageTags(
+  imageId: number,
+  tagNames: string[],
+): Promise<{ success: boolean; error?: string; missing?: boolean }> {
+  try {
+    const db = await getDatabase();
+    const row = await get<{ id: number }>(db, 'SELECT id FROM images WHERE id = ?', [imageId]);
+    if (!row) {
+      return { success: false, missing: true, error: 'Image not found' };
+    }
+
+    const names = tagNames.map((name) => name.trim()).filter(Boolean);
+    if (names.length > 0) {
+      // addTagsToImage 自带事务，不得再包 runInTransaction
+      await addTagsToImage(imageId, names);
+    }
+
+    emitGalleryImagesChanged({
+      action: 'tagsUpdated',
+      imageId,
+      affectedImageIds: [imageId],
+      affectedCount: 1,
+    });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error adding image tags:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 移除标签（按名、大小写不敏感）。只删关联不删 tags 行。
+ */
+export async function removeImageTags(
+  imageId: number,
+  tagNames: string[],
+): Promise<{ success: boolean; error?: string; missing?: boolean }> {
+  try {
+    const db = await getDatabase();
+    const row = await get<{ id: number }>(db, 'SELECT id FROM images WHERE id = ?', [imageId]);
+    if (!row) {
+      return { success: false, missing: true, error: 'Image not found' };
+    }
+
+    const names = tagNames.map((name) => name.trim().toLowerCase()).filter(Boolean);
+    if (names.length > 0) {
+      const placeholders = names.map(() => '?').join(',');
+      await run(
+        db,
+        `DELETE FROM image_tags
+          WHERE imageId = ?
+            AND tagId IN (SELECT id FROM tags WHERE LOWER(name) IN (${placeholders}))`,
+        [imageId, ...names],
+      );
+    }
+
+    emitGalleryImagesChanged({
+      action: 'tagsUpdated',
+      imageId,
+      affectedImageIds: [imageId],
+      affectedCount: 1,
+    });
+
+    return { success: true };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error removing image tags:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
  * 添加标签到图片
  */
 async function addTagsToImage(imageId: number, tagNames: string[]): Promise<void> {
