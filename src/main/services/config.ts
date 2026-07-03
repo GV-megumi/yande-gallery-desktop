@@ -13,6 +13,7 @@ import fsSync from 'fs';
 import path from 'path';
 import os from 'os';
 import { execFileSync } from 'child_process';
+import { randomUUID } from 'crypto';
 import dotenv from 'dotenv';
 import { load as loadYaml } from 'js-yaml';
 import type { ApiServiceConfig, ApiServiceLogsConfig, ApiServicePermissions } from '../../shared/types.js';
@@ -229,6 +230,11 @@ export interface AppConfig {
     hardwareAcceleration?: boolean;
   };
   apiService?: ApiServiceConfig;
+  /** 移动端同步身份与代际（机器生成，勿手改）*/
+  sync: {
+    serverId: string;
+    dataVersion: number;
+  };
 }
 
 export type BooruAppearancePreference = NonNullable<AppConfig['booru']>['appearance'];
@@ -237,11 +243,12 @@ export type RendererSafeProxyConfig = Omit<AppConfig['network']['proxy'], 'usern
 export type RendererSafeApiServiceConfig = Omit<ApiServiceConfig, 'apiKey'> & {
   hasApiKey: boolean;
 };
-export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'apiService'> & {
+export type RendererSafeAppConfig = Omit<AppConfig, 'network' | 'apiService' | 'sync'> & {
   network: {
     proxy: RendererSafeProxyConfig;
   };
   apiService?: RendererSafeApiServiceConfig;
+  sync?: AppConfig['sync'];
 };
 
 export type DeepPartial<T> = {
@@ -338,6 +345,10 @@ const DEFAULT_CONFIG: AppConfig = {
       retentionDays: 14,
       maxEntries: 1000,
     },
+  },
+  sync: {
+    serverId: '',
+    dataVersion: 1,
   },
   booru: {
     appearance: {
@@ -1205,6 +1216,10 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       hardwareAcceleration: input.desktop?.hardwareAcceleration ?? currentConfig.desktop?.hardwareAcceleration ?? false,
     },
     apiService: normalizeApiServiceConfig(currentConfig, input.apiService),
+    sync: {
+      serverId: input.sync?.serverId ?? currentConfig.sync.serverId,
+      dataVersion: input.sync?.dataVersion ?? currentConfig.sync.dataVersion,
+    },
   };
 }
 
@@ -1314,6 +1329,35 @@ export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string
   })();
 
   return savePromise;
+}
+
+/**
+ * 懒生成并持久化同步 serverId（GET /api/v1/sync/meta 用，spec §5.3）。
+ * 首次为空时生成 UUID 并 saveConfig；持久化失败抛错。二次调用返回既有值。
+ */
+export async function ensureSyncServerId(): Promise<string> {
+  const current = getConfig().sync.serverId;
+  if (current) {
+    return current;
+  }
+  const serverId = randomUUID();
+  const result = await saveConfig({ sync: { serverId } });
+  if (!result.success) {
+    throw new Error(result.error || 'Failed to persist sync serverId');
+  }
+  return serverId;
+}
+
+/**
+ * 破坏性操作（备份恢复、根目录迁移）后递增 dataVersion，手机端发现变化即全量重建镜像。
+ * 保存失败不阻断宿主操作，仅记录错误。
+ */
+export async function bumpSyncDataVersion(): Promise<void> {
+  const next = getConfig().sync.dataVersion + 1;
+  const result = await saveConfig({ sync: { dataVersion: next } });
+  if (!result.success) {
+    console.error('[config] bump sync dataVersion 失败:', result.error);
+  }
 }
 
 // ============= 路径获取快捷方法 =============

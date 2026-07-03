@@ -163,6 +163,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => currentConfig),
       saveConfig: saveConfigMock,
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -214,6 +215,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => currentConfig),
       saveConfig: saveConfigMock,
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -263,6 +265,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => ({})),
       saveConfig: vi.fn(async () => ({ success: true })),
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -306,6 +309,7 @@ describe('restoreAppBackupData', () => {
       getConfig: vi.fn(() => ({})),
       saveConfig: vi.fn(async () => ({ success: true })),
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -376,6 +380,7 @@ describe('booru_sites backup column sanitization', () => {
       })),
       saveConfig: vi.fn(async () => ({ success: true })),
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     const allMock = vi.fn(async (_db: unknown, sql: string) => {
@@ -449,6 +454,7 @@ describe('booru_sites backup column sanitization', () => {
       getConfig: vi.fn(() => ({})),
       saveConfig: saveConfigMock,
       toRendererSafeUiConfig,
+      bumpSyncDataVersion: vi.fn(async () => undefined),
     }));
 
     vi.doMock('../../../src/main/services/database.js', () => ({
@@ -573,6 +579,7 @@ describe('backup config sanitization', () => {
           password: 'kept-pass',
         },
       },
+      sync: { serverId: '', dataVersion: 1 },
     };
 
     const importedSafeConfig = sanitizeImportedBackupConfig({

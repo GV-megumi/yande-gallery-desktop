@@ -1,5 +1,6 @@
 import type sqlite3 from 'sqlite3';
 import {
+  bumpSyncDataVersion,
   getConfig,
   saveConfig,
   toRendererSafeUiConfig,
@@ -523,6 +524,10 @@ export async function restoreAppBackupData(
   // Phase 4：改从 gallery_folders 读全部绑定文件夹（含 bindFolder 追加 / changeFolderPath 重定位的），
   // 而非 galleries 旧列 folderPath，保证恢复后的白名单覆盖当前真实绑定集合。
   loadGalleryRoots(await getAllGalleryFolderPaths());
+
+  // 备份恢复属破坏性数据变更：递增 dataVersion 让移动端全量重建镜像（spec §5.3）。
+  // 位置在所有回滚点之后、结果构建之前：保存失败只 console.error，不回滚已恢复的数据。
+  await bumpSyncDataVersion();
 
   const result: RestoreBackupResult = {
     mode,

@@ -38,6 +38,7 @@ function baseConfigWithGalleryId(selectedGalleryId: number = 42): AppConfig {
         port: 7890,
       },
     },
+    sync: { serverId: '', dataVersion: 1 },
     ui: {
       pagePreferences: {
         galleryBySubTab: {

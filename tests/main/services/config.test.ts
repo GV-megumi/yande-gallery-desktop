@@ -674,7 +674,9 @@ describe('config 模块纯函数测试', () => {
             username: 'user',
             password: 'secret',
           },
-        },      };
+        },
+        sync: { serverId: '', dataVersion: 1 },
+      };
 
       const result = normalizeConfigSaveInput(current, {
         downloads: { path: 'D:/downloads' },
@@ -765,6 +767,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -831,6 +834,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -953,6 +957,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -1026,6 +1031,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],

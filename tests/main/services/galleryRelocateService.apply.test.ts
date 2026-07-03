@@ -35,10 +35,21 @@ vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
   emitGalleryPathsRelocated: vi.fn(),
 }));
 
+// 根迁移改写 > 0 行后会 bump dataVersion；importOriginal 透传保留 config 其余实现，
+// 仅 stub bumpSyncDataVersion，避免真实实现读未加载的 getConfig() 而炸，并便于断言调用次数。
+vi.mock('../../../src/main/services/config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/main/services/config.js')>();
+  return {
+    ...actual,
+    bumpSyncDataVersion: vi.fn(async () => undefined),
+  };
+});
+
 import { run, get, all } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { getGalleryRootsSnapshot, loadGalleryRoots } from '../../../src/main/services/galleryRootRegistry';
 import { emitGalleryPathsRelocated } from '../../../src/main/services/appEventPublisher';
+import { bumpSyncDataVersion } from '../../../src/main/services/config';
 import { applyRelocateRoot, previewRelocateRoot } from '../../../src/main/services/galleryRelocateService';
 
 async function setupSchema(): Promise<void> {
@@ -571,6 +582,9 @@ describe('applyRelocateRoot — 领域事件 gallery:paths-relocated（修复轮
     expect(countFor(payload.affected, 'images', 'filepath')).toBe(1);
     expect(countFor(payload.affected, 'gallery_folders', 'folderPath')).toBe(1);
     expect(rootsAtEmit).toEqual([normalizePath(path.join('D:', 'art', 'a'))]);
+
+    // 改写 > 0 行的破坏性迁移应 bump 一次 dataVersion（移动端据此全量重建镜像，spec §5.3）
+    expect(vi.mocked(bumpSyncDataVersion)).toHaveBeenCalledTimes(1);
   });
 
   it('UNIQUE 冲突中止（零写入）→ 不发事件', async () => {
@@ -583,6 +597,8 @@ describe('applyRelocateRoot — 领域事件 gallery:paths-relocated（修复轮
 
     expect(result.success).toBe(false);
     expect(emitGalleryPathsRelocated).not.toHaveBeenCalled();
+    // 零写入中止 → 不 bump dataVersion
+    expect(vi.mocked(bumpSyncDataVersion)).not.toHaveBeenCalled();
   });
 
   it('幂等重跑（0 改写）→ 不发事件，避免无谓的整页重载', async () => {
@@ -593,11 +609,15 @@ describe('applyRelocateRoot — 领域事件 gallery:paths-relocated（修复轮
     const first = await applyRelocateRoot([{ oldPrefix, newPrefix }]);
     expect(first.success).toBe(true);
     expect(emitGalleryPathsRelocated).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bumpSyncDataVersion)).toHaveBeenCalledTimes(1);
 
     (emitGalleryPathsRelocated as unknown as Mock).mockClear();
+    vi.mocked(bumpSyncDataVersion).mockClear();
 
     const second = await applyRelocateRoot([{ oldPrefix, newPrefix }]);
     expect(second.success).toBe(true);
     expect(emitGalleryPathsRelocated).not.toHaveBeenCalled();
+    // 0 改写的幂等重跑不 bump
+    expect(vi.mocked(bumpSyncDataVersion)).not.toHaveBeenCalled();
   });
 });
