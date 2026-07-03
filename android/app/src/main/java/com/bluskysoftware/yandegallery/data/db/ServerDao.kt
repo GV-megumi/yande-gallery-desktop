@@ -38,4 +38,17 @@ interface ServerDao {
         deactivateAll()
         activateRow(id)
     }
+
+    /**
+     * 新增即激活的原子版本：insert 与 activate 若为两笔独立事务，过渡窗口里
+     * 直连 okHttp apiKeyProvider 的调用方（如 Coil）可能拿旧 key 打新 baseUrl。
+     * 单事务保证 observeActive 只发射最终态，无撕裂窗口。
+     */
+    @Transaction
+    suspend fun insertAndActivate(server: ServerEntity): Long {
+        val id = insert(server)
+        deactivateAll()
+        activateRow(id)
+        return id
+    }
 }
