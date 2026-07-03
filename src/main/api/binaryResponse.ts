@@ -83,9 +83,11 @@ export function destroyStartedResponse(context: ApiRequestContext, error: unknow
 }
 
 function clearEntityHeaders(context: ApiRequestContext): void {
-  // 抛错走 JSON envelope 前清掉实体头，避免残留 Content-Length/Range 污染错误响应
+  // 抛错走 JSON envelope 前清掉实体头：206 分支已设置 Content-Length/Content-Type/Content-Range，
+  // 流启动前失败时这三个头会残留到 404/500 JSON 错误响应上，必须一并清除
   context.res.removeHeader('Content-Length');
   context.res.removeHeader('Content-Type');
+  context.res.removeHeader('Content-Range');
 }
 
 /**
