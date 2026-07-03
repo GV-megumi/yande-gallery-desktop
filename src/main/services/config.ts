@@ -436,6 +436,10 @@ let latestQueuedConfig: AppConfig | null = null;
 let configSaveCommitLock: Promise<void> = Promise.resolve();
 const configSaveOutcomes = new Map<number, Promise<{ success: boolean; error?: string }>>();
 
+// serverId 首次懒生成的模块级互斥：并发首次调用复用同一 pending，避免各生成不同 UUID、
+// 较早调用返回未落盘的临时值。成功后保留（serverId 不再变，后续走内存态早退）；失败清空以便重试。
+let ensureServerIdPromise: Promise<string> | null = null;
+
 // 默认配置目录名
 const DEFAULT_CONFIG_DIR_NAME = '.yandegallery';
 let dotenvLoaded = false;
@@ -1340,12 +1344,31 @@ export async function ensureSyncServerId(): Promise<string> {
   if (current) {
     return current;
   }
-  const serverId = randomUUID();
-  const result = await saveConfig({ sync: { serverId } });
-  if (!result.success) {
-    throw new Error(result.error || 'Failed to persist sync serverId');
+  // 并发首次调用复用同一 pending，串行化「生成 UUID → saveConfig → 读回最终持久值」。
+  if (ensureServerIdPromise) {
+    return ensureServerIdPromise;
   }
-  return serverId;
+  ensureServerIdPromise = (async () => {
+    // double-check：可能在排队等待期间已由别处写入 serverId
+    const existing = getConfig().sync.serverId;
+    if (existing) {
+      return existing;
+    }
+    const serverId = randomUUID();
+    const result = await saveConfig({ sync: { serverId } });
+    if (!result.success) {
+      throw new Error(result.error || 'Failed to persist sync serverId');
+    }
+    // 返回最终落盘值（getConfig 反映提交后的内存态），而非本次生成的临时 UUID
+    return getConfig().sync.serverId;
+  })();
+  try {
+    return await ensureServerIdPromise;
+  } catch (err) {
+    // 失败清空，允许下次重试；成功则保留（serverId 已持久，后续调用走开头早退）
+    ensureServerIdPromise = null;
+    throw err;
+  }
 }
 
 /**

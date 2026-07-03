@@ -70,6 +70,31 @@ describe('sync 配置节（serverId / dataVersion）', () => {
     expect(await config.ensureSyncServerId()).toBe(first);
   });
 
+  it('并发首次调用返回同一 serverId 且等于最终持久值（模块级 mutex）', async () => {
+    const config = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({});
+
+    await config.initPaths();
+    await config.loadConfig('M:/test-config-root/config.yaml');
+
+    // 前置：首次 serverId 为空，触发懒生成
+    expect(config.getConfig().sync.serverId).toBe('');
+
+    // 三次并发首次调用：mutex 应复用同一 pending，避免各生成不同 UUID
+    const [a, b, c] = await Promise.all([
+      config.ensureSyncServerId(),
+      config.ensureSyncServerId(),
+      config.ensureSyncServerId(),
+    ]);
+
+    expect(a).toMatch(/^[0-9a-f-]{36}$/);
+    expect(b).toBe(a);
+    expect(c).toBe(a);
+    // 并发返回值必须等于最终落盘的持久值（而非某次未持久化的临时 UUID）
+    expect(a).toBe(config.getConfig().sync.serverId);
+  });
+
   it('bumpSyncDataVersion 自增 dataVersion', async () => {
     const config = await import('../../../src/main/services/config.js');
 
