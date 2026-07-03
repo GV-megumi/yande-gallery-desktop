@@ -30,9 +30,11 @@ class AppGraph(
     val db: AppDatabase by lazy { dbOverride ?: AppDatabase.build(appContext) }
     val serverRepository by lazy { ServerRepository(db.serverDao()) }
 
-    // Bearer 动态取当前激活 key。唯一写者是 init 里的预热 collector；api() 只读不写——
-    // 缓存命中判断绝不能用这个被后台持续刷新的共享字段（否则切换服务器后 collector
-    // 一追平，命中判断恒真，api() 永远返回绑在旧 baseUrl 上的陈旧客户端且不自愈）。
+    // Bearer 动态取当前激活 key（okHttp 拦截器与 SSE urlProvider 从此读）。两处写入、都写
+    // 当前激活行，收敛一致：① init 里的预热 collector（后台 Room Flow，异步追平）；② api()
+    // 拿到激活行后同步回写（保证冷启动首个请求也带 Bearer，不必等 collector）。
+    // 但缓存命中判断绝不能读它——必须用独立的 cachedBaseUrl/cachedApiKey。否则切换服务器后
+    // collector 一追平，命中判断恒真，api() 永远返回绑在旧 baseUrl 上的陈旧客户端且不自愈。
     @Volatile private var activeSnapshot: ServerEntity? = null
 
     // api 实例按 (baseUrl, apiKey) 缓存，切换服务器自动重建；缓存键只在 api() 内写入
@@ -66,6 +68,9 @@ class AppGraph(
             cachedApi = null; cachedBaseUrl = null; cachedApiKey = null
             return null
         }
+        // Bearer 保鲜：api() 同步取到激活行后立即回写，避免冷启动时 okHttp 拦截器
+        // 读到尚未被预热 collector 填充的 null key（漏 Authorization → 误报 401/密钥失效）。
+        activeSnapshot = active
         val cached = cachedApi
         if (cached != null && cachedBaseUrl == active.baseUrl && cachedApiKey == active.apiKey) {
             return cached

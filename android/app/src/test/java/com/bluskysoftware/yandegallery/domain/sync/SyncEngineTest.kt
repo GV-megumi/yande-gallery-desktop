@@ -1,6 +1,5 @@
 package com.bluskysoftware.yandegallery.domain.sync
 
-import app.cash.turbine.test
 import com.bluskysoftware.yandegallery.data.api.*
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.*
