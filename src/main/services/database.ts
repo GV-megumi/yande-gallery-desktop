@@ -144,6 +144,7 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
         CREATE INDEX IF NOT EXISTS idx_images_filename ON images (filename);
         CREATE INDEX IF NOT EXISTS idx_images_createdAt ON images (createdAt DESC);
         CREATE INDEX IF NOT EXISTS idx_images_updatedAt ON images (updatedAt DESC);
+        CREATE INDEX IF NOT EXISTS idx_images_updatedAt_id ON images (updatedAt, id);
         CREATE INDEX IF NOT EXISTS idx_images_filepath ON images (filepath);
         CREATE INDEX IF NOT EXISTS idx_tags_name ON tags (name);
         CREATE INDEX IF NOT EXISTS idx_yande_images_downloaded ON yande_images (downloaded);
@@ -733,6 +734,9 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await contractGalleriesTable(database);
     console.log('[database] galleries contract 迁移完成');
 
+    // 同步触碰触发器（依赖 gallery_images 表已由上方迁移建好）
+    await ensureSyncTouchTriggers(database);
+
     // 插入默认站点（如果不存在）
     console.log('[database] 检查并插入默认Booru站点...');
     const defaultSites = [
@@ -1192,5 +1196,35 @@ export async function contractGalleriesTable(database: sqlite3.Database): Promis
     } finally {
       await run(database, 'PRAGMA foreign_keys=ON');
     }
+  });
+}
+
+/**
+ * 同步触碰触发器（安卓相册 M1，spec §5.3）：
+ * 标签/图集归属变化时触碰 images.updatedAt，供移动端 (updatedAt, id) 游标增量同步感知。
+ * strftime('%Y-%m-%dT%H:%M:%fZ','now') 与 JS new Date().toISOString() 字节一致，
+ * 保证与既有 JS 写入的时间戳字典序可比；INSERT OR IGNORE 命中重复不触发，
+ * DELETE FROM galleries 的 FK CASCADE 会触发（幂等重扫不churn、删图集可感知）。
+ */
+export async function ensureSyncTouchTriggers(database: sqlite3.Database): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    database.exec(`
+      CREATE TRIGGER IF NOT EXISTS trg_image_tags_touch_ai AFTER INSERT ON image_tags
+      BEGIN
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = NEW.imageId;
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_image_tags_touch_ad AFTER DELETE ON image_tags
+      BEGIN
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = OLD.imageId;
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_gallery_images_touch_ai AFTER INSERT ON gallery_images
+      BEGIN
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = NEW.imageId;
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_gallery_images_touch_ad AFTER DELETE ON gallery_images
+      BEGIN
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = OLD.imageId;
+      END;
+    `, (err) => (err ? reject(err) : resolve()));
   });
 }

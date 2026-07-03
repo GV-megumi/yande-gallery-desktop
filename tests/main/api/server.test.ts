@@ -34,6 +34,8 @@ const defaultPermissions: ApiServiceConfig['permissions'] = {
   imageBinary: true,
   booruRead: true,
   booruWrite: true,
+  imageWrite: true,
+  galleryWrite: true,
   favoriteTagsRead: true,
   favoriteTagsWrite: true,
   downloadsRead: true,

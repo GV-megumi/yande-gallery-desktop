@@ -30,6 +30,7 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deletePreview: vi.fn(async () => ({ success: true })),
   cancelThumbnailGeneration: vi.fn(),
   deleteThumbnail: vi.fn(async () => ({ success: true })),
 }));

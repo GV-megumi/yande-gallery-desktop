@@ -46,6 +46,8 @@ vi.mock('../../../src/main/services/config.js', async (importOriginal) => {
       },
     })),
     saveConfig: vi.fn(async () => ({ success: true })),
+    // 破坏性恢复尾部会 bump dataVersion；stub 掉避免真实实现读 mock 的 getConfig().sync（不存在）而炸
+    bumpSyncDataVersion: vi.fn(async () => undefined),
   };
 });
 
@@ -65,6 +67,7 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
 vi.mock('electron', () => ({}));
 
 import { run, get, all, runInTransaction } from '../../../src/main/services/database';
+import { bumpSyncDataVersion } from '../../../src/main/services/config';
 import { normalizePath } from '../../../src/main/utils/path';
 import {
   BACKUP_TABLES,
@@ -281,6 +284,9 @@ describe('新格式备份：绑定与成员随备份往返', () => {
     const members = await all<{ galleryId: number; imageId: number }>(h.db, 'SELECT galleryId, imageId FROM gallery_images');
     expect(members).toHaveLength(2);
     expect(members.map((m) => m.imageId).sort()).toEqual([img1, img2].sort());
+
+    // 恢复成功尾部应 bump 一次 dataVersion（移动端据此全量重建镜像，spec §5.3）
+    expect(vi.mocked(bumpSyncDataVersion)).toHaveBeenCalledTimes(1);
   });
 
   it('replace 恢复应连带清空恢复前残留的 gallery_folders / gallery_images（不留占用 UNIQUE 的幽灵绑定）', async () => {

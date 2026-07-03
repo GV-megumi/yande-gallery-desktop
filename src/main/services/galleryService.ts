@@ -8,8 +8,10 @@ import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import {
   emitGalleryGalleriesChanged,
   emitGalleryIgnoredFoldersChanged,
+  emitGalleryImagesChanged,
 } from './appEventPublisher.js';
 import { addGalleryRoot, removeGalleryRoot } from './galleryRootRegistry.js';
+import { recalcGalleriesImageCount, emitGalleriesStatsUpdated } from './galleryStats.js';
 
 // 默认图片扩展名（绑定/扫描未显式指定 extensions 时的回退值）
 const DEFAULT_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
@@ -409,11 +411,12 @@ export async function cleanupOrphanImages(
   // 2. best-effort 清缩略图（事务外；与 deleteGallery 一致依赖 deleteThumbnail 按 filepath 行为）。
   // 先取消队列里挂着的生成任务（等待中的移除、生成中的打墓碑）再删文件——
   // 否则删除之后队列会把缩略图重新生成出来（源文件仍在磁盘），成为永久泄漏。
-  const { deleteThumbnail, cancelThumbnailGeneration } = await import('./thumbnailService.js');
+  const { deleteThumbnail, deletePreview, cancelThumbnailGeneration } = await import('./thumbnailService.js');
   cancelThumbnailGeneration(orphanFilepaths);
   for (const orphan of orphans) {
     try {
       await deleteThumbnail(orphan.filepath);
+      await deletePreview(orphan.filepath).catch(() => undefined);
     } catch (err: any) {
       console.warn(
         `[galleryService] 清理孤儿缩略图失败: ${orphan.filepath}`,
@@ -1727,6 +1730,151 @@ export async function removeIgnoredFolder(
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('[galleryService] 删除忽略文件夹失败:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 新建空图集（移动端写接口用，spec §5.4）。不绑定任何文件夹——零文件夹图集是受支持状态。
+ * 与 createGallery 一致：不做重名检查（galleries.name 无 UNIQUE）。
+ */
+export async function createEmptyGallery(name: string): Promise<{ success: boolean; data?: number; error?: string }> {
+  try {
+    const trimmed = name.trim();
+    if (!trimmed) {
+      return { success: false, error: 'Gallery name is required' };
+    }
+    const db = await getDatabase();
+    const now = new Date().toISOString();
+    await run(db, `INSERT INTO galleries (name, autoScan, createdAt, updatedAt) VALUES (?, 1, ?, ?)`, [trimmed, now, now]);
+    const inserted = await get<{ id: number }>(db, 'SELECT last_insert_rowid() as id');
+    const galleryId = inserted?.id;
+
+    emitGalleryGalleriesChanged({ galleryId, action: 'created' });
+    return { success: true, data: galleryId };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error creating empty gallery:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 按 imageId 批量移入图集（spec §5.4）。缺失的 imageId 被过滤并回报
+ * （FK 违反不受 INSERT OR IGNORE 保护，必须预过滤）；重复成员幂等跳过；
+ * images.updatedAt 由 gallery_images 触发器触碰。
+ */
+export async function addImagesToGallery(
+  galleryId: number,
+  imageIds: number[],
+): Promise<{ success: boolean; data?: { added: number; missingImageIds: number[] }; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const gallery = await get<{ id: number }>(db, 'SELECT id FROM galleries WHERE id = ?', [galleryId]);
+    if (!gallery) {
+      return { success: false, error: 'Gallery not found' };
+    }
+
+    const uniqueIds = [...new Set(imageIds)];
+    const existing = new Set<number>();
+    for (let offset = 0; offset < uniqueIds.length; offset += ORPHAN_GC_BATCH) {
+      const chunk = uniqueIds.slice(offset, offset + ORPHAN_GC_BATCH);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = await all<{ id: number }>(db, `SELECT id FROM images WHERE id IN (${placeholders})`, chunk);
+      for (const row of rows) {
+        existing.add(row.id);
+      }
+    }
+    const validIds = uniqueIds.filter((id) => existing.has(id));
+    const missingImageIds = uniqueIds.filter((id) => !existing.has(id));
+
+    let added = 0;
+    if (validIds.length > 0) {
+      const now = new Date().toISOString();
+      await runInTransaction(db, async () => {
+        for (const imageId of validIds) {
+          const result = await runWithChanges(
+            db,
+            'INSERT OR IGNORE INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, ?)',
+            [galleryId, imageId, now],
+          );
+          added += result.changes;
+        }
+      });
+    }
+
+    // 仅在真正新增成员时重算/发事件——幂等重加同批（added=0）不是成员变化，
+    // 与 scanFolderIntoGallery「仅在确有新增时发事件」的既有惯例一致。
+    if (added > 0) {
+      await recalcGalleriesImageCount(db, [galleryId]);
+      emitGalleryImagesChanged({
+        action: 'membershipChanged',
+        galleryId,
+        affectedGalleryIds: [galleryId],
+        affectedImageIds: validIds,
+        affectedCount: validIds.length,
+      });
+      emitGalleriesStatsUpdated([galleryId]);
+    }
+
+    return { success: true, data: { added, missingImageIds } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error adding images to gallery:', errorMessage);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 按 imageId 批量移出图集（spec §5.4）。仅解除归属，不删图片行/文件、不做孤儿 GC
+ * （与 unbindFolder 的 GC 语义有意不同——移动端"移出图集"不等于删除）。
+ * 注意：若图片文件仍位于本图集绑定文件夹内，下次扫描会按文件夹前缀重新加入。
+ */
+export async function removeImagesFromGallery(
+  galleryId: number,
+  imageIds: number[],
+): Promise<{ success: boolean; data?: { removed: number }; error?: string }> {
+  try {
+    const db = await getDatabase();
+    const gallery = await get<{ id: number }>(db, 'SELECT id FROM galleries WHERE id = ?', [galleryId]);
+    if (!gallery) {
+      return { success: false, error: 'Gallery not found' };
+    }
+
+    const uniqueIds = [...new Set(imageIds)];
+    let removed = 0;
+    if (uniqueIds.length > 0) {
+      await runInTransaction(db, async () => {
+        for (let offset = 0; offset < uniqueIds.length; offset += ORPHAN_GC_BATCH) {
+          const chunk = uniqueIds.slice(offset, offset + ORPHAN_GC_BATCH);
+          const placeholders = chunk.map(() => '?').join(',');
+          const result = await runWithChanges(
+            db,
+            `DELETE FROM gallery_images WHERE galleryId = ? AND imageId IN (${placeholders})`,
+            [galleryId, ...chunk],
+          );
+          removed += result.changes;
+        }
+      });
+    }
+
+    // 仅在真正解除归属时重算/发事件（与 addImagesToGallery 对称的幂等无操作短路）。
+    if (removed > 0) {
+      await recalcGalleriesImageCount(db, [galleryId]);
+      emitGalleryImagesChanged({
+        action: 'membershipChanged',
+        galleryId,
+        affectedGalleryIds: [galleryId],
+        affectedImageIds: uniqueIds,
+        affectedCount: uniqueIds.length,
+      });
+      emitGalleriesStatsUpdated([galleryId]);
+    }
+
+    return { success: true, data: { removed } };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('Error removing images from gallery:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }

@@ -31,6 +31,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deletePreview: vi.fn(async () => ({ success: true })),
   cancelThumbnailGeneration: vi.fn(),
   enqueueThumbnailGeneration,
   deleteThumbnail,

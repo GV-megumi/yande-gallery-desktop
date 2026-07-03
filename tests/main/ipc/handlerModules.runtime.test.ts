@@ -96,6 +96,7 @@ vi.mock('../../../src/main/services/galleryRelocateService.js', () => ({
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deletePreview: vi.fn(async () => ({ success: true })),
   cancelThumbnailGeneration: vi.fn(),
   cleanupOrphanThumbnails: vi.fn(),
   generateThumbnail: vi.fn(),
@@ -223,6 +224,7 @@ describe('IPC handler submodule runtime registration', () => {
       IPC_CHANNELS.API_SERVICE_GET_STATUS,
       IPC_CHANNELS.API_SERVICE_GENERATE_KEY,
       IPC_CHANNELS.API_SERVICE_GET_LOGS,
+      IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO,
       IPC_CHANNELS.CONFIG_SAVE,
       IPC_CHANNELS.CONFIG_GET_NOTIFICATIONS,
       IPC_CHANNELS.CONFIG_SET_NOTIFICATIONS,

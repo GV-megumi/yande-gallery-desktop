@@ -48,6 +48,14 @@ thumbnails:
   quality: 92
   effort: 3
   format: webp
+  # 1600px 预览档（移动端全屏大图）
+  preview:
+    cachePath: previews
+    maxWidth: 1600
+    maxHeight: 1600
+    quality: 88
+    effort: 3
+    format: webp
 
 # -------- 应用 --------
 # 注：当前仅 autoScan 生效（其余历史字段已移除）
@@ -166,6 +174,10 @@ apiService:
     galleryRead: true
     imageRead: true
     imageBinary: false
+    # 图片写操作（删除/标签编辑，移动端用）
+    imageWrite: false
+    # 图集写操作（新建/重命名/删除/成员管理，移动端用）
+    galleryWrite: false
     booruRead: true
     booruWrite: false
     favoriteTagsRead: true
@@ -179,6 +191,13 @@ apiService:
     visibleInUi: false
     retentionDays: 14
     maxEntries: 1000
+
+# -------- 移动端同步（机器生成，勿手改）--------
+sync:
+  # 服务器身份标识，首次被移动端请求时自动生成
+  serverId: ''
+  # 数据代际：备份恢复/根目录迁移后自动 +1，手机端据此全量重建镜像
+  dataVersion: 1
 
 # -------- UI 偏好（运行时自动写入，一般无需手改）--------
 # ui.pagePreferences.* 由应用在交互中自动维护：

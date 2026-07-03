@@ -1,9 +1,7 @@
-import { createReadStream } from 'fs';
-import path from 'path';
-import { pipeline } from 'stream/promises';
 import { getGalleries, getGallery } from '../../services/galleryService.js';
 import { getImageById, getImages, getImagesByGallery } from '../../services/imageService.js';
-import { generateThumbnail } from '../../services/thumbnailService.js';
+import { generatePreview, generateThumbnail } from '../../services/thumbnailService.js';
+import { serveBinaryFile } from '../binaryResponse.js';
 import { numberParam, optionalNumberQuery } from '../router.js';
 import { ApiHttpError, type ApiRequestContext, type ApiRoute } from '../types.js';
 
@@ -54,69 +52,6 @@ function pageQuery(context: ApiRequestContext): { page: number; pageSize: number
     page: optionalNumberQuery(context.query, 'page', 1),
     pageSize,
   };
-}
-
-function isMissingFileError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) {
-    return false;
-  }
-
-  const code = (error as { code?: unknown }).code;
-  return code === 'ENOENT' || code === 'ENOTDIR';
-}
-
-function hasStartedResponse(context: ApiRequestContext): boolean {
-  return context.res.headersSent === true
-    || context.res.writableEnded === true
-    || context.res.destroyed === true;
-}
-
-function destroyStartedResponse(context: ApiRequestContext, error: unknown): void {
-  if (context.res.destroyed === true || typeof context.res.destroy !== 'function') {
-    return;
-  }
-
-  context.res.destroy(error instanceof Error ? error : undefined);
-}
-
-function thumbnailContentType(thumbnailPath: string): string {
-  switch (path.extname(thumbnailPath).toLowerCase()) {
-    case '.webp':
-      return 'image/webp';
-    case '.gif':
-      return 'image/gif';
-    case '.jpg':
-    case '.jpeg':
-      return 'image/jpeg';
-    case '.png':
-      return 'image/png';
-    default:
-      return 'application/octet-stream';
-  }
-}
-
-async function streamFile(
-  context: ApiRequestContext,
-  filePath: string,
-  contentType: string,
-  internalMessage: string,
-): Promise<undefined> {
-  try {
-    context.res.setHeader('Content-Type', contentType);
-    await pipeline(createReadStream(filePath), context.res);
-    return undefined;
-  } catch (error) {
-    if (hasStartedResponse(context)) {
-      destroyStartedResponse(context, error);
-      return undefined;
-    }
-
-    if (isMissingFileError(error)) {
-      throw new ApiHttpError(404, 'NOT_FOUND', 'Resource not found');
-    }
-
-    throw new ApiHttpError(500, 'INTERNAL_ERROR', internalMessage);
-  }
 }
 
 export function createGalleryRoutes(): ApiRoute[] {
@@ -178,12 +113,21 @@ export function createGalleryRoutes(): ApiRoute[] {
           'Failed to generate thumbnail',
         );
 
-        return streamFile(
-          context,
-          thumbnailPath,
-          thumbnailContentType(thumbnailPath),
-          'Failed to stream thumbnail',
+        return serveBinaryFile(context, thumbnailPath, 'Failed to stream thumbnail');
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/v1/images/:imageId/preview',
+      handler: async (context) => {
+        const imageId = numberParam(context.params.imageId, 'imageId');
+        const image = unwrapServiceResult(await getImageById(imageId), 'Failed to load image');
+        const previewPath = unwrapServiceResult(
+          await generatePreview(image.filepath),
+          'Failed to generate preview',
         );
+
+        return serveBinaryFile(context, previewPath, 'Failed to stream preview');
       },
     },
     {
@@ -193,7 +137,7 @@ export function createGalleryRoutes(): ApiRoute[] {
         const imageId = numberParam(context.params.imageId, 'imageId');
         const image = unwrapServiceResult(await getImageById(imageId), 'Failed to load image');
 
-        return streamFile(context, image.filepath, 'application/octet-stream', 'Failed to stream file');
+        return serveBinaryFile(context, image.filepath, 'Failed to stream file');
       },
     },
   ];

@@ -320,7 +320,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -468,7 +468,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -663,7 +663,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -674,7 +674,9 @@ describe('config 模块纯函数测试', () => {
             username: 'user',
             password: 'secret',
           },
-        },      };
+        },
+        sync: { serverId: '', dataVersion: 1 },
+      };
 
       const result = normalizeConfigSaveInput(current, {
         downloads: { path: 'D:/downloads' },
@@ -700,6 +702,8 @@ describe('config 模块纯函数测试', () => {
             imageBinary: false,
             booruRead: true,
             booruWrite: false,
+            imageWrite: false,
+            galleryWrite: false,
             favoriteTagsRead: true,
             favoriteTagsWrite: false,
             downloadsRead: true,
@@ -751,7 +755,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -763,6 +767,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -817,7 +822,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -829,6 +834,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -939,7 +945,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -951,6 +957,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
@@ -1012,7 +1019,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -1024,6 +1031,7 @@ describe('config 模块纯函数测试', () => {
             password: 'secret',
           },
         },
+        sync: { serverId: '', dataVersion: 1 },
         ui: {
           menuOrder: {
             main: ['gallery', 'booru', 'google'],
