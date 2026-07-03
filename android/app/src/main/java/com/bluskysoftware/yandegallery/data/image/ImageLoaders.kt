@@ -12,8 +12,12 @@ import okio.Path.Companion.toOkioPath
 fun thumbnailUrl(baseUrl: String, imageId: Long): String =
     "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/thumbnail"
 
-/** 稳定缓存键：只用 imageId，服务器 IP/baseUrl 变化（同一图库迁移地址）不作废缓存。 */
-fun thumbnailCacheKey(imageId: Long): String = "thumb:$imageId"
+/**
+ * 缓存键按本机 servers 行 id 做命名空间：多服务器的 imageId 各来自不同桌面库，可能重号，
+ * 仅用 imageId 会让 Coil 命中别台服务器的同 id 缩略图（串图）。serverId 切服即变、始终可用、
+ * 简单正确。代价：同库换 IP（= 换 server 行）会重新缓存——正确性优先于该微优化。
+ */
+fun thumbnailCacheKey(serverId: Long, imageId: Long): String = "s$serverId:t$imageId"
 
 /** 缩略图专用 ImageLoader：独立 2GB 持久盘缓存（spec §6.4），复用带 Bearer 的 OkHttp。 */
 fun buildThumbnailImageLoader(context: Context, okHttp: OkHttpClient): ImageLoader =
@@ -29,9 +33,9 @@ fun buildThumbnailImageLoader(context: Context, okHttp: OkHttpClient): ImageLoad
         )
         .build()
 
-fun thumbnailRequest(context: Context, baseUrl: String, imageId: Long): ImageRequest =
+fun thumbnailRequest(context: Context, baseUrl: String, serverId: Long, imageId: Long): ImageRequest =
     ImageRequest.Builder(context)
         .data(thumbnailUrl(baseUrl, imageId))
-        .diskCacheKey(thumbnailCacheKey(imageId))
-        .memoryCacheKey(thumbnailCacheKey(imageId))
+        .diskCacheKey(thumbnailCacheKey(serverId, imageId))
+        .memoryCacheKey(thumbnailCacheKey(serverId, imageId))
         .build()

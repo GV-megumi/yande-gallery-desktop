@@ -50,6 +50,7 @@ fun AlbumsScreen(
     }
 
     val baseUrl = activeServer?.baseUrl.orEmpty()
+    val serverId = activeServer?.id ?: 0L
     val loader = viewModel.thumbnailLoader
     LazyVerticalGrid(
         columns = GridCells.Fixed(2),
@@ -59,6 +60,7 @@ fun AlbumsScreen(
             AlbumCardItem(
                 card = card,
                 baseUrl = baseUrl,
+                serverId = serverId,
                 loader = loader,
                 onClick = { navController.navigate(Routes.albumDetail(card.gallery.id)) },
             )
@@ -70,6 +72,7 @@ fun AlbumsScreen(
 private fun AlbumCardItem(
     card: AlbumCard,
     baseUrl: String,
+    serverId: Long,
     loader: ImageLoader,
     onClick: () -> Unit,
 ) {
@@ -83,7 +86,7 @@ private fun AlbumCardItem(
         val coverId = card.coverImageId
         if (coverId != null) {
             AsyncImage(
-                model = thumbnailRequest(LocalContext.current, baseUrl, coverId),
+                model = thumbnailRequest(LocalContext.current, baseUrl, serverId, coverId),
                 imageLoader = loader,
                 contentDescription = card.gallery.name,
                 contentScale = ContentScale.Crop,

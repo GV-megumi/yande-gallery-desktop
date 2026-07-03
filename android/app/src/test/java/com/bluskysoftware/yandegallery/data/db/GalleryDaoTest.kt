@@ -61,6 +61,38 @@ class GalleryDaoTest {
     }
 
     @Test
+    fun `observeAlbumCards 单查询带回图集与兜底封面 id`() = runTest {
+        db.galleryDao().replaceAll(listOf(
+            GalleryEntity(id = 1, name = "a-has-cover", coverImageId = 10, imageCount = 1),
+            GalleryEntity(id = 2, name = "b-null-cover", coverImageId = null, imageCount = 2),
+            GalleryEntity(id = 3, name = "c-empty", coverImageId = null, imageCount = 0),
+        ))
+        db.imageDao().upsertAll(listOf(
+            image(10, "2026-01-01T00:00:00.000Z"),
+            image(20, "2026-01-01T00:00:00.000Z"),
+            image(21, "2026-01-03T00:00:00.000Z"),
+        ))
+        db.imageDao().replaceGalleryLinks(10, listOf(1))
+        db.imageDao().replaceGalleryLinks(20, listOf(2))
+        db.imageDao().replaceGalleryLinks(21, listOf(2))
+
+        db.galleryDao().observeAlbumCards().test {
+            val rows = awaitItem()
+            assertEquals(listOf(1L, 2L, 3L), rows.map { it.id }) // 按 name 升序
+            // 有封面：coverImageId 保留，兜底子查询照常算出但 ViewModel 用不到
+            assertEquals(10L, rows.first { it.id == 1L }.coverImageId)
+            // null 封面：兜底取图集内 createdAt 最新（21）
+            val nullCover = rows.first { it.id == 2L }
+            assertNull(nullCover.coverImageId)
+            assertEquals(21L, nullCover.fallbackCoverId)
+            // 空图集：coverImageId 与兜底均为 null
+            val empty = rows.first { it.id == 3L }
+            assertNull(empty.coverImageId)
+            assertNull(empty.fallbackCoverId)
+        }
+    }
+
+    @Test
     fun `galleryImagesPagingSource 按 createdAt 倒序`() = runTest {
         db.galleryDao().replaceAll(listOf(gallery(1, "g")))
         db.imageDao().upsertAll(listOf(

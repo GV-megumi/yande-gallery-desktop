@@ -12,6 +12,7 @@ import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 /**
  * SSE 客户端行为：一帧 gallery:* 事件防抖后回调一次；403（订阅权限未开）→ 永久降级不重连。
@@ -75,6 +76,50 @@ class SseClientTest {
 
             sse.stop()
             scope.cancel()
+        }
+    }
+
+    @Test
+    fun `切换服务器 restart 清 403 降级并连新 baseUrl`() {
+        MockWebServer().use { serverA ->
+            MockWebServer().use { serverB ->
+                // A：eventsSubscribe 未开 → 403 降级；B：已开，重连后应收到事件
+                serverA.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"FORBIDDEN"}}"""))
+                serverB.enqueue(eventStream("event: gallery:images-changed\ndata: {}\n\n"))
+                serverA.start()
+                serverB.start()
+
+                val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+                val activeUrl = AtomicReference(serverA.url("/api/v1/events/system").toString())
+                val count = AtomicInteger(0)
+                val latch = CountDownLatch(1)
+                val sse = SseClient(
+                    client = OkHttpClient(),
+                    urlProvider = { activeUrl.get() },
+                    onGalleryEvent = { count.incrementAndGet(); latch.countDown() },
+                    scope = scope,
+                    debounceMs = 50,
+                    // 大退避：B 的单帧事件流发完后会 onClosed→退避重连，用大值把它挡在观察窗外，
+                    // 只验证「切服即连 B」本身；A 的 403 路径本就不安排重连。
+                    reconnectDelayMs = 30_000,
+                )
+
+                sse.start()
+                Thread.sleep(300)
+                assertEquals("A 收到 403 后应停连、不重连", 1, serverA.requestCount)
+
+                // 切换到 B：restart 清 A 的 403 降级并按新 URL 重连
+                activeUrl.set(serverB.url("/api/v1/events/system").toString())
+                sse.restart()
+                assertTrue("切服后应连 B 并收到事件", latch.await(3, TimeUnit.SECONDS))
+                Thread.sleep(200)
+                assertEquals(1, count.get())
+                assertEquals("B 应被连接（403 降级已按服务器隔离，不再全局永久）", 1, serverB.requestCount)
+                assertEquals("A 不应因 restart 被重连", 1, serverA.requestCount)
+
+                sse.stop()
+                scope.cancel()
+            }
         }
     }
 }

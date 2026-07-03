@@ -42,6 +42,16 @@ vi.mock('../../../src/main/services/appEventPublisher.js', () => ({
   emitGalleryPathsRelocated: vi.fn(),
 }));
 
+// 根迁移改写 > 0 行后会 bump dataVersion；importOriginal 透传保留 config 其余实现，
+// 仅 stub bumpSyncDataVersion，避免真实实现读未加载的 getConfig() 而炸（本套件不 loadConfig）。
+vi.mock('../../../src/main/services/config.js', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../src/main/services/config.js')>();
+  return {
+    ...actual,
+    bumpSyncDataVersion: vi.fn(async () => undefined),
+  };
+});
+
 import { run, get } from '../../../src/main/services/database';
 import { normalizePath } from '../../../src/main/utils/path';
 import { loadGalleryRoots } from '../../../src/main/services/galleryRootRegistry';

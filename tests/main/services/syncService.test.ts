@@ -148,6 +148,21 @@ describe('syncService', () => {
     // u 非字符串 / i 非整数 → null
     expect(decodeSyncCursor(Buffer.from('{"u":1,"i":2}').toString('base64url'))).toBeNull();
     expect(decodeSyncCursor(Buffer.from('{"u":"a","i":1.5}').toString('base64url'))).toBeNull();
+    // i 非正整数（<=0）→ null
+    expect(
+      decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00.000Z","i":0}').toString('base64url')),
+    ).toBeNull();
+    expect(
+      decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00.000Z","i":-1}').toString('base64url')),
+    ).toBeNull();
+    // u 非项目 ISO 时间戳格式（YYYY-MM-DDTHH:mm:ss.sssZ）→ null
+    expect(decodeSyncCursor(Buffer.from('{"u":"2024-01-01","i":1}').toString('base64url'))).toBeNull();
+    expect(
+      decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00Z","i":1}').toString('base64url')),
+    ).toBeNull();
+    expect(
+      decodeSyncCursor(Buffer.from('{"u":"not-a-timestamp","i":1}').toString('base64url')),
+    ).toBeNull();
   });
 
   it('空游标全量升序分页，(updatedAt,id) 排序，limit+1 探测 hasMore', async () => {

@@ -29,16 +29,21 @@ class AlbumsViewModel(private val graph: AppGraph) : ViewModel() {
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     /**
-     * 图集卡片流：observeAll 逐个补封面兜底——只有 coverImageId 为空的图集才额外查 coverFallback
-     * （图集内最新一张），有封面的图集不多查。
+     * 图集卡片流：单查询 observeAlbumCards 一次带回图集 + 相关子查询算出的兜底封面 id，
+     * 无 N+1（不再对每个 coverImageId==null 的图集逐个回查 coverFallback）。
+     * cover 优先 gallery.coverImageId，为空时用兜底（图集内最新一张，spec §7.2）。
      */
     val albums: Flow<List<AlbumCard>> =
-        graph.db.galleryDao().observeAll().map { galleries ->
-            galleries.map { gallery ->
+        graph.db.galleryDao().observeAlbumCards().map { rows ->
+            rows.map { row ->
                 AlbumCard(
-                    gallery = gallery,
-                    coverImageId = gallery.coverImageId
-                        ?: graph.db.galleryDao().coverFallback(gallery.id)?.id,
+                    gallery = GalleryEntity(
+                        id = row.id,
+                        name = row.name,
+                        coverImageId = row.coverImageId,
+                        imageCount = row.imageCount,
+                    ),
+                    coverImageId = row.coverImageId ?: row.fallbackCoverId,
                 )
             }
         }

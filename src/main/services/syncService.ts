@@ -35,12 +35,22 @@ export function encodeSyncCursor(updatedAt: string, id: number): string {
   return Buffer.from(JSON.stringify({ u: updatedAt, i: id }), 'utf8').toString('base64url');
 }
 
+// 项目内 ISO 时间戳格式（strftime('%Y-%m-%dT%H:%M:%fZ') 落库形态）：毫秒 3 位、UTC。
+const SYNC_CURSOR_ISO = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
+
 export function decodeSyncCursor(cursor: string): SyncCursorPayload | null {
   try {
     const parsed = JSON.parse(
       Buffer.from(cursor, 'base64url').toString('utf8'),
     ) as Partial<SyncCursorPayload>;
-    if (typeof parsed?.u === 'string' && Number.isInteger(parsed?.i)) {
+    // i 必须为正整数（键集分页游标不含 id<=0），u 必须匹配项目 ISO 时间戳格式，
+    // 否则视为畸形游标返回 null（路由层据此回 422），避免重复页/异常同步窗口。
+    if (
+      typeof parsed?.u === 'string' &&
+      SYNC_CURSOR_ISO.test(parsed.u) &&
+      Number.isInteger(parsed?.i) &&
+      (parsed.i as number) > 0
+    ) {
       return { u: parsed.u, i: parsed.i as number };
     }
     return null;

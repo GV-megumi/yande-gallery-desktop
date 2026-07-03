@@ -66,7 +66,7 @@ class AlbumsViewModelTest {
             assertEquals(10L, cardWithCover.coverImageId)
 
             val cardWithFallback = cards.first { it.gallery.id == 2L }
-            // 图集 2 的成员图里 21 的 createdAt 最新——coverFallback 应取它。
+            // 图集 2 的成员图里 21 的 createdAt 最新——observeAlbumCards 的相关子查询兜底应取它。
             assertEquals(21L, cardWithFallback.coverImageId)
         }
     }

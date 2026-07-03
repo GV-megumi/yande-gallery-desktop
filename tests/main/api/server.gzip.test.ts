@@ -70,6 +70,12 @@ function close(server: http.Server): Promise<void> {
 
 // 超过 gzip 起效阈值的大载荷；'/api/v1/service/info' 权限为 null（公开），避开权限装配
 const PAYLOAD = { hello: 'x'.repeat(2048) };
+// 模拟 /sync/images 满页量级的大载荷（异步 gzip 回归：单页上限 5000）
+const LARGE_PAYLOAD = {
+  items: Array.from({ length: 5000 }, (_, i) => ({
+    id: i, filename: `${i}.jpg`, width: 1920, height: 1080, format: 'jpg',
+  })),
+};
 
 describe('sendSuccessMaybeGzip over real HTTP', () => {
   let server: http.Server;
@@ -77,14 +83,25 @@ describe('sendSuccessMaybeGzip over real HTTP', () => {
   beforeEach(() => {
     server = createApiHttpServer({
       config: config(),
-      routes: [{
-        method: 'GET',
-        pattern: '/api/v1/service/info',
-        handler: (ctx) => {
-          sendSuccessMaybeGzip(ctx.req, ctx.res, PAYLOAD);
-          return undefined;
+      routes: [
+        {
+          method: 'GET',
+          pattern: '/api/v1/service/info',
+          handler: async (ctx) => {
+            await sendSuccessMaybeGzip(ctx.req, ctx.res, PAYLOAD);
+            return undefined;
+          },
         },
-      }],
+        {
+          // service/health 同为公开路由（permissionKey null），复用以避开权限装配
+          method: 'GET',
+          pattern: '/api/v1/service/health',
+          handler: async (ctx) => {
+            await sendSuccessMaybeGzip(ctx.req, ctx.res, LARGE_PAYLOAD);
+            return undefined;
+          },
+        },
+      ],
     });
   });
   afterEach(async () => {
@@ -108,5 +125,18 @@ describe('sendSuccessMaybeGzip over real HTTP', () => {
     expect(result.statusCode).toBe(200);
     expect(result.headers['content-encoding']).toBeUndefined();
     expect(result.json).toEqual({ success: true, data: PAYLOAD });
+  });
+
+  it('大载荷（5000 项）异步 gzip 仍产出可解压响应且 Content-Encoding 正确', async () => {
+    const result = await request(server, { path: '/api/v1/service/health', headers: { 'accept-encoding': 'gzip' } });
+    expect(result.statusCode).toBe(200);
+    expect(result.headers['content-encoding']).toBe('gzip');
+    expect(String(result.headers['vary'])).toMatch(/accept-encoding/i);
+    // Content-Length 是压缩后字节数，且小于原始明文（验证确实压缩过）
+    const rawLength = Buffer.byteLength(JSON.stringify({ success: true, data: LARGE_PAYLOAD }), 'utf8');
+    expect(Number(result.headers['content-length'])).toBe(result.body.length);
+    expect(result.body.length).toBeLessThan(rawLength);
+    const decoded = JSON.parse(gunzipSync(result.body).toString('utf8'));
+    expect(decoded).toEqual({ success: true, data: LARGE_PAYLOAD });
   });
 });

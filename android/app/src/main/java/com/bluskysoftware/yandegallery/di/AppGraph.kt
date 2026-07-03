@@ -24,6 +24,9 @@ import java.util.concurrent.TimeUnit
 class AppGraph(
     val appContext: Context,
     dbOverride: AppDatabase? = null,   // 测试注入缝（Task 11/13 用 in-memory db 构造 AppGraph）
+    // 测试注入缝：手动驱动 syncEngine.sync() 的用例（EndToEndSyncTest/AppGraphTest）关掉自动触发，
+    // 避免 collector 的自动同步与手动同步争抢同一 MockWebServer 的 FIFO 响应。生产恒 true。
+    private val autoSyncOnActiveChange: Boolean = true,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -46,9 +49,26 @@ class AppGraph(
     @Volatile var onBinaryNotFound: (() -> Unit)? = null
 
     init {
-        // 启动即跟踪激活服务器：冷启动时 Coil 的首个缩略图请求也要带上 Bearer，
-        // 不能等到第一次 api() 调用才填 snapshot
-        scope.launch { serverRepository.observeActive().collect { activeSnapshot = it } }
+        // 启动即跟踪激活服务器：① 冷启动时 Coil 的首个缩略图请求也要带上 Bearer（每次发射都刷新
+        // activeSnapshot）；② 激活服务器按 id 变化时（新增/切服/删除）自动触发一次同步并重连 SSE
+        // ——这样 README 承诺的「配对即激活→自动首次全量同步」与切服可靠性由一处收敛覆盖。
+        // lastActiveId 初值 null：既作「尚未同步任何服务器」哨兵，也让冷启动无服务器时(null==null)不误触发；
+        // 加服务器(null→id)/切服(idA→idB)/删除(id→null) 都是一次 id 变化，恰触发一次。
+        scope.launch {
+            var lastActiveId: Long? = null
+            serverRepository.observeActive().collect { active ->
+                activeSnapshot = active
+                val id = active?.id
+                if (id != lastActiveId) {
+                    lastActiveId = id
+                    if (autoSyncOnActiveChange) {
+                        // 切到真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
+                        if (id != null) syncScheduler.requestSync("server-changed")
+                        sseClient.restart()
+                    }
+                }
+            }
+        }
         // 二进制 404 → 触发一次对账（spec §6.3-4；钩子在 Task 3 拦截器里，此处接到调度器）
         onBinaryNotFound = { syncScheduler.requestSync("binary-404") }
     }

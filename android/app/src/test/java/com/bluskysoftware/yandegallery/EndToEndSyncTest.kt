@@ -36,7 +36,9 @@ class EndToEndSyncTest {
     @Before
     fun setup() {
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
-        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        // 本用例手动驱动 syncEngine.sync() 并逐一断言 6 个 FIFO 响应的顺序——关掉激活变化的自动同步，
+        // 否则 collector 的自动同步会与手动同步争抢同一 MockWebServer 队列。
+        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db, autoSyncOnActiveChange = false)
     }
 
     @After

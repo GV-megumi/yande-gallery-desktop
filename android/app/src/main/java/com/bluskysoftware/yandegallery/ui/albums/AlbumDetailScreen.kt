@@ -38,6 +38,7 @@ fun AlbumDetailScreen(
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val items = viewModel.pagingFlow.collectAsLazyPagingItems()
     val baseUrl = activeServer?.baseUrl.orEmpty()
+    val serverId = activeServer?.id ?: 0L
     val loader = viewModel.thumbnailLoader
 
     Scaffold(
@@ -57,7 +58,7 @@ fun AlbumDetailScreen(
             modifier = Modifier.padding(padding),
             imageCell = { image ->
                 AsyncImage(
-                    model = thumbnailRequest(LocalContext.current, baseUrl, image.id),
+                    model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
                     imageLoader = loader,
                     contentDescription = image.filename,
                     contentScale = ContentScale.Crop,

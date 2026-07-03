@@ -1,6 +1,9 @@
 import type { IncomingMessage, ServerResponse } from 'http';
-import { gzipSync } from 'zlib';
+import { gzip } from 'zlib';
+import { promisify } from 'util';
 import { ApiHttpError, type ApiErrorCode } from './types.js';
+
+const gzipAsync = promisify(gzip);
 
 export interface NormalizedApiError {
   statusCode: number;
@@ -25,25 +28,34 @@ export function sendSuccess(res: ServerResponse, data: unknown, statusCode = 200
 
 /**
  * sync 大载荷 JSON：按 Accept-Encoding 协商 gzip（安卓相册 spec §5.3）。
- * 自写响应（自行 setHeader + end），故 handler 调用后必须 return undefined，
+ * 自写响应（自行 setHeader + end），故 handler 调用后必须 await 并 return undefined，
  * 避免 server 再经 sendSuccess 包一层。
+ *
+ * 压缩用异步 zlib.gzip（非 gzipSync）：/sync/images 单页上限 5000、/sync/tags|galleries|image-ids
+ * 全量，大库同步若在主进程同步 CPU 压缩会卡住 Electron 事件循环（UI/IPC/其它请求短时无响应）。
  */
-export function sendSuccessMaybeGzip(req: IncomingMessage, res: ServerResponse, data: unknown): void {
+export async function sendSuccessMaybeGzip(req: IncomingMessage, res: ServerResponse, data: unknown): Promise<void> {
   if (!canWriteJson(res)) {
     return;
   }
   const body = JSON.stringify({ success: true, data });
-  res.statusCode = 200;
-  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   const acceptEncoding = String(req.headers['accept-encoding'] ?? '');
   if (/\bgzip\b/i.test(acceptEncoding)) {
-    const compressed = gzipSync(Buffer.from(body, 'utf8'));
+    const compressed = await gzipAsync(Buffer.from(body, 'utf8'));
+    // 压缩期间响应可能已被销毁（客户端断开），二次校验避免向已终止的响应写头/体
+    if (!canWriteJson(res)) {
+      return;
+    }
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
     res.setHeader('Content-Encoding', 'gzip');
     res.setHeader('Vary', 'Accept-Encoding');
     res.setHeader('Content-Length', compressed.length);
     res.end(compressed);
     return;
   }
+  res.statusCode = 200;
+  res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.end(body);
 }
 

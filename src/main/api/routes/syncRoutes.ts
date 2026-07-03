@@ -16,8 +16,8 @@ const MAX_LIMIT = 5000;
 
 /**
  * 移动端元数据同步的五路由（安卓相册 spec §5.3），权限均 galleryRead。
- * 全部经 sendSuccessMaybeGzip 自写响应（按 Accept-Encoding 协商 gzip），handler 返回
- * undefined，避免 server 再包一层 sendSuccess。
+ * 全部经 sendSuccessMaybeGzip 自写响应（按 Accept-Encoding 异步协商 gzip），handler await
+ * 后返回 undefined，避免 server 再包一层 sendSuccess。
  */
 export function createSyncRoutes(): ApiRoute[] {
   return [
@@ -25,7 +25,7 @@ export function createSyncRoutes(): ApiRoute[] {
       method: 'GET',
       pattern: '/api/v1/sync/meta',
       handler: async (context) => {
-        sendSuccessMaybeGzip(context.req, context.res, await getSyncMeta());
+        await sendSuccessMaybeGzip(context.req, context.res, await getSyncMeta());
         return undefined;
       },
     },
@@ -45,7 +45,7 @@ export function createSyncRoutes(): ApiRoute[] {
         // Math.max(1, ...) 下界为本地不变量兜底——保证 LIMIT limit+1 绝不为非正数
         // （SQLite 负 LIMIT 视为无界），不依赖 router.ts 内部实现。
         const limit = Math.min(Math.max(1, optionalNumberQuery(context.query, 'limit', DEFAULT_LIMIT)), MAX_LIMIT);
-        sendSuccessMaybeGzip(context.req, context.res, await listSyncImages(cursor, limit));
+        await sendSuccessMaybeGzip(context.req, context.res, await listSyncImages(cursor, limit));
         return undefined;
       },
     },
@@ -53,7 +53,7 @@ export function createSyncRoutes(): ApiRoute[] {
       method: 'GET',
       pattern: '/api/v1/sync/galleries',
       handler: async (context) => {
-        sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncGalleries() });
+        await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncGalleries() });
         return undefined;
       },
     },
@@ -61,7 +61,7 @@ export function createSyncRoutes(): ApiRoute[] {
       method: 'GET',
       pattern: '/api/v1/sync/tags',
       handler: async (context) => {
-        sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncTags() });
+        await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncTags() });
         return undefined;
       },
     },
@@ -69,7 +69,7 @@ export function createSyncRoutes(): ApiRoute[] {
       method: 'GET',
       pattern: '/api/v1/sync/image-ids',
       handler: async (context) => {
-        sendSuccessMaybeGzip(context.req, context.res, { ids: await listSyncImageIds() });
+        await sendSuccessMaybeGzip(context.req, context.res, { ids: await listSyncImageIds() });
         return undefined;
       },
     },
