@@ -144,4 +144,4 @@ skills-lock.json
 .claude/settings.local.json
 
 # 打包目录
-dist-v*
+dist-v*.superpowers/
