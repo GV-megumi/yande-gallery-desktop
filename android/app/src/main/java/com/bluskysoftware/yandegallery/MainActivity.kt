@@ -8,6 +8,8 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.photos.PhotosScreen
+import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
@@ -24,8 +26,14 @@ class MainActivity : ComponentActivity() {
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
                 AppScaffold(
                     navController = nav,
-                    // Task 10/11 逐步替换以下三个占位为真实照片/相册屏
-                    photosContent = { Text("照片页占位") },
+                    // Task 11 再替换相册/图集详情占位
+                    photosContent = {
+                        val photosVm: PhotosViewModel = viewModel(factory = PhotosViewModel.factory(graph))
+                        PhotosScreen(
+                            viewModel = photosVm,
+                            onAddServer = { nav.navigate(Routes.Servers) },
+                        )
+                    },
                     albumsContent = { Text("相册页占位") },
                     albumDetailContent = { Text("图集详情占位") },
                     serversContent = {
