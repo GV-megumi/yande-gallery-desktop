@@ -5,6 +5,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
@@ -49,6 +50,9 @@ class AppGraph(
             onBinaryNotFound = { onBinaryNotFound?.invoke() },
         )
     }
+
+    /** 缩略图 Coil ImageLoader：独立 2GB 持久盘缓存 + 复用带 Bearer 的 okHttp（Task 9）。 */
+    val thumbnailLoader by lazy { buildThumbnailImageLoader(appContext, okHttp) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
