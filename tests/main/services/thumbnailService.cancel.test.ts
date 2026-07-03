@@ -69,6 +69,7 @@ import {
   generateThumbnail,
   enqueueThumbnailGeneration,
   cancelThumbnailGeneration,
+  generatePreview,
 } from '../../../src/main/services/thumbnailService';
 import path from 'path';
 
@@ -81,6 +82,11 @@ const flush = async (times = 5) => {
 function expectedThumbPath(imagePath: string): string {
   const hash = crypto.createHash('md5').update(imagePath).digest('hex');
   return path.join('M:/thumbs', `${hash}.webp`);
+}
+
+function expectedPreviewPath(imagePath: string): string {
+  const hash = crypto.createHash('md5').update(imagePath).digest('hex');
+  return path.join('M:/previews', `${hash}.webp`);
 }
 
 beforeEach(() => {
@@ -156,5 +162,34 @@ describe('cancelThumbnailGeneration', () => {
       .filter(Boolean);
     expect(notified).toContain('M:/src/ok.jpg');
     expect(h.unlinked).not.toContain(expectedThumbPath('M:/src/ok.jpg'));
+  });
+
+  it('cancelThumbnailGeneration 传裸路径时同时投毒 thumbnail:/preview: 两档：排队中的预览档任务也被取消', async () => {
+    // 占满 3 个运行槽位（缩略图档，background 优先级）
+    enqueueThumbnailGeneration('M:/src/1.jpg');
+    enqueueThumbnailGeneration('M:/src/2.jpg');
+    enqueueThumbnailGeneration('M:/src/3.jpg');
+    await flush();
+    expect(h.toFileStarted).toEqual(['M:/src/1.jpg', 'M:/src/2.jpg', 'M:/src/3.jpg']);
+
+    // 预览档任务（generatePreview 走 preview:${path} key）——运行槽位已满，排队等待
+    const previewPromise = generatePreview('M:/src/deleted.jpg');
+    await flush();
+    expect(h.toFileStarted).not.toContain('M:/src/deleted.jpg');
+
+    // 只传裸路径（不带 tier 前缀）：cancelPending 需自行扇出 thumbnail:/preview: 两个 key，
+    // 否则排队中的预览档任务（key 为 preview:deleted.jpg）不会被命中而永远挂起。
+    cancelThumbnailGeneration(['M:/src/deleted.jpg']);
+    const result = await previewPromise;
+    expect(result.success).toBe(false);
+    expect((result as { cancelled?: boolean }).cancelled).toBe(true);
+
+    // 放行三个运行中的缩略图任务，队列继续消化——被取消的预览档任务永远不会启动 sharp
+    for (const p of ['M:/src/1.jpg', 'M:/src/2.jpg', 'M:/src/3.jpg']) {
+      h.toFileControls.get(p)!.resolve();
+    }
+    await flush();
+    expect(h.toFileStarted).not.toContain('M:/src/deleted.jpg');
+    expect(h.unlinked).not.toContain(expectedPreviewPath('M:/src/deleted.jpg'));
   });
 });
