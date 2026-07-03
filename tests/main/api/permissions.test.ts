@@ -9,6 +9,7 @@ describe('api permission mapping', () => {
     ['GET', '/api/v1/images', 'imageRead'],
     ['GET', '/api/v1/images/5', 'imageRead'],
     ['GET', '/api/v1/images/5/thumbnail', 'imageBinary'],
+    ['GET', '/api/v1/images/5/preview', 'imageBinary'],
     ['GET', '/api/v1/images/5/file', 'imageBinary'],
     ['GET', '/api/v1/booru-sites', 'booruRead'],
     ['GET', '/api/v1/booru-sites/active', 'booruRead'],

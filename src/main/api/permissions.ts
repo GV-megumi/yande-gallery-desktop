@@ -14,7 +14,7 @@ const apiPermissionRules: ApiPermissionRule[] = [
 
   { method: 'GET', path: /^\/api\/v1\/galleries(?:\/[^/]+(?:\/images)?)?\/?$/, permissionKey: 'galleryRead' },
   { method: 'GET', path: /^\/api\/v1\/images(?:\/[^/]+)?\/?$/, permissionKey: 'imageRead' },
-  { method: 'GET', path: /^\/api\/v1\/images\/[^/]+\/(?:thumbnail|file)\/?$/, permissionKey: 'imageBinary' },
+  { method: 'GET', path: /^\/api\/v1\/images\/[^/]+\/(?:thumbnail|preview|file)\/?$/, permissionKey: 'imageBinary' },
 
   { method: 'GET', path: /^\/api\/v1\/booru-sites(?:\/active)?\/?$/, permissionKey: 'booruRead' },
   { method: 'GET', path: /^\/api\/v1\/booru-posts\/search\/?$/, permissionKey: 'booruRead' },
