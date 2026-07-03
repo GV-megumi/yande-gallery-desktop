@@ -45,6 +45,16 @@ export interface ApiServiceStatus {
   lastError: string | null;
 }
 
+/** 移动端扫码配对信息（设置页二维码弹窗用） */
+export interface ApiPairingInfo {
+  name: string;
+  port: number;
+  mode: ApiServiceMode;
+  running: boolean;
+  apiKey: string;
+  lanAddresses: string[];
+}
+
 export interface ApiLogEntry {
   id: number;
   timestamp: string;

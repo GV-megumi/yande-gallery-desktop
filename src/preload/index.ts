@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import { type ApiServiceConfigPatch, type AppShellPagePreference, type BlacklistedTagsPagePreference, type BooruAppearancePreference, type ConfigSaveInput, type FavoriteTagsPagePreference, type GalleryPagePreferencesBySubTab, type RendererSafeAppConfig } from '../main/services/config.js';
-import type { ApiLogEntry, ApiLogQuery, ApiServiceConfig, ApiServiceStatus, BooruForumPost, BooruForumTopic, BooruPost, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, PaginatedResult, RendererAppEvent } from '../shared/types.js';
+import type { ApiLogEntry, ApiLogQuery, ApiPairingInfo, ApiServiceConfig, ApiServiceStatus, BooruForumPost, BooruForumTopic, BooruPost, BooruSite, BooruSiteRecord, BooruUserProfile, BooruWiki, ConfigChangedSummary, PaginatedResult, RendererAppEvent } from '../shared/types.js';
 import { IPC_CHANNELS } from '../main/ipc/channels.js';
 import { createWindowApi } from './shared/createWindowApi.js';
 import { createBooruApi } from './shared/createBooruApi.js';
@@ -131,6 +131,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     generateKey: () => ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GENERATE_KEY),
     getLogs: (query?: ApiLogQuery) =>
       ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GET_LOGS, query),
+    getPairingInfo: () => ipcRenderer.invoke(IPC_CHANNELS.API_SERVICE_GET_PAIRING_INFO),
   },
 
   // booruPreferences 域通过工厂统一定义，主/子窗口 preload 共用
@@ -521,6 +522,7 @@ declare global {
         getStatus: () => Promise<{ success: boolean; data?: ApiServiceStatus; error?: string }>;
         generateKey: () => Promise<{ success: boolean; data?: { apiKey: string }; error?: string; syncError?: string }>;
         getLogs: (query?: ApiLogQuery) => Promise<{ success: boolean; data?: { items: ApiLogEntry[]; total: number }; error?: string }>;
+        getPairingInfo: () => Promise<{ success: boolean; data?: ApiPairingInfo; error?: string }>;
       };
       booruPreferences: {
         appearance: {

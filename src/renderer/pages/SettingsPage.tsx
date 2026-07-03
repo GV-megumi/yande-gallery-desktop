@@ -12,6 +12,7 @@ import { colors, spacing, radius, fontSize, shadows } from '../styles/tokens';
 import type { ApiLogEntry, ApiServiceConfig, ApiServicePermissionKey, ApiServiceStatus, UpdateCheckResult } from '../../shared/types';
 import pkgJson from '../../../package.json';
 import { IgnoredFoldersModal } from '../components/IgnoredFoldersModal';
+import { ApiPairingQrModal } from '../components/ApiPairingQrModal';
 import { ScanCollisionModal, type ScanResolution, type ScanPlanNewFolder, type ScanPlanCollision, type ScanPlanSkipped } from '../components/ScanCollisionModal';
 import { RelocateRootModal } from '../components/RelocateRootModal';
 
@@ -205,6 +206,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [apiStatus, setApiStatus] = useState<ApiServiceStatus | null>(null);
   const [apiLogs, setApiLogs] = useState<ApiLogEntry[]>([]);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [pairingModalOpen, setPairingModalOpen] = useState(false);
   const [apiPortDraft, setApiPortDraft] = useState('');
   // API 服务配置加载失败信息（null 表示无错误）
   const [apiLoadError, setApiLoadError] = useState<string | null>(null);
@@ -1155,7 +1157,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <SettingsRow
               label="当前绑定地址"
               description={apiStatus.bindAddress || '-'}
+            />
+            <SettingsRow
+              label="移动端配对"
+              description="生成二维码，手机 App 扫码即可连接"
               isLast
+              extra={
+                <Button size="small" onClick={() => setPairingModalOpen(true)}>
+                  显示二维码
+                </Button>
+              }
             />
           </SettingsGroup>
 
@@ -1254,6 +1265,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               isLast
             />
           </SettingsGroup>
+
+          <ApiPairingQrModal open={pairingModalOpen} onClose={() => setPairingModalOpen(false)} />
         </>
       )}
 
