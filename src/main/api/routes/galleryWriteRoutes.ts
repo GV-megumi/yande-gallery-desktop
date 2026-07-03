@@ -4,6 +4,14 @@ import { numberParam, readJsonBody } from '../router.js';
 import {
   addImageTags, deleteImage, getImageById, removeImageTags,
 } from '../../services/imageService.js';
+import {
+  addImagesToGallery,
+  createEmptyGallery,
+  deleteGallery,
+  getGallery,
+  removeImagesFromGallery,
+  updateGallery,
+} from '../../services/galleryService.js';
 
 type JsonObject = Record<string, unknown>;
 
@@ -113,6 +121,91 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
           throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to remove tags');
         }
         return { updated: true };
+      },
+    },
+    {
+      method: 'POST',
+      pattern: '/api/v1/galleries',
+      handler: async (context) => {
+        const body = await jsonObject(context);
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) {
+          validationError('name is required');
+        }
+        const result = await createEmptyGallery(name);
+        if (!result.success || result.data === undefined) {
+          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to create gallery');
+        }
+        return { id: result.data };
+      },
+    },
+    {
+      method: 'PATCH',
+      pattern: '/api/v1/galleries/:galleryId',
+      handler: async (context) => {
+        const galleryId = numberParam(context.params.galleryId, 'galleryId');
+        const body = await jsonObject(context);
+        const name = typeof body.name === 'string' ? body.name.trim() : '';
+        if (!name) {
+          validationError('name is required');
+        }
+        // updateGallery 对缺失 id 静默成功，404 语义由预检提供
+        const existing = await getGallery(galleryId);
+        if (!existing.success || !existing.data) {
+          notFound();
+        }
+        const result = await updateGallery(galleryId, { name });
+        if (!result.success) {
+          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to rename gallery');
+        }
+        return { updated: true };
+      },
+    },
+    {
+      method: 'DELETE',
+      pattern: '/api/v1/galleries/:galleryId',
+      handler: async (context) => {
+        const galleryId = numberParam(context.params.galleryId, 'galleryId');
+        const result = await deleteGallery(galleryId);
+        if (!result.success) {
+          if (result.error === 'Gallery not found') {
+            notFound();
+          }
+          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to delete gallery');
+        }
+        return { removed: true };
+      },
+    },
+    {
+      method: 'POST',
+      pattern: '/api/v1/galleries/:galleryId/images',
+      handler: async (context) => {
+        const galleryId = numberParam(context.params.galleryId, 'galleryId');
+        const imageIds = idArrayField(await jsonObject(context), 'imageIds');
+        const result = await addImagesToGallery(galleryId, imageIds);
+        if (!result.success || !result.data) {
+          if (result.error === 'Gallery not found') {
+            notFound();
+          }
+          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to add images to gallery');
+        }
+        return result.data;
+      },
+    },
+    {
+      method: 'DELETE',
+      pattern: '/api/v1/galleries/:galleryId/images',
+      handler: async (context) => {
+        const galleryId = numberParam(context.params.galleryId, 'galleryId');
+        const imageIds = idArrayField(await jsonObject(context), 'imageIds');
+        const result = await removeImagesFromGallery(galleryId, imageIds);
+        if (!result.success || !result.data) {
+          if (result.error === 'Gallery not found') {
+            notFound();
+          }
+          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to remove images from gallery');
+        }
+        return result.data;
       },
     },
   ];

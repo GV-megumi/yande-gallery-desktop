@@ -13,6 +13,11 @@ const apiPermissionRules: ApiPermissionRule[] = [
   { method: 'GET', path: /^\/api\/v1\/service\/health\/?$/, permissionKey: null },
 
   { method: 'GET', path: /^\/api\/v1\/galleries(?:\/[^/]+(?:\/images)?)?\/?$/, permissionKey: 'galleryRead' },
+  { method: 'POST', path: /^\/api\/v1\/galleries\/?$/, permissionKey: 'galleryWrite' },
+  { method: 'PATCH', path: /^\/api\/v1\/galleries\/[^/]+\/?$/, permissionKey: 'galleryWrite' },
+  { method: 'DELETE', path: /^\/api\/v1\/galleries\/[^/]+\/?$/, permissionKey: 'galleryWrite' },
+  { method: 'POST', path: /^\/api\/v1\/galleries\/[^/]+\/images\/?$/, permissionKey: 'galleryWrite' },
+  { method: 'DELETE', path: /^\/api\/v1\/galleries\/[^/]+\/images\/?$/, permissionKey: 'galleryWrite' },
   { method: 'GET', path: /^\/api\/v1\/images(?:\/[^/]+)?\/?$/, permissionKey: 'imageRead' },
   { method: 'GET', path: /^\/api\/v1\/images\/[^/]+\/(?:thumbnail|preview|file)\/?$/, permissionKey: 'imageBinary' },
   { method: 'DELETE', path: /^\/api\/v1\/images\/[^/]+\/?$/, permissionKey: 'imageWrite' },

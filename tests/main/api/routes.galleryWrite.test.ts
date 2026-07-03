@@ -8,7 +8,16 @@ import {
   getImageById,
   removeImageTags,
 } from '../../../src/main/services/imageService.js';
+import {
+  addImagesToGallery,
+  createEmptyGallery,
+  deleteGallery,
+  getGallery,
+  removeImagesFromGallery,
+  updateGallery,
+} from '../../../src/main/services/galleryService.js';
 import type { Image } from '../../../src/shared/types.js';
+import type { Gallery } from '../../../src/main/services/galleryService.js';
 
 vi.mock('../../../src/main/services/imageService.js', () => ({
   getImageById: vi.fn(),
@@ -17,13 +26,25 @@ vi.mock('../../../src/main/services/imageService.js', () => ({
   removeImageTags: vi.fn(),
 }));
 
-// galleryService 空工厂：本任务 galleryWriteRoutes.ts 不引用它，占位供 Task 12 扩充。
-vi.mock('../../../src/main/services/galleryService.js', () => ({}));
+vi.mock('../../../src/main/services/galleryService.js', () => ({
+  getGallery: vi.fn(),
+  updateGallery: vi.fn(),
+  deleteGallery: vi.fn(),
+  createEmptyGallery: vi.fn(),
+  addImagesToGallery: vi.fn(),
+  removeImagesFromGallery: vi.fn(),
+}));
 
 const mockGetImageById = vi.mocked(getImageById);
 const mockDeleteImage = vi.mocked(deleteImage);
 const mockAddImageTags = vi.mocked(addImageTags);
 const mockRemoveImageTags = vi.mocked(removeImageTags);
+const mockGetGallery = vi.mocked(getGallery);
+const mockUpdateGallery = vi.mocked(updateGallery);
+const mockDeleteGallery = vi.mocked(deleteGallery);
+const mockCreateEmptyGallery = vi.mocked(createEmptyGallery);
+const mockAddImagesToGallery = vi.mocked(addImagesToGallery);
+const mockRemoveImagesFromGallery = vi.mocked(removeImagesFromGallery);
 
 function findRoute(routes: ApiRoute[], pattern: string, method = 'GET'): ApiRoute {
   const route = routes.find((candidate) => candidate.method === method && candidate.pattern === pattern);
@@ -64,6 +85,18 @@ function image(overrides: Partial<Image> = {}): Image {
     width: 800,
     height: 600,
     format: 'jpg',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    updatedAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+function gallery(overrides: Partial<Gallery> = {}): Gallery {
+  return {
+    id: 7,
+    name: '图集',
+    imageCount: 0,
+    autoScan: true,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: '2026-01-01T00:00:00.000Z',
     ...overrides,
@@ -232,6 +265,163 @@ describe('gallery write API routes', () => {
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
       expect(mockRemoveImageTags).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('POST /galleries', () => {
+    it('建空图集', async () => {
+      mockCreateEmptyGallery.mockResolvedValue({ success: true, data: 7 });
+      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+
+      await expect(route.handler(context({ body: { name: '新图集' } }))).resolves.toEqual({ id: 7 });
+      expect(mockCreateEmptyGallery).toHaveBeenCalledWith('新图集');
+    });
+
+    it('空名/纯空白 → 422', async () => {
+      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+
+      await expect(route.handler(context({ body: { name: '  ' } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      await expect(route.handler(context({ body: {} })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      expect(mockCreateEmptyGallery).not.toHaveBeenCalled();
+    });
+
+    it('service 失败 → 500', async () => {
+      mockCreateEmptyGallery.mockResolvedValue({ success: false, error: 'db error' });
+      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+
+      await expect(route.handler(context({ body: { name: '新图集' } })))
+        .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+  });
+
+  describe('PATCH /galleries/:galleryId', () => {
+    it('预检后重命名', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery({ id: 3 }) });
+      mockUpdateGallery.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
+        .resolves.toEqual({ updated: true });
+      expect(mockGetGallery).toHaveBeenCalledWith(3);
+      expect(mockUpdateGallery).toHaveBeenCalledWith(3, { name: '改名' });
+    });
+
+    it('缺失 → 404 且不调 updateGallery', async () => {
+      mockGetGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
+        .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+      expect(mockUpdateGallery).not.toHaveBeenCalled();
+    });
+
+    it('name 非法（空/纯空白）→ 422，且不预检', async () => {
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '   ' } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      expect(mockGetGallery).not.toHaveBeenCalled();
+    });
+
+    it('updateGallery 失败 → 500', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery({ id: 3 }) });
+      mockUpdateGallery.mockResolvedValue({ success: false, error: 'db error' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
+        .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+  });
+
+  describe('DELETE /galleries/:galleryId', () => {
+    it('Gallery not found → 404', async () => {
+      mockDeleteGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '9' } })))
+        .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+    });
+
+    it('成功 → { removed: true }', async () => {
+      mockDeleteGallery.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '9' } }))).resolves.toEqual({ removed: true });
+      expect(mockDeleteGallery).toHaveBeenCalledWith(9);
+    });
+
+    it('其他 service 失败 → 500', async () => {
+      mockDeleteGallery.mockResolvedValue({ success: false, error: 'disk error' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '9' } })))
+        .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+  });
+
+  describe('POST /galleries/:galleryId/images', () => {
+    it('委托 addImagesToGallery', async () => {
+      mockAddImagesToGallery.mockResolvedValue({ success: true, data: { added: 2, missingImageIds: [] } });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1, 2] } })))
+        .resolves.toEqual({ added: 2, missingImageIds: [] });
+      expect(mockAddImagesToGallery).toHaveBeenCalledWith(3, [1, 2]);
+    });
+
+    it('Gallery not found → 404', async () => {
+      mockAddImagesToGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
+        .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+    });
+
+    it('imageIds 非法 → 422', async () => {
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [] } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1, -1] } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      expect(mockAddImagesToGallery).not.toHaveBeenCalled();
+    });
+
+    it('其他 service 失败 → 500', async () => {
+      mockAddImagesToGallery.mockResolvedValue({ success: false, error: 'db error' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
+        .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+  });
+
+  describe('DELETE /galleries/:galleryId/images', () => {
+    it('委托 removeImagesFromGallery', async () => {
+      mockRemoveImagesFromGallery.mockResolvedValue({ success: true, data: { removed: 2 } });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1, 2] } })))
+        .resolves.toEqual({ removed: 2 });
+      expect(mockRemoveImagesFromGallery).toHaveBeenCalledWith(3, [1, 2]);
+    });
+
+    it('Gallery not found → 404', async () => {
+      mockRemoveImagesFromGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
+        .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
+    });
+
+    it('imageIds 非法 → 422', async () => {
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+
+      await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [] } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      expect(mockRemoveImagesFromGallery).not.toHaveBeenCalled();
     });
   });
 });
