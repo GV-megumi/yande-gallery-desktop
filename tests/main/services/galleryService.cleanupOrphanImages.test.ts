@@ -40,6 +40,7 @@ vi.mock('../../../src/main/services/database.js', async (importOriginal) => {
 
 // deleteThumbnail 是 galleryService 动态 import('./thumbnailService.js') 进来的，mock 成 spy。
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
+  deletePreview: vi.fn(async () => ({ success: true })),
   cancelThumbnailGeneration: vi.fn(),
   deleteThumbnail: vi.fn(async (filepath: string) => {
     h.deleteThumbnailCalls.push(filepath);

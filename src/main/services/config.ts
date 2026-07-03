@@ -148,6 +148,14 @@ export interface AppConfig {
     quality: number;
     format: string;
     effort: number;
+    preview: {
+      cachePath: string;
+      maxWidth: number;
+      maxHeight: number;
+      quality: number;
+      format: string;
+      effort: number;
+    };
   };
   app: {
     autoScan: boolean;
@@ -263,7 +271,15 @@ const DEFAULT_CONFIG: AppConfig = {
     maxHeight: 800,
     quality: 92,
     format: 'webp',
-    effort: 3
+    effort: 3,
+    preview: {
+      cachePath: 'previews',
+      maxWidth: 1600,
+      maxHeight: 1600,
+      quality: 88,
+      format: 'webp',
+      effort: 3
+    }
   },
   app: {
     autoScan: true
@@ -523,6 +539,7 @@ export async function ensureDataDirectories(): Promise<void> {
     getConfigDir(),             // configDir（存放 config.yaml 和 db）
     getDataDir(),               // dataDir（存放运行数据）
     getThumbnailsPath(),        // 缩略图目录
+    getPreviewsPath(),          // 1600px 预览档目录
     getCachePath(),             // Booru 图片缓存目录
   ];
 
@@ -1115,6 +1132,14 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
       quality: input.thumbnails?.quality ?? currentConfig.thumbnails.quality,
       format: input.thumbnails?.format ?? currentConfig.thumbnails.format,
       effort: input.thumbnails?.effort ?? currentConfig.thumbnails.effort,
+      preview: {
+        cachePath: input.thumbnails?.preview?.cachePath ?? currentConfig.thumbnails.preview.cachePath,
+        maxWidth: input.thumbnails?.preview?.maxWidth ?? currentConfig.thumbnails.preview.maxWidth,
+        maxHeight: input.thumbnails?.preview?.maxHeight ?? currentConfig.thumbnails.preview.maxHeight,
+        quality: input.thumbnails?.preview?.quality ?? currentConfig.thumbnails.preview.quality,
+        format: input.thumbnails?.preview?.format ?? currentConfig.thumbnails.preview.format,
+        effort: input.thumbnails?.preview?.effort ?? currentConfig.thumbnails.preview.effort,
+      },
     },
     app: {
       autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
@@ -1320,6 +1345,14 @@ export function getDownloadsPath(): string {
 export function getThumbnailsPath(): string {
   const cfg = getConfig();
   return resolveDataPath(cfg.thumbnails.cachePath);
+}
+
+/**
+ * 获取 1600px 预览档缓存目录（移动端全屏大图用，spec §5.1）
+ */
+export function getPreviewsPath(): string {
+  const cfg = getConfig();
+  return resolveDataPath(cfg.thumbnails.preview.cachePath);
 }
 
 /**

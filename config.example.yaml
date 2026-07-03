@@ -48,6 +48,14 @@ thumbnails:
   quality: 92
   effort: 3
   format: webp
+  # 1600px 预览档（移动端全屏大图）
+  preview:
+    cachePath: previews
+    maxWidth: 1600
+    maxHeight: 1600
+    quality: 88
+    effort: 3
+    format: webp
 
 # -------- 应用 --------
 # 注：当前仅 autoScan 生效（其余历史字段已移除）

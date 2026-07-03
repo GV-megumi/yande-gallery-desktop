@@ -1,5 +1,5 @@
 import { getDatabase, run, get, all, runInTransaction } from './database.js';
-import { getThumbnailIfExists, deleteThumbnail } from './thumbnailService.js';
+import { getThumbnailIfExists, deleteThumbnail, deletePreview } from './thumbnailService.js';
 import { InvalidImage } from '../../shared/types.js';
 import { isSubPath } from '../utils/path.js';
 import fs from 'fs/promises';
@@ -425,6 +425,7 @@ export async function deleteInvalidImage(id: number): Promise<{ success: boolean
     // 删除缩略图文件
     if (row.filepath) {
       await deleteThumbnail(row.filepath);
+      await deletePreview(row.filepath).catch(() => undefined);
     }
 
     // 删除数据库记录
@@ -456,10 +457,11 @@ export async function clearInvalidImages(): Promise<{ success: boolean; data?: {
     const rows = await all<{ filepath: string }>(db,
       'SELECT filepath FROM invalid_images WHERE filepath IS NOT NULL');
 
-    // 逐个删除缩略图（忽略失败）
+    // 逐个删除缩略图 + 预览档（忽略失败）
     for (const row of rows) {
       try {
         await deleteThumbnail(row.filepath);
+        await deletePreview(row.filepath).catch(() => undefined);
       } catch {
         // 忽略单个缩略图删除失败
       }

@@ -3,7 +3,7 @@ import { getDatabase, run, get, all, runInTransaction } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { normalizePath, isSubPath } from '../utils/path.js';
-import { enqueueThumbnailGeneration, deleteThumbnail, cancelThumbnailGeneration } from './thumbnailService.js';
+import { enqueueThumbnailGeneration, deleteThumbnail, deletePreview, cancelThumbnailGeneration } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
@@ -340,6 +340,10 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
       // deleteThumbnail 内部已对 ENOENT 容错
       await deleteThumbnail(row.filepath).catch((err: any) => {
         console.warn(`[imageService] 删除缩略图失败: ${row.filepath}`, err?.message ?? err);
+      });
+      // 联动清理 1600px 预览档（deletePreview 内部已对 ENOENT 容错）
+      await deletePreview(row.filepath).catch((err: any) => {
+        console.warn(`[imageService] 删除预览档失败: ${row.filepath}`, err?.message ?? err);
       });
     }
 

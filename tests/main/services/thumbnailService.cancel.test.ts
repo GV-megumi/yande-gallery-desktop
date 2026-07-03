@@ -51,9 +51,13 @@ vi.mock('fs/promises', () => ({
 
 vi.mock('../../../src/main/services/config.js', () => ({
   getConfig: vi.fn(() => ({
-    thumbnails: { maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3 },
+    thumbnails: {
+      maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3,
+      preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 },
+    },
   })),
   getThumbnailsPath: vi.fn(() => 'M:/thumbs'),
+  getPreviewsPath: vi.fn(() => 'M:/previews'),
 }));
 
 const emitBuiltRendererAppEvent = vi.fn();

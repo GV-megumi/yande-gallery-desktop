@@ -409,11 +409,12 @@ export async function cleanupOrphanImages(
   // 2. best-effort 清缩略图（事务外；与 deleteGallery 一致依赖 deleteThumbnail 按 filepath 行为）。
   // 先取消队列里挂着的生成任务（等待中的移除、生成中的打墓碑）再删文件——
   // 否则删除之后队列会把缩略图重新生成出来（源文件仍在磁盘），成为永久泄漏。
-  const { deleteThumbnail, cancelThumbnailGeneration } = await import('./thumbnailService.js');
+  const { deleteThumbnail, deletePreview, cancelThumbnailGeneration } = await import('./thumbnailService.js');
   cancelThumbnailGeneration(orphanFilepaths);
   for (const orphan of orphans) {
     try {
       await deleteThumbnail(orphan.filepath);
+      await deletePreview(orphan.filepath).catch(() => undefined);
     } catch (err: any) {
       console.warn(
         `[galleryService] 清理孤儿缩略图失败: ${orphan.filepath}`,
