@@ -5,7 +5,10 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
+import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
+import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -59,5 +62,14 @@ class AppGraph(
         cachedBaseUrl = active.baseUrl
         cachedApiKey = active.apiKey
         return ApiClientFactory.desktopApi(active.baseUrl, okHttp).also { cachedApi = it }
+    }
+
+    val mirrorStore by lazy { RoomMirrorStore(db) }
+    val syncEngine by lazy {
+        SyncEngine(
+            api = RetrofitSyncApi { api() },
+            store = mirrorStore,
+            now = { java.time.Instant.now().toString() },
+        )
     }
 }
