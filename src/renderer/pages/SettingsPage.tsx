@@ -21,6 +21,8 @@ const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
   galleryRead: '图集读取',
   imageRead: '图片元数据读取',
   imageBinary: '图片内容访问',
+  imageWrite: '图片写操作',
+  galleryWrite: '图集写操作',
   booruRead: 'Booru 只读',
   booruWrite: 'Booru 业务写操作',
   favoriteTagsRead: '收藏标签只读',

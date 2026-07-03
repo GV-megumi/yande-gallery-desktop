@@ -700,6 +700,8 @@ describe('config 模块纯函数测试', () => {
             imageBinary: false,
             booruRead: true,
             booruWrite: false,
+            imageWrite: false,
+            galleryWrite: false,
             favoriteTagsRead: true,
             favoriteTagsWrite: false,
             downloadsRead: true,

@@ -5,6 +5,8 @@ export type ApiServicePermissionKey =
   | 'galleryRead'
   | 'imageRead'
   | 'imageBinary'
+  | 'imageWrite'
+  | 'galleryWrite'
   | 'booruRead'
   | 'booruWrite'
   | 'favoriteTagsRead'

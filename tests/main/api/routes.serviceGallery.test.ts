@@ -128,6 +128,8 @@ describe('service API routes', () => {
         imageBinary: true,
         booruRead: false,
         booruWrite: false,
+        imageWrite: false,
+        galleryWrite: false,
         favoriteTagsRead: false,
         favoriteTagsWrite: false,
         downloadsRead: false,
