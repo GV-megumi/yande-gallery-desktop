@@ -150,4 +150,29 @@ describe('sync API routes', () => {
 
     expect(mockListSyncImages).toHaveBeenCalledWith(null, 5000);
   });
+
+  // limit 下界防护：optionalNumberQuery（numberParam 的 /^[1-9]\d*$/）对负数/0 直接抛 422，
+  // 绝不放行到 listSyncImages——否则 LIMIT limit+1 为非正数时 SQLite 视为无界，可全表返回。
+  // （syncRoutes 另有 Math.max(1, ...) 本地兜底，双保险。）
+  it('images limit=-2 抛 422，listSyncImages 绝不收到非正 limit', async () => {
+    const route = findRoute('/api/v1/sync/images');
+
+    await expect(route.handler(context({ query: new URLSearchParams([['limit', '-2']]) }))).rejects.toMatchObject({
+      name: 'ApiHttpError',
+      statusCode: 422,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(mockListSyncImages).not.toHaveBeenCalled();
+  });
+
+  it('images limit=0 抛 422，listSyncImages 绝不收到非正 limit', async () => {
+    const route = findRoute('/api/v1/sync/images');
+
+    await expect(route.handler(context({ query: new URLSearchParams([['limit', '0']]) }))).rejects.toMatchObject({
+      name: 'ApiHttpError',
+      statusCode: 422,
+      code: 'VALIDATION_ERROR',
+    });
+    expect(mockListSyncImages).not.toHaveBeenCalled();
+  });
 });

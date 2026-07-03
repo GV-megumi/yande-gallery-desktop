@@ -41,7 +41,10 @@ export function createSyncRoutes(): ApiRoute[] {
             throw new ApiHttpError(422, 'VALIDATION_ERROR', 'Invalid cursor');
           }
         }
-        const limit = Math.min(optionalNumberQuery(context.query, 'limit', DEFAULT_LIMIT), MAX_LIMIT);
+        // optionalNumberQuery（numberParam 的 /^[1-9]\d*$/）已对 0/负数/非数字抛 422；
+        // Math.max(1, ...) 下界为本地不变量兜底——保证 LIMIT limit+1 绝不为非正数
+        // （SQLite 负 LIMIT 视为无界），不依赖 router.ts 内部实现。
+        const limit = Math.min(Math.max(1, optionalNumberQuery(context.query, 'limit', DEFAULT_LIMIT)), MAX_LIMIT);
         sendSuccessMaybeGzip(context.req, context.res, await listSyncImages(cursor, limit));
         return undefined;
       },

@@ -16,6 +16,10 @@ describe('RendererAppEvent contract', () => {
     expect(resolveRendererAppEventApiChannel('favorite-tags:changed')).toBe('favorite-tags');
     expect(resolveRendererAppEventApiChannel('gallery:images-changed')).toBe('system');
     expect(resolveRendererAppEventApiChannel('config:changed')).toBe('system');
+    // LAN 客户端图库事件频道契约（安卓相册 spec §5.5）：M2 移动端订阅 system 频道
+    // 感知图库变更与数据恢复，防未来分支特判把这些事件挪出 system。
+    expect(resolveRendererAppEventApiChannel('gallery:galleries-changed')).toBe('system');
+    expect(resolveRendererAppEventApiChannel('app:data-restored')).toBe('system');
   });
 
   it('accepts all bug5 event types in RendererAppEvent union', () => {
