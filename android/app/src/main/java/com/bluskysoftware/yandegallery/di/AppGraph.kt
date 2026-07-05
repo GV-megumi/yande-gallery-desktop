@@ -14,6 +14,8 @@ import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
 import com.bluskysoftware.yandegallery.domain.sync.SyncScheduler
+import com.bluskysoftware.yandegallery.domain.write.RetrofitWriteApi
+import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -128,6 +130,16 @@ class AppGraph(
             monitor = connectionMonitor,
             scope = scope,
             hadMirrorBefore = { mirrorStore.readSyncState() != null },
+        )
+    }
+
+    /** 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。 */
+    val writeRepository by lazy {
+        WriteRepository(
+            writeApi = RetrofitWriteApi { api() },
+            db = db,
+            monitor = connectionMonitor,
+            requestSync = { syncScheduler.requestSync("write") },
         )
     }
 
