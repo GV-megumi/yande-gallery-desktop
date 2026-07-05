@@ -21,13 +21,17 @@ object Routes {
     const val Photos = "photos"
     const val Albums = "albums"
     const val AlbumDetail = "albums/{galleryId}"
+    const val Settings = "settings"
     const val Servers = "servers"
     const val AddServer = "servers/add"
+    const val EditServer = "servers/{serverId}/edit"
     const val Scan = "servers/scan"
     const val Viewer = "viewer/{imageId}?galleryId={galleryId}"
     const val Search = "search?initialQuery={initialQuery}"
 
     fun albumDetail(galleryId: Long) = "albums/$galleryId"
+
+    fun editServer(serverId: Long) = "servers/$serverId/edit"
 
     /** 大图页：galleryId 非 null → 图集上下文翻页；null → 时间轴上下文。 */
     fun viewer(imageId: Long, galleryId: Long? = null) =
@@ -51,8 +55,10 @@ fun AppScaffold(
     navController: NavHostController,
     photosContent: @Composable () -> Unit,
     albumsContent: @Composable () -> Unit,
+    settingsContent: @Composable () -> Unit,
     serversContent: @Composable () -> Unit,
     addServerContent: @Composable () -> Unit,
+    editServerContent: @Composable (Long) -> Unit,
     scanContent: @Composable () -> Unit,
     albumDetailContent: @Composable (Long) -> Unit,
     viewerContent: @Composable (imageId: Long, galleryId: Long?) -> Unit,
@@ -77,7 +83,7 @@ fun AppScaffold(
                                 Icon(Icons.Filled.Search, contentDescription = "搜索")
                             }
                         }
-                        IconButton(onClick = { navController.navigate(Routes.Servers) }) {
+                        IconButton(onClick = { navController.navigate(Routes.Settings) }) {
                             Icon(Icons.Filled.Settings, contentDescription = "设置")
                         }
                     },
@@ -118,8 +124,15 @@ fun AppScaffold(
         ) {
             composable(Routes.Photos) { photosContent() }
             composable(Routes.Albums) { albumsContent() }
+            composable(Routes.Settings) { settingsContent() }
             composable(Routes.Servers) { serversContent() }
             composable(Routes.AddServer) { addServerContent() }
+            composable(
+                Routes.EditServer,
+                arguments = listOf(navArgument("serverId") { type = NavType.LongType }),
+            ) { entry ->
+                editServerContent(entry.arguments?.getLong("serverId") ?: -1L)
+            }
             composable(Routes.Scan) { scanContent() }
             composable(Routes.AlbumDetail) { entry ->
                 albumDetailContent(entry.arguments?.getString("galleryId")?.toLongOrNull() ?: -1L)
@@ -165,8 +178,10 @@ fun AppNavForTest() {
             navController = nav,
             photosContent = { Text("照片页占位") },
             albumsContent = { Text("相册页占位") },
+            settingsContent = { Text("设置页占位") },
             serversContent = { Text("服务器页占位") },
             addServerContent = { Text("添加服务器占位") },
+            editServerContent = { Text("编辑服务器占位") },
             scanContent = { Text("扫码占位") },
             albumDetailContent = { Text("图集详情占位") },
             viewerContent = { _, _ -> Text("大图页占位") },

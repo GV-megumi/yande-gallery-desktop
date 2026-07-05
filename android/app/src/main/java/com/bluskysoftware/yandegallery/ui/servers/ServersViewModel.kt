@@ -44,6 +44,18 @@ class ServersViewModel(private val graph: AppGraph) : ViewModel() {
     fun activate(id: Long) = viewModelScope.launch { graph.serverRepository.activate(id) }
     fun delete(id: Long) = viewModelScope.launch { graph.serverRepository.delete(id) }
 
+    /** 编辑服务器（spec §7.6）：归一化落库；编辑激活行时 id 不变不会触发 AppGraph 自动重连，须手动 nudge。 */
+    fun update(id: Long, name: String, baseUrl: String, apiKey: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            graph.serverRepository.updateServer(id, name, baseUrl, apiKey)
+            graph.sseClient.restart()
+            graph.syncScheduler.requestSync("server-edited")
+            onDone()
+        }
+    }
+
+    suspend fun serverById(id: Long) = graph.serverRepository.byId(id)
+
     companion object {
         fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {
             initializer { ServersViewModel(graph) }

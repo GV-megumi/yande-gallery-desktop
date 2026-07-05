@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
@@ -16,9 +17,11 @@ import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.search.SearchScreen
 import com.bluskysoftware.yandegallery.ui.search.SearchViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
+import com.bluskysoftware.yandegallery.ui.servers.EditServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
+import com.bluskysoftware.yandegallery.ui.settings.SettingsScreen
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerViewModel
@@ -79,11 +82,23 @@ class MainActivity : ComponentActivity() {
                             initialQuery = initialQuery,
                         )
                     },
+                    settingsContent = {
+                        val versionName = remember {
+                            runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
+                                .getOrNull() ?: "unknown"
+                        }
+                        SettingsScreen(
+                            onBack = { nav.popBackStack() },
+                            onOpenServers = { nav.navigate(Routes.Servers) },
+                            versionName = versionName,
+                        )
+                    },
                     serversContent = {
                         ServersScreen(
                             vm = serversVm,
                             onAddManual = { nav.navigate(Routes.AddServer) },
                             onScan = { nav.navigate(Routes.Scan) },
+                            onEdit = { id -> nav.navigate(Routes.editServer(id)) },
                             onBack = { nav.popBackStack() },
                         )
                     },
@@ -92,6 +107,14 @@ class MainActivity : ComponentActivity() {
                             vm = serversVm,
                             navController = nav,
                             onSaved = { nav.popBackStack(Routes.Servers, inclusive = false) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    },
+                    editServerContent = { serverId ->
+                        EditServerScreen(
+                            vm = serversVm,
+                            serverId = serverId,
+                            onSaved = { nav.popBackStack() },
                             onBack = { nav.popBackStack() },
                         )
                     },

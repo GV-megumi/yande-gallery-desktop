@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.ui
 
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -31,5 +32,13 @@ class AppNavTest {
         compose.onNodeWithTag("photos_search").assertIsDisplayed()
         compose.onNodeWithTag("photos_search").performClick()
         compose.onNodeWithText("搜索页占位").assertIsDisplayed()
+    }
+
+    @Test
+    fun `设置齿轮跳设置页`() {
+        compose.setContent { AppNavForTest() }
+        // 齿轮改指 Settings（原直达 Servers）：点击后应落到设置页占位
+        compose.onNodeWithContentDescription("设置").performClick()
+        compose.onNodeWithText("设置页占位").assertIsDisplayed()
     }
 }
