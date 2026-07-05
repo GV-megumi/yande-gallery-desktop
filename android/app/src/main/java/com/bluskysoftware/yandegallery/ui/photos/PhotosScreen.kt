@@ -136,7 +136,9 @@ fun PhotosScreen(
                 return@launch
             }
             if (missing > 0) {
-                snackbarHostState.showSnackbar("正在下载缺失原图，完成后自动分享…")
+                // fire-and-forget 子协程：提示不阻塞入队（showSnackbar 挂起到消失，串行会推迟下载约 4s）；
+                // 子协程随 shareJob 取消——放弃等待时提示同步消失
+                launch { snackbarHostState.showSnackbar("正在下载缺失原图，完成后自动分享…") }
             }
             val outcome = viewModel.ensureShareUris(ids)
             if (outcome.uris.isEmpty()) {

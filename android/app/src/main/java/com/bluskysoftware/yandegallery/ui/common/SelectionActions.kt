@@ -6,7 +6,9 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 private const val QUERY_CHUNK = 900 // SQLite 绑定变量上限保守值（对齐 RoomMirrorStore.DELETE_CHUNK）
 
@@ -50,7 +52,9 @@ class SelectionActions(
             exists = gatewayExists,
             clearStaleRow = { db.downloadDao().delete(serverId, it) },
         )
-        val outcome = coordinator.ensureDownloadedUris(entities)
+        // 整段下移 IO（审查 Minor）：gatewayExists 为同步 MediaStore 查询，批量 N 次（预检 + 终态后重查）
+        // 不宜占主线程；Room/入队/WorkInfo 收集均为挂起或线程安全调用，随迁无碍。
+        val outcome = withContext(Dispatchers.IO) { coordinator.ensureDownloadedUris(entities) }
         return if (missing.isEmpty()) outcome
         else outcome.copy(failedIds = outcome.failedIds + missing)
     }

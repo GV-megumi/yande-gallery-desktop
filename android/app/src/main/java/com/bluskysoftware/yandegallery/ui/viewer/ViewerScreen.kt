@@ -63,6 +63,7 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且未下载时提示 1600 档像素不足）。 */
@@ -179,17 +180,23 @@ fun ViewerScreen(
         }
     }
 
+    // 分享等待防重入（M4-T11 审查修复）：等待窗口内重复点分享会起两个协程、各拉一次 chooser——
+    // 进行中一律忽略后续点按；离开页面 scope 亡即随之取消，无需额外清理。
+    var shareJob by remember { mutableStateOf<Job?>(null) }
+
     /** 分享完整流（M4-T11/D9）：未下载先入队原图下载（带前台通知），等终态后自动 ACTION_SEND；
      *  离线且缺原图直接提示不入队；下载失败提示取消。离开页面即取消等待（scope 随 composition 亡），
      *  底层下载不取消（KEEP 队列继续，产物仍落库——D9 取消语义）。 */
     fun share(image: ImageEntity) {
+        if (shareJob?.isActive == true) return   // 等待中：忽略重复点按
         if (!connState.online && viewModel.downloadedUris.value[image.id] == null) {
             scope.launch { snackbar.showSnackbar("离线状态无法下载缺失原图，请连接后重试") }
             return
         }
-        scope.launch {
+        shareJob = scope.launch {
             if (viewModel.downloadedUris.value[image.id] == null) {
-                snackbar.showSnackbar("正在下载原图，完成后自动分享…")
+                // fire-and-forget：提示不阻塞入队（showSnackbar 挂起到消失，串行会推迟下载约 4s）
+                launch { snackbar.showSnackbar("正在下载原图，完成后自动分享…") }
             }
             viewModel.ensureDownloadedThenUri(image)
                 .onSuccess { uri ->
