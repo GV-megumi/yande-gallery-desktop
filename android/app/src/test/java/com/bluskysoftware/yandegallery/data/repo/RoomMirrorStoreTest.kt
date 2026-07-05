@@ -6,6 +6,7 @@ import com.bluskysoftware.yandegallery.data.api.SyncGalleryDto
 import com.bluskysoftware.yandegallery.data.api.SyncImageItemDto
 import com.bluskysoftware.yandegallery.data.api.SyncTagDto
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
+import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.domain.sync.SyncState
 import kotlinx.coroutines.test.runTest
@@ -103,6 +104,23 @@ class RoomMirrorStoreTest {
         // servers 不是镜像表，clearMirror 不应触碰它
         assertEquals(1L, rowCount("servers"))
         assertEquals(serverId, db.serverDao().active()?.id)
+    }
+
+    @Test
+    fun `clearMirror 一并清空 downloads 表（镜像身份失效则 imageId 映射作废）`() = runTest {
+        // downloads 以裸 imageId 为主键、无 serverId 命名空间；换服务器/dataVersion 变更后
+        // 同号 id 会命中旧服的本地原图，故镜像身份失效必须连带清空 downloads。
+        store.applyImagePage(listOf(imageItem(1, listOf(1), listOf(1))))
+        db.downloadDao().upsert(
+            DownloadEntity(imageId = 1, mediaStoreUri = "content://old/1", downloadedAt = "2026-01-01T00:00:00.000Z")
+        )
+        assertEquals(1L, rowCount("downloads"))
+
+        store.clearMirror()
+
+        assertEquals(0L, rowCount("downloads"))
+        // 与既有行为一致：镜像表同样被清空
+        assertEquals(0L, rowCount("images"))
     }
 
     @Test

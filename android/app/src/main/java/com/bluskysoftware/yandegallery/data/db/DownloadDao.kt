@@ -17,6 +17,9 @@ interface DownloadDao {
     @Query("DELETE FROM downloads WHERE imageId = :imageId")
     suspend fun delete(imageId: Long)
 
+    @Query("DELETE FROM downloads")
+    suspend fun clearAll()
+
     @Query("SELECT imageId FROM downloads")
     fun observeDownloadedIds(): Flow<List<Long>>
 

@@ -34,6 +34,9 @@ class RoomMirrorStore(private val db: AppDatabase) : MirrorStore {
         db.imageDao().clearAll() // CASCADE 连带清 image_tags/gallery_images
         db.galleryDao().clearAll()
         db.tagDao().clearAll()
+        // 镜像身份失效（换服务器/dataVersion 变更）意味着 imageId→本地文件映射全部作废，
+        // 必须一并清空，否则跨服同号 id 会命中错误的本地原图；系统相册中的文件本身保留。
+        db.downloadDao().clearAll()
         db.syncStateDao().clear()
     }
 
