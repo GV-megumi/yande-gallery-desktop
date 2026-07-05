@@ -225,6 +225,17 @@ class SelectionActionsTest {
     }
 
     @Test
+    fun `anyDownloaded 本服任一有副本即真，全无或无激活服务器为假`() = runTest {
+        db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
+        db.downloadDao().upsert(DownloadEntity(2, 5, "content://other/5", "t"))   // 他服行不算本服
+
+        assertTrue("选中含本服已下载的 2 → 真", build().anyDownloaded(listOf(1, 2, 3)))
+        assertEquals("全未下载 → 假", false, build().anyDownloaded(listOf(1, 3)))
+        assertEquals("他服同号不算 → 假", false, build().anyDownloaded(listOf(5)))
+        assertEquals("无激活服务器 → 假", false, build(activeServerId = { null }).anyDownloaded(listOf(2)))
+    }
+
+    @Test
     fun `batchDelete 全部成功——镜像行删除且本服下载映射行清理`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
         db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))

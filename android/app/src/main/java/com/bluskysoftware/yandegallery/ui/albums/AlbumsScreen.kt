@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -40,6 +41,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -86,9 +89,15 @@ fun AlbumsScreen(
 
     Scaffold(
         floatingActionButton = {
-            // 离线置灰：改用 disabled 配色 + onClick 空转（写操作离线不可发起，spec §8）
+            // 离线置灰：disabled 配色 + 无障碍语义 disabled()；离线点击给 snackbar 明确原因（替换静默空转，spec §8）
             FloatingActionButton(
-                onClick = { if (online) { newName = ""; showNew = true } },
+                onClick = {
+                    if (online) {
+                        newName = ""; showNew = true
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                    }
+                },
                 containerColor = if (online) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
@@ -99,7 +108,9 @@ fun AlbumsScreen(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                 },
-                modifier = Modifier.testTag("albums_new_fab"),
+                modifier = Modifier
+                    .semantics { if (!online) disabled() }
+                    .testTag("albums_new_fab"),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "新建图集")
             }
@@ -113,6 +124,8 @@ fun AlbumsScreen(
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
+                // 末行卡片给 FAB 让位（不被右下悬浮按钮遮挡）
+                contentPadding = PaddingValues(bottom = 88.dp),
                 modifier = Modifier.fillMaxSize().padding(padding).testTag("albums_grid"),
             ) {
                 items(albums, key = { it.gallery.id }) { card ->
@@ -180,10 +193,12 @@ fun AlbumsScreen(
         DeleteAlbumConfirmDialog(
             albumName = deleteName,
             onConfirm = {
+                // 先捕获局部再清状态：协程内的 snackbar 只用局部 name（原实现读已被后续清空/覆盖的 state）
+                val name = deleteName
                 deleteId = null
                 scope.launch {
                     when (val r = viewModel.deleteGallery(id)) {
-                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$deleteName」")
+                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$name」")
                         is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除图集失败", r))
                     }
                 }

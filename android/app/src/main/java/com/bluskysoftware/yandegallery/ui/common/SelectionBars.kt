@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -36,12 +37,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.bluskysoftware.yandegallery.domain.write.WriteResult
 
 /**
  * 多选顶部选择栏（M3-T13）：取消 × / 「已选 N 项」 / 全选。
- * 不处理系统栏 inset——照片 tab 嵌在 AppScaffold 内容区无需 inset；
- * 图集详情放 Scaffold topBar 槽时由调用方传 `Modifier.statusBarsPadding()`。
+ *
+ * 系统栏 inset 由 [insetStatusBar] 门控（D12A）：
+ * - 照片 tab 嵌在 AppScaffold 内容区、图集详情放 Scaffold topBar 槽——都需状态栏 inset，传 `insetStatusBar = true`，
+ *   padding 施加在 Surface **内**的 Row 上，Surface 背景连带着色状态栏区（避免顶部留一条未着色带）；
+ * - 缺省 false 时不施加 inset（无系统栏遮挡的宿主）。
  */
 @Composable
 fun SelectionTopBar(
@@ -49,11 +52,13 @@ fun SelectionTopBar(
     onSelectAll: () -> Unit,
     onCancel: () -> Unit,
     modifier: Modifier = Modifier,
+    insetStatusBar: Boolean = false,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier
+                .then(if (insetStatusBar) Modifier.statusBarsPadding() else Modifier)
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp, vertical = 4.dp)
                 .testTag("selection_top_bar"),
@@ -191,7 +196,3 @@ fun SelectableCell(
         }
     }
 }
-
-/** 写失败 → 提示文案：401 统一引导重新配对，其余带上下文前缀（与大图页同款文案规则）。 */
-internal fun writeFailText(prefix: String, result: WriteResult.Failed): String =
-    if (result.unauthorized) "密钥失效，请重新配对" else "$prefix：${result.message}"

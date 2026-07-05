@@ -32,7 +32,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -77,10 +80,15 @@ fun SearchScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
 
-    // 标签跳入：预填初始词（onQueryChange 即触发 debounce 搜索）。仅首次进入生效。
+    // 标签跳入：预填初始词（onQueryChange 即触发 debounce 搜索）。仅首次消费——旋转/进程重建后
+    // prefillConsumed 经 rememberSaveable 存活，不再用 initialQuery 回冲用户已改的词（D12A）。
+    var prefillConsumed by rememberSaveable(initialQuery) { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (initialQuery.isNotBlank()) viewModel.onQueryChange(initialQuery)
-        focusRequester.requestFocus()
+        if (!prefillConsumed && initialQuery.isNotBlank()) {
+            viewModel.onQueryChange(initialQuery)
+            prefillConsumed = true
+        }
+        focusRequester.requestFocus()   // 焦点请求不受守卫影响
     }
 
     Scaffold(

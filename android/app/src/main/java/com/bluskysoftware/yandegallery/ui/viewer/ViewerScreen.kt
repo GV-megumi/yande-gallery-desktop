@@ -39,6 +39,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -63,6 +64,8 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.mimeOf
+import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -97,11 +100,15 @@ fun ViewerScreen(
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
 
+    // detail/showTagEditor 维持 plain remember：ImageDetail 非 Saveable，旋转丢面板可接受（D12A 记录性裁定）。
     var detail by remember { mutableStateOf<ImageDetail?>(null) }
     var showTagEditor by remember { mutableStateOf(false) }
-    var confirmDelete by remember { mutableStateOf<ImageEntity?>(null) }
-    var pickGalleryFor by remember { mutableStateOf<Long?>(null) }
-    var cascadeImageId by remember { mutableStateOf<Long?>(null) }
+    // 删除确认拆为可存 id/名/有无本地副本三态（ImageEntity 非 Saveable）：旋转不丢确认框，文案分支据 hasLocal。
+    var confirmDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var confirmDeleteName by rememberSaveable { mutableStateOf("") }
+    var confirmDeleteHasLocal by rememberSaveable { mutableStateOf(false) }
+    var pickGalleryFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    var cascadeImageId by rememberSaveable { mutableStateOf<Long?>(null) }
 
     // 30+ 级联删系统相册副本的确认结果：同意 → 系统已删文件；拒绝 → 文件保留（用户自主选择）。
     // 两种结果都只清 downloads 映射行（spec §8），随后返回上一页（镜像行已删，图已不在）。
@@ -119,12 +126,12 @@ fun ViewerScreen(
     /** detailOf 对同步中途被删的行抛 IllegalArgumentException（T9 KDoc 契约）——捕获降级：关面板 + 提示。 */
     fun openDetail(imageId: Long) {
         scope.launch {
-            detail = try {
-                viewModel.detailOf(imageId)
+            try {
+                detail = viewModel.detailOf(imageId)
             } catch (e: IllegalArgumentException) {
+                detail = null            // 先收面板/编辑框，再挂起提示（snackbar 挂起期间不残留旧面板）
                 showTagEditor = false
                 snackbar.showSnackbar("图片已不存在")
-                null
             }
         }
     }
@@ -135,16 +142,16 @@ fun ViewerScreen(
             else viewModel.removeTags(imageId, listOf(name))
             when (result) {
                 WriteResult.Success -> openDetail(imageId) // 重查 detailOf 刷新面板与编辑对话框
-                is WriteResult.Failed -> snackbar.showSnackbar(failText("标签编辑失败", result))
+                is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("标签编辑失败", result))
             }
         }
     }
 
-    fun performDelete(image: ImageEntity) {
+    fun performDelete(imageId: Long) {
         scope.launch {
-            val localUri = viewModel.downloadedUris.value[image.id]  // 先取快照（删镜像行不影响 downloads 表）
-            when (val result = viewModel.deleteImage(image.id)) {
-                is WriteResult.Failed -> snackbar.showSnackbar(failText("删除失败", result))
+            val localUri = viewModel.downloadedUris.value[imageId]  // 先取快照（删镜像行不影响 downloads 表）
+            when (val result = viewModel.deleteImage(imageId)) {
+                is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("删除失败", result))
                 WriteResult.Success -> {
                     if (localUri == null) {
                         onBack()
@@ -154,23 +161,23 @@ fun ViewerScreen(
                     val pending = viewModel.buildDeleteRequest(uri)
                     if (pending != null) {
                         // 30+：先记 imageId 再拉系统确认；清映射与返回收敛到 launcher 回调
-                        cascadeImageId = image.id
+                        cascadeImageId = imageId
                         cascadeLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
                     } else {
                         // <30：直删本地副本；API 29 失去所有权时系统抛 RecoverableSecurityException，
                         // gateway 转成 NeedsConsent(intentSender)——走与 30+ 同一个 cascadeLauncher（spec §8）
                         when (val r = viewModel.deleteLocalCopy(uri)) {
                             is DeleteOwnedResult.NeedsConsent -> {
-                                cascadeImageId = image.id
+                                cascadeImageId = imageId
                                 cascadeLauncher.launch(IntentSenderRequest.Builder(r.intentSender).build())
                             }
                             is DeleteOwnedResult.Failed -> {
                                 snackbar.showSnackbar("本地副本删除失败：${r.message ?: "未知错误"}")   // spec §8 明确报错不静默
-                                viewModel.clearDownloadRow(image.id)
+                                viewModel.clearDownloadRow(imageId)
                                 onBack()
                             }
                             DeleteOwnedResult.Deleted -> {
-                                viewModel.clearDownloadRow(image.id)
+                                viewModel.clearDownloadRow(imageId)
                                 onBack()
                             }
                         }
@@ -253,7 +260,12 @@ fun ViewerScreen(
                     highZoom = zoomedIn && !isDownloaded,
                     onShare = { share(image) },
                     onViewOriginal = { viewModel.enqueueDownload(image) },
-                    onDelete = { confirmDelete = image },
+                    onDelete = {
+                        // 打开确认框时快照：id/文件名（旋转不丢）+ 是否有本地副本（决定文案分支）
+                        confirmDeleteId = image.id
+                        confirmDeleteName = image.filename
+                        confirmDeleteHasLocal = downloadedUris[image.id] != null
+                    },
                     onDetail = {
                         showTagEditor = false
                         openDetail(image.id)
@@ -264,7 +276,7 @@ fun ViewerScreen(
                             scope.launch {
                                 when (val r = viewModel.removeFromGallery(galleryId, image.id)) {
                                     WriteResult.Success -> snackbar.showSnackbar("已移出当前图集")
-                                    is WriteResult.Failed -> snackbar.showSnackbar(failText("移出图集失败", r))
+                                    is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移出图集失败", r))
                                 }
                             }
                         }
@@ -282,23 +294,31 @@ fun ViewerScreen(
         )
     }
 
-    // 删除二次确认：明示服务器删除 + 本地副本级联（spec §7.3 D10 / §8）
-    confirmDelete?.let { image ->
+    // 删除二次确认：文案按有无本地副本分支（spec §7.3 D10 / §8）——有副本明示级联删除，无副本明示本机无副本
+    confirmDeleteId?.let { imageId ->
         AlertDialog(
-            onDismissRequest = { confirmDelete = null },
+            onDismissRequest = { confirmDeleteId = null },
             title = { Text("删除图片") },
-            text = { Text("确定删除「${image.filename}」？将从服务器删除；本机已保存的原图副本也会一并删除。") },
+            text = {
+                Text(
+                    if (confirmDeleteHasLocal) {
+                        "确定删除「$confirmDeleteName」？将从服务器删除；本机已保存的原图副本也会一并删除。"
+                    } else {
+                        "确定删除「$confirmDeleteName」？将从服务器删除（本机无已保存副本）。"
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        confirmDelete = null
-                        performDelete(image)
+                        confirmDeleteId = null
+                        performDelete(imageId)
                     },
                     modifier = Modifier.testTag("viewer_delete_confirm"),
                 ) { Text("删除") }
             },
             dismissButton = {
-                TextButton(onClick = { confirmDelete = null }) { Text("取消") }
+                TextButton(onClick = { confirmDeleteId = null }) { Text("取消") }
             },
         )
     }
@@ -312,7 +332,7 @@ fun ViewerScreen(
                 scope.launch {
                     when (val r = viewModel.addToGallery(galleryId, imageId)) {
                         WriteResult.Success -> snackbar.showSnackbar("已加入图集")
-                        is WriteResult.Failed -> snackbar.showSnackbar(failText("加入图集失败", r))
+                        is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("加入图集失败", r))
                     }
                 }
             },
@@ -356,10 +376,6 @@ fun ViewerScreen(
     }
 }
 
-/** 写失败 → 提示文案：401 统一引导重新配对，其余带上下文前缀。 */
-private fun failText(prefix: String, result: WriteResult.Failed): String =
-    if (result.unauthorized) "密钥失效，请重新配对" else "$prefix：${result.message}"
-
 /**
  * 大图 Pager 骨架（无 VM 依赖，Robolectric 冒烟可注入 fake PagingData）：
  * - 初始页按 id 在已加载快照中匹配定位（T9 契约：不预算绝对下标）；未命中且分页未到底时
@@ -384,7 +400,10 @@ fun ViewerPager(
 ) {
     val pagerState = rememberPagerState { items.itemCount }
     val zoomStates = remember { mutableStateMapOf<Int, ZoomableImageState>() }
-    var located by remember { mutableStateOf(false) }
+    // rememberSaveable 修 M3-T10 记债「旋转回初始图」：rememberPagerState 自带 saveable 保当前页，
+    // located=true 存活后旋转不再触发定位循环重定位回 initialImageId（否则 plain remember 复位为 false，
+    // effect 重跑把 pager 拉回初始页，覆盖用户当前浏览位置）。
+    var located by rememberSaveable { mutableStateOf(false) }
     var immersive by remember { mutableStateOf(false) }
     val currentOnPrefetch by rememberUpdatedState(onPrefetch)
 

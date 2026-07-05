@@ -1,9 +1,18 @@
 package com.bluskysoftware.yandegallery.ui.search
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.test.core.app.ApplicationProvider
+import com.bluskysoftware.yandegallery.data.db.AppDatabase
+import com.bluskysoftware.yandegallery.di.AppGraph
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -47,5 +56,38 @@ class SearchScreenTest {
         }
         compose.onNodeWithTag("search_clear_history").performClick()
         assertTrue(cleared)
+    }
+
+    /**
+     * D12A 旋转/进程重建守卫：预填 "cat" 进入 → 用户改词 "dog" → 模拟状态恢复重建 →
+     * 查询仍为 "dog"（prefillConsumed 经 rememberSaveable 存活，不被 initialQuery 回冲）。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `预填后改词 重建不被 initialQuery 回冲`() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        val vm = SearchViewModel(graph)
+        try {
+            val restorationTester = StateRestorationTester(compose)
+            restorationTester.setContent {
+                SearchScreen(viewModel = vm, onOpenViewer = {}, onBack = {}, initialQuery = "cat")
+            }
+            compose.waitForIdle()
+            assertEquals("cat", vm.query.value)   // 预填生效
+
+            vm.onQueryChange("dog")                // 用户改词
+            compose.waitForIdle()
+
+            restorationTester.emulateSavedInstanceStateRestore()
+            compose.waitForIdle()
+
+            assertEquals("dog", vm.query.value)    // 重建后不回冲为 cat
+        } finally {
+            graph.shutdownForTest()
+            db.close()
+            Dispatchers.resetMain()
+        }
     }
 }

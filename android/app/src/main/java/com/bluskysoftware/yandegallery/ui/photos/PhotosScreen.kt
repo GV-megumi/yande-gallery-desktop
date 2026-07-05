@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -38,6 +39,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -105,10 +107,11 @@ fun PhotosScreen(
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    var confirmBatchDelete by remember { mutableStateOf(false) }
+    // 对话框/文案分支状态用 rememberSaveable 抗旋转（选择态存活于 VM，重建后对话框与文案随之复原）
+    var confirmBatchDelete by rememberSaveable { mutableStateOf(false) }
     // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
-    var batchHasLocalCopies by remember { mutableStateOf(false) }
-    var showGalleryPicker by remember { mutableStateOf(false) }
+    var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
+    var showGalleryPicker by rememberSaveable { mutableStateOf(false) }
 
     // 30+ 批量副本级联的系统确认：结果无需处理——downloads 行已在 batchDelete 清掉，
     // 同意/拒绝只影响系统相册文件去留（拒绝即保留文件，spec §8）。
@@ -130,6 +133,7 @@ fun PhotosScreen(
 
     /** 批量分享完整流（M4-T11/D9）：缺失项先入队原图下载，等全部终态后自动分享；部分失败仍分享成功子集。 */
     fun shareSelected() {
+        if (shareJob?.isActive == true) return   // 等待中：忽略重复点按（照大图页 share 同款防重入，T12 审查移交）
         val ids = viewModel.selection.selected.toList()
         shareJob = scope.launch {
             val missing = ids.size - viewModel.downloadedUrisFor(ids).size
@@ -188,8 +192,8 @@ fun PhotosScreen(
                 onDelete = {
                     val ids = viewModel.selection.selected.toList()
                     scope.launch {
-                        // 先探一次是否含已下载副本，确认文案据此分支（M4-T9）
-                        batchHasLocalCopies = viewModel.downloadedUrisFor(ids).isNotEmpty()
+                        // 先探一次是否含已下载副本，确认文案据此分支（M4-T9；D12A 改用短路 anyDownloaded）
+                        batchHasLocalCopies = viewModel.anyDownloaded(ids)
                         confirmBatchDelete = true
                     }
                 },
@@ -333,7 +337,14 @@ fun PhotosScreen(
                 }
             }
         }
-        SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
+        // T12 后底栏在壳 Scaffold 槽（内容 padding 之外），此处补 inset/边距使提示不贴屏底
+        SnackbarHost(
+            snackbarHostState,
+            Modifier
+                .align(Alignment.BottomCenter)
+                .navigationBarsPadding()
+                .padding(bottom = 8.dp),
+        )
     }
 
     // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）

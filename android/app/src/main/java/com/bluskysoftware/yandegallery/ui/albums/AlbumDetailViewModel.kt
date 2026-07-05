@@ -24,7 +24,7 @@ import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
-import com.bluskysoftware.yandegallery.ui.viewer.mimeOf
+import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -65,6 +65,9 @@ class AlbumDetailViewModel(
 
     // ---- Task 13 多选：VM 持有选择状态 + 批量动作（Screen 不直接触 graph） ----
 
+    /** 本图集 id（GalleryPickerDialog 排除自身——图集详情不应把选中项「加入当前所在图集」，D12A）。 */
+    val currentGalleryId: Long get() = galleryId
+
     /** 连接状态：多选底部栏写动作离线置灰。 */
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state
 
@@ -96,6 +99,9 @@ class AlbumDetailViewModel(
 
     /** 批删前快照已下载 uri（batchDelete 会清行，必须先取）；无激活服务器返回空（M4-T9）。 */
     suspend fun downloadedUrisFor(ids: List<Long>): List<String> = actions.downloadedUrisFor(ids)
+
+    /** 选中项是否含本机已下载副本（删除确认文案分支依据，D12A）。 */
+    suspend fun anyDownloaded(ids: List<Long>): Boolean = actions.anyDownloaded(ids)
 
     /** 30+ 批量副本级联：一次系统确认弹窗（spec §8）；<30 返回 null 走 [deleteLocalCopies]。 */
     fun buildBatchDeleteRequest(uris: List<Uri>): PendingIntent? =

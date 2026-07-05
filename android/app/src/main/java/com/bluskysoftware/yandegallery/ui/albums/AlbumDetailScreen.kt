@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
@@ -30,6 +29,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -74,10 +74,11 @@ fun AlbumDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var confirmBatchDelete by remember { mutableStateOf(false) }
+    // 对话框/文案分支状态用 rememberSaveable 抗旋转（选择态存活于 VM，重建后对话框与文案随之复原）
+    var confirmBatchDelete by rememberSaveable { mutableStateOf(false) }
     // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
-    var batchHasLocalCopies by remember { mutableStateOf(false) }
-    var showGalleryPicker by remember { mutableStateOf(false) }
+    var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
+    var showGalleryPicker by rememberSaveable { mutableStateOf(false) }
 
     // 30+ 批量副本级联的系统确认：结果无需处理——downloads 行已在 batchDelete 清掉，
     // 同意/拒绝只影响系统相册文件去留（拒绝即保留文件，spec §8）。
@@ -99,6 +100,7 @@ fun AlbumDetailScreen(
 
     /** 批量分享完整流（M4-T11/D9）：缺失项先入队原图下载，等全部终态后自动分享；部分失败仍分享成功子集。 */
     fun shareSelected() {
+        if (shareJob?.isActive == true) return   // 等待中：忽略重复点按（照大图页 share 同款防重入，D12A 一致性）
         val ids = viewModel.selection.selected.toList()
         shareJob = scope.launch {
             val missing = ids.size - viewModel.downloadedUrisFor(ids).size
@@ -143,7 +145,8 @@ fun AlbumDetailScreen(
                         )
                     },
                     onCancel = { viewModel.selection.clear() },
-                    modifier = Modifier.statusBarsPadding(),
+                    // Scaffold topBar 槽内状态栏 inset 施于 Surface 内的 Row（背景连带着色状态栏区，D12A）
+                    insetStatusBar = true,
                 )
             } else {
                 TopAppBar(
@@ -171,8 +174,8 @@ fun AlbumDetailScreen(
                     onDelete = {
                         val ids = viewModel.selection.selected.toList()
                         scope.launch {
-                            // 先探一次是否含已下载副本，确认文案据此分支（M4-T9）
-                            batchHasLocalCopies = viewModel.downloadedUrisFor(ids).isNotEmpty()
+                            // 先探一次是否含已下载副本，确认文案据此分支（M4-T9；D12A 改用短路 anyDownloaded）
+                            batchHasLocalCopies = viewModel.anyDownloaded(ids)
                             confirmBatchDelete = true
                         }
                     },
@@ -276,6 +279,7 @@ fun AlbumDetailScreen(
     if (showGalleryPicker) {
         GalleryPickerDialog(
             galleries = galleries,
+            excludeIds = setOf(viewModel.currentGalleryId),   // 排除当前所在图集，避免「加入自身」自指（D12A）
             onPick = { galleryId ->
                 showGalleryPicker = false
                 val ids = viewModel.selection.selected.toList()

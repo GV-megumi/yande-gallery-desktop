@@ -59,6 +59,15 @@ class SelectionActions(
         else outcome.copy(failedIds = outcome.failedIds + missing)
     }
 
+    /**
+     * 选中项里是否有本服已下载副本（D12A 删除确认文案分支依据）：短路 any——命中首个即返回，
+     * 不必物化整份 uri 列表。无激活服务器视为无副本。
+     */
+    suspend fun anyDownloaded(ids: List<Long>): Boolean {
+        val serverId = activeServerId() ?: return false
+        return ids.any { db.downloadDao().byImageId(serverId, it) != null }
+    }
+
     /** 批删前快照已下载 uri（batchDelete 会清行，必须先取）；无激活服务器返回空。 */
     suspend fun downloadedUrisFor(ids: List<Long>): List<String> {
         val serverId = activeServerId() ?: return emptyList()

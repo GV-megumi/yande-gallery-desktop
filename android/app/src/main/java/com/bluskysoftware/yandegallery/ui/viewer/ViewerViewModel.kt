@@ -24,6 +24,7 @@ import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -236,16 +237,6 @@ class ViewerViewModel(
                 initializer { ViewerViewModel(graph, imageId, galleryId) }
             }
     }
-}
-
-/** 图片 format → MIME（下载入队与分享 Intent 共用）；未知格式回退通配。 */
-internal fun mimeOf(format: String): String = when (format.lowercase()) {
-    "jpg", "jpeg" -> "image/jpeg"
-    "png" -> "image/png"
-    "gif" -> "image/gif"
-    "webp" -> "image/webp"
-    "bmp" -> "image/bmp"
-    else -> "image/*"
 }
 
 /** 详情面板模型：图片实体 + 标签名（按名升序）+ 所属图集 id。 */

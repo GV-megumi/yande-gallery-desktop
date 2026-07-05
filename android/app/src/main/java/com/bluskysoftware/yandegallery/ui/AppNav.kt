@@ -1,7 +1,6 @@
 package com.bluskysoftware.yandegallery.ui
 
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
@@ -85,7 +84,7 @@ fun AppScaffold(
                     count = bars.count,
                     onSelectAll = bars.onSelectAll,
                     onCancel = bars.onCancel,
-                    modifier = Modifier.statusBarsPadding(),   // Surface 需手动补状态栏 inset（对齐 AlbumDetail 用法）
+                    insetStatusBar = true,   // Surface 内补状态栏 inset（背景连带着色状态栏区，对齐 AlbumDetail 用法）
                 )
             } else if (showBottomBar) {
                 TopAppBar(
