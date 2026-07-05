@@ -29,6 +29,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -55,22 +56,44 @@ class PhotosViewModel(
     /** 全量重建提示：dataVersion/serverId 变化时发一次，PhotosScreen 弹 Snackbar。 */
     val rebuildNotices: SharedFlow<Unit> = graph.syncScheduler.rebuildNotices
 
+    /** 时间轴密度档位（D1 四档）：DataStore 持久（跨进程），Eagerly 让首帧尽快用上记忆档。 */
+    val densityTier: StateFlow<DensityTier> =
+        graph.prefsStore.densityTierName
+            .map { DensityTier.fromName(it) }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, DensityTier.DEFAULT)
+
+    /** 切档（捏合手势/未来设置入口共用）：写 DataStore，UI 经 densityTier 回环更新。 */
+    fun setDensityTier(tier: DensityTier) {
+        viewModelScope.launch { graph.prefsStore.setDensityTierName(tier.name) }
+    }
+
     /**
-     * 时间轴分页流：Pager → map 成 Photo → 按本地时区日界 insertSeparators 插 Header → cachedIn。
-     * insertSeparators 仅在相邻两张照片跨日（含列表首张，before==null）时插入分组头。
+     * 时间轴分页流（M4-T2 重构）：仅「月↔日分组粒度」翻转经 flatMapLatest 重建（丢滚动位置、
+     * 由 Screen 锚定回原日期——T3）；纯列数变化（日 3/4/5）不重建本流，滚动位置天然保留（D2）。
+     * cachedIn 在最外层（SearchViewModel 同款拓扑）。
      */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagingFlow: Flow<PagingData<TimelineItem>> =
-        Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-            graph.db.imageDao().timelinePagingSource()
-        }.flow
-            .map { data -> data.map<ImageEntity, TimelineItem> { TimelineItem.Photo(it) } }
-            .map { data ->
-                data.insertSeparators { before, after ->
-                    val afterPhoto = after as? TimelineItem.Photo ?: return@insertSeparators null
-                    val afterKey = dayKeyOf(afterPhoto.image.createdAt)
-                    val beforeKey = (before as? TimelineItem.Photo)?.let { dayKeyOf(it.image.createdAt) }
-                    if (beforeKey != afterKey) TimelineItem.Header(afterKey, dayDisplayOf(afterKey)) else null
-                }
+        densityTier
+            .map { it.monthGrouping }
+            .distinctUntilChanged()
+            .flatMapLatest { monthly ->
+                Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
+                    graph.db.imageDao().timelinePagingSource()
+                }.flow
+                    .map { data -> data.map<ImageEntity, TimelineItem> { TimelineItem.Photo(it) } }
+                    .map { data ->
+                        data.insertSeparators { before, after ->
+                            val afterPhoto = after as? TimelineItem.Photo ?: return@insertSeparators null
+                            val afterKey = if (monthly) monthKeyOf(afterPhoto.image.createdAt) else dayKeyOf(afterPhoto.image.createdAt)
+                            val beforeKey = (before as? TimelineItem.Photo)?.let {
+                                if (monthly) monthKeyOf(it.image.createdAt) else dayKeyOf(it.image.createdAt)
+                            }
+                            if (beforeKey != afterKey) {
+                                TimelineItem.Header(afterKey, if (monthly) monthDisplayOf(afterKey) else dayDisplayOf(afterKey))
+                            } else null
+                        }
+                    }
             }
             .cachedIn(viewModelScope)
 

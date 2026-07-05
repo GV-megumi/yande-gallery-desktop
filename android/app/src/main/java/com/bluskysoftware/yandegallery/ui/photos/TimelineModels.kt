@@ -21,3 +21,42 @@ fun dayDisplayOf(dayKey: String): String = runCatching {
     val date = LocalDate.parse(dayKey)
     "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
 }.getOrElse { dayKey }
+
+/**
+ * 时间轴密度四档（spec §7.1 / D1）：月视图 6 列（本计划裁定，spec 未定列数）+ 日视图 3/4/5 列。
+ * larger() = 捏合放大方向（格子变大）：MONTH → DAY_5 → DAY_4 → DAY_3。
+ */
+enum class DensityTier(val columns: Int, val monthGrouping: Boolean) {
+    MONTH(6, true), DAY_5(5, false), DAY_4(4, false), DAY_3(3, false);
+
+    fun larger(): DensityTier? = when (this) {
+        MONTH -> DAY_5; DAY_5 -> DAY_4; DAY_4 -> DAY_3; DAY_3 -> null
+    }
+
+    fun smaller(): DensityTier? = when (this) {
+        DAY_3 -> DAY_4; DAY_4 -> DAY_5; DAY_5 -> MONTH; MONTH -> null
+    }
+
+    companion object {
+        val DEFAULT = DAY_4
+        fun fromName(name: String?): DensityTier = entries.firstOrNull { it.name == name } ?: DEFAULT
+    }
+}
+
+/** createdAt（ISO UTC）→ 本地时区月 key（yyyy-MM）。解析失败回退前 7 字符（镜像 dayKeyOf）。 */
+fun monthKeyOf(createdAt: String): String = runCatching {
+    val date = Instant.parse(createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+    "%04d-%02d".format(date.year, date.monthValue)
+}.getOrElse { createdAt.take(7) }
+
+/** 月 key（yyyy-MM）→「2026年6月」。 */
+fun monthDisplayOf(monthKey: String): String = runCatching {
+    val (y, m) = monthKey.split("-")
+    "${y.toInt()}年${m.toInt()}月"
+}.getOrElse { monthKey }
+
+/** 日 key（yyyy-MM-dd）→「6月15日」（快速滚动气泡日视图档，D4）。 */
+fun dayBubbleDisplayOf(dayKey: String): String = runCatching {
+    val date = LocalDate.parse(dayKey)
+    "${date.monthValue}月${date.dayOfMonth}日"
+}.getOrElse { dayKey }
