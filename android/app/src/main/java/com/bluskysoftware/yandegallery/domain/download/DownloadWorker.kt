@@ -9,6 +9,7 @@ import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.DownloadDao
 import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import kotlinx.coroutines.CancellationException
 
 /**
  * 原图下载 worker：流式 GET /api/v1/images/{id}/file → 校验 Content-Length → 写入系统相册 → 落库。
@@ -42,38 +43,48 @@ class DownloadWorker(
                 onNotFound(); return Result.failure()  // 原图已删，终止+触发对账
             }
             return Result.retry()                       // 其它 HTTP 错误可重试
+        } catch (e: CancellationException) {
+            throw e   // 取消不吞：向上重抛，WorkManager 按取消语义处理（不误判成 retry）
         } catch (e: Exception) {
             return Result.retry()
         }
         val body = response.body() ?: return Result.retry()
-        val expected = body.contentLength()   // Content-Length（-1 表示未知）
 
-        // 系统相册写入失败（权限/空间，通常非瞬态）→ Result.failure()（spec §8「明确报错，不静默」），
-        // UI 层观察 WorkInfo FAILED 弹「保存到系统相册失败」（Task 9 downloadState/Task 11/13 消费）。
-        val uri = gateway.createPending(filename, mime) ?: return Result.failure()
-        var written = 0L
-        try {
-            gateway.openOutput(uri).use { out ->
-                if (out == null) { gateway.discard(uri); return Result.failure() }
-                body.byteStream().use { input ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf); if (n < 0) break
-                        out.write(buf, 0, n); written += n
-                        setProgress(workDataOf(KEY_PROGRESS to written))
+        // body.use：@Streaming 的 ResponseBody 持有底层 OkHttp 连接直到 close——必须保证**所有**
+        // 路径都关闭，包括 createPending/openOutput 返回 null 的早退（use 为 inline，非局部 return
+        // 也会走 close），否则每次失败泄漏一条连接。
+        return body.use {
+            val expected = body.contentLength()   // Content-Length（-1 表示未知）
+
+            // 系统相册写入失败（权限/空间，通常非瞬态）→ Result.failure()（spec §8「明确报错，不静默」），
+            // UI 层观察 WorkInfo FAILED 弹「保存到系统相册失败」（Task 9 downloadState/Task 11/13 消费）。
+            val uri = gateway.createPending(filename, mime) ?: return Result.failure()
+            var written = 0L
+            try {
+                gateway.openOutput(uri).use { out ->
+                    if (out == null) { gateway.discard(uri); return Result.failure() }
+                    body.byteStream().use { input ->
+                        val buf = ByteArray(64 * 1024)
+                        while (true) {
+                            val n = input.read(buf); if (n < 0) break
+                            out.write(buf, 0, n); written += n
+                            setProgress(workDataOf(KEY_PROGRESS to written))
+                        }
                     }
                 }
+            } catch (e: CancellationException) {
+                gateway.discard(uri); throw e   // 取消不吞：先清理半成品条目再重抛，不留 pending 行
+            } catch (e: Exception) {
+                gateway.discard(uri); return Result.retry()
             }
-        } catch (e: Exception) {
-            gateway.discard(uri); return Result.retry()
-        }
 
-        if (expected >= 0 && written != expected) {   // Content-Length 完整性校验（spec §6.4）
-            gateway.discard(uri); return Result.retry()
+            if (expected >= 0 && written != expected) {   // Content-Length 完整性校验（spec §6.4）
+                gateway.discard(uri); return Result.retry()
+            }
+            gateway.finalize(uri)
+            downloadDao.upsert(DownloadEntity(imageId, uri.toString(), now()))
+            Result.success()
         }
-        gateway.finalize(uri)
-        downloadDao.upsert(DownloadEntity(imageId, uri.toString(), now()))
-        return Result.success()
     }
 
     companion object {

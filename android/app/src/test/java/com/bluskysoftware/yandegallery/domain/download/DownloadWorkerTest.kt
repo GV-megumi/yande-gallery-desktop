@@ -15,7 +15,11 @@ import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.DownloadDao
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
+import okhttp3.Call
+import okhttp3.Connection
+import okhttp3.EventListener
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -32,6 +36,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.ByteArrayOutputStream
 import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * DownloadWorker 单元测试（TDD）——对 fake gateway / in-memory Room DownloadDao / 真实 okHttp 客户端
@@ -160,24 +165,60 @@ class DownloadWorkerTest {
     }
 
     @Test
-    fun `系统相册写入失败——直接失败不重试且不落库`() = runTest {
+    fun `系统相册写入失败——直接失败不重试且不落库，流式 body 连接归还不泄漏`() = runTest {
         val payload = ByteArray(512) { it.toByte() }
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody(Buffer().write(payload)))
             server.start()
             val gateway = FakeMediaStoreGateway(createReturnsNull = true)
 
-            val result = buildWorker(api = realApi(server), gateway = gateway).doWork()
+            // 连接泄漏观测：@Streaming body 不 close 则 OkHttp 连接不归还（connectionReleased 不触发）。
+            // body.close() 同步触发 connectionReleased，故 doWork 返回后计数确定可断言，无需等待。
+            val released = AtomicInteger(0)
+            val client = ApiClientFactory.okHttp({ null }).newBuilder()
+                .eventListener(object : EventListener() {
+                    override fun connectionReleased(call: Call, connection: Connection) {
+                        released.incrementAndGet()
+                    }
+                })
+                .build()
+            val api = ApiClientFactory.desktopApi(server.url("/").toString(), client)
+
+            val result = buildWorker(api = api, gateway = gateway).doWork()
 
             assertEquals("MediaStore 写失败应 failure（非 retry）", ListenableWorker.Result.failure(), result)
             assertEquals("createPending 返回 null，无 uri 可 discard", 0, gateway.discardCount)
             assertNull("写失败不应落库", dao.byImageId(imageId))
+            assertEquals("早退路径必须 close 流式 body 归还连接（不泄漏）", 1, released.get())
+        }
+    }
+
+    @Test
+    fun `取消——CancellationException 不吞成 retry，discard 清理半成品且不落库`() = runTest {
+        val payload = ByteArray(512) { it.toByte() }
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(payload)))
+            server.start()
+            // 生产中取消于拷贝循环内的挂起点（setProgress）浮出为 CancellationException；
+            // TestListenableWorkerBuilder 直调 doWork()，真实挂起点无 gate 可挂、无法确定性注入取消，
+            // 故经 fake 网关写入缝直接抛 CancellationException——覆盖同一 catch 排序逻辑
+            // （CancellationException 必须先于 Exception 被捕获：discard 清理后重抛，绝不吞成 retry）。
+            val gateway = FakeMediaStoreGateway(throwOnWrite = { CancellationException("下载被取消") })
+
+            val thrown = runCatching {
+                buildWorker(api = realApi(server), gateway = gateway).doWork()
+            }.exceptionOrNull()
+
+            assertTrue("取消必须向上重抛，不能吞成 Result.retry", thrown is CancellationException)
+            assertEquals("取消须 discard 清理半成品条目", 1, gateway.discardCount)
+            assertNull("取消不应落库", dao.byImageId(imageId))
         }
     }
 
     /** 内存 fake：ByteArrayOutputStream 累积字节，记录 finalize/discard 调用。 */
     private class FakeMediaStoreGateway(
         private val createReturnsNull: Boolean = false,
+        private val throwOnWrite: (() -> Throwable)? = null,   // 写入时抛指定异常（模拟取消/IO 故障）
     ) : MediaStoreGateway {
         private val streams = LinkedHashMap<Uri, ByteArrayOutputStream>()
         var finalizeCalled = false
@@ -191,7 +232,14 @@ class DownloadWorkerTest {
             return uri
         }
 
-        override fun openOutput(uri: Uri): OutputStream? = streams[uri]
+        override fun openOutput(uri: Uri): OutputStream? {
+            val target = streams[uri] ?: return null
+            val thrower = throwOnWrite ?: return target
+            return object : OutputStream() {
+                override fun write(b: Int): Unit = throw thrower()
+                override fun write(b: ByteArray, off: Int, len: Int): Unit = throw thrower()
+            }
+        }
 
         override fun finalize(uri: Uri) {
             finalizeCalled = true
