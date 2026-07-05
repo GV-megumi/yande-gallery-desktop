@@ -22,6 +22,7 @@ import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
+import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -196,6 +197,21 @@ class ViewerViewModel(
     fun enqueueDownload(image: ImageEntity) {
         val serverId = activeServer.value?.id ?: return
         graph.downloadManager.enqueue(serverId, image.id, image.filename, mimeOf(image.format))
+    }
+
+    /** 分享完整流（D9）：未下载先入队原图下载，等终态后返回可分享 uri；无激活服务器/下载失败 → failure。 */
+    suspend fun ensureDownloadedThenUri(image: ImageEntity): Result<String> {
+        val serverId = activeServer.value?.id ?: return Result.failure(IllegalStateException("无激活服务器"))
+        val coordinator = ShareCoordinator(
+            isDownloaded = { graph.db.downloadDao().byImageId(serverId, it)?.mediaStoreUri },
+            enqueue = { img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
+            observeState = { graph.downloadManager.observeState(serverId, it) },
+            exists = { gateway.exists(it.toUri()) },
+            clearStaleRow = { graph.db.downloadDao().delete(serverId, it) },
+        )
+        val outcome = coordinator.ensureDownloadedUris(listOf(image))
+        return outcome.uris.firstOrNull()?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException("原图下载失败"))
     }
 
     /** 级联删本地副本：30+ 返回系统确认 PendingIntent（UI 层经 StartIntentSenderForResult 启动）；<30 返回 null（调用方走 [deleteLocalCopy]）。 */

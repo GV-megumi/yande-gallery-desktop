@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.ui.common
 
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkInfo
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
 import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.api.BatchDeleteItemDto
@@ -11,7 +12,10 @@ import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.write.WriteApi
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -26,7 +30,7 @@ import org.robolectric.RobolectricTestRunner
 
 /**
  * M3-T13: SelectionActions 批量动作——:memory: Room（真 DAO）+ 真 WriteRepository + 最小 FakeWriteApi
- * （镜像 T6 测试装配）；下载入队走记录回调，不触 WorkManager。
+ * （镜像 T6 测试装配）；下载入队走记录回调，不触 WorkManager（M4-T11：终态观察同为注入 fake 流）。
  */
 @RunWith(RobolectricTestRunner::class)
 class SelectionActionsTest {
@@ -73,10 +77,23 @@ class SelectionActionsTest {
         api: FakeWriteApi = FakeWriteApi(),
         enqueued: MutableList<Pair<Long, Long>> = mutableListOf(),
         activeServerId: suspend () -> Long? = { 1L },
+        observeDownloadState: (Long, Long) -> Flow<WorkInfo.State?> = { _, _ -> MutableStateFlow(null) },
+        gatewayExists: (String) -> Boolean = { true },
+        onEnqueue: (Long, ImageEntity) -> Unit = { _, _ -> },
     ): SelectionActions {
         val monitor = ConnectionMonitor(activeServerName = flowOf<String?>("srv"), scope = backgroundScope)
         val repo = WriteRepository(api, db, monitor) { }
-        return SelectionActions(db, repo, activeServerId) { serverId, img -> enqueued += serverId to img.id }
+        return SelectionActions(
+            db = db,
+            writeRepository = repo,
+            activeServerId = activeServerId,
+            enqueueDownload = { serverId, img ->
+                enqueued += serverId to img.id
+                onEnqueue(serverId, img)
+            },
+            observeDownloadState = observeDownloadState,
+            gatewayExists = gatewayExists,
+        )
     }
 
     @Test
@@ -102,23 +119,93 @@ class SelectionActionsTest {
     }
 
     @Test
-    fun `shareUrisFor 全部已下载——按传入顺序返回本服 uri 列表`() = runTest {
+    fun `ensureShareUris 全部已下载——按传入顺序返回本服 uri 且不入队`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
         db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
         db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
         db.downloadDao().upsert(DownloadEntity(2, 1, "content://other/1", "t"))   // 他服同号映射不得串
-        val actions = build()
+        val enqueued = mutableListOf<Pair<Long, Long>>()
+        val actions = build(enqueued = enqueued)
 
-        val uris = actions.shareUrisFor(listOf(2, 1))
+        val outcome = actions.ensureShareUris(listOf(2, 1))
 
-        assertEquals(listOf("content://media/2", "content://media/1"), uris)
+        assertEquals(listOf("content://media/2", "content://media/1"), outcome.uris)
+        assertTrue(outcome.failedIds.isEmpty())
+        assertEquals(emptyList<Pair<Long, Long>>(), enqueued)
     }
 
     @Test
-    fun `shareUrisFor 含未下载项——返回 null 提示先下载`() = runTest {
+    fun `ensureShareUris 缺失项以激活 serverId 入队等终态成功后返回全量 uri`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
         db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        val actions = build()
+        val state = MutableStateFlow<WorkInfo.State?>(null)
+        val enqueued = mutableListOf<Pair<Long, Long>>()
+        val actions = build(
+            enqueued = enqueued,
+            observeDownloadState = { _, _ -> state },
+            onEnqueue = { serverId, img ->
+                // 模拟 worker 成功：落 downloads 行 + 置终态（真实链路 DownloadWorker 成功后 upsert）
+                runBlocking { db.downloadDao().upsert(DownloadEntity(serverId, img.id, "content://dl-${img.id}", "t")) }
+                state.value = WorkInfo.State.SUCCEEDED
+            },
+        )
 
-        assertNull(actions.shareUrisFor(listOf(1, 2)))
+        val outcome = actions.ensureShareUris(listOf(1, 2))
+
+        assertEquals(listOf(1L to 2L), enqueued)   // 已下载的 1 不重复入队
+        assertEquals(listOf("content://media/1", "content://dl-2"), outcome.uris)
+        assertTrue(outcome.failedIds.isEmpty())
+    }
+
+    @Test
+    fun `ensureShareUris 下载失败项计入 failedIds 保留成功子集`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
+        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
+        val actions = build(observeDownloadState = { _, _ -> MutableStateFlow(WorkInfo.State.FAILED) })
+
+        val outcome = actions.ensureShareUris(listOf(1, 2))
+
+        assertEquals(listOf("content://media/1"), outcome.uris)
+        assertEquals(listOf(2L), outcome.failedIds)
+    }
+
+    @Test
+    fun `ensureShareUris 失效映射先清行再重下——不分享亡失 uri`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.downloadDao().upsert(DownloadEntity(1, 1, "content://stale", "t"))   // 行在文件亡
+        val state = MutableStateFlow<WorkInfo.State?>(null)
+        val actions = build(
+            gatewayExists = { it != "content://stale" },
+            observeDownloadState = { _, _ -> state },
+            onEnqueue = { serverId, img ->
+                runBlocking { db.downloadDao().upsert(DownloadEntity(serverId, img.id, "content://fresh", "t")) }
+                state.value = WorkInfo.State.SUCCEEDED
+            },
+        )
+
+        val outcome = actions.ensureShareUris(listOf(1))
+
+        assertEquals(listOf("content://fresh"), outcome.uris)
+        assertEquals("content://fresh", db.downloadDao().byImageId(1, 1)?.mediaStoreUri)
+    }
+
+    @Test
+    fun `ensureShareUris 镜像已删 id 计入失败——其余照常分享`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
+
+        val outcome = build().ensureShareUris(listOf(1, 99))   // 99 已被同步删除
+
+        assertEquals(listOf("content://media/1"), outcome.uris)
+        assertEquals(listOf(99L), outcome.failedIds)
+    }
+
+    @Test
+    fun `ensureShareUris 无激活服务器——全部计失败`() = runTest {
+        val outcome = build(activeServerId = { null }).ensureShareUris(listOf(1, 2))
+
+        assertTrue(outcome.uris.isEmpty())
+        assertEquals(listOf(1L, 2L), outcome.failedIds)
     }
 
     @Test

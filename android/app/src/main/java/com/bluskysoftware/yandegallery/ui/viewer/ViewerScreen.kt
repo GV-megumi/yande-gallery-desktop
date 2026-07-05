@@ -179,19 +179,29 @@ fun ViewerScreen(
         }
     }
 
-    /** 分享简化版（计划允许）：已下载 → ACTION_SEND 其 MediaStore Uri；未下载提示先下载（「下载后自动分享」后置 M4）。 */
+    /** 分享完整流（M4-T11/D9）：未下载先入队原图下载（带前台通知），等终态后自动 ACTION_SEND；
+     *  离线且缺原图直接提示不入队；下载失败提示取消。离开页面即取消等待（scope 随 composition 亡），
+     *  底层下载不取消（KEEP 队列继续，产物仍落库——D9 取消语义）。 */
     fun share(image: ImageEntity) {
-        val localUri = viewModel.downloadedUris.value[image.id]
-        if (localUri == null) {
-            scope.launch { snackbar.showSnackbar("请先下载原图（点「查看原图」）") }
+        if (!connState.online && viewModel.downloadedUris.value[image.id] == null) {
+            scope.launch { snackbar.showSnackbar("离线状态无法下载缺失原图，请连接后重试") }
             return
         }
-        val send = Intent(Intent.ACTION_SEND).apply {
-            type = mimeOf(image.format)
-            putExtra(Intent.EXTRA_STREAM, localUri.toUri())
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        scope.launch {
+            if (viewModel.downloadedUris.value[image.id] == null) {
+                snackbar.showSnackbar("正在下载原图，完成后自动分享…")
+            }
+            viewModel.ensureDownloadedThenUri(image)
+                .onSuccess { uri ->
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = mimeOf(image.format)
+                        putExtra(Intent.EXTRA_STREAM, uri.toUri())
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "分享图片"))
+                }
+                .onFailure { snackbar.showSnackbar("分享取消：原图下载失败") }
         }
-        context.startActivity(Intent.createChooser(send, "分享图片"))
     }
 
     Box(Modifier.fillMaxSize()) {

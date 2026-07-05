@@ -2,6 +2,7 @@ package com.bluskysoftware.yandegallery.ui.photos
 
 import android.app.PendingIntent
 import android.net.Uri
+import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,7 @@ import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
+import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
@@ -133,6 +135,8 @@ class PhotosViewModel(
         writeRepository = writeRepository,
         activeServerId = { graph.serverRepository.activeServer()?.id },
         enqueueDownload = { serverId, img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
+        observeDownloadState = graph.downloadManager::observeState,
+        gatewayExists = { graph.mediaStoreGateway.exists(it.toUri()) },
     )
 
     /** 批量下载：viewModelScope 入队（离开页面不中断）；T8 唯一工作名 KEEP 去重。 */
@@ -140,8 +144,8 @@ class PhotosViewModel(
         viewModelScope.launch { actions.downloadAll(ids) }
     }
 
-    /** 批量分享 URI：全部已下载 → uri 列表；含未下载 → null（Screen 提示先下载，brief 简化）。 */
-    suspend fun shareUrisFor(ids: List<Long>): List<String>? = actions.shareUrisFor(ids)
+    /** 批量分享完整流（M4-T11/D9）：缺失项入队等终态后返回成败分拆的 ShareOutcome。 */
+    suspend fun ensureShareUris(ids: List<Long>): ShareCoordinator.ShareOutcome = actions.ensureShareUris(ids)
 
     /** 批量删除（batch 端点 + 清确实已删 id 的本服下载映射行；本机副本级联由 Screen 侧成功后处理，spec §8）。 */
     suspend fun batchDeleteSelected(ids: List<Long>): WriteResult = actions.batchDelete(ids)

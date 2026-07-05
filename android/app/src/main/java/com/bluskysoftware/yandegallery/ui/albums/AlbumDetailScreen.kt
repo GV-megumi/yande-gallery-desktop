@@ -25,6 +25,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 图集详情：4 列网格 + 顶栏返回；T13 加多选（长按进入，批量下载/分享/删除/加入/移出图集）。 */
@@ -86,21 +88,42 @@ fun AlbumDetailScreen(
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
     BackHandler(enabled = selectionActive) { viewModel.selection.clear() }
 
-    /** 批量分享：全部已下载 → ACTION_SEND_MULTIPLE 其 MediaStore uri；含未下载 → 提示（简化版，完整流后置 M4）。 */
+    // 放弃等待（D9 取消语义）：退出多选/清选择即取消分享等待协程；底层下载不取消（KEEP 队列继续，产物仍落库）。
+    var shareJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(selectionActive) {
+        if (!selectionActive) {
+            shareJob?.cancel()
+            shareJob = null
+        }
+    }
+
+    /** 批量分享完整流（M4-T11/D9）：缺失项先入队原图下载，等全部终态后自动分享；部分失败仍分享成功子集。 */
     fun shareSelected() {
         val ids = viewModel.selection.selected.toList()
-        scope.launch {
-            val uris = viewModel.shareUrisFor(ids)
-            if (uris == null) {
-                snackbarHostState.showSnackbar("所选包含未下载原图的项，请先批量下载")
-            } else {
-                val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                    type = "image/*"
-                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris.map { it.toUri() }))
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(send, "分享图片"))
-                viewModel.selection.clear()
+        shareJob = scope.launch {
+            val missing = ids.size - viewModel.downloadedUrisFor(ids).size
+            if (!connState.online && missing > 0) {
+                snackbarHostState.showSnackbar("离线状态无法下载缺失原图，请连接后重试")
+                return@launch
+            }
+            if (missing > 0) {
+                snackbarHostState.showSnackbar("正在下载缺失原图，完成后自动分享…")
+            }
+            val outcome = viewModel.ensureShareUris(ids)
+            if (outcome.uris.isEmpty()) {
+                snackbarHostState.showSnackbar("分享取消：原图下载失败")
+                return@launch
+            }
+            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(outcome.uris.map { it.toUri() }))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, "分享图片"))
+            shareJob = null   // 分享已发出：随后的清选择不应再取消收尾提示
+            viewModel.selection.clear()
+            if (outcome.failedIds.isNotEmpty()) {
+                snackbarHostState.showSnackbar("${outcome.failedIds.size} 张下载失败，已分享成功的 ${outcome.uris.size} 张")
             }
         }
     }
