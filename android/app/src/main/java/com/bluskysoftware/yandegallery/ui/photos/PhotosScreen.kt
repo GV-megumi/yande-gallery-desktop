@@ -128,44 +128,33 @@ fun PhotosScreen(
     val tier by viewModel.densityTier.collectAsStateWithLifecycle()
     val gridState = rememberLazyGridState()
     val pinchState = remember { PinchDensityState() }
-    // 月↔日跨越锚定：跨越前记视口顶部照片在「新分组粒度」下的 key，重建后按 Header 定位。
-    // 冷启动闪档（持久 MONTH、首帧 DEFAULT 后翻转）不经此函数——pendingAnchorKey 保持 null，
+    // 月↔日跨越锚定：跨越前记视口顶部照片在「新分组粒度」下的 key + 目标粒度，重建后按 Header 定位。
+    // 冷启动闪档（持久 MONTH、首帧 DEFAULT 后翻转）不经 changeTier——pendingAnchor 保持 null，
     // 锚定 effect 直接早退，重建后停留顶部，不会误锚/崩溃。
-    var pendingAnchorKey by remember { mutableStateOf<String?>(null) }
+    var pendingAnchor by remember { mutableStateOf<PendingAnchor?>(null) }
+    // 跨越判定基准（评审 Minor#2）：collected tier 经 DataStore 回环有滞后，同一手势内快速连切
+    //（如 DAY_5→MONTH→DAY_5）用旧档会误判月↔日跨越方向；改记「最近一次已请求档」，未请求过回退 tier。
+    var lastRequestedTier by remember { mutableStateOf<DensityTier?>(null) }
 
     fun changeTier(new: DensityTier) {
-        if (new.monthGrouping != tier.monthGrouping) {
+        val current = lastRequestedTier ?: tier
+        if (new.monthGrouping != current.monthGrouping) {
             val first = gridState.firstVisibleItemIndex
             val anchorCreatedAt = (first until items.itemCount).asSequence()
                 .mapNotNull { items.peek(it) as? TimelineItem.Photo }
                 .firstOrNull()?.image?.createdAt
-            pendingAnchorKey = anchorCreatedAt?.let {
-                if (new.monthGrouping) monthKeyOf(it) else dayKeyOf(it)
+            pendingAnchor = anchorCreatedAt?.let {
+                PendingAnchor(
+                    key = if (new.monthGrouping) monthKeyOf(it) else dayKeyOf(it),
+                    monthly = new.monthGrouping,
+                )
             }
         }
+        lastRequestedTier = new
         viewModel.setDensityTier(new)
     }
 
-    // 重建后锚定（ViewerPager 定位循环同款，ViewerScreen.kt）：命中 Header key → scrollToItem；
-    // 未加载则触达末项驱动 append，loadState 变化后本 effect 重跑。
-    LaunchedEffect(items.itemCount, items.loadState.append, pendingAnchorKey) {
-        val anchor = pendingAnchorKey ?: return@LaunchedEffect
-        if (items.itemCount == 0) return@LaunchedEffect
-        val index = (0 until items.itemCount).indexOfFirst {
-            (items.peek(it) as? TimelineItem.Header)?.dayKey == anchor
-        }
-        val append = items.loadState.append
-        when {
-            index >= 0 -> {
-                gridState.scrollToItem(index)
-                pendingAnchorKey = null
-            }
-            append is LoadState.NotLoading && !append.endOfPaginationReached -> items[items.itemCount - 1]
-            // 到底未命中 / append 出错：放弃锚定留在顶部（Loading 不在此列——等 loadState 变化重跑）
-            append is LoadState.NotLoading && append.endOfPaginationReached -> pendingAnchorKey = null
-            append is LoadState.Error -> pendingAnchorKey = null
-        }
-    }
+    TimelineAnchorEffect(items, gridState, pendingAnchor, onDone = { pendingAnchor = null })
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // 多选顶部选择栏：激活时盖在内容区顶部（AppScaffold 的 TopAppBar 仍在其上，不动导航壳）
@@ -331,6 +320,54 @@ fun PhotosGuide(onAddServer: () -> Unit) {
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
         Button(onClick = onAddServer) { Text("先添加服务器") }
+    }
+}
+
+/** 月↔日切档锚定请求：目标粒度下的分组 Header key + 目标粒度（防旧快照提前弃锚的键族判据）。 */
+data class PendingAnchor(val key: String, val monthly: Boolean)
+
+/**
+ * 月↔日重建后锚定（ViewerPager 定位循环同款，ViewerScreen.kt）：命中 Header key → scrollToItem
+ * 并 onDone 清锚；未加载则触达末项驱动 append，loadState 变化后重跑；到底未命中/出错 → onDone
+ * 放弃锚定留在顶部。从 PhotosScreen 抽出为独立 effect，便于 Robolectric 注入快照直测弃锚时序。
+ *
+ * 防旧快照提前弃锚（评审 Important）：置锚会立刻以「重建前旧快照」重跑本 effect——跨键族
+ * (yyyy-MM vs yyyy-MM-dd) 必然不命中，且旧快照 endOfPaginationReached==true（小库全载常态、
+ * 大库停底部）会在新 pager 诞生前误走弃锚分支，锚定静默 no-op；驱动分支也会白推注定作废的旧
+ * pager append。故先判快照键族是否已翻到目标粒度，未翻转前一律只等待——不匹配、不驱动、不弃锚。
+ */
+@Composable
+fun TimelineAnchorEffect(
+    items: LazyPagingItems<TimelineItem>,
+    gridState: LazyGridState,
+    anchor: PendingAnchor?,
+    onDone: () -> Unit,
+) {
+    // items 实例也入 key：生产中该实例随 VM 稳定、不增重跑；重建极端巧合（新旧快照 itemCount 与
+    // append 状态恰好全等）或测试换流重建 LazyPagingItems 时仍能触发重跑。
+    LaunchedEffect(items, items.itemCount, items.loadState.append, anchor) {
+        if (anchor == null || items.itemCount == 0) return@LaunchedEffect
+        // 键族判据：首个 Header key 的 '-' 段数——月键 yyyy-MM 恰 1 个、日键 yyyy-MM-dd 恰 2 个；
+        // 解析失败的回退键同为原 createdAt 前缀截取（take(7)/take(10)），段数不变，判据稳定。
+        val firstHeaderKey = (0 until items.itemCount).firstNotNullOfOrNull {
+            (items.peek(it) as? TimelineItem.Header)?.dayKey
+        } ?: return@LaunchedEffect
+        val snapshotMonthly = firstHeaderKey.count { it == '-' } == 1
+        if (snapshotMonthly != anchor.monthly) return@LaunchedEffect   // 旧粒度快照：等待重建
+        val index = (0 until items.itemCount).indexOfFirst {
+            (items.peek(it) as? TimelineItem.Header)?.dayKey == anchor.key
+        }
+        val append = items.loadState.append
+        when {
+            index >= 0 -> {
+                gridState.scrollToItem(index)
+                onDone()
+            }
+            append is LoadState.NotLoading && !append.endOfPaginationReached -> items[items.itemCount - 1]
+            // 到底未命中 / append 出错：放弃锚定留在顶部（Loading 不在此列——等 loadState 变化重跑）
+            append is LoadState.NotLoading && append.endOfPaginationReached -> onDone()
+            append is LoadState.Error -> onDone()
+        }
     }
 }
 
