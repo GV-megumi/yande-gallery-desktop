@@ -7,6 +7,7 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
+import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
@@ -88,6 +89,9 @@ class AppGraph(
 
     /** 1600px 预览档 Coil ImageLoader：独立 1GB 盘缓存 + 复用带 Bearer 的 okHttp（M3）。 */
     val previewLoader by lazy { buildPreviewImageLoader(appContext, okHttp) }
+
+    /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
+    val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
