@@ -11,7 +11,9 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ImageTagEntity
 import com.bluskysoftware.yandegallery.data.db.TagEntity
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -56,8 +58,14 @@ class WriteRepositoryTest {
         var batchResults: List<BatchDeleteItemDto> = emptyList()
         val calls = mutableListOf<String>()
 
+        // 取消用例的门控：entered 通知「已进入调用」，gate 永不放行——调用只能被取消（无 sleep）。
+        var deleteImageEntered: CompletableDeferred<Unit>? = null
+        var deleteImageGate: CompletableDeferred<Unit>? = null
+
         override suspend fun deleteImage(imageId: Long) {
             calls += "deleteImage"; failDeleteImage?.let { throw it }
+            deleteImageEntered?.complete(Unit)
+            deleteImageGate?.await()
         }
 
         override suspend fun batchDeleteImages(imageIds: List<Long>): List<BatchDeleteItemDto> {
@@ -178,6 +186,30 @@ class WriteRepositoryTest {
         assertNotNull(db.imageDao().byId(1))       // 回滚恢复
         assertTrue(monitor.state.value.unauthorized)
         assertFalse(monitor.state.value.online)
+    }
+
+    @Test
+    fun `deleteImage 取消——CancellationException 重抛且不误报离线横幅`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        val entered = CompletableDeferred<Unit>()
+        val api = FakeWriteApi().apply {
+            deleteImageEntered = entered
+            deleteImageGate = CompletableDeferred()   // 永不放行——调用只能被取消
+        }
+        val sync = AtomicInteger(0)
+        val (repo, monitor) = build(api, sync)
+        monitor.reportSuccess()                       // 预置 online；若吞取消误报 reportFailure 会翻 false
+        assertTrue(monitor.state.value.online)
+
+        val job = launch { repo.deleteImage(1) }
+        entered.await()                               // 确定性等到 fake 挂在 gate 上
+        job.cancel()
+        job.join()
+
+        assertTrue(job.isCancelled)                   // (a) 取消向上传播，不被吞成 Failed
+        assertTrue(monitor.state.value.online)        // (b) 未误报离线（无 spurious reportFailure）
+        assertNull(db.imageDao().byId(1))             // 取消时结果未知，不回滚，镜像靠下一轮同步对账收敛
+        assertEquals(0, sync.get())                   // 取消不 nudge
     }
 
     // ---- batchDeleteImages（走 batch 端点，controller 裁定 3）----

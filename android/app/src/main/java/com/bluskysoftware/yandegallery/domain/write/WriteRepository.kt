@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery.domain.write
 import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.db.*
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import kotlinx.coroutines.CancellationException
 
 /**
  * 写操作核心：乐观改本地 Room 镜像 → 调服务端 → 失败回滚。
@@ -33,6 +34,8 @@ class WriteRepository(
                 rollback(); monitor.reportFailure(e)
                 WriteResult.Failed(e.message, unauthorized = e.code == "UNAUTHORIZED")
             }
+        } catch (e: CancellationException) {
+            throw e   // 取消时结果未知，不回滚不上报，镜像靠下一轮同步对账收敛
         } catch (e: Exception) {
             rollback(); monitor.reportFailure(e)
             WriteResult.Failed(e.message ?: "写操作失败")
@@ -76,6 +79,8 @@ class WriteRepository(
             monitor.reportSuccess(); requestSync(); WriteResult.Success
         } catch (e: ApiException) {
             monitor.reportFailure(e); WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
+        } catch (e: CancellationException) {
+            throw e   // 取消时结果未知，不回滚不上报，镜像靠下一轮同步对账收敛
         } catch (e: Exception) {
             monitor.reportFailure(e); WriteResult.Failed(e.message ?: "新建图集失败")
         }
@@ -125,6 +130,8 @@ class WriteRepository(
         } catch (e: ApiException) {
             db.imageDao().upsertAll(snapshots); monitor.reportFailure(e)
             WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
+        } catch (e: CancellationException) {
+            throw e   // 取消时结果未知，不回滚不上报，镜像靠下一轮同步对账收敛
         } catch (e: Exception) {
             db.imageDao().upsertAll(snapshots); monitor.reportFailure(e)
             WriteResult.Failed(e.message ?: "批量删除失败")
