@@ -11,7 +11,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -31,6 +33,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -38,6 +41,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.compose.AsyncImage
@@ -119,6 +123,49 @@ fun PhotosScreen(
     val baseUrl = server.baseUrl
     val serverId = server.id
     val loader = viewModel.thumbnailLoader
+
+    // ---- 捏合切档（M4-T3）：离散档位状态 + 月↔日跨越锚定 ----
+    val tier by viewModel.densityTier.collectAsStateWithLifecycle()
+    val gridState = rememberLazyGridState()
+    val pinchState = remember { PinchDensityState() }
+    // 月↔日跨越锚定：跨越前记视口顶部照片在「新分组粒度」下的 key，重建后按 Header 定位。
+    // 冷启动闪档（持久 MONTH、首帧 DEFAULT 后翻转）不经此函数——pendingAnchorKey 保持 null，
+    // 锚定 effect 直接早退，重建后停留顶部，不会误锚/崩溃。
+    var pendingAnchorKey by remember { mutableStateOf<String?>(null) }
+
+    fun changeTier(new: DensityTier) {
+        if (new.monthGrouping != tier.monthGrouping) {
+            val first = gridState.firstVisibleItemIndex
+            val anchorCreatedAt = (first until items.itemCount).asSequence()
+                .mapNotNull { items.peek(it) as? TimelineItem.Photo }
+                .firstOrNull()?.image?.createdAt
+            pendingAnchorKey = anchorCreatedAt?.let {
+                if (new.monthGrouping) monthKeyOf(it) else dayKeyOf(it)
+            }
+        }
+        viewModel.setDensityTier(new)
+    }
+
+    // 重建后锚定（ViewerPager 定位循环同款，ViewerScreen.kt）：命中 Header key → scrollToItem；
+    // 未加载则触达末项驱动 append，loadState 变化后本 effect 重跑。
+    LaunchedEffect(items.itemCount, items.loadState.append, pendingAnchorKey) {
+        val anchor = pendingAnchorKey ?: return@LaunchedEffect
+        if (items.itemCount == 0) return@LaunchedEffect
+        val index = (0 until items.itemCount).indexOfFirst {
+            (items.peek(it) as? TimelineItem.Header)?.dayKey == anchor
+        }
+        val append = items.loadState.append
+        when {
+            index >= 0 -> {
+                gridState.scrollToItem(index)
+                pendingAnchorKey = null
+            }
+            append is LoadState.NotLoading && !append.endOfPaginationReached -> items[items.itemCount - 1]
+            // 到底未命中 / append 出错：放弃锚定留在顶部（Loading 不在此列——等 loadState 变化重跑）
+            append is LoadState.NotLoading && append.endOfPaginationReached -> pendingAnchorKey = null
+            append is LoadState.Error -> pendingAnchorKey = null
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // 多选顶部选择栏：激活时盖在内容区顶部（AppScaffold 的 TopAppBar 仍在其上，不动导航壳）
@@ -153,29 +200,43 @@ fun PhotosScreen(
                             modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
                         )
                     }
-                    PhotosGrid(
-                        items = items,
-                        photoCell = { photo ->
-                            val id = photo.image.id
-                            SelectableCell(
-                                selected = id in selected,
-                                selectionActive = selectionActive,
-                                onOpen = { onOpenViewer(id) },
-                                onToggle = { viewModel.selection.toggle(id) },
-                                modifier = Modifier
-                                    .aspectRatio(1f)
-                                    .padding(1.dp),
-                            ) {
-                                AsyncImage(
-                                    model = thumbnailRequest(LocalContext.current, baseUrl, serverId, id),
-                                    imageLoader = loader,
-                                    contentDescription = photo.image.filename,
-                                    contentScale = ContentScale.Crop,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            }
+                    // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchDensity）。
+                    // currentTier 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档位。
+                    Box(
+                        Modifier.pointerInput(Unit) {
+                            detectPinchDensity(
+                                state = pinchState,
+                                currentTier = { viewModel.densityTier.value },
+                                onTierChange = ::changeTier,
+                            )
                         },
-                    )
+                    ) {
+                        PhotosGrid(
+                            items = items,
+                            columns = tier.columns,
+                            state = gridState,
+                            photoCell = { photo ->
+                                val id = photo.image.id
+                                SelectableCell(
+                                    selected = id in selected,
+                                    selectionActive = selectionActive,
+                                    onOpen = { onOpenViewer(id) },
+                                    onToggle = { viewModel.selection.toggle(id) },
+                                    modifier = Modifier
+                                        .aspectRatio(1f)
+                                        .padding(1.dp),
+                                ) {
+                                    AsyncImage(
+                                        model = thumbnailRequest(LocalContext.current, baseUrl, serverId, id),
+                                        imageLoader = loader,
+                                        contentDescription = photo.image.filename,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize(),
+                                    )
+                                }
+                            },
+                        )
+                    }
                 }
             }
             // 多选底部动作栏：写动作离线置灰；时间轴无图集上下文（inGallery=false，无「移出」）
@@ -274,17 +335,23 @@ fun PhotosGuide(onAddServer: () -> Unit) {
 }
 
 /**
- * 时间轴网格骨架（无状态，便于测试注入 photoCell）：4 列固定网格，Header 满行跨列。
- * span/key 用 peek 读取快照避免触发加载；photoCell 由调用方提供（生产用 AsyncImage，测试注入替身）。
+ * 时间轴网格骨架（无状态，便于测试注入 photoCell）：[columns] 列固定网格，Header 满行跨列
+ * （span maxLineSpan 随列数自适应）。span/key 用 peek 读取快照避免触发加载；photoCell 由调用方
+ * 提供（生产用 AsyncImage，测试注入替身）。Header/照片格子均包 animateItem 做切档位移/尺寸过渡。
+ * jank 兜底预案（联调 J 节验证项）：若实机 animateItem 全网格弹簧掉帧，退化为「瞬时换列 + 整栏
+ * 100ms crossfade」。
  */
 @Composable
 fun PhotosGrid(
     items: LazyPagingItems<TimelineItem>,
+    columns: Int,
     photoCell: @Composable (TimelineItem.Photo) -> Unit,
     modifier: Modifier = Modifier,
+    state: LazyGridState = rememberLazyGridState(),
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(4),
+        columns = GridCells.Fixed(columns),
+        state = state,
         modifier = modifier.fillMaxSize(),
     ) {
         items(
@@ -304,9 +371,9 @@ fun PhotosGrid(
                 is TimelineItem.Header -> Text(
                     item.display,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.animateItem().padding(horizontal = 12.dp, vertical = 8.dp),
                 )
-                is TimelineItem.Photo -> photoCell(item)
+                is TimelineItem.Photo -> Box(Modifier.animateItem()) { photoCell(item) }
                 null -> Box(Modifier.aspectRatio(1f))
             }
         }
