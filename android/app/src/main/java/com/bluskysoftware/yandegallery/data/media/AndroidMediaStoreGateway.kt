@@ -41,8 +41,17 @@ class AndroidMediaStoreGateway(private val context: Context) : MediaStoreGateway
         if (Build.VERSION.SDK_INT >= 29) {
             resolver.update(uri, ContentValues().apply { put(MediaStore.Images.Media.IS_PENDING, 0) }, null, null)
         } else {
-            // 26-28：无 pending 列，写完直接触发媒体扫描
-            android.media.MediaScannerConnection.scanFile(context, arrayOf(uri.path), null, null)
+            // 26-28：无 IS_PENDING 列；content URI 的 .path 不是文件系统路径，
+            // 须取行内 DATA 列的真实文件路径再触发媒体扫描，取不到则跳过（行已存在，元数据待系统自然刷新）
+            @Suppress("DEPRECATION") // DATA 列 29+ 弃用，但 ≤28 是取真实路径的规范方式
+            val filePath = runCatching {
+                resolver.query(uri, arrayOf(MediaStore.Images.Media.DATA), null, null, null)?.use { c ->
+                    if (c.moveToFirst()) c.getString(0) else null
+                }
+            }.getOrNull()
+            if (!filePath.isNullOrEmpty()) {
+                android.media.MediaScannerConnection.scanFile(context, arrayOf(filePath), null, null)
+            }
         }
     }
 
