@@ -11,6 +11,7 @@ import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import com.bluskysoftware.yandegallery.domain.download.DownloadManager
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
@@ -92,6 +93,9 @@ class AppGraph(
 
     /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
     val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
+
+    /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
+    val downloadManager by lazy { DownloadManager(appContext) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
