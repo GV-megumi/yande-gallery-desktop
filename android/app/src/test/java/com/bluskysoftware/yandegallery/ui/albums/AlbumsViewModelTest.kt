@@ -26,7 +26,10 @@ class AlbumsViewModelTest {
     }
 
     @After
-    fun teardown() = db.close()
+    fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
+        db.close()
+    }
 
     private fun image(id: Long, createdAt: String) = ImageEntity(
         id = id, filename = "$id.jpg", width = 100, height = 100,

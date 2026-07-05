@@ -42,7 +42,10 @@ class EndToEndSyncTest {
     }
 
     @After
-    fun teardown() = db.close()
+    fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
+        db.close()
+    }
 
     private fun body(json: String) =
         MockResponse().setBody(json).addHeader("Content-Type", "application/json")

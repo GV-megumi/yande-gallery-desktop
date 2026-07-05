@@ -55,6 +55,10 @@ class AlbumsWriteTest {
 
     @After
     fun teardown() {
+        // 先停 graph 后台协程（init 激活跟踪 + connectionMonitor 的 Room Flow 收集）再关库：
+        // 否则收集器可能在 db.close() 后才取连接，偶发 connection pool has been closed，
+        // 且被 kotlinx-coroutines-test 记到当时在跑的 runTest 头上（曾两次 flake 本类）。
+        graph.shutdownForTest()
         db.close()
         Dispatchers.resetMain()
     }

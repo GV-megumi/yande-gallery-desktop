@@ -42,6 +42,7 @@ class PhotosViewModelTest {
 
     @After
     fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
         db.close()
         Dispatchers.resetMain()
     }

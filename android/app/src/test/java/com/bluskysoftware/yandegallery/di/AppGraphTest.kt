@@ -38,7 +38,10 @@ class AppGraphTest {
     }
 
     @After
-    fun teardown() = db.close()
+    fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
+        db.close()
+    }
 
     private fun metaResponse(serverId: String) = MockResponse()
         .setBody("""{"success":true,"data":{"serverId":"$serverId","dataVersion":1,"imageCount":0,"latestCursor":null}}""")
@@ -101,13 +104,17 @@ class AppGraphTest {
 
             // 默认 autoSyncOnActiveChange=true 的 graph：激活服务器变化即由 collector 自动发起同步。
             val autoGraph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
-            autoGraph.serverRepository.addAndActivate("auto", server.url("/").toString(), "key")
+            try {
+                autoGraph.serverRepository.addAndActivate("auto", server.url("/").toString(), "key")
 
-            // collector 在 Dispatchers.IO 真实时间追平 Room 发射后自动 requestSync → syncEngine.sync()。
-            // 首个自动请求必是 meta；未修复（不自动触发）时 takeRequest 超时返回 null。
-            val req = server.takeRequest(5, TimeUnit.SECONDS)
-            assertNotNull("激活服务器后应自动发起同步（应收到 meta 请求）", req)
-            assertEquals("/api/v1/sync/meta", req!!.path)
+                // collector 在 Dispatchers.IO 真实时间追平 Room 发射后自动 requestSync → syncEngine.sync()。
+                // 首个自动请求必是 meta；未修复（不自动触发）时 takeRequest 超时返回 null。
+                val req = server.takeRequest(5, TimeUnit.SECONDS)
+                assertNotNull("激活服务器后应自动发起同步（应收到 meta 请求）", req)
+                assertEquals("/api/v1/sync/meta", req!!.path)
+            } finally {
+                autoGraph.shutdownForTest()   // 方法内建的第二个 graph 同样要先停协程，防泄漏到关库后
+            }
         }
     }
 

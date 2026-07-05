@@ -21,8 +21,11 @@ import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 
 /** 手写组合根：单例依赖都挂在这里（v1 单模块，不引 Hilt）。 */
@@ -34,6 +37,15 @@ class AppGraph(
     private val autoSyncOnActiveChange: Boolean = true,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+
+    /**
+     * 测试收尾专用：取消组合根全部后台协程（init 激活跟踪、ConnectionMonitor/SyncScheduler/SSE）
+     * 并阻塞等到全部退出。注入 in-memory db 的测试必须先调用本方法、再 db.close()——否则
+     * 常驻的 Room Flow 收集器可能在关库后才去取连接，偶发 connection pool has been closed
+     * 且被 kotlinx-coroutines-test 记到当时正在跑的 runTest 头上（收尾竞态 flake）。
+     * 生产组合根与进程同生命周期，不调用。
+     */
+    internal fun shutdownForTest() = runBlocking { scope.coroutineContext.job.cancelAndJoin() }
 
     val db: AppDatabase by lazy { dbOverride ?: AppDatabase.build(appContext) }
     val serverRepository by lazy { ServerRepository(db.serverDao()) }

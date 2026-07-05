@@ -11,7 +11,6 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestCoroutineScheduler
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
-import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -48,6 +47,7 @@ class SearchViewModelTest {
 
     @After
     fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
         db.close()
         Dispatchers.resetMain()
     }
@@ -113,23 +113,24 @@ class SearchViewModelTest {
         assertEquals(listOf(3L), resultIds())
     }
 
+    // 历史写入走 Room 真实执行器线程（suspend upsert/clear 挂到 transactionExecutor），
+    // advanceUntilIdle 只推虚拟时钟、不等真实线程——曾在满负载下偶发 first() 抢先查到旧态。
+    // 改为 first{ 谓词 }：挂起直到 Room 失效重查发射出目标态，确定性等价且断言不减弱。
+
     @Test
     fun `commitSearch 写入历史`() = runTest(scheduler) {
         vm.onQueryChange("sunset")
         vm.commitSearch()
-        advanceUntilIdle()
-        assertTrue("sunset" in vm.history.first())
+        assertTrue("sunset" in vm.history.first { "sunset" in it })
     }
 
     @Test
     fun `clearHistory 清空历史`() = runTest(scheduler) {
         vm.onQueryChange("sunset")
         vm.commitSearch()
-        advanceUntilIdle()
-        assertTrue(vm.history.first().isNotEmpty())
+        assertTrue(vm.history.first { it.isNotEmpty() }.isNotEmpty())
 
         vm.clearHistory()
-        advanceUntilIdle()
-        assertTrue(vm.history.first().isEmpty())
+        assertTrue(vm.history.first { it.isEmpty() }.isEmpty())
     }
 }

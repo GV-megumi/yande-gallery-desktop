@@ -53,7 +53,10 @@ class DownloadE2ETest {
     }
 
     @After
-    fun teardown() = db.close()
+    fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
+        db.close()
+    }
 
     @Test
     fun `原图下载全链路——GET file 带 Bearer，完整字节经网关写入，downloads 表记录 uri 与时间`() = runTest {
