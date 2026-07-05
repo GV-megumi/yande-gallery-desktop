@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery.ui.photos
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.util.Locale
 import java.util.TimeZone
 
 class TimelineModelsTest {
@@ -34,6 +35,20 @@ class TimelineModelsTest {
         assertEquals("2026-07", monthKeyOf("2026-07-15T12:00:00Z"))
         assertEquals("2026-01", monthKeyOf("2026-01-15T12:00:00Z"))
         assertEquals("garbage", monthKeyOf("garbage"))   // 解析失败回退前 7 字符
+    }
+
+    @Test
+    fun `monthKeyOf 本地数字 Locale 下键仍为 ASCII`() {
+        // 月键与 dayKeyOf（LocalDate.toString 恒 ASCII）同族比较（T3/T4 日期锚定）：
+        // ar 等 CLDR 默认阿拉伯-印度数字的 Locale 下，未钉 Locale 的 %d 会产出本地数字、分叉键族。
+        // 与 TimeZone 用例同款 try/finally 翻默认值（同 fork 内测试串行，无并行污染）。
+        val prev = Locale.getDefault()
+        try {
+            Locale.setDefault(Locale.forLanguageTag("ar"))
+            assertEquals("2026-07", monthKeyOf("2026-07-15T12:00:00Z"))
+        } finally {
+            Locale.setDefault(prev)
+        }
     }
 
     @Test

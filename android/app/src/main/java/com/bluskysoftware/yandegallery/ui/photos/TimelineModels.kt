@@ -4,6 +4,7 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.util.Locale
 
 /** 时间轴列表项：日期分组头 or 单张照片。 */
 sealed interface TimelineItem {
@@ -46,7 +47,9 @@ enum class DensityTier(val columns: Int, val monthGrouping: Boolean) {
 /** createdAt（ISO UTC）→ 本地时区月 key（yyyy-MM）。解析失败回退前 7 字符（镜像 dayKeyOf）。 */
 fun monthKeyOf(createdAt: String): String = runCatching {
     val date = Instant.parse(createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
-    "%04d-%02d".format(date.year, date.monthValue)
+    // 键族必须 ASCII 稳定（与 dayKeyOf 的 LocalDate.toString 一致，T3/T4 做月/日键比较锚定），
+    // Locale.ROOT 防 ar/fa/bn 等本地数字 Locale 把 %d 渲染成非 ASCII、分叉键族。
+    "%04d-%02d".format(Locale.ROOT, date.year, date.monthValue)
 }.getOrElse { createdAt.take(7) }
 
 /** 月 key（yyyy-MM）→「2026年6月」。 */
