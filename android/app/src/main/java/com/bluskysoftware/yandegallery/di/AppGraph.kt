@@ -25,6 +25,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -104,11 +105,17 @@ class AppGraph(
         )
     }
 
-    /** 缩略图 Coil ImageLoader：独立 2GB 持久盘缓存 + 复用带 Bearer 的 okHttp（Task 9）。 */
-    val thumbnailLoader by lazy { buildThumbnailImageLoader(appContext, okHttp) }
+    /** 缩略图 loader：上限来自设置（改后下次启动生效——DiskCache.maxSize 构建期定死，M4-T8）。 */
+    val thumbnailLoader by lazy {
+        val maxBytes = runBlocking { prefsStore.thumbnailCacheMaxBytes.first() }   // 一次性小文件读
+        buildThumbnailImageLoader(appContext, okHttp, maxBytes)
+    }
 
-    /** 1600px 预览档 Coil ImageLoader：独立 1GB 盘缓存 + 复用带 Bearer 的 okHttp（M3）。 */
-    val previewLoader by lazy { buildPreviewImageLoader(appContext, okHttp) }
+    /** 1600px 预览档 loader：上限来自设置（改后下次启动生效，M4-T8）。 */
+    val previewLoader by lazy {
+        val maxBytes = runBlocking { prefsStore.previewCacheMaxBytes.first() }
+        buildPreviewImageLoader(appContext, okHttp, maxBytes)
+    }
 
     /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
     val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }

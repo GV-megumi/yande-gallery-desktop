@@ -25,9 +25,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 
 /**
- * 设置页 hub（spec §7.6）：三区结构——服务器管理 / 缓存管理（T8 补入）/ 关于。
- * 本任务落地「服务器管理」入口与「关于」区（版本 + 开源协议弹窗）；缓存区 T8 追加，
- * 本任务不留死入口。versionName 由 MainActivity 从 PackageManager 读取传入（工程未开 buildConfig）。
+ * 设置页 hub（spec §7.6）：三区结构——服务器管理 / 缓存管理 / 关于。缓存管理入口经 onOpenCache 跳
+ * CacheScreen（T8 补入）。versionName 由 MainActivity 从 PackageManager 读取传入（工程未开 buildConfig）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -35,6 +34,7 @@ fun SettingsScreen(
     onBack: () -> Unit,
     onOpenServers: () -> Unit,
     versionName: String,
+    onOpenCache: () -> Unit = {},
 ) {
     var showLicenses by rememberSaveable { mutableStateOf(false) }
     Scaffold(
@@ -55,7 +55,11 @@ fun SettingsScreen(
                 supportingContent = { Text("列表、扫码/手动添加、编辑、切换、删除") },
                 modifier = Modifier.clickable(onClick = onOpenServers).testTag("settings_servers"),
             )
-            // T8 在此追加「缓存管理」ListItem（testTag settings_cache）
+            ListItem(
+                headlineContent = { Text("缓存管理") },
+                supportingContent = { Text("缩略图/预览占用与清理、上限调整、已下载记录") },
+                modifier = Modifier.clickable(onClick = onOpenCache).testTag("settings_cache"),
+            )
             HorizontalDivider()
             ListItem(
                 headlineContent = { Text("版本") },

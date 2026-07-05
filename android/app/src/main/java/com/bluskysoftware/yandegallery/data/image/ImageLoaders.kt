@@ -19,19 +19,32 @@ fun thumbnailUrl(baseUrl: String, imageId: Long): String =
  */
 fun thumbnailCacheKey(serverId: Long, imageId: Long): String = "s$serverId:t$imageId"
 
-/** 缩略图专用 ImageLoader：独立 2GB 持久盘缓存（spec §6.4），复用带 Bearer 的 OkHttp。 */
-fun buildThumbnailImageLoader(context: Context, okHttp: OkHttpClient): ImageLoader =
+/**
+ * 参数化档位 ImageLoader（M4-T8 收拢，清 M3-T2「两 builder 结构重复」记债）：独立盘缓存目录 + 可调上限。
+ * maxSizeBytes 经设置页调整（spec §6.4「设置可调」）、构建期定死——改后须重建 loader（下次进程启动）才生效。
+ */
+fun buildTierImageLoader(
+    context: Context,
+    okHttp: OkHttpClient,
+    cacheDirName: String,
+    maxSizeBytes: Long,
+): ImageLoader =
     ImageLoader.Builder(context)
-        .components {
-            add(OkHttpNetworkFetcherFactory(callFactory = { okHttp }))
-        }
+        .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
         .diskCache(
             DiskCache.Builder()
-                .directory(context.cacheDir.resolve("thumbnails").toOkioPath())
-                .maxSizeBytes(2L * 1024 * 1024 * 1024)
+                .directory(context.cacheDir.resolve(cacheDirName).toOkioPath())
+                .maxSizeBytes(maxSizeBytes)
                 .build()
         )
         .build()
+
+/** 缩略图档：持久语义目录 thumbnails，默认 2GB（spec §6.4，上限设置页可调）。 */
+fun buildThumbnailImageLoader(
+    context: Context,
+    okHttp: OkHttpClient,
+    maxSizeBytes: Long = 2L * 1024 * 1024 * 1024,
+): ImageLoader = buildTierImageLoader(context, okHttp, "thumbnails", maxSizeBytes)
 
 fun thumbnailRequest(context: Context, baseUrl: String, serverId: Long, imageId: Long): ImageRequest =
     ImageRequest.Builder(context)
@@ -52,17 +65,12 @@ fun fileUrl(baseUrl: String, imageId: Long): String =
  */
 fun previewCacheKey(serverId: Long, imageId: Long): String = "s$serverId:preview:$imageId"
 
-/** 1600px 预览档 ImageLoader：独立 1GB LRU 盘缓存（spec §6.4），复用带 Bearer 的 OkHttp。 */
-fun buildPreviewImageLoader(context: Context, okHttp: OkHttpClient): ImageLoader =
-    ImageLoader.Builder(context)
-        .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
-        .diskCache(
-            DiskCache.Builder()
-                .directory(context.cacheDir.resolve("previews").toOkioPath())
-                .maxSizeBytes(1L * 1024 * 1024 * 1024)
-                .build()
-        )
-        .build()
+/** 预览档：LRU 语义目录 previews，默认 1GB（spec §6.4，上限设置页可调）。 */
+fun buildPreviewImageLoader(
+    context: Context,
+    okHttp: OkHttpClient,
+    maxSizeBytes: Long = 1L * 1024 * 1024 * 1024,
+): ImageLoader = buildTierImageLoader(context, okHttp, "previews", maxSizeBytes)
 
 fun previewRequest(context: Context, baseUrl: String, serverId: Long, imageId: Long): ImageRequest =
     ImageRequest.Builder(context)

@@ -22,6 +22,7 @@ object Routes {
     const val Albums = "albums"
     const val AlbumDetail = "albums/{galleryId}"
     const val Settings = "settings"
+    const val CacheManage = "settings/cache"
     const val Servers = "servers"
     const val AddServer = "servers/add"
     const val EditServer = "servers/{serverId}/edit"
@@ -56,6 +57,7 @@ fun AppScaffold(
     photosContent: @Composable () -> Unit,
     albumsContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
+    cacheContent: @Composable () -> Unit,
     serversContent: @Composable () -> Unit,
     addServerContent: @Composable () -> Unit,
     editServerContent: @Composable (Long) -> Unit,
@@ -125,6 +127,7 @@ fun AppScaffold(
             composable(Routes.Photos) { photosContent() }
             composable(Routes.Albums) { albumsContent() }
             composable(Routes.Settings) { settingsContent() }
+            composable(Routes.CacheManage) { cacheContent() }
             composable(Routes.Servers) { serversContent() }
             composable(Routes.AddServer) { addServerContent() }
             composable(
@@ -179,6 +182,7 @@ fun AppNavForTest() {
             photosContent = { Text("照片页占位") },
             albumsContent = { Text("相册页占位") },
             settingsContent = { Text("设置页占位") },
+            cacheContent = { Text("缓存管理占位") },
             serversContent = { Text("服务器页占位") },
             addServerContent = { Text("添加服务器占位") },
             editServerContent = { Text("编辑服务器占位") },

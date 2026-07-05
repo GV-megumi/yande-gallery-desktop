@@ -29,4 +29,19 @@ interface DownloadDao {
      */
     @Query("SELECT * FROM downloads")
     fun observeDownloaded(): Flow<List<DownloadEntity>>
+
+    /** 缓存管理页「已下载记录」列表（LEFT JOIN 容忍镜像行已被对账删除，filename 取空）。 */
+    @Query("""SELECT d.imageId AS imageId, d.mediaStoreUri AS mediaStoreUri,
+                     d.downloadedAt AS downloadedAt, i.filename AS filename
+              FROM downloads d LEFT JOIN images i ON i.id = d.imageId
+              ORDER BY d.downloadedAt DESC""")
+    fun observeDownloadedWithMeta(): Flow<List<DownloadWithMeta>>
 }
+
+/** 已下载记录 + 镜像元数据投影（缓存管理页用）；filename 为 LEFT JOIN 值，镜像行缺失时为 null。 */
+data class DownloadWithMeta(
+    val imageId: Long,
+    val mediaStoreUri: String,
+    val downloadedAt: String,
+    val filename: String?,
+)

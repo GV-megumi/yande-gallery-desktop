@@ -21,6 +21,8 @@ import com.bluskysoftware.yandegallery.ui.servers.EditServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
+import com.bluskysoftware.yandegallery.ui.settings.CacheScreen
+import com.bluskysoftware.yandegallery.ui.settings.CacheViewModel
 import com.bluskysoftware.yandegallery.ui.settings.SettingsScreen
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
@@ -91,7 +93,12 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                             onOpenServers = { nav.navigate(Routes.Servers) },
                             versionName = versionName,
+                            onOpenCache = { nav.navigate(Routes.CacheManage) },
                         )
+                    },
+                    cacheContent = {
+                        val cacheVm: CacheViewModel = viewModel(factory = CacheViewModel.factory(graph))
+                        CacheScreen(vm = cacheVm, onBack = { nav.popBackStack() })
                     },
                     serversContent = {
                         ServersScreen(
