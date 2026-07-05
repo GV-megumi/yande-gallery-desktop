@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
@@ -33,6 +34,7 @@ import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel,
     onBack: () -> Unit,
+    onOpenViewer: (imageId: Long) -> Unit,
 ) {
     val title by viewModel.title.collectAsStateWithLifecycle(initialValue = "")
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
@@ -62,7 +64,10 @@ fun AlbumDetailScreen(
                     imageLoader = loader,
                     contentDescription = image.filename,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.aspectRatio(1f).padding(1.dp),
+                    modifier = Modifier
+                        .aspectRatio(1f)
+                        .padding(1.dp)
+                        .clickable { onOpenViewer(image.id) },
                 )
             },
         )

@@ -18,6 +18,8 @@ import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
+import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
+import com.bluskysoftware.yandegallery.ui.viewer.ViewerViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +36,7 @@ class MainActivity : ComponentActivity() {
                         PhotosScreen(
                             viewModel = photosVm,
                             onAddServer = { nav.navigate(Routes.Servers) },
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
                         )
                     },
                     albumsContent = {
@@ -48,6 +51,16 @@ class MainActivity : ComponentActivity() {
                             viewModel(factory = AlbumDetailViewModel.factory(graph, galleryId))
                         AlbumDetailScreen(
                             viewModel = detailVm,
+                            onBack = { nav.popBackStack() },
+                            // 图集内点开：把 galleryId 一并传给 viewer，翻页上下文限定在本图集
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId, galleryId)) },
+                        )
+                    },
+                    viewerContent = { imageId, galleryId ->
+                        val viewerVm: ViewerViewModel =
+                            viewModel(factory = ViewerViewModel.factory(graph, imageId, galleryId))
+                        ViewerScreen(
+                            viewModel = viewerVm,
                             onBack = { nav.popBackStack() },
                         )
                     },

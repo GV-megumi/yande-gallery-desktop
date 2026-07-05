@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.photos
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -50,6 +51,7 @@ private fun SyncPhase.showsRefreshSpinner(): Boolean =
 fun PhotosScreen(
     viewModel: PhotosViewModel,
     onAddServer: () -> Unit,
+    onOpenViewer: (imageId: Long) -> Unit,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val syncPhase by viewModel.syncPhase.collectAsStateWithLifecycle()
@@ -99,7 +101,10 @@ fun PhotosScreen(
                                 imageLoader = loader,
                                 contentDescription = photo.image.filename,
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.aspectRatio(1f).padding(1.dp),
+                                modifier = Modifier
+                                    .aspectRatio(1f)
+                                    .padding(1.dp)
+                                    .clickable { onOpenViewer(photo.image.id) },
                             )
                         },
                     )

@@ -53,6 +53,11 @@ class ViewerViewModel(
      *
      * 不预算「绝对下标」作为 Pager 初始页：分页 enablePlaceholders=false 时 itemCount 随滚动增长，
      * 预算的绝对下标在首帧多半越界不可用；按 id 在已加载快照里匹配才稳健（详见任务报告的设计决策）。
+     *
+     * 消费时序契约（ViewerScreen 已按此实现）：首帧快照可能尚未包含该 id——消费方须随分页 append
+     * （itemCount / loadState 变化）持续按 id 重查快照直到命中；id 位于深处时快照不会自己长大，
+     * 须主动驱动 append（访问已加载区间的最后一项 `items[itemCount-1]` 触发下一页加载）循环推进，
+     * 直到命中、endOfPaginationReached（id 已被同步删除，兜底留在首部）或 append 出错为止。
      */
     val initialImageId: Long = imageId
 
@@ -115,7 +120,12 @@ class ViewerViewModel(
         return previewRequest(graph.appContext, baseUrl, serverId, image.id)
     }
 
-    /** 详情面板数据：byId + tagNamesOf + galleryIdsOf 组装（entity 必须存在——viewer 只对可见图调用）。 */
+    /**
+     * 详情面板数据：byId + tagNamesOf + galleryIdsOf 组装（entity 必须存在——viewer 只对可见图调用）。
+     *
+     * 注意：行在同步中途被删（对账清行）时 requireNotNull 会抛 [IllegalArgumentException]——
+     * 调用方（Task 11 详情面板）须捕获并优雅降级（关闭面板/不弹出），不得让异常冒泡崩溃。
+     */
     suspend fun detailOf(imageId: Long): ImageDetail {
         val dao = graph.db.imageDao()
         val entity = requireNotNull(dao.byId(imageId)) { "图片不存在: $imageId" }

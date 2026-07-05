@@ -11,7 +11,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.navigation.NavHostController
+import androidx.navigation.NavType
 import androidx.navigation.compose.*
+import androidx.navigation.navArgument
 
 object Routes {
     const val Photos = "photos"
@@ -20,8 +22,13 @@ object Routes {
     const val Servers = "servers"
     const val AddServer = "servers/add"
     const val Scan = "servers/scan"
+    const val Viewer = "viewer/{imageId}?galleryId={galleryId}"
 
     fun albumDetail(galleryId: Long) = "albums/$galleryId"
+
+    /** 大图页：galleryId 非 null → 图集上下文翻页；null → 时间轴上下文。 */
+    fun viewer(imageId: Long, galleryId: Long? = null) =
+        if (galleryId != null) "viewer/$imageId?galleryId=$galleryId" else "viewer/$imageId"
 }
 
 private data class BottomTab(val route: String, val label: String)
@@ -41,6 +48,7 @@ fun AppScaffold(
     addServerContent: @Composable () -> Unit,
     scanContent: @Composable () -> Unit,
     albumDetailContent: @Composable (Long) -> Unit,
+    viewerContent: @Composable (imageId: Long, galleryId: Long?) -> Unit,
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -99,6 +107,22 @@ fun AppScaffold(
             composable(Routes.AlbumDetail) { entry ->
                 albumDetailContent(entry.arguments?.getString("galleryId")?.toLongOrNull() ?: -1L)
             }
+            composable(
+                Routes.Viewer,
+                arguments = listOf(
+                    navArgument("imageId") { type = NavType.LongType },
+                    navArgument("galleryId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                viewerContent(
+                    entry.arguments?.getLong("imageId") ?: -1L,
+                    entry.arguments?.getString("galleryId")?.toLongOrNull(),
+                )
+            }
         }
     }
 }
@@ -116,6 +140,7 @@ fun AppNavForTest() {
             addServerContent = { Text("添加服务器占位") },
             scanContent = { Text("扫码占位") },
             albumDetailContent = { Text("图集详情占位") },
+            viewerContent = { _, _ -> Text("大图页占位") },
         )
     }
 }
