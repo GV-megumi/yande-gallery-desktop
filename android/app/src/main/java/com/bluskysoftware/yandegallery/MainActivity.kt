@@ -9,6 +9,7 @@ import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.NotificationPermissionEffect
+import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -39,12 +40,16 @@ class MainActivity : ComponentActivity() {
                 NotificationPermissionEffect()
                 val nav = rememberNavController()
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
+                // 照片 tab 多选栏桥（M4-T12）：单实例连通 PhotosScreen（SideEffect 回填）与壳（条件 swap）
+                val photosBars = remember { PhotosSelectionBars() }
                 AppScaffold(
                     navController = nav,
+                    photosSelectionBars = photosBars,
                     photosContent = {
                         val photosVm: PhotosViewModel = viewModel(factory = PhotosViewModel.factory(graph))
                         PhotosScreen(
                             viewModel = photosVm,
+                            barsState = photosBars,
                             onAddServer = { nav.navigate(Routes.Servers) },
                             onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
                         )

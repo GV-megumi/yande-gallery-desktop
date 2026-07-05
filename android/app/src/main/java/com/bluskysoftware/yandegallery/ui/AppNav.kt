@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.ui
 
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
@@ -10,12 +11,16 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
+import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
+import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 
 object Routes {
     const val Photos = "photos"
@@ -54,6 +59,7 @@ private val bottomTabs = listOf(
 @Composable
 fun AppScaffold(
     navController: NavHostController,
+    photosSelectionBars: PhotosSelectionBars,
     photosContent: @Composable () -> Unit,
     albumsContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
@@ -72,7 +78,16 @@ fun AppScaffold(
 
     Scaffold(
         topBar = {
-            if (showBottomBar) {
+            // 照片 tab 多选激活（桥 model 非空）：壳级 swap 为选择顶栏，替换常规 TopAppBar（M4-T12/D11 消双顶栏）
+            val bars = photosSelectionBars.model
+            if (currentRoute == Routes.Photos && bars != null) {
+                SelectionTopBar(
+                    count = bars.count,
+                    onSelectAll = bars.onSelectAll,
+                    onCancel = bars.onCancel,
+                    modifier = Modifier.statusBarsPadding(),   // Surface 需手动补状态栏 inset（对齐 AlbumDetail 用法）
+                )
+            } else if (showBottomBar) {
                 TopAppBar(
                     title = { Text(if (currentRoute == Routes.Photos) "照片" else "相册") },
                     actions = {
@@ -93,7 +108,18 @@ fun AppScaffold(
             }
         },
         bottomBar = {
-            if (showBottomBar) {
+            // 多选激活同步 swap 底栏：选择动作栏替换 NavigationBar（时间轴无图集上下文，inGallery=false）
+            val bars = photosSelectionBars.model
+            if (currentRoute == Routes.Photos && bars != null) {
+                SelectionBottomBar(
+                    online = bars.online,
+                    inGallery = false,
+                    onDownload = bars.onDownload,
+                    onShare = bars.onShare,
+                    onDelete = bars.onDelete,
+                    onAddToGallery = bars.onAddToGallery,
+                )
+            } else if (showBottomBar) {
                 NavigationBar {
                     bottomTabs.forEach { tab ->
                         NavigationBarItem(
@@ -172,13 +198,14 @@ fun AppScaffold(
     }
 }
 
-/** 测试与占位用：全部内容为占位 Text 的导航壳。 */
+/** 测试与占位用：全部内容为占位 Text 的导航壳。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。 */
 @Composable
-fun AppNavForTest() {
+fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
     val nav = rememberNavController()
     com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme {
         AppScaffold(
             navController = nav,
+            photosSelectionBars = photosSelectionBars ?: remember { PhotosSelectionBars() },
             photosContent = { Text("照片页占位") },
             albumsContent = { Text("相册页占位") },
             settingsContent = { Text("设置页占位") },

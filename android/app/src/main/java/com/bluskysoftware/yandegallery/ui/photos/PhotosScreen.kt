@@ -30,7 +30,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,10 +58,9 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
-import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
-import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -75,6 +76,7 @@ private fun SyncPhase.showsRefreshSpinner(): Boolean =
 @Composable
 fun PhotosScreen(
     viewModel: PhotosViewModel,
+    barsState: PhotosSelectionBars,
     onAddServer: () -> Unit,
     onOpenViewer: (imageId: Long) -> Unit,
 ) {
@@ -159,6 +161,49 @@ fun PhotosScreen(
         }
     }
 
+    // 多选栏桥回填（M4-T12/D11）：两栏渲染上提 AppScaffold 壳级 swap，消双顶/双底栏。
+    // 「全选」等回调闭包捕获分页快照与屏内状态，须每次重组回填最新值；SideEffect 在
+    // composition 成功落定后写桥（避免组合期写状态警告/回滚脏写）。
+    SideEffect {
+        barsState.model = if (selectionActive) {
+            PhotosSelectionBars.Model(
+                count = selected.size,
+                online = connState.online,
+                // 「全选」= 当前已加载进分页快照的照片（分页语义；继续滚动加载后可再点全选并入）
+                onSelectAll = {
+                    viewModel.selection.selectAll(
+                        (0 until items.itemCount).mapNotNull {
+                            (items.peek(it) as? TimelineItem.Photo)?.image?.id
+                        },
+                    )
+                },
+                onCancel = { viewModel.selection.clear() },
+                onDownload = {
+                    val ids = viewModel.selection.selected.toList()
+                    viewModel.downloadSelected(ids)
+                    viewModel.selection.clear()
+                    scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
+                },
+                onShare = { shareSelected() },
+                onDelete = {
+                    val ids = viewModel.selection.selected.toList()
+                    scope.launch {
+                        // 先探一次是否含已下载副本，确认文案据此分支（M4-T9）
+                        batchHasLocalCopies = viewModel.downloadedUrisFor(ids).isNotEmpty()
+                        confirmBatchDelete = true
+                    }
+                },
+                onAddToGallery = { showGalleryPicker = true },
+            )
+        } else {
+            null
+        }
+    }
+    // 离开照片路由（含切服后回引导态的早退分支）清桥，壳恢复常规 TopAppBar/NavigationBar
+    DisposableEffect(Unit) {
+        onDispose { barsState.model = null }
+    }
+
     val baseUrl = server.baseUrl
     val serverId = server.id
     val loader = viewModel.thumbnailLoader
@@ -196,21 +241,7 @@ fun PhotosScreen(
     TimelineAnchorEffect(items, gridState, pendingAnchor, onDone = { pendingAnchor = null })
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            // 多选顶部选择栏：激活时盖在内容区顶部（AppScaffold 的 TopAppBar 仍在其上，不动导航壳）
-            if (selectionActive) {
-                SelectionTopBar(
-                    count = selected.size,
-                    // 「全选」= 当前已加载进分页快照的照片（分页语义；继续滚动加载后可再点全选并入）
-                    onSelectAll = {
-                        viewModel.selection.selectAll(
-                            (0 until items.itemCount).mapNotNull {
-                                (items.peek(it) as? TimelineItem.Photo)?.image?.id
-                            },
-                        )
-                    },
-                    onCancel = { viewModel.selection.clear() },
-                )
-            }
+            // 多选顶/底选择栏已上提 AppScaffold 壳级 swap（M4-T12，经 barsState 桥），内容区不再自渲染
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
             ConnectionBanner(state = connState, onReconnectAuth = onAddServer)
             PullToRefreshBox(
@@ -300,29 +331,6 @@ fun PhotosScreen(
                         )
                     }
                 }
-            }
-            // 多选底部动作栏：写动作离线置灰；时间轴无图集上下文（inGallery=false，无「移出」）
-            if (selectionActive) {
-                SelectionBottomBar(
-                    online = connState.online,
-                    inGallery = false,
-                    onDownload = {
-                        val ids = viewModel.selection.selected.toList()
-                        viewModel.downloadSelected(ids)
-                        viewModel.selection.clear()
-                        scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
-                    },
-                    onShare = { shareSelected() },
-                    onDelete = {
-                        val ids = viewModel.selection.selected.toList()
-                        scope.launch {
-                            // 先探一次是否含已下载副本，确认文案据此分支（M4-T9）
-                            batchHasLocalCopies = viewModel.downloadedUrisFor(ids).isNotEmpty()
-                            confirmBatchDelete = true
-                        }
-                    },
-                    onAddToGallery = { showGalleryPicker = true },
-                )
             }
         }
         SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
