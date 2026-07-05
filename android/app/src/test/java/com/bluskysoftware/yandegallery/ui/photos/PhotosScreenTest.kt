@@ -137,6 +137,20 @@ class PhotosScreenTest {
     }
 
     @Test
+    fun `sticky 日期条有 label 渲染_null 不渲染`() {
+        val label = mutableStateOf<String?>("2026年6月")
+        compose.setContent { StickyDateOverlay(label = label.value) }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+        compose.onNodeWithText("2026年6月").assertIsDisplayed()
+
+        compose.runOnIdle { label.value = null }
+        compose.waitForIdle()
+        compose.onNodeWithTag("sticky_date").assertDoesNotExist()
+    }
+
+    @Test
     fun `切档锚定不被重建前旧快照提前弃锚`() {
         // 评审缺陷场景（fix 轮）：日→月切档置锚后，effect 会先以「重建前旧（日）快照」重跑——
         // 旧键族(yyyy-MM-dd)必然不含月锚(yyyy-MM)；小库全载时旧快照 endOfPaginationReached=true，

@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.photos
 
+import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -56,6 +57,26 @@ class TimelineModelsTest {
 
     @Test
     fun `dayBubbleDisplayOf 月日气泡文案`() = assertEquals("6月15日", dayBubbleDisplayOf("2026-06-15"))
+
+    @Test
+    fun `timelineItemDateLabel 双档位双条目类型`() {
+        // Photo 分支经 dayKeyOf 走本地时区归日，钉死 TZ 与机器解耦（同首个用例范式）
+        val prev = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"))
+            val photo = TimelineItem.Photo(
+                ImageEntity(1, "a.jpg", 1, 1, 1L, "jpg", "2026-06-15T12:00:00Z", "2026"),
+            )
+            assertEquals("6月15日", timelineItemDateLabel(photo, monthly = false))
+            assertEquals("2026年6月", timelineItemDateLabel(photo, monthly = true))
+            // 月模式 Header 的 dayKey 字段承载 monthKey（T2 约定）
+            assertEquals("6月15日", timelineItemDateLabel(TimelineItem.Header("2026-06-15", "x"), monthly = false))
+            assertEquals("2026年6月", timelineItemDateLabel(TimelineItem.Header("2026-06", "x"), monthly = true))
+            assertNull(timelineItemDateLabel(null, monthly = false))
+        } finally {
+            TimeZone.setDefault(prev)
+        }
+    }
 
     @Test
     fun `DensityTier 四档序与边界`() {

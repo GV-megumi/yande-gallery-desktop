@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -21,11 +22,13 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -49,6 +52,7 @@ import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
+import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
@@ -191,14 +195,17 @@ fun PhotosScreen(
                     }
                     // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchDensity）。
                     // currentTier 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档位。
+                    // fillMaxSize：给 sticky 日期条/快速滚动滑块两个 overlay 提供对齐范围（T4）。
                     Box(
-                        Modifier.pointerInput(Unit) {
-                            detectPinchDensity(
-                                state = pinchState,
-                                currentTier = { viewModel.densityTier.value },
-                                onTierChange = ::changeTier,
-                            )
-                        },
+                        Modifier
+                            .fillMaxSize()
+                            .pointerInput(Unit) {
+                                detectPinchDensity(
+                                    state = pinchState,
+                                    currentTier = { viewModel.densityTier.value },
+                                    onTierChange = ::changeTier,
+                                )
+                            },
                     ) {
                         PhotosGrid(
                             items = items,
@@ -224,6 +231,37 @@ fun PhotosScreen(
                                     )
                                 }
                             },
+                        )
+                        // 视口顶部日期：derivedStateOf 只在文案变化时重组（滚动逐帧不扰动整屏）；
+                        // 与滑块气泡共用 timelineItemDateLabel，向前回退最多 30 项找最近非空
+                        val topDateLabel by remember(items, tier) {
+                            derivedStateOf {
+                                val top = gridState.firstVisibleItemIndex
+                                (top downTo maxOf(0, top - 30)).firstNotNullOfOrNull { i ->
+                                    if (i in 0 until items.itemCount) {
+                                        timelineItemDateLabel(items.peek(i), tier.monthGrouping)
+                                    } else {
+                                        null
+                                    }
+                                }
+                            }
+                        }
+                        StickyDateOverlay(
+                            label = topDateLabel,
+                            modifier = Modifier.align(Alignment.TopStart),
+                        )
+                        // 快速滚动滑块（D4）：映射已加载窗口，拖到底持续 append 延展
+                        FastScrollbar(
+                            gridState = gridState,
+                            itemCount = items.itemCount,
+                            labelFor = { index ->
+                                if (index in 0 until items.itemCount) {
+                                    timelineItemDateLabel(items.peek(index), tier.monthGrouping)
+                                } else {
+                                    null
+                                }
+                            },
+                            modifier = Modifier.align(Alignment.CenterEnd),
                         )
                     }
                 }
@@ -320,6 +358,28 @@ fun PhotosGuide(onAddServer: () -> Unit) {
             modifier = Modifier.padding(top = 8.dp, bottom = 24.dp),
         )
         Button(onClick = onAddServer) { Text("先添加服务器") }
+    }
+}
+
+/**
+ * sticky 顶部日期条（spec §7.1，M2 后置项）：LazyVerticalGrid 无原生 stickyHeader，用 overlay
+ * 浮动条显示视口顶部 item 所属日期；label null（空列表）不渲染。文案与滑块气泡共用
+ * timelineItemDateLabel 查找。internal 供 Robolectric 直测。
+ */
+@Composable
+internal fun StickyDateOverlay(label: String?, modifier: Modifier = Modifier) {
+    if (label == null) return
+    Surface(
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+        tonalElevation = 2.dp,
+        modifier = modifier.padding(8.dp).testTag("sticky_date"),
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
     }
 }
 

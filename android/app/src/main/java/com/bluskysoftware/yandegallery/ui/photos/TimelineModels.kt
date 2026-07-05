@@ -63,3 +63,17 @@ fun dayBubbleDisplayOf(dayKey: String): String = runCatching {
     val date = LocalDate.parse(dayKey)
     "${date.monthValue}月${date.dayOfMonth}日"
 }.getOrElse { dayKey }
+
+/**
+ * 时间轴条目 → 当前档位日期文案（月视图「2026年6月」/ 日视图「6月15日」）。
+ * sticky 顶部日期条与快速滚动滑块气泡共用此查找（同一 top-visible-index→date 语义，
+ * 两处不许各写一份）。月模式 Header 的 dayKey 字段承载 monthKey（T2 约定）。
+ */
+fun timelineItemDateLabel(item: TimelineItem?, monthly: Boolean): String? = when (item) {
+    is TimelineItem.Photo ->
+        if (monthly) monthDisplayOf(monthKeyOf(item.image.createdAt))
+        else dayBubbleDisplayOf(dayKeyOf(item.image.createdAt))
+    is TimelineItem.Header ->
+        if (monthly) monthDisplayOf(item.dayKey) else dayBubbleDisplayOf(item.dayKey)
+    null -> null
+}
