@@ -41,6 +41,14 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * 下拉刷新转圈判据（A8，M4-T15 从 PhotosScreen 私有函数迁入 VM 逻辑并 internal 化以便直测）：
+ * 增量/对账阶段无数字进度，用转圈；首同步 FullSync 另有顶部 LinearProgressIndicator 显示 done/total，
+ * 不叠加转圈避免双指示器。
+ */
+internal fun SyncPhase.showsRefreshSpinner(): Boolean =
+    this is SyncPhase.Incremental || this is SyncPhase.Reconciling
+
 class PhotosViewModel(
     private val graph: AppGraph,
     writeRepository: WriteRepository = graph.writeRepository,  // 测试注入缝（镜像 ViewerViewModel gateway 模式）
@@ -54,8 +62,18 @@ class PhotosViewModel(
         graph.serverRepository.observeActive()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
+    /** 首帧引导态门控（A7）：DB 首次发射前不显「还没有连接服务器」引导，避免已配对用户冷启动闪帧。 */
+    val activeServerResolved: StateFlow<Boolean> =
+        graph.serverRepository.observeActive().map { true }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
+
     /** 首同步/增量进度直通同步引擎（Task 7）。 */
     val syncPhase: StateFlow<SyncPhase> = graph.syncEngine.progress
+
+    /** 下拉刷新转圈布尔（A8 隔离）：Screen 顶层只收集布尔，FullSync 每 tick 不再重组全屏。 */
+    val refreshing: StateFlow<Boolean> = graph.syncEngine.progress
+        .map { it.showsRefreshSpinner() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), false)
 
     /** 连接状态：驱动顶部横幅（offline/unauthorized）。 */
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state

@@ -97,8 +97,10 @@ class ViewerViewModelTest {
     fun `已下载 id 进入 downloadedIds 集合`() = runTest {
         db.imageDao().upsertAll(listOf(image(7)))
         db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
+        // M4-T15：downloadedIds 由 downloadedUris 派生（只含收集期预校验 exists=true 的行），故须让 7 存在。
+        val gateway = FakeGateway(existing = setOf("content://media/7"))
 
-        vm(7).downloadedIds.test {
+        vm(7, gateway = gateway).downloadedIds.test {
             var ids = awaitItem()
             while (7L !in ids) ids = awaitItem()
             assertTrue(7L in ids)
@@ -135,37 +137,60 @@ class ViewerViewModelTest {
     }
 
     @Test
-    fun `modelFor 映射失效（系统相册已删）回退 preview 并异步清行`() = runTest {
-        db.imageDao().upsertAll(listOf(image(9)))
+    fun `downloadedUris 收集期预校验——exists=false 的行不进映射且被清库`() = runTest {
+        db.imageDao().upsertAll(listOf(image(7), image(9)))
+        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
         db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 9, mediaStoreUri = "content://media/9", downloadedAt = "t"))
-        // existing 为空 → exists 恒 false，模拟用户已在系统相册手删该条目。
-        val gateway = FakeGateway(existing = emptySet())
-        val viewModel = vm(9, gateway = gateway)
+        // 只有 7 的系统相册副本仍在；9 已被用户手删 → 收集链路应剔除并清库（spec §6.4，M4-T15 把清行从 modelFor 前移到收集期）。
+        val gateway = FakeGateway(existing = setOf("content://media/7"))
+        val viewModel = vm(7, gateway = gateway)
 
         viewModel.downloadedUris.test {
             var uris = awaitItem()
-            while (!uris.containsKey(9L)) uris = awaitItem()
-
-            val model = viewModel.modelFor(image(9), "http://base")
-            assertTrue("映射失效应回退 preview", model is ImageRequest)
-
-            // 清行后 observeDownloaded 再发射一版不含 9 的 map
-            var after = awaitItem()
-            while (after.containsKey(9L)) after = awaitItem()
-            assertTrue(!after.containsKey(9L))
+            while (!uris.containsKey(7L)) uris = awaitItem()
+            // 稳定态映射只含存在的 7，绝不含失效的 9
+            assertTrue("exists=true 的 7 应在映射", uris.containsKey(7L))
+            assertTrue("exists=false 的 9 不得进入映射", !uris.containsKey(9L))
             cancelAndIgnoreRemainingEvents()
         }
-
-        assertNull("失效映射行应被删除", db.downloadDao().byImageId(serverId, 9))
+        // 失效行被收集链路顺手清（不再等 modelFor 触发）
+        assertNull("exists=false 的失效映射行应被清库", db.downloadDao().byImageId(serverId, 9))
+        // 未命中映射 → modelFor 退回 1600 档 preview（等价于「未下载」）
+        assertTrue(viewModel.modelFor(image(9), "http://base") is ImageRequest)
     }
 
-    /** 内存 fake：existing 集合内的 uri 字符串视为系统相册仍在；其余不存在。 */
+    @Test
+    fun `modelFor 零 IPC——exists 只发生在收集链路而不在 modelFor`() = runTest {
+        db.imageDao().upsertAll(listOf(image(7)))
+        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
+        val gateway = FakeGateway(existing = setOf("content://media/7"))
+        val viewModel = vm(7, gateway = gateway)
+
+        viewModel.downloadedUris.test {
+            var uris = awaitItem()
+            while (!uris.containsKey(7L)) uris = awaitItem()
+
+            val callsAfterCollect = gateway.existsCalls
+            // 命中与未命中各调若干次，均不得再触 gateway（modelFor 纯读 map，零 binder IPC）
+            repeat(3) { viewModel.modelFor(image(7), "http://base") }
+            repeat(3) { viewModel.modelFor(image(8), "http://base") }
+            assertEquals("modelFor 不得触 gateway.exists（零 IPC，A3 根治）", callsAfterCollect, gateway.existsCalls)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
+    /** 内存 fake：existing 集合内的 uri 字符串视为系统相册仍在；其余不存在。exists 计数用于零 IPC 断言（跨 IO 线程，用 Atomic）。 */
     private class FakeGateway(private val existing: Set<String> = emptySet()) : MediaStoreGateway {
+        private val existsCounter = java.util.concurrent.atomic.AtomicInteger(0)
+        val existsCalls: Int get() = existsCounter.get()
         override fun createPending(displayName: String, mime: String): Uri? = null
         override fun openOutput(uri: Uri): OutputStream? = null
         override fun finalize(uri: Uri) {}
         override fun discard(uri: Uri) {}
-        override fun exists(uri: Uri): Boolean = uri.toString() in existing
+        override fun exists(uri: Uri): Boolean {
+            existsCounter.incrementAndGet()
+            return uri.toString() in existing
+        }
         override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
         override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
     }

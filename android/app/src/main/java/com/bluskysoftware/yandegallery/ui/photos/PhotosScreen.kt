@@ -65,14 +65,8 @@ import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
-
-/**
- * 下拉刷新转圈的时机：增量/对账阶段（这两者无数字进度）。
- * 首同步 FullSync 另有顶部 LinearProgressIndicator 显示 done/total，不再叠加转圈避免双指示器。
- */
-private fun SyncPhase.showsRefreshSpinner(): Boolean =
-    this is SyncPhase.Incremental || this is SyncPhase.Reconciling
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -83,7 +77,9 @@ fun PhotosScreen(
     onOpenViewer: (imageId: Long) -> Unit,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
-    val syncPhase by viewModel.syncPhase.collectAsStateWithLifecycle()
+    val activeServerResolved by viewModel.activeServerResolved.collectAsStateWithLifecycle()
+    // 顶层只收下拉转圈布尔（A8 隔离）：FullSync 每 tick 的重组隔离进 SyncProgressBar，不再扰动全屏
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle()
     val connState by viewModel.connState.collectAsStateWithLifecycle()
     val selected by viewModel.selection.selectedFlow.collectAsStateWithLifecycle()
     val galleries by viewModel.galleries.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -98,6 +94,11 @@ fun PhotosScreen(
         }
     }
 
+    // 首帧引导态门控（A7）：DB 首发射前（resolved=false）渲染空白，不显引导——避免已配对用户冷启动闪帧。
+    if (!activeServerResolved) {
+        Box(Modifier.fillMaxSize())
+        return
+    }
     // 无激活服务器：不进网格分支，直接渲染引导态。
     val server = activeServer
     if (server == null) {
@@ -249,20 +250,15 @@ fun PhotosScreen(
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
             ConnectionBanner(state = connState, onReconnectAuth = onAddServer)
             PullToRefreshBox(
-                isRefreshing = syncPhase.showsRefreshSpinner(),
+                isRefreshing = refreshing,
                 onRefresh = viewModel::refresh,
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
             ) {
                 Column(Modifier.fillMaxSize()) {
-                    (syncPhase as? SyncPhase.FullSync)?.let { phase ->
-                        val fraction = if (phase.total > 0) phase.done.toFloat() / phase.total else 0f
-                        LinearProgressIndicator(
-                            progress = { fraction },
-                            modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
-                        )
-                    }
+                    // 进度条独立收集 syncPhase：每页 tick 的重组隔离在组件内，不再重组网格子树（D13/A8）
+                    SyncProgressBar(viewModel.syncPhase)
                     // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchDensity）。
                     // currentTier 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档位。
                     // fillMaxSize：给 sticky 日期条/快速滚动滑块两个 overlay 提供对齐范围（T4）。
@@ -420,6 +416,22 @@ fun PhotosScreen(
                 }
             },
             onDismiss = { showGalleryPicker = false },
+        )
+    }
+}
+
+/**
+ * FullSync 进度条：独立收集 syncPhase，把每页 tick 的重组隔离在本组件内（D13/A8）。
+ * 顶层 PhotosScreen 不再 collect syncPhase，故 FullSync done/total 每 tick 只重组这一条，不波及网格子树。
+ */
+@Composable
+private fun SyncProgressBar(syncPhaseFlow: StateFlow<SyncPhase>) {
+    val syncPhase by syncPhaseFlow.collectAsStateWithLifecycle()
+    (syncPhase as? SyncPhase.FullSync)?.let { phase ->
+        val fraction = if (phase.total > 0) phase.done.toFloat() / phase.total else 0f
+        LinearProgressIndicator(
+            progress = { fraction },
+            modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
         )
     }
 }

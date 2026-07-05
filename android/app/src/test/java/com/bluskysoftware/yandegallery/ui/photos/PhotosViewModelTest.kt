@@ -8,6 +8,7 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -21,6 +22,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -115,6 +117,30 @@ class PhotosViewModelTest {
         advanceUntilIdle()   // 让 init 收集器消化首个（当前）发射——drop(1) 应跳过
 
         assertEquals(setOf(1L, 2L), vm.selection.selected)
+    }
+
+    @Test
+    fun `activeServerResolved——DB 首发射后翻 true（无激活服务器亦然，resolved 不等于有服务器）`() = runTest {
+        // 不种服务器：observeActive 首发射 null，但 resolved（map{true}）仍应翻 true——门控只判「DB 是否已答复」。
+        val vm = PhotosViewModel(graph)
+        vm.activeServerResolved.test {
+            var resolved = awaitItem()
+            while (!resolved) resolved = awaitItem()
+            assertTrue("DB 首发射后 activeServerResolved 应为 true（即使无激活服务器）", resolved)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertEquals("此用例无激活服务器：resolved=true 与「有服务器」无关", null, graph.serverRepository.activeServer())
+    }
+
+    @Test
+    fun `refreshing 判据——增量对账转圈，FullSync 及 Idle Done 不转圈`() {
+        // 下拉转圈只在无数字进度的增量/对账阶段；FullSync 有顶部数字进度条不叠加转圈（A8）。
+        assertTrue(SyncPhase.Incremental.showsRefreshSpinner())
+        assertTrue(SyncPhase.Reconciling.showsRefreshSpinner())
+        assertFalse(SyncPhase.FullSync(0, 10).showsRefreshSpinner())
+        assertFalse(SyncPhase.Idle.showsRefreshSpinner())
+        assertFalse(SyncPhase.Done.showsRefreshSpinner())
+        assertFalse(SyncPhase.Failed("x").showsRefreshSpinner())
     }
 
     @Test

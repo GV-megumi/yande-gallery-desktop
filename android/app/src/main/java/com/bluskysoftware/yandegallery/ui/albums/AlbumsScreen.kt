@@ -68,7 +68,8 @@ fun AlbumsScreen(
     navController: NavHostController,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
-    val albums by viewModel.albums.collectAsStateWithLifecycle(initialValue = emptyList())
+    // 三态：null=加载中（DB 未首发射）/ 空列表=确无图集 / 非空=有图集（M4-T15，A7 消空态闪帧）
+    val albums by viewModel.albums.collectAsStateWithLifecycle()
     val connState by viewModel.connState.collectAsStateWithLifecycle()
     val online = connState.online
 
@@ -119,7 +120,11 @@ fun AlbumsScreen(
         // 外层 AppScaffold 已为相册路由消费系统栏 inset（顶栏+底部导航），内层不重复施加避免双 inset
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
-        if (albums.isEmpty()) {
+        val cards = albums
+        if (cards == null) {
+            // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
+            Box(Modifier.fillMaxSize().padding(padding))
+        } else if (cards.isEmpty()) {
             AlbumsEmpty(Modifier.padding(padding))
         } else {
             LazyVerticalGrid(
@@ -128,7 +133,7 @@ fun AlbumsScreen(
                 contentPadding = PaddingValues(bottom = 88.dp),
                 modifier = Modifier.fillMaxSize().padding(padding).testTag("albums_grid"),
             ) {
-                items(albums, key = { it.gallery.id }) { card ->
+                items(cards, key = { it.gallery.id }) { card ->
                     AlbumCardItem(
                         card = card,
                         baseUrl = baseUrl,

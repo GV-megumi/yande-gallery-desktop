@@ -224,8 +224,8 @@ fun ViewerScreen(
             items = items,
             initialImageId = viewModel.initialImageId,
             imageLoader = viewModel.previewLoader,
-            // 模型记忆化（审查修复）：modelFor 对已下载图做主线程 gateway.exists()，不能随缩放帧重组
-            // 每帧重调。key 含「该图当前下载映射 + baseUrl」——下载完成/失效或切服时 key 变化，
+            // 模型记忆化（M4-T15：modelFor 已零 IPC 纯读 map，但仍避免每缩放帧重建 ImageRequest 对象）。
+            // key 含「该图当前下载映射 + baseUrl」——下载完成/失效或切服时 key 变化，
             // 档位升降级仍即时生效（downloadedUris 以 Compose 状态订阅，变化会触发重组）。
             modelFor = { image ->
                 remember(image.id, downloadedUris[image.id], baseUrl) {

@@ -14,10 +14,12 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.work.WorkInfo
 import coil3.ImageLoader
+import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.previewRequest
+import com.bluskysoftware.yandegallery.data.image.previewUrl
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -32,9 +34,9 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
@@ -92,34 +94,40 @@ class ViewerViewModel(
         }.flow.cachedIn(viewModelScope)
 
     /**
-     * 已下载 id 集合：某图已下载 → viewer 跳 1600 档直读 MediaStore（见 [modelFor]）。
-     * M4-T9：按激活 serverId 过滤（flatMapLatest 挂在 [activeServer] 上，切服即换域；
-     * 无激活服务器发空集）——跨服同号 imageId 不再串本地原图。Eagerly 语义不变。
-     */
-    @OptIn(ExperimentalCoroutinesApi::class)
-    val downloadedIds: StateFlow<Set<Long>> =
-        activeServer
-            .flatMapLatest { server ->
-                if (server == null) flowOf(emptyList())
-                else graph.db.downloadDao().observeDownloadedIds(server.id)
-            }
-            .map { it.toSet() }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
-
-    /**
-     * 已下载 id→mediaStoreUri 映射：前置收集成 map，因 [modelFor] 在 composition 同步调用，
-     * 不能走 suspend 版 byImageId。Eagerly 收集保证无订阅者时 `.value` 也已追平 DB。
-     * M4-T9：同 [downloadedIds] 按激活 serverId 过滤。
+     * 已下载映射（M4-T15）：收集期在 IO 线程预校验 gateway.exists，失效行直接清除——
+     * map 里只留「文件确实存在」的映射，[modelFor]/预取读 map 零 IPC（D13/A3：主线程 binder 从热路径整体移除）。
+     * 前置收集成 map：[modelFor] 在 composition 同步调用，不能走 suspend 版 byImageId。
+     * M4-T9：按激活 serverId 过滤（flatMapLatest 挂在 observeActive 上，切服即换域；无激活服务器发空 map）。
+     * Eagerly 收集保证无订阅者时 `.value` 也已追平 DB。
      */
     @OptIn(ExperimentalCoroutinesApi::class)
     val downloadedUris: StateFlow<Map<Long, String>> =
-        activeServer
+        graph.serverRepository.observeActive()
             .flatMapLatest { server ->
-                if (server == null) flowOf(emptyList())
-                else graph.db.downloadDao().observeDownloaded(server.id)
+                if (server == null) flowOf(emptyMap())
+                else graph.db.downloadDao().observeDownloaded(server.id).map { rows ->
+                    val valid = mutableMapOf<Long, String>()
+                    for (row in rows) {
+                        if (gateway.exists(row.mediaStoreUri.toUri())) {
+                            valid[row.imageId] = row.mediaStoreUri
+                        } else {
+                            graph.db.downloadDao().delete(server.id, row.imageId)   // 映射失效即清（spec §6.4）
+                        }
+                    }
+                    valid
+                }
             }
-            .map { rows -> rows.associate { it.imageId to it.mediaStoreUri } }
+            .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
+
+    /**
+     * 已下载 id 集合：由 [downloadedUris] 派生（只含收集期预校验存在的行），语义与映射一致。
+     * M4-T9 的 serverId 过滤随 [downloadedUris] 一并生效；Eagerly 语义不变。
+     */
+    val downloadedIds: StateFlow<Set<Long>> =
+        downloadedUris
+            .map { it.keys }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     /** 连接状态：写按钮/下载按钮按需置灰（Task 11）。 */
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state
@@ -131,27 +139,20 @@ class ViewerViewModel(
     }
 
     /**
-     * 三档图片模型（**同步**，composition 里调用）：
-     * - 命中 downloadedUris 且 `gateway.exists(uri)` → 返回解析后的 [Uri]（跳 1600 档直读 MediaStore）；
-     * - 命中但 exists=false（用户已在系统相册手删）→ 异步清 downloads 行，本次回退 1600 档 preview；
-     * - 未命中 → 1600 档 [previewRequest]。
+     * 三档模型（**同步**、零 IPC）：map 命中即本地 [Uri]（存在性已由 [downloadedUris] 收集链路担保），
+     * 否则 1600 档 [previewRequest]。gateway.exists 已整体前移到收集期，modelFor 本体只读 map（D13/A3）。
      *
-     * gateway.exists 为同步 IO 调用，按 spec §6.4 允许留在 composition 路径；清行只在
-     * viewModelScope.launch 里做，modelFor 本体只读 map 保持非挂起。serverId 取自
-     * activeServer.value.id 做 preview 缓存键命名空间（多服务器同 imageId 不同图，避免串图）。
+     * 无激活服务器的退化态**不伪造 s0 命名空间**：返回不带缓存键的裸请求（此时 baseUrl 为空串，
+     * 请求自然失败 → T5 占位；绝不能用 serverId=0 落一份假命名空间的缓存条目串图）。
      */
     fun modelFor(image: ImageEntity, baseUrl: String): Any {
-        val activeId = activeServer.value?.id
         val uriString = downloadedUris.value[image.id]
-        if (uriString != null) {
-            val uri = uriString.toUri()
-            if (gateway.exists(uri)) return uri
-            // 映射失效：清行（异步，本服域——downloadedUris 已按激活 serverId 过滤），本次回退 preview。
-            if (activeId != null) {
-                viewModelScope.launch { graph.db.downloadDao().delete(activeId, image.id) }
-            }
-        }
-        return previewRequest(graph.appContext, baseUrl, activeId ?: 0L, image.id)
+        if (uriString != null) return uriString.toUri()
+        val server = activeServer.value
+            ?: return ImageRequest.Builder(graph.appContext)
+                .data(previewUrl(baseUrl, image.id))
+                .build()
+        return previewRequest(graph.appContext, baseUrl, server.id, image.id)
     }
 
     /**
