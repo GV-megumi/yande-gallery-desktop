@@ -1,9 +1,11 @@
 package com.bluskysoftware.yandegallery.ui
 
 import androidx.compose.foundation.layout.padding
+import android.net.Uri
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -23,12 +25,17 @@ object Routes {
     const val AddServer = "servers/add"
     const val Scan = "servers/scan"
     const val Viewer = "viewer/{imageId}?galleryId={galleryId}"
+    const val Search = "search?initialQuery={initialQuery}"
 
     fun albumDetail(galleryId: Long) = "albums/$galleryId"
 
     /** 大图页：galleryId 非 null → 图集上下文翻页；null → 时间轴上下文。 */
     fun viewer(imageId: Long, galleryId: Long? = null) =
         if (galleryId != null) "viewer/$imageId?galleryId=$galleryId" else "viewer/$imageId"
+
+    /** 搜索页：query 非空（如大图页标签 chip 跳入）→ 预填并即时搜索；空 → 空白搜索页。 */
+    fun search(query: String? = null) =
+        if (query.isNullOrBlank()) "search" else "search?initialQuery=${Uri.encode(query)}"
 }
 
 private data class BottomTab(val route: String, val label: String)
@@ -49,6 +56,7 @@ fun AppScaffold(
     scanContent: @Composable () -> Unit,
     albumDetailContent: @Composable (Long) -> Unit,
     viewerContent: @Composable (imageId: Long, galleryId: Long?) -> Unit,
+    searchContent: @Composable (initialQuery: String) -> Unit,
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
@@ -60,6 +68,15 @@ fun AppScaffold(
                 TopAppBar(
                     title = { Text(if (currentRoute == Routes.Photos) "照片" else "相册") },
                     actions = {
+                        // 搜索入口仅在照片 tab 呈现（相册 tab 无全库搜索语义）
+                        if (currentRoute == Routes.Photos) {
+                            IconButton(
+                                onClick = { navController.navigate(Routes.search()) },
+                                modifier = Modifier.testTag("photos_search"),
+                            ) {
+                                Icon(Icons.Filled.Search, contentDescription = "搜索")
+                            }
+                        }
                         IconButton(onClick = { navController.navigate(Routes.Servers) }) {
                             Icon(Icons.Filled.Settings, contentDescription = "设置")
                         }
@@ -123,6 +140,18 @@ fun AppScaffold(
                     entry.arguments?.getString("galleryId")?.toLongOrNull(),
                 )
             }
+            composable(
+                Routes.Search,
+                arguments = listOf(
+                    navArgument("initialQuery") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                ),
+            ) { entry ->
+                searchContent(entry.arguments?.getString("initialQuery").orEmpty())
+            }
         }
     }
 }
@@ -141,6 +170,7 @@ fun AppNavForTest() {
             scanContent = { Text("扫码占位") },
             albumDetailContent = { Text("图集详情占位") },
             viewerContent = { _, _ -> Text("大图页占位") },
+            searchContent = { Text("搜索页占位") },
         )
     }
 }

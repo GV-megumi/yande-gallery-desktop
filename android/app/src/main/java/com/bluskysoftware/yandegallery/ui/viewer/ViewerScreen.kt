@@ -72,6 +72,7 @@ private const val HIGH_ZOOM_THRESHOLD = 2.5f
  * 共享元素转场按计划后置 M4，本页走普通导航进入。
  *
  * @param onOpenGallery 详情面板「所属图集」点击 → 图集详情页（MainActivity 接 Routes.albumDetail）
+ * @param onOpenSearch 详情面板标签 chip 点击 → 搜索页并以该标签名预填触发搜索（MainActivity 接 Routes.search）
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -79,6 +80,7 @@ fun ViewerScreen(
     viewModel: ViewerViewModel,
     onBack: () -> Unit,
     onOpenGallery: (Long) -> Unit = {},
+    onOpenSearch: (String) -> Unit = {},
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val downloadedUris by viewModel.downloadedUris.collectAsStateWithLifecycle()
@@ -297,7 +299,12 @@ fun ViewerScreen(
                 detail = d,
                 online = connState.online,
                 onEditTags = { showTagEditor = true },
-                onTagClick = { /* 标签跳搜索：T12 搜索页就绪后接线 */ },
+                onTagClick = { tag ->
+                    // 标签 chip → 搜索页（以标签名预填触发搜索）；先关面板再离开本页
+                    detail = null
+                    showTagEditor = false
+                    onOpenSearch(tag)
+                },
                 onGalleryClick = { galleryId ->
                     detail = null
                     onOpenGallery(galleryId)

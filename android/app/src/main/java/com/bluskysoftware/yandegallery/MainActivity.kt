@@ -13,6 +13,8 @@ import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.photos.PhotosScreen
 import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
+import com.bluskysoftware.yandegallery.ui.search.SearchScreen
+import com.bluskysoftware.yandegallery.ui.search.SearchViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
@@ -64,6 +66,17 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                             // 详情面板「所属图集」→ 图集详情页
                             onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
+                            // 详情面板标签 chip → 搜索页（预填该标签名触发搜索）
+                            onOpenSearch = { tag -> nav.navigate(Routes.search(tag)) },
+                        )
+                    },
+                    searchContent = { initialQuery ->
+                        val searchVm: SearchViewModel = viewModel(factory = SearchViewModel.factory(graph))
+                        SearchScreen(
+                            viewModel = searchVm,
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
+                            onBack = { nav.popBackStack() },
+                            initialQuery = initialQuery,
                         )
                     },
                     serversContent = {
