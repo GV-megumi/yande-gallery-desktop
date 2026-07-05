@@ -27,10 +27,17 @@ class SelectionActions(
     private val observeDownloadState: (serverId: Long, imageId: Long) -> Flow<WorkInfo.State?>,
     private val gatewayExists: (String) -> Boolean,
 ) {
+    /**
+     * 批量动作前过滤隐形残留选中（M4-T14）：同步对账删行后，选择集里可能残留镜像无行的死 id，
+     * 一律先滤除再操作，避免死 id 进服务端请求。
+     */
+    suspend fun filterExisting(ids: List<Long>): List<Long> =
+        ids.filter { db.imageDao().byId(it) != null }
+
     /** 批量下载：逐个入队（T8 唯一工作名 KEEP 自动去重）；镜像行已被同步删掉的 id 静默跳过；无激活服务器无操作。 */
     suspend fun downloadAll(ids: List<Long>) {
         val serverId = activeServerId() ?: return
-        ids.forEach { id -> db.imageDao().byId(id)?.let { enqueueDownload(serverId, it) } }
+        filterExisting(ids).forEach { id -> db.imageDao().byId(id)?.let { enqueueDownload(serverId, it) } }
     }
 
     /**
@@ -43,8 +50,9 @@ class SelectionActions(
         val serverId = activeServerId()
             ?: return ShareCoordinator.ShareOutcome(uris = emptyList(), failedIds = ids)
         val imageDao = db.imageDao()
-        val entities = ids.mapNotNull { imageDao.byId(it) }
-        val missing = ids - entities.map { it.id }.toSet()   // 镜像已删：无从下载，直接计失败
+        val existing = filterExisting(ids)                   // M4-T14：先滤死 id
+        val missing = ids - existing.toSet()                 // 镜像已删：无从下载，直接计失败
+        val entities = existing.mapNotNull { imageDao.byId(it) }
         val coordinator = ShareCoordinator(
             isDownloaded = { db.downloadDao().byImageId(serverId, it)?.mediaStoreUri },
             enqueue = { img -> enqueueDownload(serverId, img) },
@@ -65,7 +73,7 @@ class SelectionActions(
      */
     suspend fun anyDownloaded(ids: List<Long>): Boolean {
         val serverId = activeServerId() ?: return false
-        return ids.any { db.downloadDao().byImageId(serverId, it) != null }
+        return filterExisting(ids).any { db.downloadDao().byImageId(serverId, it) != null }
     }
 
     /** 批删前快照已下载 uri（batchDelete 会清行，必须先取）；无激活服务器返回空。 */
@@ -82,21 +90,22 @@ class SelectionActions(
      * Screen 侧在成功后处理（spec §8：30+ 一次系统批量确认 / <30 逐条 deleteOwned）。
      */
     suspend fun batchDelete(ids: List<Long>): WriteResult {
-        val result = writeRepository.batchDeleteImages(ids)
+        val existing = filterExisting(ids)                    // M4-T14：死 id 不进 batch 端点
+        val result = writeRepository.batchDeleteImages(existing)
         val serverId = activeServerId()
         if (serverId != null) {
             val imageDao = db.imageDao()
             val downloadDao = db.downloadDao()
-            ids.forEach { id -> if (imageDao.byId(id) == null) downloadDao.delete(serverId, id) }
+            existing.forEach { id -> if (imageDao.byId(id) == null) downloadDao.delete(serverId, id) }
         }
         return result
     }
 
-    /** 批量加入图集（GalleryPickerDialog 选定后）。 */
+    /** 批量加入图集（GalleryPickerDialog 选定后）；死 id 先滤（M4-T14）。 */
     suspend fun addToGallery(galleryId: Long, ids: List<Long>): WriteResult =
-        writeRepository.addToGallery(galleryId, ids)
+        writeRepository.addToGallery(galleryId, filterExisting(ids))
 
-    /** 批量移出图集（仅图集详情多选）。 */
+    /** 批量移出图集（仅图集详情多选）；死 id 先滤（M4-T14）。 */
     suspend fun removeFromGallery(galleryId: Long, ids: List<Long>): WriteResult =
-        writeRepository.removeFromGallery(galleryId, ids)
+        writeRepository.removeFromGallery(galleryId, filterExisting(ids))
 }

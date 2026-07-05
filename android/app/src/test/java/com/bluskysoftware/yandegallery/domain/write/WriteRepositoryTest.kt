@@ -57,6 +57,9 @@ class WriteRepositoryTest {
         var createdGalleryId: Long = 100L
         var batchResults: List<BatchDeleteItemDto> = emptyList()
         val calls = mutableListOf<String>()
+        // 分块用例：记录每次 batch 调用收到的 id 列表；指定第 N 次(0基)调用抛 ApiException(500)。
+        val batchDeleteInputs = mutableListOf<List<Long>>()
+        var failBatchDeleteOnCallIndex: Int? = null
 
         // 取消用例的门控：entered 通知「已进入调用」，gate 永不放行——调用只能被取消（无 sleep）。
         var deleteImageEntered: CompletableDeferred<Unit>? = null
@@ -69,7 +72,12 @@ class WriteRepositoryTest {
         }
 
         override suspend fun batchDeleteImages(imageIds: List<Long>): List<BatchDeleteItemDto> {
-            calls += "batchDeleteImages"; failBatchDelete?.let { throw it }; return batchResults
+            calls += "batchDeleteImages"; batchDeleteInputs += imageIds
+            failBatchDelete?.let { throw it }
+            if (failBatchDeleteOnCallIndex == batchDeleteInputs.size - 1) {
+                throw ApiException("INTERNAL_ERROR", "boom", 500)
+            }
+            return batchResults
         }
 
         override suspend fun addImageTags(imageId: Long, names: List<String>) {
@@ -256,6 +264,53 @@ class WriteRepositoryTest {
         assertNotNull(db.imageDao().byId(3))       // 真失败——回滚恢复
         assertTrue(monitor.state.value.online)     // 端点整体返回，reportSuccess
         assertEquals(1, sync.get())
+    }
+
+    @Test
+    fun `batchDeleteImages 去重——重复 id 只发一次`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
+        val api = FakeWriteApi()   // batchResults 空 → 无失败项 → Success
+        val sync = AtomicInteger(0)
+        val (repo, _) = build(api, sync)
+
+        val result = repo.batchDeleteImages(listOf(1, 1, 2))
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(listOf(listOf(1L, 2L)), api.batchDeleteInputs)   // 去重后 [1,2] 单块发出
+    }
+
+    @Test
+    fun `batchDeleteImages 超 900 分块——按 900+1 两次调用`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(901)))   // 快照允许缺失，只种边界两行
+        val api = FakeWriteApi()
+        val sync = AtomicInteger(0)
+        val (repo, _) = build(api, sync)
+
+        val ids = (1L..901L).toList()
+        val result = repo.batchDeleteImages(ids)
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(2, api.batchDeleteInputs.size)
+        assertEquals(900, api.batchDeleteInputs[0].size)
+        assertEquals(1, api.batchDeleteInputs[1].size)
+        assertNull(db.imageDao().byId(1))     // 全成功——两块都删
+        assertNull(db.imageDao().byId(901))
+    }
+
+    @Test
+    fun `batchDeleteImages 某块失败——回滚该块与未发块，已成块保持`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(901)))   // 边界：1 在首块、901 在次块
+        val api = FakeWriteApi().apply { failBatchDeleteOnCallIndex = 1 }   // 第二块（次块）抛 500
+        val sync = AtomicInteger(0)
+        val (repo, monitor) = build(api, sync)
+
+        val result = repo.batchDeleteImages((1L..901L).toList())
+
+        assertTrue(result is WriteResult.Failed)
+        assertNull(db.imageDao().byId(1))       // 首块已成——保持删除
+        assertNotNull(db.imageDao().byId(901))  // 次块失败——回滚恢复
+        assertFalse(monitor.state.value.online) // reportFailure
+        assertEquals(0, sync.get())             // 失败块不 nudge
     }
 
     // ---- addTags / removeTags ----

@@ -7,6 +7,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.api.BatchDeleteItemDto
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.DownloadEntity
+import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.write.WriteApi
@@ -49,9 +50,13 @@ class SelectionActionsTest {
         var batchResults: List<BatchDeleteItemDto> = emptyList()
         var failBatchDelete: ApiException? = null
         var failRemoveFromGallery: ApiException? = null
+        // 记录发往服务端的入参，供「死 id 已滤除」断言（M4-T14）
+        val batchDeleteInputs = mutableListOf<List<Long>>()
+        val addToGalleryInputs = mutableListOf<List<Long>>()
 
         override suspend fun deleteImage(imageId: Long) {}
         override suspend fun batchDeleteImages(imageIds: List<Long>): List<BatchDeleteItemDto> {
+            batchDeleteInputs += imageIds
             failBatchDelete?.let { throw it }
             return batchResults
         }
@@ -60,8 +65,10 @@ class SelectionActionsTest {
         override suspend fun createGallery(name: String): Long = 1L
         override suspend fun renameGallery(galleryId: Long, name: String) {}
         override suspend fun deleteGallery(galleryId: Long) {}
-        override suspend fun addImagesToGallery(galleryId: Long, imageIds: List<Long>): AddMembersDto =
-            AddMembersDto(added = imageIds.size, missingImageIds = emptyList())
+        override suspend fun addImagesToGallery(galleryId: Long, imageIds: List<Long>): AddMembersDto {
+            addToGalleryInputs += imageIds
+            return AddMembersDto(added = imageIds.size, missingImageIds = emptyList())
+        }
         override suspend fun removeImagesFromGallery(galleryId: Long, imageIds: List<Long>): Int {
             failRemoveFromGallery?.let { throw it }
             return imageIds.size
@@ -226,6 +233,7 @@ class SelectionActionsTest {
 
     @Test
     fun `anyDownloaded 本服任一有副本即真，全无或无激活服务器为假`() = runTest {
+        db.imageDao().upsertAll(listOf(image(2), image(5)))   // 已下载图必有镜像行（M4-T14 filterExisting 前置）
         db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
         db.downloadDao().upsert(DownloadEntity(2, 5, "content://other/5", "t"))   // 他服行不算本服
 
@@ -272,6 +280,29 @@ class SelectionActionsTest {
         assertNull(db.downloadDao().byImageId(1, 1))           // 成功项：下载行清理
         assertNotNull(db.imageDao().byId(2))                   // 失败项：镜像回滚
         assertNotNull(db.downloadDao().byImageId(1, 2))        // 失败项：下载行保留
+    }
+
+    @Test
+    fun `batchDelete 前过滤死 id——不发出无镜像行的 id`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))   // 2 已被同步对账删除，无镜像行
+        val api = FakeWriteApi()
+        val actions = build(api = api)
+
+        actions.batchDelete(listOf(1, 2))
+
+        assertEquals(listOf(listOf(1L)), api.batchDeleteInputs)   // 死 id 2 未进 batch 端点
+    }
+
+    @Test
+    fun `addToGallery 前过滤死 id——不发出无镜像行的 id`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))   // 2 已被同步对账删除，无镜像行
+        db.galleryDao().insertOne(GalleryEntity(5, "g", null, 0))
+        val api = FakeWriteApi()
+        val actions = build(api = api)
+
+        actions.addToGallery(5, listOf(1, 2))
+
+        assertEquals(listOf(listOf(1L)), api.addToGalleryInputs)   // 死 id 2 未发出
     }
 
     @Test

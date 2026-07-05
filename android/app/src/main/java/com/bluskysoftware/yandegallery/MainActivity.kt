@@ -76,7 +76,13 @@ class MainActivity : ComponentActivity() {
                             viewModel(factory = ViewerViewModel.factory(graph, imageId, galleryId))
                         ViewerScreen(
                             viewModel = viewerVm,
-                            onBack = { nav.popBackStack() },
+                            // 防重入（M4-T14）：删除流成功回调与用户返回可能双触发，第二次会把下层屏也 pop
+                            // 掉——仅当栈顶仍是 Viewer 才 pop（否则本次为 no-op）
+                            onBack = {
+                                if (nav.currentBackStackEntry?.destination?.route == Routes.Viewer) {
+                                    nav.popBackStack()
+                                }
+                            },
                             // 详情面板「所属图集」→ 图集详情页
                             onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
                             // 详情面板标签 chip → 搜索页（预填该标签名触发搜索）

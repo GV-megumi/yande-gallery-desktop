@@ -76,17 +76,19 @@ interface ImageDao {
 
 /**
  * 多关键词 AND 交集：每词命中「某标签名前缀 OR 文件名包含」。空关键词退化为全表倒序。
- * 注：用户输入的 LIKE 通配符（% / _）未转义，属已知局限（见任务报告）。
+ * 用户词内 % / _ / \ 已转义（ESCAPE '\'），通配符按字面匹配（M4-T14）。
  */
 fun buildSearchQuery(keywords: List<String>): androidx.sqlite.db.SupportSQLiteQuery {
     val terms = keywords.map { it.trim() }.filter { it.isNotEmpty() }
     if (terms.isEmpty()) {
         return androidx.sqlite.db.SimpleSQLiteQuery("SELECT * FROM images ORDER BY createdAt DESC, id DESC")
     }
+    val escaped = terms.map { it.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") }
     val clauses = terms.joinToString(" AND ") {
-        "(EXISTS(SELECT 1 FROM image_tags it JOIN tags t ON t.id=it.tagId WHERE it.imageId=images.id AND t.name LIKE ?) OR images.filename LIKE ?)"
+        "(EXISTS(SELECT 1 FROM image_tags it JOIN tags t ON t.id=it.tagId " +
+            "WHERE it.imageId=images.id AND t.name LIKE ? ESCAPE '\\') OR images.filename LIKE ? ESCAPE '\\')"
     }
-    val args = terms.flatMap { listOf("$it%", "%$it%") }.toTypedArray()
+    val args = escaped.flatMap { listOf("$it%", "%$it%") }.toTypedArray()
     return androidx.sqlite.db.SimpleSQLiteQuery(
         "SELECT * FROM images WHERE $clauses ORDER BY createdAt DESC, id DESC", args,
     )

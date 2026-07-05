@@ -113,6 +113,13 @@ class SearchViewModelTest {
         assertEquals(listOf(3L), resultIds())
     }
 
+    @Test
+    fun `空 query 不建 Pager——首个快照为空即便库中有数据（M4-T14）`() = runTest(scheduler) {
+        seed()
+        // query 保持空：不应对全表建 Pager 预载首页（历史 chips 界面），快照为空
+        assertEquals(emptyList<Long>(), resultIds())
+    }
+
     // 历史写入走 Room 真实执行器线程（suspend upsert/clear 挂到 transactionExecutor），
     // advanceUntilIdle 只推虚拟时钟、不等真实线程——曾在满负载下偶发 first() 抢先查到旧态。
     // 改为 first{ 谓词 }：挂起直到 Room 失效重查发射出目标态，确定性等价且断言不减弱。

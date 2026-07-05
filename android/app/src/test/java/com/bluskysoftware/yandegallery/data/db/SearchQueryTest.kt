@@ -85,4 +85,26 @@ class SearchQueryTest {
         seed()
         assertEquals(listOf(3L, 2L, 1L), search())
     }
+
+    // ---- LIKE 通配符转义（M4-T14）：用户词内 % / _ / \ 按字面匹配，不作 SQL 通配 ----
+
+    @Test
+    fun `百分号按字面匹配不作通配`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1, "a50%.jpg"), image(2, "a50x.jpg")))
+        // 未转义时 %50%% 会把 a50x.jpg 也匹上；转义后仅命中含字面「50%」的 image1
+        assertEquals(listOf(1L), search("50%"))
+    }
+
+    @Test
+    fun `下划线按字面匹配不作通配`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1, "a_b.jpg"), image(2, "axb.jpg")))
+        // 未转义时 _ 匹配任意单字符会把 axb.jpg 也匹上；转义后仅命中含字面「a_b」的 image1
+        assertEquals(listOf(1L), search("a_b"))
+    }
+
+    @Test
+    fun `含反斜杠的词不崩且按字面匹配`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1, "a\\b.jpg"), image(2, "axb.jpg")))
+        assertEquals(listOf(1L), search("a\\b"))
+    }
 }

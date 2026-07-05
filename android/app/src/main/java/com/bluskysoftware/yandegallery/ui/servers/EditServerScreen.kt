@@ -28,7 +28,7 @@ import androidx.compose.ui.unit.dp
 
 /**
  * 编辑服务器（spec §7.6）：结构镜像 AddServerScreen——首屏用 serverById 预填三字段，保存调 vm.update
- * （归一化落库 + SSE 重连 + 同步 nudge）。baseUrl 校验/归一化留待 T14；此处只做最小落地。
+ * （归一化落库 + SSE 重连 + 同步 nudge）。保存前经 normalizeBaseUrl 校验/归一化，非法则字段标红不落库（M4-T14）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -43,6 +43,8 @@ fun EditServerScreen(
     var apiKey by rememberSaveable { mutableStateOf("") }
     // 仅首屏预填一次；进程重建后 rememberSaveable 已恢复用户编辑值，不再用 DB 旧值覆盖。
     var prefilled by rememberSaveable { mutableStateOf(false) }
+    // baseUrl 格式错误提示（M4-T14）：保存时校验，非法则字段标红不落库
+    var baseUrlError by rememberSaveable { mutableStateOf<String?>(null) }
 
     LaunchedEffect(serverId) {
         if (!prefilled) {
@@ -83,9 +85,11 @@ fun EditServerScreen(
             )
             OutlinedTextField(
                 value = baseUrl,
-                onValueChange = { baseUrl = it },
+                onValueChange = { baseUrl = it; baseUrlError = null },
                 label = { Text("服务器地址（http://…）") },
                 singleLine = true,
+                isError = baseUrlError != null,
+                supportingText = baseUrlError?.let { msg -> { Text(msg) } },
                 modifier = Modifier.fillMaxWidth().testTag("field_baseUrl"),
             )
             OutlinedTextField(
@@ -96,7 +100,15 @@ fun EditServerScreen(
                 modifier = Modifier.fillMaxWidth().testTag("field_apiKey"),
             )
             Button(
-                onClick = { vm.update(serverId, name, baseUrl, apiKey) { onSaved() } },
+                onClick = {
+                    val normalized = normalizeBaseUrl(baseUrl)
+                    if (normalized == null) {
+                        baseUrlError = "地址格式不正确，应为 http://主机:端口"
+                    } else {
+                        baseUrlError = null
+                        vm.update(serverId, name, normalized, apiKey) { onSaved() }
+                    }
+                },
                 enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().testTag("edit_server_save"),
             ) {

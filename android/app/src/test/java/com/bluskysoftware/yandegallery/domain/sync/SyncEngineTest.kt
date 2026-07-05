@@ -169,6 +169,26 @@ class SyncEngineTest {
     }
 
     @Test
+    fun `取消异常重抛且 progress 不置 Failed（对齐 T6-T8 取消惯例，M4-T14）`() = runTest {
+        // fake images() 抛 CancellationException（取消而非失败）：应原样重抛、progress 不置 Failed（否则 UI 误报同步失败）
+        val api = object : SyncApi {
+            override suspend fun meta() = SyncMetaDto("srv", 1, 1, "c1")
+            override suspend fun images(cursor: String?, limit: Int): SyncImagesPageDto =
+                throw kotlinx.coroutines.CancellationException("cancelled")
+            override suspend fun galleries() = emptyList<SyncGalleryDto>()
+            override suspend fun tags() = emptyList<SyncTagDto>()
+            override suspend fun imageIds() = emptyList<Long>()
+        }
+        val store = InMemoryStore()
+        val engine = SyncEngine(api, store, now = now)
+
+        val ex = runCatching { engine.sync() }.exceptionOrNull()
+
+        assertTrue("取消原样重抛", ex is kotlinx.coroutines.CancellationException)
+        assertFalse("取消不置 Failed", engine.progress.value is SyncPhase.Failed)
+    }
+
+    @Test
     fun `全量进度按 imageCount 上报（探针式断言——StateFlow 会合并中间值，不能用订阅逐值断言）`() = runTest {
         val api = FakeApi(
             metaDto = SyncMetaDto("srv", 1, 2, "c2"),

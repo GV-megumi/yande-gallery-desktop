@@ -10,6 +10,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -433,14 +434,16 @@ fun ViewerPager(
     // 直到手动翻页才首次触发；同理定位到第 N 页时 N+1 可能尚未进快照。数据到达重跑相邻循环即可——
     // Coil 按缓存键去重，重复 enqueue 是廉价空操作。
     LaunchedEffect(pagerState, items) {
-        snapshotFlow { pagerState.settledPage to items.itemCount }.collect { (settled, count) ->
-            zoomStates.keys.filter { it != settled }.forEach { zoomStates.remove(it) }
-            for (neighbor in intArrayOf(settled - 1, settled + 1)) {
-                if (neighbor in 0 until count) {
-                    items.peek(neighbor)?.let { currentOnPrefetch(it) }
+        snapshotFlow { Triple(pagerState.settledPage, items.itemCount, located) }
+            .collect { (settled, count, isLocated) ->
+                if (!isLocated) return@collect   // 定位驱动 append 期间不预取（0 页邻居是无谓取图）
+                zoomStates.keys.filter { it != settled }.forEach { zoomStates.remove(it) }
+                for (neighbor in intArrayOf(settled - 1, settled + 1)) {
+                    if (neighbor in 0 until count) {
+                        items.peek(neighbor)?.let { currentOnPrefetch(it) }
+                    }
                 }
             }
-        }
     }
 
     // 沉浸模式：隐/显系统栏；离开本页时无条件恢复显示
@@ -490,6 +493,19 @@ fun ViewerPager(
                     .matchParentSize()
                     .background(Color.Black),
             )
+        }
+
+        // 分页 refresh 出错（原为纯黑屏）：显式错误态 + 重试
+        (items.loadState.refresh as? LoadState.Error)?.let { err ->
+            Column(
+                Modifier
+                    .align(Alignment.Center)
+                    .testTag("viewer_load_error"),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text("加载失败：${err.error.message ?: "未知错误"}", color = Color.White)
+                TextButton(onClick = { items.retry() }) { Text("重试", color = Color.White) }
+            }
         }
 
         if (!immersive) {

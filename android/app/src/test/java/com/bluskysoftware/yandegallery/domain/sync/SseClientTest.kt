@@ -53,6 +53,35 @@ class SseClientTest {
     }
 
     @Test
+    fun `url 暂缺时短退避重试——url 就绪后建立订阅`() {
+        MockWebServer().use { server ->
+            server.enqueue(eventStream("event: gallery:images-changed\ndata: {}\n\n"))
+            server.start()
+
+            val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+            // start() 时 url 仍为 null（切服窄窗）；随后置为真实地址，验证 50ms 短退避能触达订阅
+            val activeUrl = AtomicReference<String?>(null)
+            val sse = SseClient(
+                client = OkHttpClient(),
+                urlProvider = { activeUrl.get() },
+                onGalleryEvent = {},
+                scope = scope,
+                debounceMs = 50,
+                reconnectDelayMs = 30_000,   // 大值：证明重试走的是 nullUrlRetryMs 而非常规退避
+                nullUrlRetryMs = 50,
+            )
+
+            sse.start()
+            activeUrl.set(server.url("/api/v1/events/system").toString())
+            // 50ms 短退避重试应在 url 就绪后建立订阅请求（takeRequest 超时等待）
+            assertNotNull("url 就绪后短退避应建立订阅", server.takeRequest(2, TimeUnit.SECONDS))
+
+            sse.stop()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `服务器 403 时永久降级不重连`() {
         MockWebServer().use { server ->
             // 首个响应 403；再备一帧——若错误地重连就会消费它并使 requestCount 变 2

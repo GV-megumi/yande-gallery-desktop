@@ -87,7 +87,12 @@ private suspend fun PointerInputScope.detectTransformOrDismiss(
             if (mode == GestureMode.Undecided) {
                 slopAccum += panChange
                 if (slopAccum.getDistance() > viewConfiguration.touchSlop) {
-                    mode = if (abs(slopAccum.y) > abs(slopAccum.x)) GestureMode.Dismiss else GestureMode.PagerPass
+                    // 仅「近垂直且向下」判 Dismiss；近垂直向上不消费（原实现把上滑吃成死区）
+                    mode = if (abs(slopAccum.y) > abs(slopAccum.x) && slopAccum.y > 0) {
+                        GestureMode.Dismiss
+                    } else {
+                        GestureMode.PagerPass
+                    }
                 }
             }
             when (mode) {
