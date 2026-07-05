@@ -6,10 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -18,14 +15,11 @@ import androidx.compose.material.icons.filled.DownloadDone
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -38,7 +32,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 
 /**
@@ -140,35 +133,4 @@ private fun BarAction(
         Icon(icon, contentDescription = label, tint = tint)
         Text(label, color = tint, style = MaterialTheme.typography.labelSmall)
     }
-}
-
-/** 图集选择对话框（「加入图集」）：列出 Room 镜像图集，点选回调 galleryId；空库显提示。 */
-@Composable
-fun GalleryPickerDialog(
-    galleries: List<GalleryEntity>,
-    onPick: (Long) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("加入图集") },
-        text = {
-            if (galleries.isEmpty()) {
-                Text("暂无图集，可先在相册 tab 新建")
-            } else {
-                LazyColumn(Modifier.heightIn(max = 320.dp)) {
-                    items(galleries, key = { it.id }) { gallery ->
-                        ListItem(
-                            headlineContent = { Text(gallery.name) },
-                            supportingContent = { Text("${gallery.imageCount} 张") },
-                            modifier = Modifier
-                                .clickable { onPick(gallery.id) }
-                                .testTag("gallery_pick_${gallery.id}"),
-                        )
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("取消") } },
-    )
 }

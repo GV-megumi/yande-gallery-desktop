@@ -61,6 +61,7 @@ import coil3.ImageLoader
 import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import kotlinx.coroutines.launch
 
 /** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且未下载时提示 1600 档像素不足）。 */
