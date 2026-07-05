@@ -62,6 +62,8 @@ class MainActivity : ComponentActivity() {
                         ViewerScreen(
                             viewModel = viewerVm,
                             onBack = { nav.popBackStack() },
+                            // 详情面板「所属图集」→ 图集详情页
+                            onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
                         )
                     },
                     serversContent = {

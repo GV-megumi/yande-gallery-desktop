@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
+import android.app.PendingIntent
 import android.net.Uri
 import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
@@ -13,12 +14,14 @@ import androidx.paging.PagingData
 import androidx.paging.cachedIn
 import androidx.work.WorkInfo
 import coil3.ImageLoader
+import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.previewRequest
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
+import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +63,9 @@ class ViewerViewModel(
      * 直到命中、endOfPaginationReached（id 已被同步删除，兜底留在首部）或 append 出错为止。
      */
     val initialImageId: Long = imageId
+
+    /** 大图页所处图集上下文：非 null → 从图集进入（「移出当前图集」可用）；null → 时间轴进入（该项置灰）。 */
+    val contextGalleryId: Long? = galleryId
 
     /** 当前激活服务器：提供 baseUrl，其 id 供 [modelFor] 拼 preview 缓存键命名空间。 */
     val activeServer: StateFlow<ServerEntity?> =
@@ -136,12 +142,60 @@ class ViewerViewModel(
         )
     }
 
+    // ---- Task 11 委托：Screen 不直接触 graph，写操作/下载/级联删副本均经 VM 单点 ----
+
+    /** 图集列表（「加入图集」picker + 详情面板图集名解析），按名升序。 */
+    val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
+
+    /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）。 */
+    suspend fun deleteImage(imageId: Long): WriteResult = graph.writeRepository.deleteImage(imageId)
+
+    /** 加标签（T6：已知 tag 本地乐观建链）。 */
+    suspend fun addTags(imageId: Long, names: List<String>): WriteResult =
+        graph.writeRepository.addTags(imageId, names)
+
+    /** 移标签。 */
+    suspend fun removeTags(imageId: Long, names: List<String>): WriteResult =
+        graph.writeRepository.removeTags(imageId, names)
+
+    /** 加入图集（更多菜单）。 */
+    suspend fun addToGallery(galleryId: Long, imageId: Long): WriteResult =
+        graph.writeRepository.addToGallery(galleryId, listOf(imageId))
+
+    /** 移出图集（更多菜单，仅图集上下文可用）。 */
+    suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
+        graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
+
+    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；mime 由 format 推导）。 */
+    fun enqueueDownload(image: ImageEntity) {
+        graph.downloadManager.enqueue(image.id, image.filename, mimeOf(image.format))
+    }
+
+    /** 级联删本地副本：30+ 返回系统确认 PendingIntent（UI 层经 StartIntentSenderForResult 启动）；<30 返回 null（调用方直接 [discardLocalCopy]）。 */
+    fun buildDeleteRequest(uri: Uri): PendingIntent? = gateway.buildDeleteRequest(listOf(uri))
+
+    /** <30 直删本地副本（无系统确认弹窗）。 */
+    fun discardLocalCopy(uri: Uri) = gateway.discard(uri)
+
+    /** 清 downloads 映射行：级联删除完成或用户拒绝系统确认后都要清（spec §8）。 */
+    suspend fun clearDownloadRow(imageId: Long) = graph.db.downloadDao().delete(imageId)
+
     companion object {
         fun factory(graph: AppGraph, imageId: Long, galleryId: Long?): ViewModelProvider.Factory =
             viewModelFactory {
                 initializer { ViewerViewModel(graph, imageId, galleryId) }
             }
     }
+}
+
+/** 图片 format → MIME（下载入队与分享 Intent 共用）；未知格式回退通配。 */
+internal fun mimeOf(format: String): String = when (format.lowercase()) {
+    "jpg", "jpeg" -> "image/jpeg"
+    "png" -> "image/png"
+    "gif" -> "image/gif"
+    "webp" -> "image/webp"
+    "bmp" -> "image/bmp"
+    else -> "image/*"
 }
 
 /** 详情面板模型：图片实体 + 标签名（按名升序）+ 所属图集 id。 */
