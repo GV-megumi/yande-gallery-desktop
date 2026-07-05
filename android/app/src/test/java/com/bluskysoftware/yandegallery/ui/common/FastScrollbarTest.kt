@@ -29,12 +29,15 @@ class FastScrollbarTest {
 
     @Test
     fun `fraction 到 index 钳制映射`() {
-        assertEquals(0, fastScrollTargetIndex(0f, 100))
-        assertEquals(99, fastScrollTargetIndex(1f, 100))
-        assertEquals(49, fastScrollTargetIndex(0.5f, 100))   // (100-1)*0.5=49.5 → 49（floor）
-        assertEquals(0, fastScrollTargetIndex(-0.5f, 100))   // 越界钳制
-        assertEquals(99, fastScrollTargetIndex(1.5f, 100))
-        assertEquals(0, fastScrollTargetIndex(0.5f, 0))      // 空列表
+        // fix 轮统一基底：与 fastScrollThumbFraction 同取「可滚动范围 [0, N-V]」——brief 原公式
+        // 以 N-1 为基底、与比例函数不互逆（评审确认内在不一致），测试向量随之更新
+        assertEquals(0, fastScrollTargetIndex(0f, 100, 20))
+        assertEquals(80, fastScrollTargetIndex(1f, 100, 20))
+        assertEquals(40, fastScrollTargetIndex(0.5f, 100, 20))
+        assertEquals(0, fastScrollTargetIndex(-0.5f, 100, 20))   // 越界钳制
+        assertEquals(80, fastScrollTargetIndex(1.5f, 100, 20))
+        assertEquals(0, fastScrollTargetIndex(0.5f, 0, 20))      // 空列表
+        assertEquals(0, fastScrollTargetIndex(0.5f, 10, 20))     // 不足一屏（滑块本就隐藏，防御）
     }
 
     @Test
@@ -43,6 +46,18 @@ class FastScrollbarTest {
         assertEquals(1f, fastScrollThumbFraction(80, 20, 100), 0.001f)
         assertEquals(0.5f, fastScrollThumbFraction(40, 20, 100), 0.001f)
         assertEquals(0f, fastScrollThumbFraction(0, 20, 10), 0.001f)   // 不足一屏
+    }
+
+    @Test
+    fun `fraction 与 index 映射互逆_松手 thumb 不跳位`() {
+        // 评审缺陷场景：N=30、V=20 时旧公式（index 基底 N-1 vs 比例基底 N-V）半轨松手即钳到底；
+        // 统一基底后任意可滚动 index 往返恒等
+        for (i in 0..10) {
+            assertEquals(i, fastScrollTargetIndex(fastScrollThumbFraction(i, 20, 30), 30, 20))
+        }
+        for (i in 0..80) {
+            assertEquals(i, fastScrollTargetIndex(fastScrollThumbFraction(i, 20, 100), 100, 20))
+        }
     }
 
     // ---- Robolectric 冒烟 ----
@@ -98,5 +113,24 @@ class FastScrollbarTest {
         compose.onNodeWithTag("fast_scroll_thumb").performTouchInput { up() }
         compose.waitForIdle()
         compose.onNodeWithTag("fast_scroll_bubble").assertDoesNotExist()
+    }
+
+    @Test
+    fun `按压轨道空白处直接跳至对应位置`() {
+        // fix 轮（评审 Important）：命中层必须是 24dp 轨道整条而非 6dp thumb 本体——
+        // thumb 停在顶部时按住轨道纵向中点（thumb 之外的空白），网格应跳到列表中段
+        var state: LazyGridState? = null
+        compose.setContent { fixture(count = 300, onState = { state = it }) }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("fast_scrollbar").performTouchInput {
+            down(center)                 // 轨道中点（300px 轨道 y≈150，thumb 只占顶部 48px）
+            moveBy(Offset(0f, 30f))      // 越过 touch slop 触发 drag start → 按点映射跳位
+            up()
+        }
+        compose.waitForIdle()
+        compose.runOnIdle {
+            assertTrue("按压轨道中点应跳至列表中段", state!!.firstVisibleItemIndex > 50)
+        }
     }
 }
