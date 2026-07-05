@@ -3,7 +3,9 @@ package com.bluskysoftware.yandegallery
 import android.app.PendingIntent
 import android.content.Context
 import android.net.Uri
+import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
@@ -13,6 +15,7 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.download.DownloadNotifier
 import com.bluskysoftware.yandegallery.domain.download.DownloadWorker
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -95,6 +98,18 @@ class DownloadE2ETest {
                         onNotFound = { graph.onBinaryNotFound?.invoke() },
                         now = { "2026-07-05T12:00:00Z" },
                         activeServerId = { graph.serverRepository.activeServer()?.id },
+                        // fake notifier：返回最小 ForegroundInfo，TestListenableWorkerBuilder 自带
+                        // ForegroundUpdater 接住（不起真 service），链路语义零改动。
+                        notifier = object : DownloadNotifier {
+                            override fun ensureChannel() {}
+                            override fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long) =
+                                ForegroundInfo(
+                                    1,
+                                    NotificationCompat.Builder(context, "test")
+                                        .setSmallIcon(android.R.drawable.stat_sys_download).build(),
+                                )
+                        },
+                        timeMs = { 0L },
                     )
             }).build()
 

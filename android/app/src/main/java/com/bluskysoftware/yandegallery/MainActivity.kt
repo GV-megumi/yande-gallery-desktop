@@ -8,6 +8,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.NotificationPermissionEffect
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -34,6 +35,8 @@ class MainActivity : ComponentActivity() {
         val graph = (applicationContext as YandeGalleryApp).graph
         setContent {
             YandeGalleryTheme {
+                // 下载前台通知的 33+ 运行时权限（M4-D8）：未授权首帧静默申请一次，拒绝纯后台降级
+                NotificationPermissionEffect()
                 val nav = rememberNavController()
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
                 AppScaffold(

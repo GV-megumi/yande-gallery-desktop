@@ -1,0 +1,54 @@
+package com.bluskysoftware.yandegallery.domain.download
+
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
+import androidx.core.app.NotificationCompat
+import androidx.work.ForegroundInfo
+
+/** worker 侧可注入的通知抽象（D8）：测试注 no-op fake，四条 IO 路径用例不碰真通知。 */
+interface DownloadNotifier {
+    fun ensureChannel()
+    fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long): ForegroundInfo
+}
+
+/** 节流：≥1s 或进度跳 ≥5% 才更新（每 64KB 调 setForeground 会刷爆系统通知服务）。 */
+fun shouldUpdateNotification(lastMs: Long, nowMs: Long, lastPct: Int, pct: Int): Boolean =
+    nowMs - lastMs >= 1_000L || (pct in 0..100 && pct - lastPct >= 5)
+
+/** written/total → 百分比；total 未知（≤0，Content-Length=-1）返回 -1（通知转 indeterminate）。 */
+fun pctOf(written: Long, total: Long): Int = if (total > 0) ((written * 100) / total).toInt() else -1
+
+class AndroidDownloadNotifier(private val context: Context) : DownloadNotifier {
+
+    override fun ensureChannel() {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "原图下载", NotificationManager.IMPORTANCE_LOW),
+        )   // IMPORTANCE_LOW：不响铃不悬浮；createNotificationChannel 幂等
+    }
+
+    override fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long): ForegroundInfo {
+        val pct = pctOf(written, total)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("正在下载原图")
+            .setContentText(filename)
+            .setOngoing(true)
+            .apply { if (pct >= 0) setProgress(100, pct, false) else setProgress(0, 0, true) }
+            .build()
+        val id = imageId.hashCode()   // 每图独立通知 id（与 Interfaces 约定一致）
+        return if (Build.VERSION.SDK_INT >= 29) {
+            // 29+ 必须带 FGS 类型；targetSdk 35 强制与清单 FOREGROUND_SERVICE_DATA_SYNC 匹配
+            ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(id, notification)
+        }
+    }
+
+    companion object {
+        const val CHANNEL_ID = "download_progress"
+    }
+}

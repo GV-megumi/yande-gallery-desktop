@@ -16,7 +16,10 @@ import kotlinx.coroutines.CancellationException
  *
  * deps 经构造注入（[AppWorkerFactory] 从 AppGraph 提供真实实例，无 Hilt）：apiProvider 复用带
  * Bearer 的 okHttp（含错误映射拦截器）、gateway 写系统相册、downloadDao 记录、onNotFound 触发对账。
- * 前台进度通知（setForeground）后置到 M4；此处仅 setProgress，UI 经 WorkInfo 观察状态。
+ * 前台进度通知（M4-D8）：[notifier] 建通道并产出 [androidx.work.ForegroundInfo]，doWork 拿到 body 后
+ * setForeground 一次、拷贝循环内经 [shouldUpdateNotification] 节流（≥1s 或 ≥5%）刷新；setForeground
+ * 全程 runCatching 包裹——33+ 未授权/31+ 后台 FGS 限制抛异常时优雅降级纯后台（下载不崩不阻），
+ * 唯 CancellationException 向上重抛（不吞取消）。UI 仍经 WorkInfo/setProgress 观察状态。
  */
 class DownloadWorker(
     context: Context,
@@ -27,6 +30,8 @@ class DownloadWorker(
     private val onNotFound: () -> Unit,
     private val now: () -> String,
     private val activeServerId: suspend () -> Long?,
+    private val notifier: DownloadNotifier,
+    private val timeMs: () -> Long = { System.currentTimeMillis() },
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -58,10 +63,19 @@ class DownloadWorker(
         return body.use {
             val expected = body.contentLength()   // Content-Length（-1 表示未知）
 
+            // 前台通知（D8）：建通道并升前台一次。runCatching 优雅降级——33+ 未授权/31+ 后台 FGS 限制
+            // 抛异常时纯后台续跑（下载不崩），唯取消向上重抛（不吞 CancellationException）。
+            runCatching {
+                notifier.ensureChannel()
+                setForeground(notifier.foregroundInfo(imageId, filename, 0, expected))
+            }.onFailure { if (it is CancellationException) throw it }
+
             // 系统相册写入失败（权限/空间，通常非瞬态）→ Result.failure()（spec §8「明确报错，不静默」），
             // UI 层观察 WorkInfo FAILED 弹「保存到系统相册失败」（Task 9 downloadState/Task 11/13 消费）。
             val uri = gateway.createPending(filename, mime) ?: return Result.failure()
             var written = 0L
+            var lastNotifyMs = 0L   // 通知节流游标（见 shouldUpdateNotification）
+            var lastPct = -1
             try {
                 gateway.openOutput(uri).use { out ->
                     if (out == null) { gateway.discard(uri); return Result.failure() }
@@ -71,6 +85,14 @@ class DownloadWorker(
                             val n = input.read(buf); if (n < 0) break
                             out.write(buf, 0, n); written += n
                             setProgress(workDataOf(KEY_PROGRESS to written))
+                            // 通知节流：绝不每 64KB 调一次 setForeground（会刷爆系统通知服务）。
+                            if (shouldUpdateNotification(lastNotifyMs, timeMs(), lastPct, pctOf(written, expected))) {
+                                lastNotifyMs = timeMs()
+                                lastPct = pctOf(written, expected)
+                                runCatching {
+                                    setForeground(notifier.foregroundInfo(imageId, filename, written, expected))
+                                }.onFailure { if (it is CancellationException) throw it }
+                            }
                         }
                     }
                 }

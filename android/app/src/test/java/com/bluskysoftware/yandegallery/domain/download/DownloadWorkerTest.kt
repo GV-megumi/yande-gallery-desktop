@@ -3,8 +3,10 @@ package com.bluskysoftware.yandegallery.domain.download
 import android.app.PendingIntent
 import android.content.Context
 import android.net.Uri
+import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.Data
+import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
@@ -68,6 +70,20 @@ class DownloadWorkerTest {
     private fun realApi(server: MockWebServer): DesktopApi =
         ApiClientFactory.desktopApi(server.url("/").toString(), ApiClientFactory.okHttp({ null }))
 
+    /**
+     * fake notifier：返回真实最小 ForegroundInfo——每条 doWork 路径拿到 body 后都会 setForeground 一次，
+     * TestListenableWorkerBuilder 自带 ForegroundUpdater 接住（不起真 service），四条 IO 路径断言零语义改动。
+     */
+    private val fakeNotifier = object : DownloadNotifier {
+        override fun ensureChannel() {}
+        override fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long) =
+            ForegroundInfo(
+                1,
+                NotificationCompat.Builder(context, "test")
+                    .setSmallIcon(android.R.drawable.stat_sys_download).build(),
+            )
+    }
+
     private fun buildWorker(
         api: DesktopApi?,
         gateway: MediaStoreGateway,
@@ -97,6 +113,8 @@ class DownloadWorkerTest {
                         onNotFound = onNotFound,
                         now = now,
                         activeServerId = activeServerId,
+                        notifier = fakeNotifier,
+                        timeMs = { 0L },   // 固定时钟：节流不受墙钟影响，测试确定性
                     )
             })
             .build()
