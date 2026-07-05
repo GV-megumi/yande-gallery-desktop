@@ -47,13 +47,13 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
@@ -222,7 +222,7 @@ fun PhotosScreen(
                                         .aspectRatio(1f)
                                         .padding(1.dp),
                                 ) {
-                                    AsyncImage(
+                                    RetryableAsyncImage(
                                         model = thumbnailRequest(LocalContext.current, baseUrl, serverId, id),
                                         imageLoader = loader,
                                         contentDescription = photo.image.filename,

@@ -49,9 +49,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 
 /**
  * 搜索页（Task 12）：顶部即时搜索框 + 无输入显历史 chips（点回填/可清空）+ 有输入显结果网格。
@@ -205,7 +205,7 @@ fun SearchResultGrid(
             if (image == null) {
                 Box(Modifier.aspectRatio(1f))
             } else {
-                AsyncImage(
+                RetryableAsyncImage(
                     model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
                     imageLoader = loader,
                     contentDescription = image.filename,

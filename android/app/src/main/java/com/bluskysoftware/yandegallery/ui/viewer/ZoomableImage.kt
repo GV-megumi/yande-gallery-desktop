@@ -23,7 +23,7 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import kotlin.math.abs
 
 /**
@@ -144,12 +144,14 @@ fun ZoomableImage(
             },
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
+        RetryableAsyncImage(
             model = model,
             imageLoader = imageLoader,
             contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
-            modifier = Modifier
+            dark = true,
+            modifier = Modifier.fillMaxSize(),
+            imageModifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     scaleX = state.scale

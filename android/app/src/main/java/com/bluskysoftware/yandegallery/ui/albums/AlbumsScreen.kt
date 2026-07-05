@@ -46,10 +46,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.launch
 
@@ -219,7 +219,7 @@ private fun AlbumCardItem(
         ) {
             val coverId = card.coverImageId
             if (coverId != null) {
-                AsyncImage(
+                RetryableAsyncImage(
                     model = thumbnailRequest(LocalContext.current, baseUrl, serverId, coverId),
                     imageLoader = loader,
                     contentDescription = card.gallery.name,

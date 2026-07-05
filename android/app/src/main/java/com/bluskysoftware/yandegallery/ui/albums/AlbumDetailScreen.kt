@@ -36,11 +36,11 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
@@ -162,7 +162,7 @@ fun AlbumDetailScreen(
                         .aspectRatio(1f)
                         .padding(1.dp),
                 ) {
-                    AsyncImage(
+                    RetryableAsyncImage(
                         model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
                         imageLoader = loader,
                         contentDescription = image.filename,
