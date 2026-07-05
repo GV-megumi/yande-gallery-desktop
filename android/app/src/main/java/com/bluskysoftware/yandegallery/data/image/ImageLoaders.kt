@@ -39,3 +39,32 @@ fun thumbnailRequest(context: Context, baseUrl: String, serverId: Long, imageId:
         .diskCacheKey(thumbnailCacheKey(serverId, imageId))
         .memoryCacheKey(thumbnailCacheKey(serverId, imageId))
         .build()
+
+fun previewUrl(baseUrl: String, imageId: Long): String =
+    "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/preview"
+
+fun fileUrl(baseUrl: String, imageId: Long): String =
+    "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/file"
+
+// serverId 命名空间（与 v0.2.0 review 修复的 thumbnailCacheKey 一致）：多服务器同 imageId 不同图，
+// 缓存键须含本机 servers 行 id，否则切服命中错图。
+fun previewCacheKey(serverId: Long, imageId: Long): String = "s$serverId:preview:$imageId"
+
+/** 1600px 预览档 ImageLoader：独立 1GB LRU 盘缓存（spec §6.4），复用带 Bearer 的 OkHttp。 */
+fun buildPreviewImageLoader(context: Context, okHttp: OkHttpClient): ImageLoader =
+    ImageLoader.Builder(context)
+        .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
+        .diskCache(
+            DiskCache.Builder()
+                .directory(context.cacheDir.resolve("previews").toOkioPath())
+                .maxSizeBytes(1L * 1024 * 1024 * 1024)
+                .build()
+        )
+        .build()
+
+fun previewRequest(context: Context, serverId: Long, baseUrl: String, imageId: Long): ImageRequest =
+    ImageRequest.Builder(context)
+        .data(previewUrl(baseUrl, imageId))
+        .diskCacheKey(previewCacheKey(serverId, imageId))
+        .memoryCacheKey(previewCacheKey(serverId, imageId))
+        .build()

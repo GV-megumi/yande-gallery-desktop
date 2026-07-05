@@ -32,4 +32,22 @@ class ImageLoadersTest {
         // 同 imageId、不同服务器 → 键必须不同，避免跨服务器缓存串图
         assertNotEquals(thumbnailCacheKey(1L, 7L), thumbnailCacheKey(2L, 7L))
     }
+
+    @Test
+    fun `previewUrl 拼接（含尾斜杠两种）`() {
+        assertEquals("http://h:1/api/v1/images/7/preview", previewUrl("http://h:1", 7L))
+        assertEquals("http://h:1/api/v1/images/7/preview", previewUrl("http://h:1/", 7L))
+    }
+
+    @Test
+    fun `previewCacheKey 按 serverId 命名空间——不同 serverId 得不同 key`() {
+        assertEquals("s3:preview:7", previewCacheKey(3L, 7L))
+        // 同 imageId、不同服务器 → 键必须不同，避免跨服务器缓存串图（与 thumbnailCacheKey 同款修复）
+        assertNotEquals(previewCacheKey(1L, 7L), previewCacheKey(2L, 7L))
+    }
+
+    @Test
+    fun `fileUrl 拼接`() {
+        assertEquals("http://h:1/api/v1/images/7/file", fileUrl("http://h:1/", 7L))
+    }
 }
