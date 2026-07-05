@@ -41,6 +41,19 @@ interface GalleryDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<GalleryEntity>)
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertOne(gallery: GalleryEntity)
+
+    @Query("UPDATE galleries SET name = :name WHERE id = :id")
+    suspend fun updateName(id: Long, name: String)
+
+    @Query("DELETE FROM galleries WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    /** galleries 无 FK 级联到 gallery_images，删图集须显式清成员行。 */
+    @Query("DELETE FROM gallery_images WHERE galleryId = :galleryId")
+    suspend fun clearMembership(galleryId: Long)
+
     @Query("DELETE FROM galleries")
     suspend fun clearAll()
 

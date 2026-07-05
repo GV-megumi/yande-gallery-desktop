@@ -8,6 +8,22 @@ interface ImageDao {
     @Query("SELECT * FROM images ORDER BY createdAt DESC, id DESC")
     fun timelinePagingSource(): PagingSource<Int, ImageEntity>
 
+    @Query("SELECT * FROM images WHERE id = :id")
+    suspend fun byId(id: Long): ImageEntity?
+
+    @Query("""SELECT t.name FROM tags t JOIN image_tags it ON it.tagId = t.id
+              WHERE it.imageId = :imageId ORDER BY t.name""")
+    suspend fun tagNamesOf(imageId: Long): List<String>
+
+    @Query("SELECT galleryId FROM gallery_images WHERE imageId = :imageId")
+    suspend fun galleryIdsOf(imageId: Long): List<Long>
+
+    @Query("DELETE FROM image_tags WHERE imageId = :imageId AND tagId IN (:tagIds)")
+    suspend fun deleteTagLinks(imageId: Long, tagIds: List<Long>)
+
+    @Query("DELETE FROM gallery_images WHERE galleryId = :galleryId AND imageId IN (:imageIds)")
+    suspend fun deleteGalleryLinks(galleryId: Long, imageIds: List<Long>)
+
     @Upsert
     suspend fun upsertAll(items: List<ImageEntity>)
 

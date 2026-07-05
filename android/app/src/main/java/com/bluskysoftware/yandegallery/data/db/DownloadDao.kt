@@ -4,6 +4,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
+import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface DownloadDao {
@@ -15,4 +16,14 @@ interface DownloadDao {
 
     @Query("DELETE FROM downloads WHERE imageId = :imageId")
     suspend fun delete(imageId: Long)
+
+    @Query("SELECT imageId FROM downloads")
+    fun observeDownloadedIds(): Flow<List<Long>>
+
+    /**
+     * ViewerViewModel 在 composition 中用 modelFor 同步取 uri，无法调用 suspend 版 byImageId，
+     * 需要一个可 collectAsState 的 Flow 来建 Map<imageId, mediaStoreUri>（brief §Task 4 备注）。
+     */
+    @Query("SELECT * FROM downloads")
+    fun observeDownloaded(): Flow<List<DownloadEntity>>
 }
