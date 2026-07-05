@@ -8,6 +8,8 @@ import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
 import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
+import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
@@ -35,6 +37,7 @@ class AppGraph(
     // 测试注入缝：手动驱动 syncEngine.sync() 的用例（EndToEndSyncTest/AppGraphTest）关掉自动触发，
     // 避免 collector 的自动同步与手动同步争抢同一 MockWebServer 的 FIFO 响应。生产恒 true。
     private val autoSyncOnActiveChange: Boolean = true,
+    private val prefsStoreOverride: com.bluskysoftware.yandegallery.data.prefs.PrefsStore? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -49,6 +52,9 @@ class AppGraph(
 
     val db: AppDatabase by lazy { dbOverride ?: AppDatabase.build(appContext) }
     val serverRepository by lazy { ServerRepository(db.serverDao()) }
+
+    /** UI 偏好（档位记忆/缓存上限，M4-T1）；测试注入独立临时文件实例避免 DataStore 单例冲突。 */
+    val prefsStore by lazy { prefsStoreOverride ?: PrefsStore(uiPrefsDataStore(appContext)) }
 
     // Bearer 动态取当前激活 key（okHttp 拦截器与 SSE urlProvider 从此读）。两处写入、都写
     // 当前激活行，收敛一致：① init 里的预热 collector（后台 Room Flow，异步追平）；② api()
