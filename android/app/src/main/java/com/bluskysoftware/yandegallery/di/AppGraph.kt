@@ -13,6 +13,7 @@ import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
@@ -185,6 +186,24 @@ class AppGraph(
             },
             onGalleryEvent = { syncScheduler.requestSync("sse") },
             scope = scope,
+        )
+    }
+
+    /**
+     * 网络回调（M4-T6）：恢复 → 横幅收起 + 增量同步 + SSE 重连（兜底断网期间漏的事件）；
+     * 断开 → 横幅离线（D6b 直驱，不等下次同步失败推断）。回调在 binder 线程触发，下游
+     * connectionMonitor.update / syncScheduler.requestSync / sseClient.restart(@Synchronized) 均线程安全。
+     * 生命周期绑进程前后台（YandeGalleryApp start/stop），非 scope 常驻协程，无需 shutdownForTest 覆盖。
+     */
+    val networkMonitor by lazy {
+        NetworkMonitor(
+            appContext,
+            onAvailable = {
+                connectionMonitor.reportNetworkRestored()
+                syncScheduler.requestSync("network-restored")
+                sseClient.restart()
+            },
+            onLost = { connectionMonitor.reportNetworkLost() },
         )
     }
 }

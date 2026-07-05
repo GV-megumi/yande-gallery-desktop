@@ -27,10 +27,12 @@ class YandeGalleryApp : Application(), Configuration.Provider {
             override fun onStart(owner: LifecycleOwner) {
                 graph.syncScheduler.requestSync("foreground")
                 graph.sseClient.start()
+                graph.networkMonitor.start()
             }
 
             override fun onStop(owner: LifecycleOwner) {
                 graph.sseClient.stop()
+                graph.networkMonitor.stop()
             }
         })
     }
