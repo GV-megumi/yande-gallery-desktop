@@ -5,14 +5,19 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
+import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import com.bluskysoftware.yandegallery.domain.download.DownloadManager
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
 import com.bluskysoftware.yandegallery.domain.sync.SyncScheduler
+import com.bluskysoftware.yandegallery.domain.write.RetrofitWriteApi
+import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -83,6 +88,15 @@ class AppGraph(
     /** 缩略图 Coil ImageLoader：独立 2GB 持久盘缓存 + 复用带 Bearer 的 okHttp（Task 9）。 */
     val thumbnailLoader by lazy { buildThumbnailImageLoader(appContext, okHttp) }
 
+    /** 1600px 预览档 Coil ImageLoader：独立 1GB 盘缓存 + 复用带 Bearer 的 okHttp（M3）。 */
+    val previewLoader by lazy { buildPreviewImageLoader(appContext, okHttp) }
+
+    /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
+    val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
+
+    /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
+    val downloadManager by lazy { DownloadManager(appContext) }
+
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
             cachedApi = null; cachedBaseUrl = null; cachedApiKey = null
@@ -124,6 +138,16 @@ class AppGraph(
             monitor = connectionMonitor,
             scope = scope,
             hadMirrorBefore = { mirrorStore.readSyncState() != null },
+        )
+    }
+
+    /** 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。 */
+    val writeRepository by lazy {
+        WriteRepository(
+            writeApi = RetrofitWriteApi { api() },
+            db = db,
+            monitor = connectionMonitor,
+            requestSync = { syncScheduler.requestSync("write") },
         )
     }
 

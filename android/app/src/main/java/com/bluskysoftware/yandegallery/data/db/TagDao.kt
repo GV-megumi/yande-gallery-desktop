@@ -8,6 +8,9 @@ import androidx.room.Transaction
 
 @Dao
 interface TagDao {
+    @Query("SELECT * FROM tags WHERE LOWER(name) = LOWER(:name) LIMIT 1")
+    suspend fun byName(name: String): TagEntity?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAll(items: List<TagEntity>)
 

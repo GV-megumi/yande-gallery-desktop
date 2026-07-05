@@ -8,6 +8,27 @@ interface ImageDao {
     @Query("SELECT * FROM images ORDER BY createdAt DESC, id DESC")
     fun timelinePagingSource(): PagingSource<Int, ImageEntity>
 
+    // 搜索分页：多关键词 AND 交集用运行时拼 SQL（@Query 的 IN 展开无法表达多子句 AND），故走 @RawQuery。
+    // observedEntities 声明三表，使标签/关联变更也能触发 Paging 失效刷新。
+    @RawQuery(observedEntities = [ImageEntity::class, TagEntity::class, ImageTagEntity::class])
+    fun searchPagingSource(query: androidx.sqlite.db.SupportSQLiteQuery): PagingSource<Int, ImageEntity>
+
+    @Query("SELECT * FROM images WHERE id = :id")
+    suspend fun byId(id: Long): ImageEntity?
+
+    @Query("""SELECT t.name FROM tags t JOIN image_tags it ON it.tagId = t.id
+              WHERE it.imageId = :imageId ORDER BY t.name""")
+    suspend fun tagNamesOf(imageId: Long): List<String>
+
+    @Query("SELECT galleryId FROM gallery_images WHERE imageId = :imageId")
+    suspend fun galleryIdsOf(imageId: Long): List<Long>
+
+    @Query("DELETE FROM image_tags WHERE imageId = :imageId AND tagId IN (:tagIds)")
+    suspend fun deleteTagLinks(imageId: Long, tagIds: List<Long>)
+
+    @Query("DELETE FROM gallery_images WHERE galleryId = :galleryId AND imageId IN (:imageIds)")
+    suspend fun deleteGalleryLinks(galleryId: Long, imageIds: List<Long>)
+
     @Upsert
     suspend fun upsertAll(items: List<ImageEntity>)
 
@@ -51,4 +72,22 @@ interface ImageDao {
 
     @Query("DELETE FROM images")
     suspend fun clearAll()
+}
+
+/**
+ * 多关键词 AND 交集：每词命中「某标签名前缀 OR 文件名包含」。空关键词退化为全表倒序。
+ * 注：用户输入的 LIKE 通配符（% / _）未转义，属已知局限（见任务报告）。
+ */
+fun buildSearchQuery(keywords: List<String>): androidx.sqlite.db.SupportSQLiteQuery {
+    val terms = keywords.map { it.trim() }.filter { it.isNotEmpty() }
+    if (terms.isEmpty()) {
+        return androidx.sqlite.db.SimpleSQLiteQuery("SELECT * FROM images ORDER BY createdAt DESC, id DESC")
+    }
+    val clauses = terms.joinToString(" AND ") {
+        "(EXISTS(SELECT 1 FROM image_tags it JOIN tags t ON t.id=it.tagId WHERE it.imageId=images.id AND t.name LIKE ?) OR images.filename LIKE ?)"
+    }
+    val args = terms.flatMap { listOf("$it%", "%$it%") }.toTypedArray()
+    return androidx.sqlite.db.SimpleSQLiteQuery(
+        "SELECT * FROM images WHERE $clauses ORDER BY createdAt DESC, id DESC", args,
+    )
 }

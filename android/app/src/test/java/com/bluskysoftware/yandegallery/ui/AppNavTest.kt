@@ -24,4 +24,12 @@ class AppNavTest {
         compose.onNodeWithTag("tab_albums").performClick()
         compose.onNodeWithText("相册页占位").assertIsDisplayed()
     }
+
+    @Test
+    fun `照片顶栏搜索图标跳搜索页`() {
+        compose.setContent { AppNavForTest() }
+        compose.onNodeWithTag("photos_search").assertIsDisplayed()
+        compose.onNodeWithTag("photos_search").performClick()
+        compose.onNodeWithText("搜索页占位").assertIsDisplayed()
+    }
 }

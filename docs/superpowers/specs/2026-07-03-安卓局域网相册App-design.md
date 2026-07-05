@@ -1,7 +1,7 @@
 # 安卓局域网相册 App 需求与设计（v1）
 
 日期：2026-07-03
-状态：已确认；M1（桌面端）已实现
+状态：已确认；M1（桌面端）/M2（安卓骨架）/M3（核心体验）已实现
 关联：`doc/skill需求文档/API服务与CLI及Skill整体方案设计.md`（API 服务底座）、`docs/superpowers/plans/2026-05-23-api-service-phase1.md`
 
 ## 1. 背景与目标

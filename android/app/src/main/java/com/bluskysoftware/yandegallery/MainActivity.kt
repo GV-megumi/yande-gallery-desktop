@@ -13,11 +13,15 @@ import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.photos.PhotosScreen
 import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
+import com.bluskysoftware.yandegallery.ui.search.SearchScreen
+import com.bluskysoftware.yandegallery.ui.search.SearchViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
+import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
+import com.bluskysoftware.yandegallery.ui.viewer.ViewerViewModel
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -34,6 +38,7 @@ class MainActivity : ComponentActivity() {
                         PhotosScreen(
                             viewModel = photosVm,
                             onAddServer = { nav.navigate(Routes.Servers) },
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
                         )
                     },
                     albumsContent = {
@@ -49,6 +54,29 @@ class MainActivity : ComponentActivity() {
                         AlbumDetailScreen(
                             viewModel = detailVm,
                             onBack = { nav.popBackStack() },
+                            // 图集内点开：把 galleryId 一并传给 viewer，翻页上下文限定在本图集
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId, galleryId)) },
+                        )
+                    },
+                    viewerContent = { imageId, galleryId ->
+                        val viewerVm: ViewerViewModel =
+                            viewModel(factory = ViewerViewModel.factory(graph, imageId, galleryId))
+                        ViewerScreen(
+                            viewModel = viewerVm,
+                            onBack = { nav.popBackStack() },
+                            // 详情面板「所属图集」→ 图集详情页
+                            onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
+                            // 详情面板标签 chip → 搜索页（预填该标签名触发搜索）
+                            onOpenSearch = { tag -> nav.navigate(Routes.search(tag)) },
+                        )
+                    },
+                    searchContent = { initialQuery ->
+                        val searchVm: SearchViewModel = viewModel(factory = SearchViewModel.factory(graph))
+                        SearchScreen(
+                            viewModel = searchVm,
+                            onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
+                            onBack = { nav.popBackStack() },
+                            initialQuery = initialQuery,
                         )
                     },
                     serversContent = {

@@ -9,6 +9,9 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.ConnState
+import com.bluskysoftware.yandegallery.domain.write.WriteRepository
+import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -18,7 +21,10 @@ import kotlinx.coroutines.flow.stateIn
 /** 图集卡片：cover 优先取 gallery.coverImageId，为空时兜底取图集内最新一张（spec §7.2）。 */
 data class AlbumCard(val gallery: GalleryEntity, val coverImageId: Long?)
 
-class AlbumsViewModel(private val graph: AppGraph) : ViewModel() {
+class AlbumsViewModel(
+    private val graph: AppGraph,
+    private val writeRepository: WriteRepository = graph.writeRepository,  // 测试注入缝（镜像 AlbumDetailViewModel gateway 模式）
+) : ViewModel() {
 
     /** 缩略图专用 loader（Task 9），卡片封面直接消费。 */
     val thumbnailLoader: ImageLoader get() = graph.thumbnailLoader
@@ -27,6 +33,9 @@ class AlbumsViewModel(private val graph: AppGraph) : ViewModel() {
     val activeServer: StateFlow<ServerEntity?> =
         graph.serverRepository.observeActive()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** 连接状态：新建/长按写入口离线置灰（Screen collectAsState 驱动 FAB 与卡片菜单可用性）。 */
+    val connState: StateFlow<ConnState> = graph.connectionMonitor.state
 
     /**
      * 图集卡片流：单查询 observeAlbumCards 一次带回图集 + 相关子查询算出的兜底封面 id，
@@ -47,6 +56,16 @@ class AlbumsViewModel(private val graph: AppGraph) : ViewModel() {
                 )
             }
         }
+
+    /** 新建图集：委托 WriteRepository（乐观镜像 → 服务端 → 失败不新增行）；Screen 据结果提示。 */
+    suspend fun createGallery(name: String): WriteResult = writeRepository.createGallery(name)
+
+    /** 重命名图集：委托 WriteRepository（乐观改名 → 服务端 → 失败回滚旧名）。 */
+    suspend fun renameGallery(galleryId: Long, name: String): WriteResult =
+        writeRepository.renameGallery(galleryId, name)
+
+    /** 删除图集：委托 WriteRepository（乐观删镜像行+成员链 → 服务端；不删图片本体，spec §8）。 */
+    suspend fun deleteGallery(galleryId: Long): WriteResult = writeRepository.deleteGallery(galleryId)
 
     companion object {
         fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {
