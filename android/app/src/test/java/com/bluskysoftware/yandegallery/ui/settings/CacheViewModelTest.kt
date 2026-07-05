@@ -81,7 +81,9 @@ class CacheViewModelTest {
     }
 
     @Test
-    fun `种一行 downloads——列表发射且 filename 为 LEFT JOIN 值，清空后为空`() = runTest {
+    fun `种一行 downloads——列表按激活 serverId 过滤发射且 filename 为 LEFT JOIN 值，清空后为空`() = runTest {
+        // T9 后列表按激活 serverId 过滤：须先激活服务器（autoSyncOnActiveChange=false，无副作用）
+        val serverId = graph.serverRepository.addAndActivate("t9", "http://x:1", "k")
         db.imageDao().upsertAll(
             listOf(
                 ImageEntity(
@@ -92,13 +94,18 @@ class CacheViewModelTest {
             ),
         )
         db.downloadDao().upsert(
-            DownloadEntity(imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "2026-07-01T00:00:00.000Z"),
+            DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "2026-07-01T00:00:00.000Z"),
+        )
+        // 他服同号记录不得混入激活服务器的列表
+        db.downloadDao().upsert(
+            DownloadEntity(serverId = serverId + 1, imageId = 7, mediaStoreUri = "content://other/7", downloadedAt = "2026-07-01T00:00:00.000Z"),
         )
         val vm = CacheViewModel(graph)
 
         val list = vm.downloads.first { it.isNotEmpty() }
         assertEquals(1, list.size)
         assertEquals(7L, list[0].imageId)
+        assertEquals("content://media/7", list[0].mediaStoreUri)
         assertEquals("neko.jpg", list[0].filename)
 
         vm.clearDownloadRecords()

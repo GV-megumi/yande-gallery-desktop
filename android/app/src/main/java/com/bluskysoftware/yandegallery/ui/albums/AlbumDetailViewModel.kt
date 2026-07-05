@@ -1,5 +1,7 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import android.app.PendingIntent
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -13,6 +15,7 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
@@ -20,12 +23,14 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import com.bluskysoftware.yandegallery.ui.viewer.mimeOf
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 图集详情（M2 只读；T13 加多选批量动作）。
@@ -70,7 +75,8 @@ class AlbumDetailViewModel(
     private val actions = SelectionActions(
         db = graph.db,
         writeRepository = writeRepository,
-        enqueueDownload = { img -> graph.downloadManager.enqueue(img.id, img.filename, mimeOf(img.format)) },
+        activeServerId = { graph.serverRepository.activeServer()?.id },
+        enqueueDownload = { serverId, img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
     )
 
     /** 批量下载：viewModelScope 入队（离开页面不中断）；T8 唯一工作名 KEEP 去重。 */
@@ -81,8 +87,29 @@ class AlbumDetailViewModel(
     /** 批量分享 URI：全部已下载 → uri 列表；含未下载 → null（Screen 提示先下载，brief 简化）。 */
     suspend fun shareUrisFor(ids: List<Long>): List<String>? = actions.shareUrisFor(ids)
 
-    /** 批量删除（batch 端点 + 清确实已删 id 的下载映射行；本地系统相册副本不级联，controller 裁定）。 */
+    /** 批量删除（batch 端点 + 清确实已删 id 的本服下载映射行；本机副本级联由 Screen 侧成功后处理，spec §8）。 */
     suspend fun batchDeleteSelected(ids: List<Long>): WriteResult = actions.batchDelete(ids)
+
+    /** 批删前快照已下载 uri（batchDelete 会清行，必须先取）；无激活服务器返回空（M4-T9）。 */
+    suspend fun downloadedUrisFor(ids: List<Long>): List<String> = actions.downloadedUrisFor(ids)
+
+    /** 30+ 批量副本级联：一次系统确认弹窗（spec §8）；<30 返回 null 走 [deleteLocalCopies]。 */
+    fun buildBatchDeleteRequest(uris: List<Uri>): PendingIntent? =
+        graph.mediaStoreGateway.buildDeleteRequest(uris)
+
+    /** <30 逐条直删；API29 NeedsConsent 不逐张弹窗（批量场景逐张系统确认是敌意 UX——定界），
+     *  计入保留。返回 (已删, 保留) 计数。 */
+    suspend fun deleteLocalCopies(uris: List<Uri>): Pair<Int, Int> = withContext(Dispatchers.IO) {
+        var deleted = 0
+        var kept = 0
+        for (uri in uris) {
+            when (graph.mediaStoreGateway.deleteOwned(uri)) {
+                DeleteOwnedResult.Deleted -> deleted++
+                else -> kept++   // NeedsConsent/Failed：文件保留（行已被 batchDelete 清）
+            }
+        }
+        deleted to kept
+    }
 
     /** 批量加入图集。 */
     suspend fun addSelectedToGallery(targetGalleryId: Long, ids: List<Long>): WriteResult =

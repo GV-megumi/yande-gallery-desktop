@@ -2,6 +2,9 @@ package com.bluskysoftware.yandegallery.ui.photos
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -100,7 +103,15 @@ fun PhotosScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var confirmBatchDelete by remember { mutableStateOf(false) }
+    // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
+    var batchHasLocalCopies by remember { mutableStateOf(false) }
     var showGalleryPicker by remember { mutableStateOf(false) }
+
+    // 30+ 批量副本级联的系统确认：结果无需处理——downloads 行已在 batchDelete 清掉，
+    // 同意/拒绝只影响系统相册文件去留（拒绝即保留文件，spec §8）。
+    val batchCascadeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { }
 
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
     BackHandler(enabled = selectionActive) { viewModel.selection.clear() }
@@ -278,7 +289,14 @@ fun PhotosScreen(
                         scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
                     },
                     onShare = { shareSelected() },
-                    onDelete = { confirmBatchDelete = true },
+                    onDelete = {
+                        val ids = viewModel.selection.selected.toList()
+                        scope.launch {
+                            // 先探一次是否含已下载副本，确认文案据此分支（M4-T9）
+                            batchHasLocalCopies = viewModel.downloadedUrisFor(ids).isNotEmpty()
+                            confirmBatchDelete = true
+                        }
+                    },
                     onAddToGallery = { showGalleryPicker = true },
                 )
             }
@@ -286,21 +304,46 @@ fun PhotosScreen(
         SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter))
     }
 
-    // 批量删除二次确认：明示数量（brief 契约）；本机已保存副本不级联（controller 裁定，M4 再议）
+    // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）
     if (confirmBatchDelete) {
         val count = selected.size
         AlertDialog(
             onDismissRequest = { confirmBatchDelete = false },
             title = { Text("批量删除") },
-            text = { Text("确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本不受影响。") },
+            text = {
+                Text(
+                    if (batchHasLocalCopies) {
+                        "确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本也会一并删除。"
+                    } else {
+                        "确定删除选中的 $count 张图片？将从服务器删除。"
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         confirmBatchDelete = false
                         val ids = viewModel.selection.selected.toList()
                         scope.launch {
+                            val localUris = viewModel.downloadedUrisFor(ids).map { it.toUri() }   // 删行前快照
                             when (val r = viewModel.batchDeleteSelected(ids)) {
-                                WriteResult.Success -> snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
+                                WriteResult.Success -> {
+                                    snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
+                                    if (localUris.isNotEmpty()) {
+                                        val pending = viewModel.buildBatchDeleteRequest(localUris)
+                                        if (pending != null) {
+                                            // 30+：一次系统批量确认；拒绝仅保留文件（行已清）
+                                            batchCascadeLauncher.launch(
+                                                IntentSenderRequest.Builder(pending.intentSender).build(),
+                                            )
+                                        } else {
+                                            val (deleted, kept) = viewModel.deleteLocalCopies(localUris)
+                                            if (kept > 0) {
+                                                snackbarHostState.showSnackbar("本机副本已删除 $deleted 张、保留 $kept 张（无删除权限）")
+                                            }
+                                        }
+                                    }
+                                }
                                 is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("批量删除失败", r))
                             }
                             // 成败都清选择：成功项已从网格消失，失败信息已提示，避免残留失效 id

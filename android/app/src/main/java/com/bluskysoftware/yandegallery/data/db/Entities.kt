@@ -76,9 +76,12 @@ data class SyncStateEntity(
     val lastSyncAt: String,
 )
 
-@Entity(tableName = "downloads")
+// v3（M4-T9，D10）：serverId 复合主键——多服务器同号 imageId 的下载映射互不污染；
+// 飞行中下载跨切服的行由 worker 落行前校验拦截，不再依赖 clearMirror 时序。
+@Entity(tableName = "downloads", primaryKeys = ["serverId", "imageId"])
 data class DownloadEntity(
-    @PrimaryKey val imageId: Long,
+    val serverId: Long,
+    val imageId: Long,
     val mediaStoreUri: String,
     val downloadedAt: String,
 )

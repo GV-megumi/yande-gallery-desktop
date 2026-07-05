@@ -25,6 +25,7 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                 downloadDao = graph.db.downloadDao(),
                 onNotFound = { graph.onBinaryNotFound?.invoke() },   // M2 二进制 404 对账钩子（→ requestSync("binary-404")）
                 now = { java.time.Instant.now().toString() },
+                activeServerId = { graph.serverRepository.activeServer()?.id },   // 落行前校验（M4-T9 切服竞态）
             )
         } else {
             null

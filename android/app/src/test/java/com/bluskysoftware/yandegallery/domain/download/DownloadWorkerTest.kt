@@ -14,6 +14,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.DownloadDao
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -72,7 +73,9 @@ class DownloadWorkerTest {
         gateway: MediaStoreGateway,
         onNotFound: () -> Unit = {},
         now: () -> String = { "2026-07-05T00:00:00Z" },
+        activeServerId: suspend () -> Long? = { 1L },
         inputData: Data = workDataOf(
+            DownloadWorker.KEY_SERVER_ID to 1L,
             DownloadWorker.KEY_IMAGE_ID to imageId,
             DownloadWorker.KEY_FILENAME to "$imageId.jpg",
             DownloadWorker.KEY_MIME to "image/jpeg",
@@ -93,6 +96,7 @@ class DownloadWorkerTest {
                         downloadDao = dao,
                         onNotFound = onNotFound,
                         now = now,
+                        activeServerId = activeServerId,
                     )
             })
             .build()
@@ -111,7 +115,7 @@ class DownloadWorkerTest {
             assertArrayEquals("网关应收到与响应体一致的完整字节", payload, gateway.bytes())
             assertTrue("成功应 finalize", gateway.finalizeCalled)
             assertEquals("成功不应 discard", 0, gateway.discardCount)
-            val row = dao.byImageId(imageId)
+            val row = dao.byImageId(1L, imageId)
             assertNotNull("成功应落库一行", row)
             assertEquals("2026-07-05T00:00:00Z", row!!.downloadedAt)
         }
@@ -135,7 +139,7 @@ class DownloadWorkerTest {
 
             assertEquals(ListenableWorker.Result.retry(), result)
             assertTrue("尺寸不符应 discard 半成品", gateway.discardCount >= 1)
-            assertNull("尺寸不符不应落库", dao.byImageId(imageId))
+            assertNull("尺寸不符不应落库", dao.byImageId(1L, imageId))
         }
     }
 
@@ -160,7 +164,7 @@ class DownloadWorkerTest {
             assertEquals(ListenableWorker.Result.failure(), result)
             assertEquals("原图 404 应触发一次对账钩子", 1, notFound)
             assertEquals("404 未创建条目，无需 discard", 0, gateway.discardCount)
-            assertNull("404 不应落库", dao.byImageId(imageId))
+            assertNull("404 不应落库", dao.byImageId(1L, imageId))
         }
     }
 
@@ -188,8 +192,49 @@ class DownloadWorkerTest {
 
             assertEquals("MediaStore 写失败应 failure（非 retry）", ListenableWorker.Result.failure(), result)
             assertEquals("createPending 返回 null，无 uri 可 discard", 0, gateway.discardCount)
-            assertNull("写失败不应落库", dao.byImageId(imageId))
+            assertNull("写失败不应落库", dao.byImageId(1L, imageId))
             assertEquals("早退路径必须 close 流式 body 归还连接（不泄漏）", 1, released.get())
+        }
+    }
+
+    @Test
+    fun `切服竞态——落行前校验发现激活服务器已变，丢弃产物且不落任何行`() = runTest {
+        val payload = ByteArray(1024) { (it % 251).toByte() }
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(payload)))
+            server.start()
+            val gateway = FakeMediaStoreGateway()
+
+            // inputData serverId=1，下载期间用户切服 → activeServerId() 已是 2
+            val result = buildWorker(
+                api = realApi(server),
+                gateway = gateway,
+                activeServerId = { 2L },
+            ).doWork()
+
+            assertEquals("切服竞态应 failure（产物属旧服务器域）", ListenableWorker.Result.failure(), result)
+            assertEquals("须 discard 丢弃产物", 1, gateway.discardCount)
+            assertTrue("校验在 finalize 之前——半成品不得转正", !gateway.finalizeCalled)
+            assertNull("旧服域不落行", dao.byImageId(1L, imageId))
+            assertNull("新服域更不落行", dao.byImageId(2L, imageId))
+        }
+    }
+
+    @Test
+    fun `成功路径落行带 serverId——byImageId(1,id) 命中且 serverId 列为 1`() = runTest {
+        val payload = ByteArray(256) { it.toByte() }
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody(Buffer().write(payload)))
+            server.start()
+            val gateway = FakeMediaStoreGateway()
+
+            val result = buildWorker(api = realApi(server), gateway = gateway).doWork()
+
+            assertEquals(ListenableWorker.Result.success(), result)
+            val row = dao.byImageId(1L, imageId)
+            assertNotNull("成功应在 serverId=1 域落行", row)
+            assertEquals(1L, row!!.serverId)
+            assertEquals(imageId, row.imageId)
         }
     }
 
@@ -211,7 +256,7 @@ class DownloadWorkerTest {
 
             assertTrue("取消必须向上重抛，不能吞成 Result.retry", thrown is CancellationException)
             assertEquals("取消须 discard 清理半成品条目", 1, gateway.discardCount)
-            assertNull("取消不应落库", dao.byImageId(imageId))
+            assertNull("取消不应落库", dao.byImageId(1L, imageId))
         }
     }
 
@@ -253,6 +298,8 @@ class DownloadWorkerTest {
         override fun exists(uri: Uri): Boolean = streams.containsKey(uri)
 
         override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
+
+        override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
 
         /** 唯一一次下载写入的字节。 */
         fun bytes(): ByteArray = streams.values.firstOrNull()?.toByteArray() ?: ByteArray(0)

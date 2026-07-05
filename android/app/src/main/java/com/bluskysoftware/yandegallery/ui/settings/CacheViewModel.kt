@@ -8,9 +8,12 @@ import androidx.lifecycle.viewmodel.viewModelFactory
 import com.bluskysoftware.yandegallery.data.db.DownloadWithMeta
 import com.bluskysoftware.yandegallery.di.AppGraph
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
@@ -24,7 +27,13 @@ class CacheViewModel(private val graph: AppGraph) : ViewModel() {
     private val _stats = MutableStateFlow<CacheStats?>(null)
     val stats: StateFlow<CacheStats?> = _stats
 
-    val downloads: Flow<List<DownloadWithMeta>> = graph.db.downloadDao().observeDownloadedWithMeta()
+    /** 已下载记录列表（M4-T9）：按激活 serverId 过滤——切服即换域，无激活服务器为空列表。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val downloads: Flow<List<DownloadWithMeta>> =
+        graph.serverRepository.observeActive().flatMapLatest { server ->
+            if (server == null) flowOf(emptyList())
+            else graph.db.downloadDao().observeDownloadedWithMeta(server.id)
+        }
     val thumbLimitBytes: Flow<Long> = graph.prefsStore.thumbnailCacheMaxBytes
     val previewLimitBytes: Flow<Long> = graph.prefsStore.previewCacheMaxBytes
 

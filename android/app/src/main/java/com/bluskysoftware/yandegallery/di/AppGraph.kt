@@ -7,6 +7,8 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
+import com.bluskysoftware.yandegallery.data.image.previewCacheKey
+import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
 import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
@@ -140,7 +142,18 @@ class AppGraph(
         return ApiClientFactory.desktopApi(active.baseUrl, okHttp).also { cachedApi = it }
     }
 
-    val mirrorStore by lazy { RoomMirrorStore(db) }
+    val mirrorStore by lazy {
+        RoomMirrorStore(
+            db,
+            gateway = mediaStoreGateway,
+            activeServerId = { serverRepository.activeServer()?.id },
+            removeCachedImage = { serverId, imageId ->
+                // 对账删除的行级联清两级盘缓存条目（Coil 3.5 DiskCache.remove(key) 已核）
+                thumbnailLoader.diskCache?.remove(thumbnailCacheKey(serverId, imageId))
+                previewLoader.diskCache?.remove(previewCacheKey(serverId, imageId))
+            },
+        )
+    }
     val syncEngine by lazy {
         SyncEngine(
             api = RetrofitSyncApi { api() },

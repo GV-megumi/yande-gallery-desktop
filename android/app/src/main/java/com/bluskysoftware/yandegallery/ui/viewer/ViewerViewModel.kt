@@ -18,16 +18,22 @@ import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.previewRequest
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 大图页 ViewModel（Task 10 消费）：分页来源二选一 + 三档图片模型选择 + 详情组装 + 下载/连接状态。
@@ -83,18 +89,33 @@ class ViewerViewModel(
             else graph.db.imageDao().timelinePagingSource()
         }.flow.cachedIn(viewModelScope)
 
-    /** 已下载 id 集合：某图已下载 → viewer 跳 1600 档直读 MediaStore（见 [modelFor]）。 */
+    /**
+     * 已下载 id 集合：某图已下载 → viewer 跳 1600 档直读 MediaStore（见 [modelFor]）。
+     * M4-T9：按激活 serverId 过滤（flatMapLatest 挂在 [activeServer] 上，切服即换域；
+     * 无激活服务器发空集）——跨服同号 imageId 不再串本地原图。Eagerly 语义不变。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val downloadedIds: StateFlow<Set<Long>> =
-        graph.db.downloadDao().observeDownloadedIds()
+        activeServer
+            .flatMapLatest { server ->
+                if (server == null) flowOf(emptyList())
+                else graph.db.downloadDao().observeDownloadedIds(server.id)
+            }
             .map { it.toSet() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     /**
      * 已下载 id→mediaStoreUri 映射：前置收集成 map，因 [modelFor] 在 composition 同步调用，
      * 不能走 suspend 版 byImageId。Eagerly 收集保证无订阅者时 `.value` 也已追平 DB。
+     * M4-T9：同 [downloadedIds] 按激活 serverId 过滤。
      */
+    @OptIn(ExperimentalCoroutinesApi::class)
     val downloadedUris: StateFlow<Map<Long, String>> =
-        graph.db.downloadDao().observeDownloaded()
+        activeServer
+            .flatMapLatest { server ->
+                if (server == null) flowOf(emptyList())
+                else graph.db.downloadDao().observeDownloaded(server.id)
+            }
             .map { rows -> rows.associate { it.imageId to it.mediaStoreUri } }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
@@ -102,7 +123,10 @@ class ViewerViewModel(
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state
 
     /** 某图下载中/成功/失败状态（WorkManager WorkInfo；downloads 表无状态列，只成功后落一行）。 */
-    fun downloadState(imageId: Long): Flow<WorkInfo.State?> = graph.downloadManager.observeState(imageId)
+    fun downloadState(imageId: Long): Flow<WorkInfo.State?> {
+        val serverId = activeServer.value?.id ?: return flowOf(null)
+        return graph.downloadManager.observeState(serverId, imageId)
+    }
 
     /**
      * 三档图片模型（**同步**，composition 里调用）：
@@ -115,15 +139,17 @@ class ViewerViewModel(
      * activeServer.value.id 做 preview 缓存键命名空间（多服务器同 imageId 不同图，避免串图）。
      */
     fun modelFor(image: ImageEntity, baseUrl: String): Any {
+        val activeId = activeServer.value?.id
         val uriString = downloadedUris.value[image.id]
         if (uriString != null) {
             val uri = uriString.toUri()
             if (gateway.exists(uri)) return uri
-            // 映射失效：清行（异步），本次回退 preview。
-            viewModelScope.launch { graph.db.downloadDao().delete(image.id) }
+            // 映射失效：清行（异步，本服域——downloadedUris 已按激活 serverId 过滤），本次回退 preview。
+            if (activeId != null) {
+                viewModelScope.launch { graph.db.downloadDao().delete(activeId, image.id) }
+            }
         }
-        val serverId = activeServer.value?.id ?: 0L
-        return previewRequest(graph.appContext, baseUrl, serverId, image.id)
+        return previewRequest(graph.appContext, baseUrl, activeId ?: 0L, image.id)
     }
 
     /**
@@ -166,19 +192,27 @@ class ViewerViewModel(
     suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
 
-    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；mime 由 format 推导）。 */
+    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；mime 由 format 推导；无激活服务器不入队）。 */
     fun enqueueDownload(image: ImageEntity) {
-        graph.downloadManager.enqueue(image.id, image.filename, mimeOf(image.format))
+        val serverId = activeServer.value?.id ?: return
+        graph.downloadManager.enqueue(serverId, image.id, image.filename, mimeOf(image.format))
     }
 
-    /** 级联删本地副本：30+ 返回系统确认 PendingIntent（UI 层经 StartIntentSenderForResult 启动）；<30 返回 null（调用方直接 [discardLocalCopy]）。 */
+    /** 级联删本地副本：30+ 返回系统确认 PendingIntent（UI 层经 StartIntentSenderForResult 启动）；<30 返回 null（调用方走 [deleteLocalCopy]）。 */
     fun buildDeleteRequest(uri: Uri): PendingIntent? = gateway.buildDeleteRequest(listOf(uri))
 
-    /** <30 直删本地副本（无系统确认弹窗）。 */
-    fun discardLocalCopy(uri: Uri) = gateway.discard(uri)
+    /**
+     * <30 直删本地副本（M4-T9）：返回结构化结果——API 29 所有权丢失时为 NeedsConsent（携带
+     * IntentSender，Screen 走与 30+ 同一个 cascadeLauncher），失败为 Failed（spec §8 不静默）。
+     */
+    suspend fun deleteLocalCopy(uri: Uri): DeleteOwnedResult =
+        withContext(Dispatchers.IO) { gateway.deleteOwned(uri) }
 
-    /** 清 downloads 映射行：级联删除完成或用户拒绝系统确认后都要清（spec §8）。 */
-    suspend fun clearDownloadRow(imageId: Long) = graph.db.downloadDao().delete(imageId)
+    /** 清 downloads 映射行（本服域）：级联删除完成或用户拒绝系统确认后都要清（spec §8）。 */
+    suspend fun clearDownloadRow(imageId: Long) {
+        val serverId = activeServer.value?.id ?: return
+        graph.db.downloadDao().delete(serverId, imageId)
+    }
 
     companion object {
         fun factory(graph: AppGraph, imageId: Long, galleryId: Long?): ViewModelProvider.Factory =

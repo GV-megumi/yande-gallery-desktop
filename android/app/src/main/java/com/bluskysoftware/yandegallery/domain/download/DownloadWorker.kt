@@ -26,9 +26,11 @@ class DownloadWorker(
     private val downloadDao: DownloadDao,
     private val onNotFound: () -> Unit,
     private val now: () -> String,
+    private val activeServerId: suspend () -> Long?,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        val serverId = inputData.getLong(KEY_SERVER_ID, -1L)
         val imageId = inputData.getLong(KEY_IMAGE_ID, -1L)
         val filename = inputData.getString(KEY_FILENAME) ?: "$imageId"
         val mime = inputData.getString(KEY_MIME) ?: "image/jpeg"
@@ -81,13 +83,20 @@ class DownloadWorker(
             if (expected >= 0 && written != expected) {   // Content-Length 完整性校验（spec §6.4）
                 gateway.discard(uri); return Result.retry()
             }
+            // 落行前校验（D10 竞态根治）：下载期间用户切服 → 本次产物属旧服务器域，宁可丢弃也不落错行。
+            // 校验在 finalize 之前——半成品直接 discard，不让它在系统相册转正。
+            if (activeServerId() != serverId) {
+                gateway.discard(uri)
+                return@use Result.failure()
+            }
             gateway.finalize(uri)
-            downloadDao.upsert(DownloadEntity(imageId, uri.toString(), now()))
+            downloadDao.upsert(DownloadEntity(serverId, imageId, uri.toString(), now()))
             Result.success()
         }
     }
 
     companion object {
+        const val KEY_SERVER_ID = "serverId"
         const val KEY_IMAGE_ID = "imageId"
         const val KEY_FILENAME = "filename"
         const val KEY_MIME = "mime"

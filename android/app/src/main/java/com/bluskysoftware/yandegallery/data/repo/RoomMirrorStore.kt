@@ -1,10 +1,12 @@
 package com.bluskysoftware.yandegallery.data.repo
 
+import androidx.core.net.toUri
 import androidx.room.withTransaction
 import com.bluskysoftware.yandegallery.data.api.SyncGalleryDto
 import com.bluskysoftware.yandegallery.data.api.SyncImageItemDto
 import com.bluskysoftware.yandegallery.data.api.SyncTagDto
 import com.bluskysoftware.yandegallery.data.db.*
+import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.domain.sync.MirrorStore
 import com.bluskysoftware.yandegallery.domain.sync.SyncState
 
@@ -14,8 +16,16 @@ private const val DELETE_CHUNK = 900 // SQLite 绑定变量上限保守值
  * MirrorStore 的 Room 实现。schema 已是最终形态（Task 4）：gallery_images/image_tags
  * 只对 images 建 CASCADE FK，不对 galleries/tags 建 FK——同步分页时关联行可能短暂引用
  * 尚未拉取的 gallery/tag id，此形态下不会因 FK 校验整批失败。
+ *
+ * M4-T9：承担 spec §5.4/§6.3-2 对账级联清理全量（README M3 已知后置项收口）——gateway/
+ * activeServerId/removeCachedImage 带默认参数，既有纯镜像用法（及测试）零改动。
  */
-class RoomMirrorStore(private val db: AppDatabase) : MirrorStore {
+class RoomMirrorStore(
+    private val db: AppDatabase,
+    private val gateway: MediaStoreGateway? = null,
+    private val activeServerId: suspend () -> Long? = { null },
+    private val removeCachedImage: (serverId: Long, imageId: Long) -> Unit = { _, _ -> },
+) : MirrorStore {
 
     override suspend fun readSyncState(): SyncState? =
         db.syncStateDao().get()?.let { SyncState(it.remoteServerId, it.cursor, it.dataVersion, it.lastSyncAt) }
@@ -52,8 +62,33 @@ class RoomMirrorStore(private val db: AppDatabase) : MirrorStore {
 
     override suspend fun localImageIds(): List<Long> = db.imageDao().allIds()
 
-    override suspend fun deleteImages(ids: List<Long>) = db.withTransaction {
-        ids.chunked(DELETE_CHUNK).forEach { db.imageDao().deleteByIds(it) }
+    /**
+     * 对账删除（spec §5.4/§6.3-2 级联清理收口，M4-T9）：镜像行 + 本服 downloads 行 + 系统相册
+     * 副本 + 两级盘缓存条目。副本删除走 gateway.discard（吞异常）——**后台路径有意定界**：
+     * app 重装等所有权丢失场景抛 SecurityException/RecoverableSecurityException 时仅清行保留
+     * 文件、不弹系统确认窗（同步后台无 UI 可承载 IntentSender；文件残留属可接受，D15 记录）。
+     * 本方法由 SyncEngine 在 IO 调度器调用，discard/DiskCache.remove 的阻塞 IO 合规。
+     */
+    override suspend fun deleteImages(ids: List<Long>) {
+        val serverId = activeServerId()
+        // ① 删行前按当前 serverId 批量取 downloads 行（拿 uri，行删了就取不到了）
+        val downloadRows = if (serverId != null) {
+            ids.chunked(DELETE_CHUNK).flatMap { db.downloadDao().byImageIds(serverId, it) }
+        } else emptyList()
+        // ② 事务内 images 行 + 本服 downloads 行分块删除
+        db.withTransaction {
+            ids.chunked(DELETE_CHUNK).forEach { chunk ->
+                db.imageDao().deleteByIds(chunk)
+                if (serverId != null) db.downloadDao().deleteByImageIds(serverId, chunk)
+            }
+        }
+        // ③ 事务外 IO 级联：(a) owned 系统相册副本直删 (b) 两级盘缓存条目按键清除
+        for (row in downloadRows) {
+            gateway?.discard(row.mediaStoreUri.toUri())
+        }
+        if (serverId != null) {
+            ids.forEach { id -> removeCachedImage(serverId, id) }
+        }
     }
 
     override suspend fun replaceGalleries(items: List<SyncGalleryDto>) =

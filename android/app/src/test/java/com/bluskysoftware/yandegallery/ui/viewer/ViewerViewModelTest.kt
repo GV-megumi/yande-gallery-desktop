@@ -11,10 +11,12 @@ import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.TagEntity
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -41,6 +43,7 @@ import java.io.OutputStream
 class ViewerViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var graph: AppGraph
+    private var serverId: Long = 0L   // T9 后 downloads 流按激活 serverId 过滤，用例须有激活服务器
 
     @Before
     fun setup() {
@@ -48,7 +51,10 @@ class ViewerViewModelTest {
         // 故把 Main 换成 UnconfinedTestDispatcher，让 Eagerly 收集器随 Room 发射即时追平（否则 turbine 超时）。
         Dispatchers.setMain(UnconfinedTestDispatcher())
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
-        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        // autoSyncOnActiveChange=false：种激活服务器只为给 downloads 流提供 serverId 域，
+        // 不许触发自动同步/SSE（无真实服务器，Task 9 适配）。
+        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db, autoSyncOnActiveChange = false)
+        serverId = runBlocking { graph.serverRepository.addAndActivate("t9", "http://x:1", "k") }
     }
 
     @After
@@ -90,7 +96,7 @@ class ViewerViewModelTest {
     @Test
     fun `已下载 id 进入 downloadedIds 集合`() = runTest {
         db.imageDao().upsertAll(listOf(image(7)))
-        db.downloadDao().upsert(DownloadEntity(imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
+        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
 
         vm(7).downloadedIds.test {
             var ids = awaitItem()
@@ -103,7 +109,7 @@ class ViewerViewModelTest {
     @Test
     fun `modelFor 对已下载且系统相册仍在返回 Uri（跳 1600 档直读 MediaStore）`() = runTest {
         db.imageDao().upsertAll(listOf(image(7)))
-        db.downloadDao().upsert(DownloadEntity(imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
+        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
         val gateway = FakeGateway(existing = setOf("content://media/7"))
         val viewModel = vm(7, gateway = gateway)
 
@@ -131,7 +137,7 @@ class ViewerViewModelTest {
     @Test
     fun `modelFor 映射失效（系统相册已删）回退 preview 并异步清行`() = runTest {
         db.imageDao().upsertAll(listOf(image(9)))
-        db.downloadDao().upsert(DownloadEntity(imageId = 9, mediaStoreUri = "content://media/9", downloadedAt = "t"))
+        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 9, mediaStoreUri = "content://media/9", downloadedAt = "t"))
         // existing 为空 → exists 恒 false，模拟用户已在系统相册手删该条目。
         val gateway = FakeGateway(existing = emptySet())
         val viewModel = vm(9, gateway = gateway)
@@ -150,7 +156,7 @@ class ViewerViewModelTest {
             cancelAndIgnoreRemainingEvents()
         }
 
-        assertNull("失效映射行应被删除", db.downloadDao().byImageId(9))
+        assertNull("失效映射行应被删除", db.downloadDao().byImageId(serverId, 9))
     }
 
     /** 内存 fake：existing 集合内的 uri 字符串视为系统相册仍在；其余不存在。 */
@@ -161,5 +167,6 @@ class ViewerViewModelTest {
         override fun discard(uri: Uri) {}
         override fun exists(uri: Uri): Boolean = uri.toString() in existing
         override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
+        override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
     }
 }

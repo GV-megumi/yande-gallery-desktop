@@ -60,6 +60,7 @@ import androidx.work.WorkInfo
 import coil3.ImageLoader
 import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import kotlinx.coroutines.launch
@@ -155,9 +156,23 @@ fun ViewerScreen(
                         cascadeImageId = image.id
                         cascadeLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
                     } else {
-                        viewModel.discardLocalCopy(uri)
-                        viewModel.clearDownloadRow(image.id)
-                        onBack()
+                        // <30：直删本地副本；API 29 失去所有权时系统抛 RecoverableSecurityException，
+                        // gateway 转成 NeedsConsent(intentSender)——走与 30+ 同一个 cascadeLauncher（spec §8）
+                        when (val r = viewModel.deleteLocalCopy(uri)) {
+                            is DeleteOwnedResult.NeedsConsent -> {
+                                cascadeImageId = image.id
+                                cascadeLauncher.launch(IntentSenderRequest.Builder(r.intentSender).build())
+                            }
+                            is DeleteOwnedResult.Failed -> {
+                                snackbar.showSnackbar("本地副本删除失败：${r.message ?: "未知错误"}")   // spec §8 明确报错不静默
+                                viewModel.clearDownloadRow(image.id)
+                                onBack()
+                            }
+                            DeleteOwnedResult.Deleted -> {
+                                viewModel.clearDownloadRow(image.id)
+                                onBack()
+                            }
+                        }
                     }
                 }
             }

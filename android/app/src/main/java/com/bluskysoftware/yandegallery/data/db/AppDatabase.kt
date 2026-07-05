@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         ServerEntity::class, SyncStateEntity::class, DownloadEntity::class,
         SearchHistoryEntity::class,
     ],
-    version = 2,
+    version = 3,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -32,9 +32,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v2→3：downloads 换 (serverId, imageId) 复合主键。旧行直接丢弃——downloads 是易失
+        // 映射（clearMirror 随时清），无迁移价值；丢行只导致「已下载」标记消失，文件仍在系统相册。
+        val MIGRATION_2_3 = object : androidx.room.migration.Migration(2, 3) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `downloads`")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `downloads` (`serverId` INTEGER NOT NULL, " +
+                        "`imageId` INTEGER NOT NULL, `mediaStoreUri` TEXT NOT NULL, " +
+                        "`downloadedAt` TEXT NOT NULL, PRIMARY KEY(`serverId`, `imageId`))"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "yande-gallery.db")
-                .addMigrations(MIGRATION_1_2)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                 .build()
 
         // inMemory 每次全新建库，无历史版本，无需注册迁移。
