@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.domain.sync
 
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -61,6 +62,8 @@ class SyncEngine(
 
             _progress.value = SyncPhase.Done
             return SyncOutcome(fullRebuild = fullRebuild, upserted = upserted, deleted = stale.size)
+        } catch (e: CancellationException) {
+            throw e   // 取消不是失败：不置 Failed（否则 UI 误报「同步失败」），对齐 T6/T8 重抛惯例
         } catch (e: Exception) {
             _progress.value = SyncPhase.Failed(e.message ?: "sync failed")
             throw e

@@ -6,7 +6,12 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.di.AppGraph
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
@@ -14,6 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class AlbumsViewModelTest {
     private lateinit var db: AppDatabase
@@ -21,6 +27,9 @@ class AlbumsViewModelTest {
 
     @Before
     fun setup() {
+        // albums 改 stateIn(viewModelScope,…) 后收集器跑在 Dispatchers.Main 上；换 Unconfined 让
+        // WhileSubscribed 收集器随 Room 发射即时追平（否则 turbine 只看到初始哨兵）。
+        Dispatchers.setMain(UnconfinedTestDispatcher())
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
         graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
     }
@@ -29,6 +38,7 @@ class AlbumsViewModelTest {
     fun teardown() {
         graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
         db.close()
+        Dispatchers.resetMain()
     }
 
     private fun image(id: Long, createdAt: String) = ImageEntity(
@@ -41,6 +51,13 @@ class AlbumsViewModelTest {
      * 若订阅横跨多次独立写入，后台失效轮询可能先对某次写入的失效信号发一次过渡态查询，
      * 断言拿到的不是最终态。这里不测试"活体推送"，只测试稳定后的首发射，因此先写后订阅是安全的。
      */
+    @Test
+    fun `albums 加载中哨兵为 null`() = runTest {
+        // 无种子：stateIn 初始值即加载中哨兵 null（AlbumsScreen 据此在 DB 首发射前不显空态，A7）。
+        val viewModel = AlbumsViewModel(graph)
+        assertNull("albums 初始应为加载中哨兵 null", viewModel.albums.value)
+    }
+
     @Test
     fun `albums 首发射两卡片，null 封面取图集内最新图`() = runTest {
         db.galleryDao().replaceAll(
@@ -62,7 +79,10 @@ class AlbumsViewModelTest {
 
         val viewModel = AlbumsViewModel(graph)
         viewModel.albums.test {
-            val cards = awaitItem()
+            // 首帧加载中哨兵 null，DB 发射后翻非空列表
+            assertNull("albums 首帧应为加载中哨兵 null", awaitItem())
+            var cards = awaitItem()
+            while (cards.isNullOrEmpty()) cards = awaitItem()
             assertEquals(2, cards.size)
 
             val cardWithCover = cards.first { it.gallery.id == 1L }

@@ -49,18 +49,6 @@ class GalleryDaoTest {
     }
 
     @Test
-    fun `coverFallback 取图集内最新一张`() = runTest {
-        db.galleryDao().replaceAll(listOf(gallery(1, "g")))
-        db.imageDao().upsertAll(listOf(
-            image(1, "2026-01-01T00:00:00.000Z"),
-            image(2, "2026-01-03T00:00:00.000Z"),
-        ))
-        db.imageDao().replaceGalleryLinks(1, listOf(1))
-        db.imageDao().replaceGalleryLinks(2, listOf(1))
-        assertEquals(2L, db.galleryDao().coverFallback(1)?.id)
-    }
-
-    @Test
     fun `observeAlbumCards 单查询带回图集与兜底封面 id`() = runTest {
         db.galleryDao().replaceAll(listOf(
             GalleryEntity(id = 1, name = "a-has-cover", coverImageId = 10, imageCount = 1),

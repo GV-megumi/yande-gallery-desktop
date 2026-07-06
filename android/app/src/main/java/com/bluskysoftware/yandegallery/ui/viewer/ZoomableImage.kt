@@ -23,7 +23,7 @@ import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import kotlin.math.abs
 
 /**
@@ -87,7 +87,12 @@ private suspend fun PointerInputScope.detectTransformOrDismiss(
             if (mode == GestureMode.Undecided) {
                 slopAccum += panChange
                 if (slopAccum.getDistance() > viewConfiguration.touchSlop) {
-                    mode = if (abs(slopAccum.y) > abs(slopAccum.x)) GestureMode.Dismiss else GestureMode.PagerPass
+                    // 仅「近垂直且向下」判 Dismiss；近垂直向上不消费（原实现把上滑吃成死区）
+                    mode = if (abs(slopAccum.y) > abs(slopAccum.x) && slopAccum.y > 0) {
+                        GestureMode.Dismiss
+                    } else {
+                        GestureMode.PagerPass
+                    }
                 }
             }
             when (mode) {
@@ -144,12 +149,14 @@ fun ZoomableImage(
             },
         contentAlignment = Alignment.Center,
     ) {
-        AsyncImage(
+        RetryableAsyncImage(
             model = model,
             imageLoader = imageLoader,
             contentDescription = contentDescription,
             contentScale = ContentScale.Fit,
-            modifier = Modifier
+            dark = true,
+            modifier = Modifier.fillMaxSize(),
+            imageModifier = Modifier
                 .fillMaxSize()
                 .graphicsLayer {
                     scaleX = state.scale

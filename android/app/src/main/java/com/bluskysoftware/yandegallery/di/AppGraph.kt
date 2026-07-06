@@ -7,10 +7,15 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
+import com.bluskysoftware.yandegallery.data.image.previewCacheKey
+import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
 import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
+import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
+import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
@@ -22,6 +27,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
@@ -35,6 +41,7 @@ class AppGraph(
     // 测试注入缝：手动驱动 syncEngine.sync() 的用例（EndToEndSyncTest/AppGraphTest）关掉自动触发，
     // 避免 collector 的自动同步与手动同步争抢同一 MockWebServer 的 FIFO 响应。生产恒 true。
     private val autoSyncOnActiveChange: Boolean = true,
+    private val prefsStoreOverride: com.bluskysoftware.yandegallery.data.prefs.PrefsStore? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -49,6 +56,9 @@ class AppGraph(
 
     val db: AppDatabase by lazy { dbOverride ?: AppDatabase.build(appContext) }
     val serverRepository by lazy { ServerRepository(db.serverDao()) }
+
+    /** UI 偏好（档位记忆/缓存上限，M4-T1）；测试注入独立临时文件实例避免 DataStore 单例冲突。 */
+    val prefsStore by lazy { prefsStoreOverride ?: PrefsStore(uiPrefsDataStore(appContext)) }
 
     // Bearer 动态取当前激活 key（okHttp 拦截器与 SSE urlProvider 从此读）。两处写入、都写
     // 当前激活行，收敛一致：① init 里的预热 collector（后台 Room Flow，异步追平）；② api()
@@ -97,11 +107,17 @@ class AppGraph(
         )
     }
 
-    /** 缩略图 Coil ImageLoader：独立 2GB 持久盘缓存 + 复用带 Bearer 的 okHttp（Task 9）。 */
-    val thumbnailLoader by lazy { buildThumbnailImageLoader(appContext, okHttp) }
+    /** 缩略图 loader：上限来自设置（改后下次启动生效——DiskCache.maxSize 构建期定死，M4-T8）。 */
+    val thumbnailLoader by lazy {
+        val maxBytes = runBlocking { prefsStore.thumbnailCacheMaxBytes.first() }   // 一次性小文件读
+        buildThumbnailImageLoader(appContext, okHttp, maxBytes)
+    }
 
-    /** 1600px 预览档 Coil ImageLoader：独立 1GB 盘缓存 + 复用带 Bearer 的 okHttp（M3）。 */
-    val previewLoader by lazy { buildPreviewImageLoader(appContext, okHttp) }
+    /** 1600px 预览档 loader：上限来自设置（改后下次启动生效，M4-T8）。 */
+    val previewLoader by lazy {
+        val maxBytes = runBlocking { prefsStore.previewCacheMaxBytes.first() }
+        buildPreviewImageLoader(appContext, okHttp, maxBytes)
+    }
 
     /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
     val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
@@ -126,7 +142,18 @@ class AppGraph(
         return ApiClientFactory.desktopApi(active.baseUrl, okHttp).also { cachedApi = it }
     }
 
-    val mirrorStore by lazy { RoomMirrorStore(db) }
+    val mirrorStore by lazy {
+        RoomMirrorStore(
+            db,
+            gateway = mediaStoreGateway,
+            activeServerId = { serverRepository.activeServer()?.id },
+            removeCachedImage = { serverId, imageId ->
+                // 对账删除的行级联清两级盘缓存条目（Coil 3.5 DiskCache.remove(key) 已核）
+                thumbnailLoader.diskCache?.remove(thumbnailCacheKey(serverId, imageId))
+                previewLoader.diskCache?.remove(previewCacheKey(serverId, imageId))
+            },
+        )
+    }
     val syncEngine by lazy {
         SyncEngine(
             api = RetrofitSyncApi { api() },
@@ -179,6 +206,24 @@ class AppGraph(
             },
             onGalleryEvent = { syncScheduler.requestSync("sse") },
             scope = scope,
+        )
+    }
+
+    /**
+     * 网络回调（M4-T6）：恢复 → 横幅收起 + 增量同步 + SSE 重连（兜底断网期间漏的事件）；
+     * 断开 → 横幅离线（D6b 直驱，不等下次同步失败推断）。回调在 binder 线程触发，下游
+     * connectionMonitor.update / syncScheduler.requestSync / sseClient.restart(@Synchronized) 均线程安全。
+     * 生命周期绑进程前后台（YandeGalleryApp start/stop），非 scope 常驻协程，无需 shutdownForTest 覆盖。
+     */
+    val networkMonitor by lazy {
+        NetworkMonitor(
+            appContext,
+            onAvailable = {
+                connectionMonitor.reportNetworkRestored()
+                syncScheduler.requestSync("network-restored")
+                sseClient.restart()
+            },
+            onLost = { connectionMonitor.reportNetworkLost() },
         )
     }
 }

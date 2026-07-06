@@ -72,21 +72,26 @@ class GalleryDaoWriteTest {
     }
 
     @Test
-    fun `observeDownloadedIds 首发射为空 upsert 后更新`() = runTest {
-        db.downloadDao().observeDownloadedIds().test {
+    fun `observeDownloadedIds 按 serverId 域发射 upsert 后更新且他服行不混入`() = runTest {
+        db.downloadDao().observeDownloadedIds(1L).test {
             assertEquals(emptyList<Long>(), awaitItem())
             db.downloadDao().upsert(
-                DownloadEntity(imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
+                DownloadEntity(serverId = 1, imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
+            )
+            assertEquals(listOf(1L), awaitItem())
+            // 他服同号映射写入不改变本服域的可见集合（Room 表变更会重发射同值，容忍去重）
+            db.downloadDao().upsert(
+                DownloadEntity(serverId = 2, imageId = 2, mediaStoreUri = "content://y/2", downloadedAt = "2026-01-01T00:00:00.000Z")
             )
             assertEquals(listOf(1L), awaitItem())
         }
     }
 
     @Test
-    fun `observeDownloaded 返回完整实体供构建 imageId 到 uri 的映射`() = runTest {
-        db.downloadDao().observeDownloaded().test {
+    fun `observeDownloaded 返回本服完整实体供构建 imageId 到 uri 的映射`() = runTest {
+        db.downloadDao().observeDownloaded(1L).test {
             assertEquals(emptyList<DownloadEntity>(), awaitItem())
-            val entity = DownloadEntity(imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
+            val entity = DownloadEntity(serverId = 1, imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
             db.downloadDao().upsert(entity)
             assertEquals(listOf(entity), awaitItem())
         }

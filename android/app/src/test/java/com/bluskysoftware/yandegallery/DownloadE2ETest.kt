@@ -3,15 +3,19 @@ package com.bluskysoftware.yandegallery
 import android.app.PendingIntent
 import android.content.Context
 import android.net.Uri
+import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.ForegroundInfo
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
+import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.download.DownloadNotifier
 import com.bluskysoftware.yandegallery.domain.download.DownloadWorker
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -66,12 +70,13 @@ class DownloadE2ETest {
         MockWebServer().use { server ->
             server.enqueue(MockResponse().setBody(Buffer().write(payload)))
             server.start()
-            graph.serverRepository.addAndActivate("e2e-dl", server.url("/").toString(), "key-dl")
+            val serverId = graph.serverRepository.addAndActivate("e2e-dl", server.url("/").toString(), "key-dl")
 
             val gateway = RecordingGateway()
             val worker = TestListenableWorkerBuilder<DownloadWorker>(
                 context,
                 workDataOf(
+                    DownloadWorker.KEY_SERVER_ID to serverId,
                     DownloadWorker.KEY_IMAGE_ID to 77L,
                     DownloadWorker.KEY_FILENAME to "77.jpg",
                     DownloadWorker.KEY_MIME to "image/jpeg",
@@ -92,6 +97,19 @@ class DownloadE2ETest {
                         downloadDao = graph.db.downloadDao(),
                         onNotFound = { graph.onBinaryNotFound?.invoke() },
                         now = { "2026-07-05T12:00:00Z" },
+                        activeServerId = { graph.serverRepository.activeServer()?.id },
+                        // fake notifier：返回最小 ForegroundInfo，TestListenableWorkerBuilder 自带
+                        // ForegroundUpdater 接住（不起真 service），链路语义零改动。
+                        notifier = object : DownloadNotifier {
+                            override fun ensureChannel() {}
+                            override fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long) =
+                                ForegroundInfo(
+                                    1,
+                                    NotificationCompat.Builder(context, "test")
+                                        .setSmallIcon(android.R.drawable.stat_sys_download).build(),
+                                )
+                        },
+                        timeMs = { 0L },
                     )
             }).build()
 
@@ -112,14 +130,15 @@ class DownloadE2ETest {
             assertEquals("成功不应 discard", 0, gateway.discardCount)
 
             // ③ DownloadEntity 全字段：imageId / 网关返回的 mediaStoreUri / 注入的 downloadedAt
-            val row = graph.db.downloadDao().byImageId(77)
+            val row = graph.db.downloadDao().byImageId(serverId, 77)
             assertNotNull("成功应落库一行", row)
-            assertEquals(77L, row!!.imageId)
+            assertEquals(serverId, row!!.serverId)
+            assertEquals(77L, row.imageId)
             assertEquals(gateway.createdUri.toString(), row.mediaStoreUri)
             assertEquals("2026-07-05T12:00:00Z", row.downloadedAt)
 
             // ④ 观察流：viewer「已下载直接跳原图档」的数据源立即可见本次下载
-            assertEquals(listOf(77L), graph.db.downloadDao().observeDownloadedIds().first())
+            assertEquals(listOf(77L), graph.db.downloadDao().observeDownloadedIds(serverId).first())
         }
     }
 
@@ -136,6 +155,7 @@ class DownloadE2ETest {
         override fun discard(uri: Uri) { discardCount++ }
         override fun exists(uri: Uri): Boolean = true
         override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
+        override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
 
         fun bytes(): ByteArray = sink.toByteArray()
     }

@@ -63,15 +63,6 @@ interface GalleryDao {
         insertAll(items)
     }
 
-    /** 封面兜底：coverImageId 缺省时取图集内最新一张（spec §7.2）。 */
-    @Query(
-        """SELECT i.* FROM images i
-           JOIN gallery_images gi ON gi.imageId = i.id
-           WHERE gi.galleryId = :galleryId
-           ORDER BY i.createdAt DESC, i.id DESC LIMIT 1"""
-    )
-    suspend fun coverFallback(galleryId: Long): ImageEntity?
-
     @Query(
         """SELECT i.* FROM images i
            JOIN gallery_images gi ON gi.imageId = i.id

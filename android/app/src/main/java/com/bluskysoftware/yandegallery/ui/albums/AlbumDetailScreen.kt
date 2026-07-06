@@ -2,11 +2,13 @@ package com.bluskysoftware.yandegallery.ui.albums
 
 import android.content.Intent
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.IntentSenderRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material.icons.Icons
@@ -22,10 +24,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
@@ -36,15 +40,16 @@ import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
 /** 图集详情：4 列网格 + 顶栏返回；T13 加多选（长按进入，批量下载/分享/删除/加入/移出图集）。 */
@@ -69,27 +74,60 @@ fun AlbumDetailScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbarHostState = remember { SnackbarHostState() }
-    var confirmBatchDelete by remember { mutableStateOf(false) }
-    var showGalleryPicker by remember { mutableStateOf(false) }
+    // 对话框/文案分支状态用 rememberSaveable 抗旋转（选择态存活于 VM，重建后对话框与文案随之复原）
+    var confirmBatchDelete by rememberSaveable { mutableStateOf(false) }
+    // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
+    var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
+    var showGalleryPicker by rememberSaveable { mutableStateOf(false) }
+
+    // 30+ 批量副本级联的系统确认：结果无需处理——downloads 行已在 batchDelete 清掉，
+    // 同意/拒绝只影响系统相册文件去留（拒绝即保留文件，spec §8）。
+    val batchCascadeLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartIntentSenderForResult(),
+    ) { }
 
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
     BackHandler(enabled = selectionActive) { viewModel.selection.clear() }
 
-    /** 批量分享：全部已下载 → ACTION_SEND_MULTIPLE 其 MediaStore uri；含未下载 → 提示（简化版，完整流后置 M4）。 */
+    // 放弃等待（D9 取消语义）：退出多选/清选择即取消分享等待协程；底层下载不取消（KEEP 队列继续，产物仍落库）。
+    var shareJob by remember { mutableStateOf<Job?>(null) }
+    LaunchedEffect(selectionActive) {
+        if (!selectionActive) {
+            shareJob?.cancel()
+            shareJob = null
+        }
+    }
+
+    /** 批量分享完整流（M4-T11/D9）：缺失项先入队原图下载，等全部终态后自动分享；部分失败仍分享成功子集。 */
     fun shareSelected() {
+        if (shareJob?.isActive == true) return   // 等待中：忽略重复点按（照大图页 share 同款防重入，D12A 一致性）
         val ids = viewModel.selection.selected.toList()
-        scope.launch {
-            val uris = viewModel.shareUrisFor(ids)
-            if (uris == null) {
-                snackbarHostState.showSnackbar("所选包含未下载原图的项，请先批量下载")
-            } else {
-                val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-                    type = "image/*"
-                    putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(uris.map { it.toUri() }))
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                }
-                context.startActivity(Intent.createChooser(send, "分享图片"))
-                viewModel.selection.clear()
+        shareJob = scope.launch {
+            val missing = ids.size - viewModel.downloadedUrisFor(ids).size
+            if (!connState.online && missing > 0) {
+                snackbarHostState.showSnackbar("离线状态无法下载缺失原图，请连接后重试")
+                return@launch
+            }
+            if (missing > 0) {
+                // fire-and-forget 子协程：提示不阻塞入队（showSnackbar 挂起到消失，串行会推迟下载约 4s）；
+                // 子协程随 shareJob 取消——放弃等待时提示同步消失
+                launch { snackbarHostState.showSnackbar("正在下载缺失原图，完成后自动分享…") }
+            }
+            val outcome = viewModel.ensureShareUris(ids)
+            if (outcome.uris.isEmpty()) {
+                snackbarHostState.showSnackbar("分享取消：原图下载失败")
+                return@launch
+            }
+            val send = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
+                type = "image/*"
+                putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(outcome.uris.map { it.toUri() }))
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            context.startActivity(Intent.createChooser(send, "分享图片"))
+            shareJob = null   // 分享已发出：随后的清选择不应再取消收尾提示
+            viewModel.selection.clear()
+            if (outcome.failedIds.isNotEmpty()) {
+                snackbarHostState.showSnackbar("${outcome.failedIds.size} 张下载失败，已分享成功的 ${outcome.uris.size} 张")
             }
         }
     }
@@ -107,7 +145,8 @@ fun AlbumDetailScreen(
                         )
                     },
                     onCancel = { viewModel.selection.clear() },
-                    modifier = Modifier.statusBarsPadding(),
+                    // Scaffold topBar 槽内状态栏 inset 施于 Surface 内的 Row（背景连带着色状态栏区，D12A）
+                    insetStatusBar = true,
                 )
             } else {
                 TopAppBar(
@@ -132,7 +171,14 @@ fun AlbumDetailScreen(
                         scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
                     },
                     onShare = { shareSelected() },
-                    onDelete = { confirmBatchDelete = true },
+                    onDelete = {
+                        val ids = viewModel.selection.selected.toList()
+                        scope.launch {
+                            // 先探一次是否含已下载副本，确认文案据此分支（M4-T9；D12A 改用短路 anyDownloaded）
+                            batchHasLocalCopies = viewModel.anyDownloaded(ids)
+                            confirmBatchDelete = true
+                        }
+                    },
                     onAddToGallery = { showGalleryPicker = true },
                     onRemoveFromGallery = {
                         val ids = viewModel.selection.selected.toList()
@@ -162,7 +208,7 @@ fun AlbumDetailScreen(
                         .aspectRatio(1f)
                         .padding(1.dp),
                 ) {
-                    AsyncImage(
+                    RetryableAsyncImage(
                         model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
                         imageLoader = loader,
                         contentDescription = image.filename,
@@ -174,21 +220,46 @@ fun AlbumDetailScreen(
         )
     }
 
-    // 批量删除二次确认：明示数量（brief 契约）；本机已保存副本不级联（controller 裁定，M4 再议）
+    // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）
     if (confirmBatchDelete) {
         val count = selected.size
         AlertDialog(
             onDismissRequest = { confirmBatchDelete = false },
             title = { Text("批量删除") },
-            text = { Text("确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本不受影响。") },
+            text = {
+                Text(
+                    if (batchHasLocalCopies) {
+                        "确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本也会一并删除。"
+                    } else {
+                        "确定删除选中的 $count 张图片？将从服务器删除。"
+                    },
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = {
                         confirmBatchDelete = false
                         val ids = viewModel.selection.selected.toList()
                         scope.launch {
+                            val localUris = viewModel.downloadedUrisFor(ids).map { it.toUri() }   // 删行前快照
                             when (val r = viewModel.batchDeleteSelected(ids)) {
-                                WriteResult.Success -> snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
+                                WriteResult.Success -> {
+                                    snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
+                                    if (localUris.isNotEmpty()) {
+                                        val pending = viewModel.buildBatchDeleteRequest(localUris)
+                                        if (pending != null) {
+                                            // 30+：一次系统批量确认；拒绝仅保留文件（行已清）
+                                            batchCascadeLauncher.launch(
+                                                IntentSenderRequest.Builder(pending.intentSender).build(),
+                                            )
+                                        } else {
+                                            val (deleted, kept) = viewModel.deleteLocalCopies(localUris)
+                                            if (kept > 0) {
+                                                snackbarHostState.showSnackbar("本机副本已删除 $deleted 张、保留 $kept 张（无删除权限）")
+                                            }
+                                        }
+                                    }
+                                }
                                 is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("批量删除失败", r))
                             }
                             // 成败都清选择：成功项已从网格消失，失败信息已提示，避免残留失效 id
@@ -208,6 +279,7 @@ fun AlbumDetailScreen(
     if (showGalleryPicker) {
         GalleryPickerDialog(
             galleries = galleries,
+            excludeIds = setOf(viewModel.currentGalleryId),   // 排除当前所在图集，避免「加入自身」自指（D12A）
             onPick = { galleryId ->
                 showGalleryPicker = false
                 val ids = viewModel.selection.selected.toList()

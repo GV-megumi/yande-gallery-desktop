@@ -1,7 +1,7 @@
 # 安卓局域网相册 App 需求与设计（v1）
 
 日期：2026-07-03
-状态：已确认；M1（桌面端）/M2（安卓骨架）/M3（核心体验）已实现
+状态：已确认；M1（桌面端）/M2（安卓骨架）/M3（核心体验）/M4（打磨）已实现
 关联：`doc/skill需求文档/API服务与CLI及Skill整体方案设计.md`（API 服务底座）、`docs/superpowers/plans/2026-05-23-api-service-phase1.md`
 
 ## 1. 背景与目标
@@ -149,7 +149,7 @@
 
 - `servers`：`{ id, name, baseUrl, apiKey, isActive }`；
 - `sync_state`：`{ serverId, cursor, dataVersion, lastSyncAt }`；
-- `downloads`：`{ imageId, mediaStoreUri, downloadedAt }`——记录已下载原图，用于大图页直读本地原图、避免重复下载、多选时显示状态。
+- `downloads`：`{ serverId, imageId, mediaStoreUri, downloadedAt }`，复合主键 `(serverId, imageId)`（M4-T9/v3 迁移）——记录已下载原图，用于大图页直读本地原图、避免重复下载、多选时显示状态；serverId 化后多服务器同号 imageId 的下载映射互不污染。
 
 ### 6.3 同步引擎
 

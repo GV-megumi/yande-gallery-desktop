@@ -40,10 +40,14 @@ const OLD = '2020-01-01T00:00:00.000Z';
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/;
 
 async function setupSchema(): Promise<void> {
+  // M4-T16 起触发器体引用 images.changeSeq 与 sync_change_seq 计数器，schema 需一并具备
+  // （本文件只断言 updatedAt 触碰语义；changeSeq 语义由 database.syncTouchTriggers.test.ts 覆盖）
   await run(h.db, `CREATE TABLE images (
     id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, filepath TEXT NOT NULL UNIQUE,
     fileSize INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, format TEXT NOT NULL,
-    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`);
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, changeSeq INTEGER NOT NULL DEFAULT 0)`);
+  await run(h.db, `CREATE TABLE sync_change_seq (seq INTEGER NOT NULL)`);
+  await run(h.db, `INSERT INTO sync_change_seq (seq) VALUES (0)`);
   await run(h.db, `CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, category TEXT, createdAt TEXT NOT NULL)`);
   await run(h.db, `CREATE TABLE image_tags (

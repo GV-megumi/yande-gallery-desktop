@@ -45,4 +45,14 @@ class ConnectionMonitor(
         val unauthorized = (e as? ApiException)?.code == "UNAUTHORIZED"
         _state.update { it.copy(online = false, unauthorized = unauthorized) }
     }
+
+    /** 系统网络断开（NetworkCallback.onLost）：直接压横幅离线，不等下一次同步失败推断（D6b）。 */
+    fun reportNetworkLost() {
+        _state.update { it.copy(online = false) }
+    }
+
+    /** 系统网络恢复：直接收横幅；unauthorized 保留（密钥失效与网络无关）。 */
+    fun reportNetworkRestored() {
+        _state.update { it.copy(online = true) }
+    }
 }

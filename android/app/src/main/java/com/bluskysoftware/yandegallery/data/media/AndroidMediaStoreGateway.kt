@@ -62,4 +62,17 @@ class AndroidMediaStoreGateway(private val context: Context) : MediaStoreGateway
 
     override fun buildDeleteRequest(uris: List<Uri>): android.app.PendingIntent? =
         if (Build.VERSION.SDK_INT >= 30) MediaStore.createDeleteRequest(resolver, uris) else null
+
+    override fun deleteOwned(uri: Uri): DeleteOwnedResult = try {
+        resolver.delete(uri, null, null)
+        DeleteOwnedResult.Deleted
+    } catch (e: SecurityException) {
+        if (Build.VERSION.SDK_INT >= 29 && e is android.app.RecoverableSecurityException) {
+            DeleteOwnedResult.NeedsConsent(e.userAction.actionIntent.intentSender)
+        } else {
+            DeleteOwnedResult.Failed(e.message)
+        }
+    } catch (e: Exception) {
+        DeleteOwnedResult.Failed(e.message)
+    }
 }

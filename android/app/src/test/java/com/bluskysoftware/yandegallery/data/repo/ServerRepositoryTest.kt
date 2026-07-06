@@ -92,4 +92,15 @@ class ServerRepositoryTest {
         assertEquals("http://x:1", active?.baseUrl)
         assertEquals("key-1", active?.apiKey)
     }
+
+    @Test
+    fun `updateServer 覆盖三字段并保留激活位与归一化`() = runTest {
+        val id = repo.addAndActivate("旧名", "http://10.0.0.1:3000", "k1")
+        repo.updateServer(id, " 新名 ", "http://10.0.0.2:3000/", " k2 ")
+        val updated = repo.byId(id)!!
+        assertEquals("新名", updated.name)
+        assertEquals("http://10.0.0.2:3000", updated.baseUrl)   // 尾斜杠归一化
+        assertEquals("k2", updated.apiKey)
+        assertEquals(true, updated.isActive)                     // 激活位不被编辑破坏
+    }
 }

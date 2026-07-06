@@ -30,6 +30,8 @@ class SseClient(
     private val scope: CoroutineScope,
     private val debounceMs: Long = 2_000,
     private val reconnectDelayMs: Long = 30_000,
+    // 激活服务器切换窄窗可能暂时无 url：以此短退避重试而非静默放弃（M2-T12 记债，M4-T14）
+    private val nullUrlRetryMs: Long = 3_000,
 ) {
     @Volatile private var started = false
     // 403 降级按 URL 隔离：记下收到 403 的那条 SSE URL（OkHttp 规范化字符串），只对它停连。
@@ -73,17 +75,21 @@ class SseClient(
     @Synchronized
     private fun connect() {
         if (!started) return
-        val url = urlProvider() ?: return   // 无激活服务器：不连，等下次 start()/restart()
+        val url = urlProvider() ?: run {
+            // 激活服务器切换窄窗可能暂时无 url：短退避重试而非静默放弃（M2-T12 记债）
+            scheduleReconnect(nullUrlRetryMs)
+            return
+        }
         val request = Request.Builder().url(url).build()
         if (request.url.toString() == disabledUrl) return   // 该服务器 403 降级中
         eventSource = EventSources.createFactory(client).newEventSource(request, listener)
     }
 
-    private fun scheduleReconnect() {
+    private fun scheduleReconnect(delayMs: Long = reconnectDelayMs) {
         if (!started) return
         reconnectJob?.cancel()
         reconnectJob = scope.launch {
-            delay(reconnectDelayMs)
+            delay(delayMs)
             connect()
         }
     }

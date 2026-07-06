@@ -13,6 +13,27 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
+// scheme + host[:port][/path]；host 两分支：方括号 IPv6 字面量（括号内允许冒号，如 [::1]）或常规主机名/IPv4。
+private val BASE_URL_REGEX =
+    Regex("""^https?://(\[[0-9A-Fa-f:]+]|[A-Za-z0-9.\-]+)(:\d{1,5})?(/.*)?$""")
+
+/**
+ * 归一化手输 baseUrl（M4-T14）：trim + 去尾斜杠；缺 scheme 自动补 `http://`；
+ * 正则校验 scheme + host[:port]（不匹配返回 null，调用方据此报「地址格式不正确」不落库，
+ * 与扫码路径 [parsePairingPayload] 的 scheme 校验对齐）。
+ */
+fun normalizeBaseUrl(raw: String): String? {
+    val trimmed = raw.trim()
+    if (trimmed.isEmpty()) return null
+    val withScheme = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+        trimmed
+    } else {
+        "http://$trimmed"
+    }
+    val normalized = withScheme.trimEnd('/')
+    return if (BASE_URL_REGEX.matches(normalized)) normalized else null
+}
+
 class ServersViewModel(private val graph: AppGraph) : ViewModel() {
     val servers = graph.serverRepository.observeAll()
     val active = graph.serverRepository.observeActive()
@@ -43,6 +64,18 @@ class ServersViewModel(private val graph: AppGraph) : ViewModel() {
 
     fun activate(id: Long) = viewModelScope.launch { graph.serverRepository.activate(id) }
     fun delete(id: Long) = viewModelScope.launch { graph.serverRepository.delete(id) }
+
+    /** 编辑服务器（spec §7.6）：归一化落库；编辑激活行时 id 不变不会触发 AppGraph 自动重连，须手动 nudge。 */
+    fun update(id: Long, name: String, baseUrl: String, apiKey: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            graph.serverRepository.updateServer(id, name, baseUrl, apiKey)
+            graph.sseClient.restart()
+            graph.syncScheduler.requestSync("server-edited")
+            onDone()
+        }
+    }
+
+    suspend fun serverById(id: Long) = graph.serverRepository.byId(id)
 
     companion object {
         fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {

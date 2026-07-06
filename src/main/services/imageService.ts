@@ -1,5 +1,5 @@
 import { Image, Tag } from '../../shared/types.js';
-import { getDatabase, run, get, all, runInTransaction } from './database.js';
+import { getDatabase, run, get, all, runInTransaction, nextChangeSeq } from './database.js';
 import path from 'path';
 import fs from 'fs/promises';
 import { normalizePath, isSubPath } from '../utils/path.js';
@@ -87,10 +87,12 @@ export async function addImage(
   try {
     const db = await getDatabase();
 
-    // 插入图片数据
+    // 插入图片数据。changeSeq 必须显式写入：images 表无 INSERT 触发器，
+    // 不写则新图停留在 DEFAULT 0，changeSeq 游标增量同步永远看不到它（且 UNIQUE 索引下第二行即冲突）。
+    const changeSeq = await nextChangeSeq(db);
     const sql = `
-      INSERT INTO images (filename, filepath, fileSize, width, height, format, createdAt, updatedAt)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO images (filename, filepath, fileSize, width, height, format, createdAt, updatedAt, changeSeq)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const now = new Date().toISOString();
 
@@ -105,7 +107,8 @@ export async function addImage(
       image.height,
       image.format,
       createdAt,
-      updatedAt
+      updatedAt,
+      changeSeq
     ]);
 
     // 获取插入的图片ID

@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -40,16 +41,18 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.launch
 
@@ -65,7 +68,8 @@ fun AlbumsScreen(
     navController: NavHostController,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
-    val albums by viewModel.albums.collectAsStateWithLifecycle(initialValue = emptyList())
+    // 三态：null=加载中（DB 未首发射）/ 空列表=确无图集 / 非空=有图集（M4-T15，A7 消空态闪帧）
+    val albums by viewModel.albums.collectAsStateWithLifecycle()
     val connState by viewModel.connState.collectAsStateWithLifecycle()
     val online = connState.online
 
@@ -86,9 +90,15 @@ fun AlbumsScreen(
 
     Scaffold(
         floatingActionButton = {
-            // 离线置灰：改用 disabled 配色 + onClick 空转（写操作离线不可发起，spec §8）
+            // 离线置灰：disabled 配色 + 无障碍语义 disabled()；离线点击给 snackbar 明确原因（替换静默空转，spec §8）
             FloatingActionButton(
-                onClick = { if (online) { newName = ""; showNew = true } },
+                onClick = {
+                    if (online) {
+                        newName = ""; showNew = true
+                    } else {
+                        scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                    }
+                },
                 containerColor = if (online) {
                     MaterialTheme.colorScheme.primaryContainer
                 } else {
@@ -99,7 +109,9 @@ fun AlbumsScreen(
                 } else {
                     MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
                 },
-                modifier = Modifier.testTag("albums_new_fab"),
+                modifier = Modifier
+                    .semantics { if (!online) disabled() }
+                    .testTag("albums_new_fab"),
             ) {
                 Icon(Icons.Filled.Add, contentDescription = "新建图集")
             }
@@ -108,14 +120,20 @@ fun AlbumsScreen(
         // 外层 AppScaffold 已为相册路由消费系统栏 inset（顶栏+底部导航），内层不重复施加避免双 inset
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
-        if (albums.isEmpty()) {
+        val cards = albums
+        if (cards == null) {
+            // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
+            Box(Modifier.fillMaxSize().padding(padding))
+        } else if (cards.isEmpty()) {
             AlbumsEmpty(Modifier.padding(padding))
         } else {
             LazyVerticalGrid(
                 columns = GridCells.Fixed(2),
+                // 末行卡片给 FAB 让位（不被右下悬浮按钮遮挡）
+                contentPadding = PaddingValues(bottom = 88.dp),
                 modifier = Modifier.fillMaxSize().padding(padding).testTag("albums_grid"),
             ) {
-                items(albums, key = { it.gallery.id }) { card ->
+                items(cards, key = { it.gallery.id }) { card ->
                     AlbumCardItem(
                         card = card,
                         baseUrl = baseUrl,
@@ -180,10 +198,12 @@ fun AlbumsScreen(
         DeleteAlbumConfirmDialog(
             albumName = deleteName,
             onConfirm = {
+                // 先捕获局部再清状态：协程内的 snackbar 只用局部 name（原实现读已被后续清空/覆盖的 state）
+                val name = deleteName
                 deleteId = null
                 scope.launch {
                     when (val r = viewModel.deleteGallery(id)) {
-                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$deleteName」")
+                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$name」")
                         is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除图集失败", r))
                     }
                 }
@@ -219,7 +239,7 @@ private fun AlbumCardItem(
         ) {
             val coverId = card.coverImageId
             if (coverId != null) {
-                AsyncImage(
+                RetryableAsyncImage(
                     model = thumbnailRequest(LocalContext.current, baseUrl, serverId, coverId),
                     imageLoader = loader,
                     contentDescription = card.gallery.name,

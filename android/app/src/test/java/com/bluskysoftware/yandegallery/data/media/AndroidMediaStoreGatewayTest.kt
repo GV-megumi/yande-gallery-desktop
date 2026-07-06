@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery.data.media
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -34,6 +35,17 @@ class AndroidMediaStoreGatewayTest {
         out?.use { it.write(byteArrayOf(1, 2, 3)) }
 
         gateway.finalize(uri) // 仅验不抛异常
+    }
+
+    @Test
+    fun `deleteOwned 对不存在的 uri 返回 Deleted 或 Failed 不崩（sdk 29 冒烟）`() {
+        // RecoverableSecurityException 真值路径（NeedsConsent）Robolectric 无法模拟，留 F.12 实机
+        // 验证（政策见 MediaStoreGateway KDoc）；此处仅验 29 分支调用链不崩、返回值为非 consent 分支。
+        val result = gateway.deleteOwned(android.net.Uri.parse("content://media/external/images/media/424242"))
+        assertTrue(
+            "不存在的 uri 应返回 Deleted 或 Failed（绝不 NeedsConsent/崩溃）",
+            result is DeleteOwnedResult.Deleted || result is DeleteOwnedResult.Failed,
+        )
     }
 
     @Test

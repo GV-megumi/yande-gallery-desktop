@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
 import com.bluskysoftware.yandegallery.data.api.ApiException
@@ -211,5 +213,23 @@ class AlbumsWriteTest {
         }
         // brief 契约：二次确认须明示只删图集、不删图片文件
         compose.onNodeWithText("不删除其中的图片文件", substring = true).assertIsDisplayed()
+    }
+
+    @Test
+    fun `离线点 FAB 出 snackbar 且不弹新建对话框`() {
+        graph.connectionMonitor.reportNetworkLost()   // 压离线（online=false）
+        val vm = AlbumsViewModel(graph)
+        compose.setContent {
+            val nav = rememberNavController()
+            AlbumsScreen(viewModel = vm, navController = nav)
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("albums_new_fab").performClick()
+        compose.waitForIdle()
+
+        // D12A：离线点击给明确原因，不进入新建对话框（替换静默空转）
+        compose.onNodeWithText("离线状态无法新建图集").assertIsDisplayed()
+        compose.onNodeWithTag("album_new_confirm").assertDoesNotExist()
     }
 }

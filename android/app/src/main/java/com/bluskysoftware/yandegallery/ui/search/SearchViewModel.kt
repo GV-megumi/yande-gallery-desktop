@@ -5,6 +5,8 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.Pager
 import androidx.paging.PagingConfig
 import androidx.paging.PagingData
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -35,6 +38,13 @@ import java.time.Instant
  * 空词退化全表倒序，与时间轴同序）。query 每次变化 200ms 内合并，flatMapLatest 取消上一个
  * Pager 流后重建，避免快速输入时残留分页源。thumbnailLoader/activeServer 供结果网格复用时间轴管线。
  */
+/** 已终结的空分页状态：三向 NotLoading 且 endOfPaginationReached=true（空查询占位页用）。 */
+private val SETTLED_EMPTY_LOAD_STATES = LoadStates(
+    refresh = LoadState.NotLoading(endOfPaginationReached = true),
+    prepend = LoadState.NotLoading(endOfPaginationReached = true),
+    append = LoadState.NotLoading(endOfPaginationReached = true),
+)
+
 class SearchViewModel(private val graph: AppGraph) : ViewModel() {
 
     /** 缩略图 loader（复用时间轴管线，结果格子直接消费）。 */
@@ -62,9 +72,16 @@ class SearchViewModel(private val graph: AppGraph) : ViewModel() {
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         _query.debounce(200)
             .flatMapLatest { q ->
-                Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-                    graph.db.imageDao().searchPagingSource(buildSearchQuery(q.split(" ")))
-                }.flow
+                if (q.isBlank()) {
+                    // 空查询不建 Pager：历史 chips 界面不再白做全表首页查询（M4-T14）。
+                    // 空页显式标 endOfPaginationReached=true——否则消费方（LazyPagingItems/asSnapshot）
+                    // 会误以为还有下一页可 append 而一直等待。
+                    flowOf(PagingData.empty(SETTLED_EMPTY_LOAD_STATES))
+                } else {
+                    Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
+                        graph.db.imageDao().searchPagingSource(buildSearchQuery(q.split(" ")))
+                    }.flow
+                }
             }
             .cachedIn(viewModelScope)
 

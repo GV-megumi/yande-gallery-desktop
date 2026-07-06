@@ -3,10 +3,13 @@ package com.bluskysoftware.yandegallery
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.NotificationPermissionEffect
+import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -16,9 +19,13 @@ import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.search.SearchScreen
 import com.bluskysoftware.yandegallery.ui.search.SearchViewModel
 import com.bluskysoftware.yandegallery.ui.servers.AddServerScreen
+import com.bluskysoftware.yandegallery.ui.servers.EditServerScreen
 import com.bluskysoftware.yandegallery.ui.servers.ScanScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersScreen
 import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
+import com.bluskysoftware.yandegallery.ui.settings.CacheScreen
+import com.bluskysoftware.yandegallery.ui.settings.CacheViewModel
+import com.bluskysoftware.yandegallery.ui.settings.SettingsScreen
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerViewModel
@@ -29,14 +36,20 @@ class MainActivity : ComponentActivity() {
         val graph = (applicationContext as YandeGalleryApp).graph
         setContent {
             YandeGalleryTheme {
+                // 下载前台通知的 33+ 运行时权限（M4-D8）：未授权首帧静默申请一次，拒绝纯后台降级
+                NotificationPermissionEffect()
                 val nav = rememberNavController()
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
+                // 照片 tab 多选栏桥（M4-T12）：单实例连通 PhotosScreen（SideEffect 回填）与壳（条件 swap）
+                val photosBars = remember { PhotosSelectionBars() }
                 AppScaffold(
                     navController = nav,
+                    photosSelectionBars = photosBars,
                     photosContent = {
                         val photosVm: PhotosViewModel = viewModel(factory = PhotosViewModel.factory(graph))
                         PhotosScreen(
                             viewModel = photosVm,
+                            barsState = photosBars,
                             onAddServer = { nav.navigate(Routes.Servers) },
                             onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
                         )
@@ -63,7 +76,13 @@ class MainActivity : ComponentActivity() {
                             viewModel(factory = ViewerViewModel.factory(graph, imageId, galleryId))
                         ViewerScreen(
                             viewModel = viewerVm,
-                            onBack = { nav.popBackStack() },
+                            // 防重入（M4-T14）：删除流成功回调与用户返回可能双触发，第二次会把下层屏也 pop
+                            // 掉——仅当栈顶仍是 Viewer 才 pop（否则本次为 no-op）
+                            onBack = {
+                                if (nav.currentBackStackEntry?.destination?.route == Routes.Viewer) {
+                                    nav.popBackStack()
+                                }
+                            },
                             // 详情面板「所属图集」→ 图集详情页
                             onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
                             // 详情面板标签 chip → 搜索页（预填该标签名触发搜索）
@@ -79,11 +98,28 @@ class MainActivity : ComponentActivity() {
                             initialQuery = initialQuery,
                         )
                     },
+                    settingsContent = {
+                        val versionName = remember {
+                            runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
+                                .getOrNull() ?: "unknown"
+                        }
+                        SettingsScreen(
+                            onBack = { nav.popBackStack() },
+                            onOpenServers = { nav.navigate(Routes.Servers) },
+                            versionName = versionName,
+                            onOpenCache = { nav.navigate(Routes.CacheManage) },
+                        )
+                    },
+                    cacheContent = {
+                        val cacheVm: CacheViewModel = viewModel(factory = CacheViewModel.factory(graph))
+                        CacheScreen(vm = cacheVm, onBack = { nav.popBackStack() })
+                    },
                     serversContent = {
                         ServersScreen(
                             vm = serversVm,
                             onAddManual = { nav.navigate(Routes.AddServer) },
                             onScan = { nav.navigate(Routes.Scan) },
+                            onEdit = { id -> nav.navigate(Routes.editServer(id)) },
                             onBack = { nav.popBackStack() },
                         )
                     },
@@ -92,6 +128,14 @@ class MainActivity : ComponentActivity() {
                             vm = serversVm,
                             navController = nav,
                             onSaved = { nav.popBackStack(Routes.Servers, inclusive = false) },
+                            onBack = { nav.popBackStack() },
+                        )
+                    },
+                    editServerContent = { serverId ->
+                        EditServerScreen(
+                            vm = serversVm,
+                            serverId = serverId,
+                            onSaved = { nav.popBackStack() },
                             onBack = { nav.popBackStack() },
                         )
                     },

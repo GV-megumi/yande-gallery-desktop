@@ -61,6 +61,8 @@ fun AddServerScreen(
     var baseUrl by rememberSaveable { mutableStateOf(prefill.second) }
     var apiKey by rememberSaveable { mutableStateOf(prefill.third) }
     var testing by remember { mutableStateOf(false) }
+    // baseUrl 格式错误提示（M4-T14）：保存时校验，非法则字段标红不落库
+    var baseUrlError by rememberSaveable { mutableStateOf<String?>(null) }
 
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -94,9 +96,11 @@ fun AddServerScreen(
             )
             OutlinedTextField(
                 value = baseUrl,
-                onValueChange = { baseUrl = it },
+                onValueChange = { baseUrl = it; baseUrlError = null },
                 label = { Text("服务器地址（http://…）") },
                 singleLine = true,
+                isError = baseUrlError != null,
+                supportingText = baseUrlError?.let { msg -> { Text(msg) } },
                 modifier = Modifier.fillMaxWidth().testTag("field_baseUrl"),
             )
             OutlinedTextField(
@@ -129,7 +133,15 @@ fun AddServerScreen(
                     Text("测试连接")
                 }
                 Button(
-                    onClick = { vm.add(name, baseUrl, apiKey) { onSaved() } },
+                    onClick = {
+                        val normalized = normalizeBaseUrl(baseUrl)
+                        if (normalized == null) {
+                            baseUrlError = "地址格式不正确，应为 http://主机:端口"
+                        } else {
+                            baseUrlError = null
+                            vm.add(name, normalized, apiKey) { onSaved() }
+                        }
+                    },
                     enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
                     modifier = Modifier.weight(1f).testTag("btn_save"),
                 ) {

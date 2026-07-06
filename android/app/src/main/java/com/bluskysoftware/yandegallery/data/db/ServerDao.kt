@@ -18,6 +18,9 @@ interface ServerDao {
     @Query("SELECT * FROM servers WHERE isActive = 1 LIMIT 1")
     suspend fun active(): ServerEntity?
 
+    @Query("SELECT * FROM servers WHERE id = :id")
+    suspend fun byId(id: Long): ServerEntity?
+
     @Insert
     suspend fun insert(server: ServerEntity): Long
 

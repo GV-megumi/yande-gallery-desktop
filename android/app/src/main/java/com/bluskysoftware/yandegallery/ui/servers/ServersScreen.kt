@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -45,6 +46,7 @@ fun ServersScreen(
     vm: ServersViewModel,
     onAddManual: () -> Unit,
     onScan: () -> Unit,
+    onEdit: (Long) -> Unit,
     onBack: () -> Unit,
 ) {
     val servers by vm.servers.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -103,12 +105,20 @@ fun ServersScreen(
                         headlineContent = { Text(server.name) },
                         supportingContent = { Text(server.baseUrl) },
                         trailingContent = {
-                            if (isActive) {
-                                Icon(
-                                    Icons.Filled.CheckCircle,
-                                    contentDescription = "已激活",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (isActive) {
+                                    Icon(
+                                        Icons.Filled.CheckCircle,
+                                        contentDescription = "已激活",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onEdit(server.id) },
+                                    modifier = Modifier.testTag("server_edit_${server.id}"),
+                                ) {
+                                    Icon(Icons.Filled.Edit, contentDescription = "编辑")
+                                }
                             }
                         },
                         modifier = Modifier.combinedClickable(

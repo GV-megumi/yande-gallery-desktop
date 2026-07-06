@@ -32,7 +32,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
@@ -49,9 +52,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
-import coil3.compose.AsyncImage
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
+import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 
 /**
  * 搜索页（Task 12）：顶部即时搜索框 + 无输入显历史 chips（点回填/可清空）+ 有输入显结果网格。
@@ -77,10 +80,15 @@ fun SearchScreen(
     val keyboard = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
 
-    // 标签跳入：预填初始词（onQueryChange 即触发 debounce 搜索）。仅首次进入生效。
+    // 标签跳入：预填初始词（onQueryChange 即触发 debounce 搜索）。仅首次消费——旋转/进程重建后
+    // prefillConsumed 经 rememberSaveable 存活，不再用 initialQuery 回冲用户已改的词（D12A）。
+    var prefillConsumed by rememberSaveable(initialQuery) { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        if (initialQuery.isNotBlank()) viewModel.onQueryChange(initialQuery)
-        focusRequester.requestFocus()
+        if (!prefillConsumed && initialQuery.isNotBlank()) {
+            viewModel.onQueryChange(initialQuery)
+            prefillConsumed = true
+        }
+        focusRequester.requestFocus()   // 焦点请求不受守卫影响
     }
 
     Scaffold(
@@ -205,7 +213,7 @@ fun SearchResultGrid(
             if (image == null) {
                 Box(Modifier.aspectRatio(1f))
             } else {
-                AsyncImage(
+                RetryableAsyncImage(
                     model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
                     imageLoader = loader,
                     contentDescription = image.filename,
