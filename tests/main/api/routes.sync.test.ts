@@ -120,14 +120,29 @@ describe('sync API routes', () => {
   });
 
   it('images 合法 cursor 解码后传给 listSyncImages（携带自定义 limit）', async () => {
-    mockDecodeSyncCursor.mockReturnValue({ u: '2024-01-01T00:00:00.000Z', i: 3 });
+    mockDecodeSyncCursor.mockReturnValue({ s: 7 });
     mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
     const route = findRoute('/api/v1/sync/images');
 
     await route.handler(context({ query: new URLSearchParams([['cursor', 'abc'], ['limit', '10']]) }));
 
     expect(mockDecodeSyncCursor).toHaveBeenCalledWith('abc');
-    expect(mockListSyncImages).toHaveBeenCalledWith({ u: '2024-01-01T00:00:00.000Z', i: 3 }, 10);
+    expect(mockListSyncImages).toHaveBeenCalledWith({ s: 7 }, 10);
+  });
+
+  // 只测路由 plumbing：decodeSyncCursor 对旧 {u,i} 形状容忍（返回非 null）时路由放行不抛 422、
+  // 载荷原样透传 listSyncImages。换轨语义真值由 service 层用例承担
+  // （tests/main/services/syncService.test.ts），此处不复述种子。
+  it('images 旧形状 {u,i} 游标 → 200 非 422（decode 容忍换轨，plumbing 层不感知形状）', async () => {
+    mockDecodeSyncCursor.mockReturnValue({ u: '2024-01-02T00:00:00.000Z', i: 3 });
+    mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
+    const route = findRoute('/api/v1/sync/images');
+    const ctx = context({ query: new URLSearchParams([['cursor', 'legacy']]) });
+
+    await expect(route.handler(ctx)).resolves.toBeUndefined();
+
+    expect(mockListSyncImages).toHaveBeenCalledWith({ u: '2024-01-02T00:00:00.000Z', i: 3 }, 2000);
+    expect(endBody(ctx)).toContain('"success":true');
   });
 
   it('images 非法 cursor 抛 422，不触达 listSyncImages', async () => {

@@ -2,15 +2,16 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import sqlite3 from 'sqlite3';
 
 /**
- * syncService（安卓相册 M1，spec §5.3）——移动端元数据同步核心接口的服务层。
+ * syncService（安卓相册 M1，spec §5.3；M4-T16 changeSeq 单调游标）——移动端元数据同步核心接口。
  *
  * 用真实 :memory: sqlite 落库（照抄 Task 2 的 setupSchema：images/tags/image_tags/
- * galleries/gallery_images），只覆写 database.getDatabase 指向内存库、config 提供固定
- * serverId/dataVersion。不安装同步触碰触发器——避免 image_tags/gallery_images 写入触碰
- * updatedAt 破坏本测试精心构造的游标边界种子。
+ * galleries/gallery_images；images 建表直接带 changeSeq 列——本文件测查询语义，
+ * 迁移/回填路径由 database.syncTouchTriggers.test.ts 覆盖），只覆写 database.getDatabase
+ * 指向内存库、config 提供固定 serverId/dataVersion。不安装同步触碰触发器——避免
+ * image_tags/gallery_images 写入触碰 updatedAt/changeSeq 破坏本测试精心构造的游标边界种子。
  *
- * 种子 4 张图：image2 与 image3 的 updatedAt 完全相同，令 limit=2 的分页边界恰好落在
- * 这两张之间，一并覆盖「(updatedAt,id) 键集分页」与「同 updatedAt 多行按 id 决胜跨页不丢不重」。
+ * 种子 4 张图：changeSeq 1..4；image2 与 image3 的 updatedAt 完全相同——用于旧 {u,i}
+ * 游标换轨用例与 M1 Issue 1 同毫秒边界复刻用例。
  */
 
 const h = vi.hoisted(() => ({
@@ -42,7 +43,7 @@ async function setupSchema(): Promise<void> {
   await run(h.db, `CREATE TABLE images (
     id INTEGER PRIMARY KEY AUTOINCREMENT, filename TEXT NOT NULL, filepath TEXT NOT NULL UNIQUE,
     fileSize INTEGER NOT NULL, width INTEGER NOT NULL, height INTEGER NOT NULL, format TEXT NOT NULL,
-    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL)`);
+    createdAt TEXT NOT NULL, updatedAt TEXT NOT NULL, changeSeq INTEGER NOT NULL DEFAULT 0)`);
   await run(h.db, `CREATE TABLE tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL UNIQUE, category TEXT, createdAt TEXT NOT NULL)`);
   await run(h.db, `CREATE TABLE image_tags (
@@ -61,21 +62,22 @@ async function setupSchema(): Promise<void> {
     FOREIGN KEY (imageId) REFERENCES images (id) ON DELETE CASCADE)`);
 }
 
-// image2 与 image3 共享 updatedAt（'2024-01-02'），令 limit=2 边界落在两者之间
+// 显式 changeSeq（1..4）；image2 与 image3 仍共享 updatedAt（'2024-01-02'）——
+// 用于旧 {u,i} 游标换轨与同毫秒边界用例
 const SEED = [
-  { filename: '1.jpg', updatedAt: '2024-01-01T00:00:00.000Z' },
-  { filename: '2.jpg', updatedAt: '2024-01-02T00:00:00.000Z' },
-  { filename: '3.jpg', updatedAt: '2024-01-02T00:00:00.000Z' },
-  { filename: '4.jpg', updatedAt: '2024-01-04T00:00:00.000Z' },
+  { filename: '1.jpg', updatedAt: '2024-01-01T00:00:00.000Z', changeSeq: 1 },
+  { filename: '2.jpg', updatedAt: '2024-01-02T00:00:00.000Z', changeSeq: 2 },
+  { filename: '3.jpg', updatedAt: '2024-01-02T00:00:00.000Z', changeSeq: 3 },
+  { filename: '4.jpg', updatedAt: '2024-01-04T00:00:00.000Z', changeSeq: 4 },
 ];
 
 async function seed(): Promise<void> {
   for (const row of SEED) {
     await run(
       h.db,
-      `INSERT INTO images (filename, filepath, fileSize, width, height, format, createdAt, updatedAt)
-       VALUES (?, ?, 100, 800, 600, 'jpg', '2024-01-01T00:00:00.000Z', ?)`,
-      [row.filename, row.filename, row.updatedAt]
+      `INSERT INTO images (filename, filepath, fileSize, width, height, format, createdAt, updatedAt, changeSeq)
+       VALUES (?, ?, 100, 800, 600, 'jpg', '2024-01-01T00:00:00.000Z', ?, ?)`,
+      [row.filename, row.filename, row.updatedAt, row.changeSeq]
     );
   }
   await run(h.db, `INSERT INTO tags (id, name, category, createdAt) VALUES (1, 't1', NULL, '2024-01-01T00:00:00.000Z')`);
@@ -94,7 +96,7 @@ async function seed(): Promise<void> {
 
 async function collectAllIds(limit: number): Promise<number[]> {
   const ids: number[] = [];
-  let cursor: { u: string; i: number } | null = null;
+  let cursor: ReturnType<typeof decodeSyncCursor> = null;
   for (let guard = 0; guard < 100; guard += 1) {
     const page = await listSyncImages(cursor, limit);
     ids.push(...page.items.map((i) => i.id));
@@ -120,10 +122,10 @@ afterEach(async () => {
 });
 
 describe('syncService', () => {
-  it('meta：serverId/dataVersion/imageCount/latestCursor', async () => {
+  it('meta：serverId/dataVersion/imageCount，latestCursor 用 MAX(changeSeq)', async () => {
     const meta = await getSyncMeta();
     expect(meta).toMatchObject({ serverId: 'srv-1', dataVersion: 3, imageCount: 4 });
-    expect(decodeSyncCursor(meta.latestCursor!)).toEqual({ u: '2024-01-04T00:00:00.000Z', i: 4 });
+    expect(decodeSyncCursor(meta.latestCursor!)).toEqual({ s: 4 });
   });
 
   it('空库：imageCount 0，latestCursor null，images 空页', async () => {
@@ -139,23 +141,21 @@ describe('syncService', () => {
     expect(page.hasMore).toBe(false);
   });
 
-  it('游标编解码往返 + 非法游标返回 null', () => {
-    const c = encodeSyncCursor('2024-01-01T00:00:00.000Z', 7);
-    expect(decodeSyncCursor(c)).toEqual({ u: '2024-01-01T00:00:00.000Z', i: 7 });
+  it('游标编解码：新形状 {s} 往返，非法仍 null', () => {
+    expect(decodeSyncCursor(encodeSyncCursor(7))).toEqual({ s: 7 });
     expect(decodeSyncCursor('not-base64!')).toBeNull();
-    // 合法 base64url 但形状不符（缺 u/i）→ null
     expect(decodeSyncCursor(Buffer.from('{"x":1}').toString('base64url'))).toBeNull();
-    // u 非字符串 / i 非整数 → null
+    expect(decodeSyncCursor(Buffer.from('{"s":-1}').toString('base64url'))).toBeNull();
+    expect(decodeSyncCursor(Buffer.from('{"s":1.5}').toString('base64url'))).toBeNull();
+    // 旧 {u,i} 形状仍走格式校验：非法 → null（合法旧形状的容忍见换轨用例）
     expect(decodeSyncCursor(Buffer.from('{"u":1,"i":2}').toString('base64url'))).toBeNull();
     expect(decodeSyncCursor(Buffer.from('{"u":"a","i":1.5}').toString('base64url'))).toBeNull();
-    // i 非正整数（<=0）→ null
     expect(
       decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00.000Z","i":0}').toString('base64url')),
     ).toBeNull();
     expect(
       decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00.000Z","i":-1}').toString('base64url')),
     ).toBeNull();
-    // u 非项目 ISO 时间戳格式（YYYY-MM-DDTHH:mm:ss.sssZ）→ null
     expect(decodeSyncCursor(Buffer.from('{"u":"2024-01-01","i":1}').toString('base64url'))).toBeNull();
     expect(
       decodeSyncCursor(Buffer.from('{"u":"2024-01-01T00:00:00Z","i":1}').toString('base64url')),
@@ -165,10 +165,11 @@ describe('syncService', () => {
     ).toBeNull();
   });
 
-  it('空游标全量升序分页，(updatedAt,id) 排序，limit+1 探测 hasMore', async () => {
+  it('空游标全量升序分页，changeSeq 排序，limit+1 探测 hasMore', async () => {
     const page1 = await listSyncImages(null, 2);
     expect(page1.items.map((i) => i.id)).toEqual([1, 2]);
     expect(page1.hasMore).toBe(true);
+    expect(decodeSyncCursor(page1.nextCursor!)).toEqual({ s: 2 });
 
     const page2 = await listSyncImages(decodeSyncCursor(page1.nextCursor!), 2);
     expect(page2.items.map((i) => i.id)).toEqual([3, 4]);
@@ -176,8 +177,8 @@ describe('syncService', () => {
     expect(page2.nextCursor).not.toBeNull();
   });
 
-  it('同 updatedAt 多行按 id 决胜且跨页不丢不重', async () => {
-    // limit=2 边界落在 image2/image3（同 updatedAt）之间：键集谓词须用 id 决胜跨页
+  it('同 updatedAt 多行按 changeSeq 全序分页，跨页不丢不重', async () => {
+    // limit=2 边界落在 image2/image3（同 updatedAt）之间：changeSeq 全序天然决胜
     const byTwo = await collectAllIds(2);
     expect(byTwo).toEqual([1, 2, 3, 4]);
     expect(new Set(byTwo).size).toBe(4);
@@ -188,14 +189,69 @@ describe('syncService', () => {
     expect(new Set(byOne).size).toBe(4);
   });
 
-  it('items 携带 tagIds/galleryIds，无 filepath 字段', async () => {
+  it('旧 {u,i} 游标容忍：保守水位换轨续传不 422（可能重发由 upsert 吸收，绝不丢未读）', async () => {
+    // 客户端持升级前游标 (2024-01-02, id=3)（旧序已读 image1..3）；未读集 {image4(seq4)} → 水位 3
+    const legacy = Buffer.from(JSON.stringify({ u: '2024-01-02T00:00:00.000Z', i: 3 }), 'utf8').toString('base64url');
+    const cursor = decodeSyncCursor(legacy);
+    expect(cursor).not.toBeNull();
+    const page = await listSyncImages(cursor, 2000);
+    expect(page.items.map((i) => i.id)).toEqual([4]); // 换轨后从 changeSeq>3 续传
+  });
+
+  it('旧游标换轨判别：id 序与 updatedAt 序交错时取未读集 MIN(changeSeq)-1，不跳未读行', async () => {
+    // 交错种子（模拟 ROW_NUMBER 回填结果）：id1 最新(01-03,seq4)、id2 最旧(01-01,seq1)、
+    // id3/id4 同毫秒(01-02,seq2/seq3)——id 序与 changeSeq 序不一致，专测换轨判别式
+    await run(h.db, 'DELETE FROM images');
+    const rows = [
+      { id: 1, u: '2024-01-03T00:00:00.000Z', seq: 4 },
+      { id: 2, u: '2024-01-01T00:00:00.000Z', seq: 1 },
+      { id: 3, u: '2024-01-02T00:00:00.000Z', seq: 2 },
+      { id: 4, u: '2024-01-02T00:00:00.000Z', seq: 3 },
+    ];
+    for (const r of rows) {
+      await run(
+        h.db,
+        `INSERT INTO images (id, filename, filepath, fileSize, width, height, format, createdAt, updatedAt, changeSeq)
+         VALUES (?, ?, ?, 100, 800, 600, 'jpg', ?, ?, ?)`,
+        [r.id, `${r.id}.jpg`, `${r.id}.jpg`, r.u, r.u, r.seq],
+      );
+    }
+    // 旧游标 (2024-01-02, id=3)：旧序已读 {id2,id3}，未读 {id4(seq3), id1(seq4)} → 水位 = min(3,4)-1 = 2
+    const legacy = decodeSyncCursor(
+      Buffer.from(JSON.stringify({ u: '2024-01-02T00:00:00.000Z', i: 3 }), 'utf8').toString('base64url'),
+    );
+    const page = await listSyncImages(legacy, 2000);
+    expect(page.items.map((i) => i.id)).toEqual([4, 1]); // 未读全在、按 changeSeq 序
+  });
+
+  it('旧游标全读尽：未读集为空回落 MAX(changeSeq)，返回空页不重放', async () => {
+    const legacy = decodeSyncCursor(
+      Buffer.from(JSON.stringify({ u: '2024-01-04T00:00:00.000Z', i: 4 }), 'utf8').toString('base64url'),
+    );
+    const page = await listSyncImages(legacy, 2000);
+    expect(page.items).toEqual([]);
+    expect(page.hasMore).toBe(false);
+  });
+
+  it('同毫秒边界（M1 Issue 1 复刻）：更小 id 行被触碰后不再被跳过', async () => {
+    // 客户端游标已越过 image3（changeSeq=3）；随后 image1（id 更小）被触碰——
+    // 旧协议下若触碰写出与游标相同的 updatedAt 毫秒，谓词 (updatedAt>? OR (=? AND id>?)) 会跳过它。
+    await run(h.db, `UPDATE images SET updatedAt = '2024-01-02T00:00:00.000Z', changeSeq = 5 WHERE id = 1`);
+    const page = await listSyncImages({ s: 3 }, 2000);
+    expect(page.items.map((i) => i.id)).toEqual([4, 1]); // changeSeq 4,5——image1 必现，不丢
+    expect(decodeSyncCursor(page.nextCursor!)).toEqual({ s: 5 });
+  });
+
+  it('items 携带 tagIds/galleryIds，无 filepath/changeSeq 字段', async () => {
     const { items } = await listSyncImages(null, 10);
     const withTag = items.find((i) => i.tagIds.length > 0)!;
     expect(withTag.tagIds).toEqual([1, 2]);
     expect(withTag.galleryIds).toEqual([1]);
-    // 载荷不含 filepath（spec §5.3）——逐项断言，杜绝本地路径经同步接口外泄
     for (const item of items) {
+      // 载荷不含 filepath（spec §5.3）——逐项断言，杜绝本地路径经同步接口外泄
       expect('filepath' in item).toBe(false);
+      // changeSeq 是游标内部实现，不进载荷（契约不变，android 端无感知）
+      expect('changeSeq' in item).toBe(false);
     }
     // 无标签/图集的图片映射为空数组
     const noTag = items.find((i) => i.id === 4)!;

@@ -17,6 +17,7 @@ const all = vi.fn();
 const run = vi.fn();
 const get = vi.fn();
 const runInTransaction = vi.fn();
+const nextChangeSeq = vi.fn();
 const readdir = vi.fn();
 const stat = vi.fn();
 const enqueueThumbnailGeneration = vi.fn();
@@ -39,6 +40,7 @@ vi.mock('../../../src/main/services/database.js', () => ({
   run,
   get,
   runInTransaction,
+  nextChangeSeq,
 }));
 
 vi.mock('../../../src/main/services/thumbnailService.js', () => ({
@@ -74,6 +76,8 @@ describe('imageService.scanAndImportFolder excludeDirs 整棵剪枝', () => {
     run.mockResolvedValue(undefined);
     get.mockResolvedValue({ id: 101 });
     runInTransaction.mockImplementation(async (_db, callback) => callback());
+    // addImage（M4-T16 起）INSERT 前取 changeSeq；mock 库无真实约束，固定值即可
+    nextChangeSeq.mockResolvedValue(1);
     getConfig.mockReturnValue({ app: { autoScan: false } });
     stat.mockResolvedValue({
       size: 1234,

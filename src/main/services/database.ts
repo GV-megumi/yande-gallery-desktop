@@ -734,6 +734,9 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     await contractGalleriesTable(database);
     console.log('[database] galleries contract 迁移完成');
 
+    // changeSeq 迁移必须先于触发器安装：触发器体引用 sync_change_seq 表与 images.changeSeq 列
+    await ensureChangeSeqMigration(database);
+
     // 同步触碰触发器（依赖 gallery_images 表已由上方迁移建好）
     await ensureSyncTouchTriggers(database);
 
@@ -1200,30 +1203,93 @@ export async function contractGalleriesTable(database: sqlite3.Database): Promis
 }
 
 /**
- * 同步触碰触发器（安卓相册 M1，spec §5.3）：
- * 标签/图集归属变化时触碰 images.updatedAt，供移动端 (updatedAt, id) 游标增量同步感知。
+ * changeSeq 迁移（M4-T16，根治 M1 Issue 1）：images 加单调变更序列列，
+ * 退役「低精度墙钟 updatedAt 承担全序变更日志」的职责。幂等（columnExists 门控）。
+ *
+ * 回填按旧游标序 (updatedAt, id) 编 ROW_NUMBER（D14）：changeSeq 序与旧 {u,i} 游标序
+ * 同构，旧游标的保守换轨水位（见 syncService.listSyncImages）才不会跳过未读行；
+ * 用 `changeSeq = id` 回填则 id 序与 updatedAt 序交错时换轨水位会跳行，违反 D14。
+ *
+ * 首次迁移必须 bump dataVersion：存量客户端全量重建，旧 {u,i} 游标不会再被发出，
+ * 换轨兼容仅作 defense-in-depth。
+ */
+export async function ensureChangeSeqMigration(database: sqlite3.Database): Promise<void> {
+  const migrated = await columnExists(database, 'images', 'changeSeq');
+  if (!migrated) {
+    await run(database, 'ALTER TABLE images ADD COLUMN changeSeq INTEGER NOT NULL DEFAULT 0');
+    // UPDATE...FROM 需 SQLite 3.33+（npm sqlite3 捆绑版本满足），一次 O(N log N) 完成，
+    // 勿用相关子查询 O(N²) 写法。
+    await run(database, `
+      UPDATE images SET changeSeq = ranked.rn
+      FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY updatedAt, id) AS rn FROM images) AS ranked
+      WHERE images.id = ranked.id
+    `);
+  }
+  await run(database, 'CREATE TABLE IF NOT EXISTS sync_change_seq (seq INTEGER NOT NULL)');
+  // 播种必须经派生表：聚合 SELECT 无论 WHERE 如何都恒出一行（WHERE 只筛 images 输入行，
+  // 不筛聚合输出），直接挂 NOT EXISTS 会在重复调用时再插一行、破坏单行不变量。
+  await run(database, `INSERT INTO sync_change_seq (seq)
+    SELECT seq FROM (SELECT COALESCE(MAX(changeSeq), 0) AS seq FROM images)
+    WHERE NOT EXISTS (SELECT 1 FROM sync_change_seq)`);
+  await run(database, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_images_changeSeq ON images (changeSeq)');
+  if (!migrated) {
+    // 动态 import 防 database↔config 模块环；bump 失败仅记录（bumpSyncDataVersion 自身语义）
+    const { bumpSyncDataVersion } = await import('./config.js');
+    await bumpSyncDataVersion();
+  }
+}
+
+/** 取下一个变更序列值（JS INSERT 路径用；触发器路径在 SQL 内自增同一计数器）。单语句原子。 */
+export async function nextChangeSeq(db: sqlite3.Database): Promise<number> {
+  const row = await get<{ seq: number }>(db, 'UPDATE sync_change_seq SET seq = seq + 1 RETURNING seq');
+  return row!.seq;
+}
+
+/**
+ * 同步触碰触发器（安卓相册 M1，spec §5.3；M4-T16 起同时维护 changeSeq）：
+ * 标签/图集归属变化时触碰 images.updatedAt 并写入新 bump 的 changeSeq，
+ * 供移动端 changeSeq 游标增量同步感知（updatedAt 保留服务 DTO 展示与排序）。
  * strftime('%Y-%m-%dT%H:%M:%fZ','now') 与 JS new Date().toISOString() 字节一致，
  * 保证与既有 JS 写入的时间戳字典序可比；INSERT OR IGNORE 命中重复不触发，
  * DELETE FROM galleries 的 FK CASCADE 会触发（幂等重扫不churn、删图集可感知）。
+ *
+ * 先 DROP 再 CREATE：CREATE TRIGGER IF NOT EXISTS 不更新既有触发器体，
+ * 升级库若不 DROP 会继续跑旧触发器（只碰 updatedAt 不碰 changeSeq），静默漏同步。
  */
 export async function ensureSyncTouchTriggers(database: sqlite3.Database): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     database.exec(`
-      CREATE TRIGGER IF NOT EXISTS trg_image_tags_touch_ai AFTER INSERT ON image_tags
+      DROP TRIGGER IF EXISTS trg_image_tags_touch_ai;
+      CREATE TRIGGER trg_image_tags_touch_ai AFTER INSERT ON image_tags
       BEGIN
-        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = NEW.imageId;
+        UPDATE sync_change_seq SET seq = seq + 1;
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          changeSeq = (SELECT seq FROM sync_change_seq)
+         WHERE id = NEW.imageId;
       END;
-      CREATE TRIGGER IF NOT EXISTS trg_image_tags_touch_ad AFTER DELETE ON image_tags
+      DROP TRIGGER IF EXISTS trg_image_tags_touch_ad;
+      CREATE TRIGGER trg_image_tags_touch_ad AFTER DELETE ON image_tags
       BEGIN
-        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = OLD.imageId;
+        UPDATE sync_change_seq SET seq = seq + 1;
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          changeSeq = (SELECT seq FROM sync_change_seq)
+         WHERE id = OLD.imageId;
       END;
-      CREATE TRIGGER IF NOT EXISTS trg_gallery_images_touch_ai AFTER INSERT ON gallery_images
+      DROP TRIGGER IF EXISTS trg_gallery_images_touch_ai;
+      CREATE TRIGGER trg_gallery_images_touch_ai AFTER INSERT ON gallery_images
       BEGIN
-        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = NEW.imageId;
+        UPDATE sync_change_seq SET seq = seq + 1;
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          changeSeq = (SELECT seq FROM sync_change_seq)
+         WHERE id = NEW.imageId;
       END;
-      CREATE TRIGGER IF NOT EXISTS trg_gallery_images_touch_ad AFTER DELETE ON gallery_images
+      DROP TRIGGER IF EXISTS trg_gallery_images_touch_ad;
+      CREATE TRIGGER trg_gallery_images_touch_ad AFTER DELETE ON gallery_images
       BEGIN
-        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = OLD.imageId;
+        UPDATE sync_change_seq SET seq = seq + 1;
+        UPDATE images SET updatedAt = strftime('%Y-%m-%dT%H:%M:%fZ','now'),
+                          changeSeq = (SELECT seq FROM sync_change_seq)
+         WHERE id = OLD.imageId;
       END;
     `, (err) => (err ? reject(err) : resolve()));
   });
