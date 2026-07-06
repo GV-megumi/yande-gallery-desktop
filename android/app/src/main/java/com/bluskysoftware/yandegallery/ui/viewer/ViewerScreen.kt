@@ -76,7 +76,8 @@ private const val HIGH_ZOOM_THRESHOLD = 2.5f
 /**
  * 全屏大图页（M3 Task 10/11）：装配层——收集 VM 流，把分页数据与三档模型选择喂给 [ViewerPager]，
  * 并装配底部操作栏（分享/查看原图/删除级联/详情/更多）与详情面板（标签编辑、跳图集）。
- * 共享元素转场按计划后置 M4，本页走普通导航进入。
+ * 进入/返回走 NavHost fade+scale 转场（M4 方案 B）；共享元素方案 A（hero 层）留联调后可选增强，
+ * 见联调计划 J 节。
  *
  * @param onOpenGallery 详情面板「所属图集」点击 → 图集详情页（MainActivity 接 Routes.albumDetail）
  * @param onOpenSearch 详情面板标签 chip 点击 → 搜索页并以该标签名预填触发搜索（MainActivity 接 Routes.search）

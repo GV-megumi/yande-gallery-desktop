@@ -1,5 +1,10 @@
 package com.bluskysoftware.yandegallery.ui
 
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.layout.padding
 import android.net.Uri
 import androidx.compose.material.icons.Icons
@@ -175,6 +180,12 @@ fun AppScaffold(
                         defaultValue = null
                     },
                 ),
+                // 方案 B（M4-D5）：fade+scale 近似「从网格放大展开」，不动 Pager 定位/黑色占位层，
+                // 零时序风险；共享元素方案 A（hero 层）留联调后可选增强（联调计划 J.6）。
+                enterTransition = { fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.92f, animationSpec = tween(220)) },
+                exitTransition = { fadeOut(animationSpec = tween(160)) },
+                popEnterTransition = { fadeIn(animationSpec = tween(160)) },
+                popExitTransition = { fadeOut(animationSpec = tween(160)) + scaleOut(targetScale = 0.92f, animationSpec = tween(160)) },
             ) { entry ->
                 viewerContent(
                     entry.arguments?.getLong("imageId") ?: -1L,
