@@ -219,4 +219,48 @@ describe('ensureChangeSeqMigration', () => {
       await new Promise<void>((resolve, reject) => local.close((err) => (err ? reject(err) : resolve())));
     }
   });
+
+  it('事务恢复契约：迁移半途失败整体回滚（ALTER 不留痕），排障后重试干净完成', async () => {
+    // 确定性中途失败注入（走真实代码路径，非 mock）：预置一张 schema 不符的毒表
+    // sync_change_seq(wrong)——迁移事务内 ALTER/回填成功后，播种 INSERT 因缺 seq 列失败。
+    // 断言的是真契约：失败尝试连 ALTER 一起回滚（columnExists 仍假），下次调用干净重试。
+    // 「进程半途崩溃」窗口无法由测试直接制造，由同一事务结构 by construction 覆盖
+    // （未提交事务在连接/进程消亡时由 SQLite 自动回滚，与本用例的 ROLLBACK 路径同一终态）。
+    const bumpMock = vi.mocked(bumpSyncDataVersion);
+    const local = await newMemoryDb();
+    try {
+      await run(local, 'PRAGMA foreign_keys=ON');
+      await setupSchemaOn(local);
+      await run(local, `INSERT INTO images (id, filename, filepath, fileSize, width, height, format, createdAt, updatedAt)
+        VALUES (1, '1.jpg', '1.jpg', 0, 0, 0, 'jpg', ?, '2024-01-01T00:00:00.000Z')`, [OLD]);
+      await run(local, 'CREATE TABLE sync_change_seq (wrong TEXT)'); // 毒表：迫使播种语句失败
+      const before = bumpMock.mock.calls.length;
+
+      await expect(ensureChangeSeqMigration(local)).rejects.toThrow();
+      // 整体回滚：列不留痕（下次启动 columnExists 门控判「未迁移」）、dataVersion 未 bump
+      const cols = await all<{ name: string }>(local, 'PRAGMA table_info(images)');
+      expect(cols.some((c) => c.name === 'changeSeq')).toBe(false);
+      expect(bumpMock.mock.calls.length).toBe(before);
+
+      // 排障（清掉毒表）后重试：干净完成，回填/播种/索引齐备
+      await run(local, 'DROP TABLE sync_change_seq');
+      await ensureChangeSeqMigration(local);
+      const rows = await all<{ id: number; changeSeq: number }>(local, 'SELECT id, changeSeq FROM images');
+      expect(rows).toEqual([{ id: 1, changeSeq: 1 }]);
+      expect(bumpMock.mock.calls.length).toBe(before + 1);
+      expect(await nextChangeSeq(local)).toBe(2);
+    } finally {
+      await new Promise<void>((resolve, reject) => local.close((err) => (err ? reject(err) : resolve())));
+    }
+  });
+
+  it('nextChangeSeq 对未播种计数器给出明确错误而非裸 TypeError', async () => {
+    const local = await newMemoryDb();
+    try {
+      await run(local, 'CREATE TABLE sync_change_seq (seq INTEGER NOT NULL)'); // 有表无行
+      await expect(nextChangeSeq(local)).rejects.toThrow('计数器未初始化');
+    } finally {
+      await new Promise<void>((resolve, reject) => local.close((err) => (err ? reject(err) : resolve())));
+    }
+  });
 });

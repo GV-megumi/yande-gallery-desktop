@@ -1212,37 +1212,64 @@ export async function contractGalleriesTable(database: sqlite3.Database): Promis
  *
  * 首次迁移必须 bump dataVersion：存量客户端全量重建，旧 {u,i} 游标不会再被发出，
  * 换轨兼容仅作 defense-in-depth。
+ *
+ * 迁移体整体事务化（仿 contractGalleriesTable；SQLite 的 DDL 可事务回滚）：ALTER/回填/
+ * 计数器播种/唯一索引要么全部落库、要么全不落库。半途语句失败 → ROLLBACK、进程崩溃 →
+ * 未提交自动回滚，两者皆使列不存在 → 下次启动 columnExists 门控判「未迁移」、干净重试；
+ * 绝不出现「列在而回填缺失」的死局（全 0 行使 CREATE UNIQUE INDEX 每次启动砸掉 initDatabase）。
  */
 export async function ensureChangeSeqMigration(database: sqlite3.Database): Promise<void> {
-  const migrated = await columnExists(database, 'images', 'changeSeq');
-  if (!migrated) {
-    await run(database, 'ALTER TABLE images ADD COLUMN changeSeq INTEGER NOT NULL DEFAULT 0');
-    // UPDATE...FROM 需 SQLite 3.33+（npm sqlite3 捆绑版本满足），一次 O(N log N) 完成，
-    // 勿用相关子查询 O(N²) 写法。
-    await run(database, `
-      UPDATE images SET changeSeq = ranked.rn
-      FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY updatedAt, id) AS rn FROM images) AS ranked
-      WHERE images.id = ranked.id
-    `);
+  // 幂等快路径：列已在 = 迁移事务曾整体 COMMIT（列/回填/计数器表/索引原子落库），直接返回
+  if (await columnExists(database, 'images', 'changeSeq')) {
+    return;
   }
-  await run(database, 'CREATE TABLE IF NOT EXISTS sync_change_seq (seq INTEGER NOT NULL)');
-  // 播种必须经派生表：聚合 SELECT 无论 WHERE 如何都恒出一行（WHERE 只筛 images 输入行，
-  // 不筛聚合输出），直接挂 NOT EXISTS 会在重复调用时再插一行、破坏单行不变量。
-  await run(database, `INSERT INTO sync_change_seq (seq)
-    SELECT seq FROM (SELECT COALESCE(MAX(changeSeq), 0) AS seq FROM images)
-    WHERE NOT EXISTS (SELECT 1 FROM sync_change_seq)`);
-  await run(database, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_images_changeSeq ON images (changeSeq)');
-  if (!migrated) {
-    // 动态 import 防 database↔config 模块环；bump 失败仅记录（bumpSyncDataVersion 自身语义）
-    const { bumpSyncDataVersion } = await import('./config.js');
-    await bumpSyncDataVersion();
-  }
+  await runExclusive(database, async () => {
+    // 独占段内双检：并发双跑 initDatabase（主进程 + 渲染层 db.init）时第二个进入者在此短路
+    if (await columnExists(database, 'images', 'changeSeq')) {
+      return;
+    }
+    let began = false;
+    try {
+      await run(database, 'BEGIN');
+      began = true;
+      await run(database, 'ALTER TABLE images ADD COLUMN changeSeq INTEGER NOT NULL DEFAULT 0');
+      // UPDATE...FROM 需 SQLite 3.33+（npm sqlite3 捆绑版本满足），一次 O(N log N) 完成，
+      // 勿用相关子查询 O(N²) 写法。
+      await run(database, `
+        UPDATE images SET changeSeq = ranked.rn
+        FROM (SELECT id, ROW_NUMBER() OVER (ORDER BY updatedAt, id) AS rn FROM images) AS ranked
+        WHERE images.id = ranked.id
+      `);
+      await run(database, 'CREATE TABLE IF NOT EXISTS sync_change_seq (seq INTEGER NOT NULL)');
+      // 播种必须经派生表：聚合 SELECT 无论 WHERE 如何都恒出一行（WHERE 只筛 images 输入行，
+      // 不筛聚合输出），直接挂 NOT EXISTS 会在表已有行时再插一行、破坏单行不变量。
+      await run(database, `INSERT INTO sync_change_seq (seq)
+        SELECT seq FROM (SELECT COALESCE(MAX(changeSeq), 0) AS seq FROM images)
+        WHERE NOT EXISTS (SELECT 1 FROM sync_change_seq)`);
+      await run(database, 'CREATE UNIQUE INDEX IF NOT EXISTS idx_images_changeSeq ON images (changeSeq)');
+      // bump 放 COMMIT 前（写 config YAML，不占用本 SQL 事务）：宁可「bump 成功而 COMMIT 崩」
+      // （客户端多做一次无害全量重建，下次启动干净重试再 bump）也不「COMMIT 成功而 bump 崩」
+      // （dataVersion 永不 bump，只剩旧游标换轨 defense-in-depth 兜底）。
+      // 动态 import 防 database↔config 模块环；bump 失败仅记录（bumpSyncDataVersion 自身语义）。
+      const { bumpSyncDataVersion } = await import('./config.js');
+      await bumpSyncDataVersion();
+      await run(database, 'COMMIT');
+    } catch (e) {
+      if (began) {
+        await run(database, 'ROLLBACK').catch(() => {});
+      }
+      throw e;
+    }
+  });
 }
 
 /** 取下一个变更序列值（JS INSERT 路径用；触发器路径在 SQL 内自增同一计数器）。单语句原子。 */
 export async function nextChangeSeq(db: sqlite3.Database): Promise<number> {
   const row = await get<{ seq: number }>(db, 'UPDATE sync_change_seq SET seq = seq + 1 RETURNING seq');
-  return row!.seq;
+  if (!row) {
+    throw new Error('sync_change_seq 计数器未初始化：请先执行 ensureChangeSeqMigration');
+  }
+  return row.seq;
 }
 
 /**
