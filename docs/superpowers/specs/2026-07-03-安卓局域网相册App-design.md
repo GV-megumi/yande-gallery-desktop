@@ -149,7 +149,7 @@
 
 - `servers`：`{ id, name, baseUrl, apiKey, isActive }`；
 - `sync_state`：`{ serverId, cursor, dataVersion, lastSyncAt }`；
-- `downloads`：`{ imageId, mediaStoreUri, downloadedAt }`——记录已下载原图，用于大图页直读本地原图、避免重复下载、多选时显示状态。
+- `downloads`：`{ serverId, imageId, mediaStoreUri, downloadedAt }`，复合主键 `(serverId, imageId)`（M4-T9/v3 迁移）——记录已下载原图，用于大图页直读本地原图、避免重复下载、多选时显示状态；serverId 化后多服务器同号 imageId 的下载映射互不污染。
 
 ### 6.3 同步引擎
 

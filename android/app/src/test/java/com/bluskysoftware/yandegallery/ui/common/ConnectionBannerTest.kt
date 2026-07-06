@@ -39,8 +39,20 @@ class ConnectionBannerTest {
             )
         }
         compose.onNodeWithTag("banner_offline").assertIsDisplayed()
-        compose.onNodeWithText("未连接到 桌面").assertIsDisplayed()
+        compose.onNodeWithText("未连接到 桌面", substring = true).assertIsDisplayed()
         compose.onNodeWithTag("banner_unauthorized").assertDoesNotExist()
+    }
+
+    @Test fun `离线——横幅可点且点击触发回调（IP 变化引导跳服务器页）`() {
+        var manage = 0
+        compose.setContent {
+            ConnectionBanner(
+                state = ConnState(online = false, serverName = "桌面", unauthorized = false),
+                onReconnectAuth = { manage++ },
+            )
+        }
+        compose.onNodeWithTag("banner_offline").assertIsDisplayed().performClick()
+        assertEquals(1, manage)
     }
 
     @Test fun `在线——两横幅均不渲染`() {

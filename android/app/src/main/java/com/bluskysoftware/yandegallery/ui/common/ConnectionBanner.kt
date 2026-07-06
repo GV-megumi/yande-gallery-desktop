@@ -16,7 +16,7 @@ import com.bluskysoftware.yandegallery.domain.ConnState
 /**
  * 连接状态细横幅（spec §8）：
  * - unauthorized：「密钥失效，请重新配对」，点击跳服务器页重新配对；
- * - offline：「未连接到 <名>」；
+ * - offline：「未连接到 <名>，点按管理服务器」，点击跳服务器页（IP 变化引导，复用 onReconnectAuth 同一去向）；
  * - online：不渲染。
  * unauthorized 优先于 offline（密钥失效更需用户处置）。
  */
@@ -42,10 +42,10 @@ fun ConnectionBanner(
         !state.online -> Surface(
             color = MaterialTheme.colorScheme.surfaceVariant,
             contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = modifier.fillMaxWidth().testTag("banner_offline"),
+            modifier = modifier.fillMaxWidth().clickable(onClick = onReconnectAuth).testTag("banner_offline"),
         ) {
             Text(
-                "未连接到 ${state.serverName ?: "服务器"}",
+                "未连接到 ${state.serverName ?: "服务器"}，点按管理服务器",
                 style = MaterialTheme.typography.bodySmall,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp, horizontal = 12.dp),
