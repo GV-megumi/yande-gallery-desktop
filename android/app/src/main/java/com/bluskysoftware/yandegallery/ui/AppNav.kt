@@ -39,6 +39,7 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
+import com.bluskysoftware.yandegallery.ui.photos.PhotosPinnedTopBar
 
 object Routes {
     const val Photos = "photos"
@@ -207,7 +208,11 @@ fun AppScaffold(
     }
 }
 
-/** 测试与占位用：全部内容为占位 Text 的导航壳（占位 Text 无顶栏——顶栏已属页面职责）。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。 */
+/**
+ * 测试与占位用：内容为占位 Text 的导航壳。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。
+ * 照片占位额外挂生产真件 [PhotosPinnedTopBar]（回调镜像 MainActivity 接线）——顶栏下放页面后，
+ * photos_search/设置入口 → 路由落点的端到端覆盖仍走真 NavHost（AppNavTest，spec §10 归属适配）。
+ */
 @Composable
 fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
     val nav = rememberNavController()
@@ -215,7 +220,16 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
         AppScaffold(
             navController = nav,
             photosSelectionBars = photosSelectionBars ?: remember { PhotosSelectionBars() },
-            photosContent = { Text("照片页占位") },
+            photosContent = {
+                Column {
+                    PhotosPinnedTopBar(
+                        scrolled = false,
+                        onOpenSearch = { nav.navigate(Routes.search()) },
+                        onOpenSettings = { nav.navigate(Routes.Settings) },
+                    )
+                    Text("照片页占位")
+                }
+            },
             albumsContent = { Text("相册页占位") },
             settingsContent = { Text("设置页占位") },
             cacheContent = { Text("缓存管理占位") },

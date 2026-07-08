@@ -50,6 +50,7 @@ import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
@@ -88,6 +89,10 @@ fun AlbumsScreen(
     val loader = viewModel.thumbnailLoader
 
     Scaffold(
+        // v0.5 壳重构空窗期（Task 5→6）：壳级顶栏已删，先挂常驻态顶栏（scrolled=true 恒显居中
+        // 小标题）保住「相册」标题并垫开状态栏，防网格顶进状态栏下；Task 6 重排本页时替换为
+        // rememberMiuiHeaderState 折叠大标题结构（顶栏「+」随之接入、FAB 拆除）。
+        topBar = { MiuiPinnedTopBar(title = "相册", scrolled = true) },
         floatingActionButton = {
             // 离线置灰：disabled 配色 + 无障碍语义 disabled()；离线点击给 snackbar 明确原因（替换静默空转，spec §8）
             FloatingActionButton(
@@ -116,7 +121,8 @@ fun AlbumsScreen(
             }
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
-        // 外层 AppScaffold 已为相册路由消费系统栏 inset（顶栏+底部导航），内层不重复施加避免双 inset
+        // 顶部 inset 由上面临时顶栏消费（statusBarsPadding 在组件内）、底部由壳级底栏消费，
+        // 内容 inset 归零避免双 inset
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
     ) { padding ->
         val cards = albums

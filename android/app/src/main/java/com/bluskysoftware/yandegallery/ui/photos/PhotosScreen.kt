@@ -78,6 +78,7 @@ import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -263,13 +264,15 @@ fun PhotosScreen(
 
     TimelineAnchorEffect(items, gridState, pendingAnchor, onDone = { pendingAnchor = null })
     // 折叠大标题（spec §2.3 exitUntilCollapsed 裁定）：不进 LazyGrid（避免索引数学 +1 波及
-    // 锚定/快滚/sticky），根 Column 挂 nestedScroll 与网格滚动联动；松手后 settle 贴齐全收/全展。
+    // 锚定/快滚/sticky），connection 挂 PullToRefreshBox 内层与网格滚动联动（位置理由见 PTR 处）。
+    // 松手后 settle 贴齐全收/全展；collectLatest 让贴齐动画可被新手势立即取消——用 collect 时
+    // 发射在 settle 挂起期间排队，贴齐中再拖动会出现 animate 与 nested scroll 每帧竞写 offsetPx。
     val header = rememberMiuiHeaderState()
     LaunchedEffect(gridState) {
-        snapshotFlow { gridState.isScrollInProgress }.collect { if (!it) header.settle() }
+        snapshotFlow { gridState.isScrollInProgress }.collectLatest { if (!it) header.settle() }
     }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
+        Column(Modifier.fillMaxSize()) {
             // 顶部区域页面自持（v0.5 壳重构）：多选中换选择顶栏（底栏仍经桥走壳级 swap），常态为常驻顶栏
             if (selectionActive) {
                 SelectionTopBar(
@@ -286,12 +289,11 @@ fun PhotosScreen(
                     insetStatusBar = true,
                 )
             } else {
-                MiuiPinnedTopBar(title = "照片", scrolled = header.scrolled, actions = {
-                    IconButton(onClick = onOpenSearch, modifier = Modifier.testTag("photos_search")) {
-                        Icon(Icons.Filled.Search, contentDescription = "搜索")
-                    }
-                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
-                })
+                PhotosPinnedTopBar(
+                    scrolled = header.scrolled,
+                    onOpenSearch = onOpenSearch,
+                    onOpenSettings = onOpenSettings,
+                )
             }
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
             ConnectionBanner(state = connState, onReconnectAuth = onAddServer)
@@ -303,7 +305,10 @@ fun PhotosScreen(
                     .fillMaxWidth()
                     .weight(1f),
             ) {
-                Column(Modifier.fillMaxSize()) {
+                // 折叠联动挂 PTR 内层（评审修复）：post 阶段内层连接先分发——顶部下拉余量先展开
+                // 大标题、展满后才轮到 PTR 攒刷新指示器；挂 PTR 外层会被其全额截胡（UserInput），
+                // 收起态大标题无法拖拽展开（仅 fling 可展）且拉标题误触发刷新。
+                Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
                     // 进度条独立收集 syncPhase：每页 tick 的重组隔离在组件内，不再重组网格子树（D13/A8）
                     SyncProgressBar(viewModel.syncPhase)
                     // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchDensity）。
@@ -472,6 +477,25 @@ private fun SyncProgressBar(syncPhaseFlow: StateFlow<SyncPhase>) {
             modifier = Modifier.fillMaxWidth().testTag("sync_progress"),
         )
     }
+}
+
+/**
+ * 照片 tab 常态顶栏装配（v0.5 壳重构后 photos_search 归属本页，spec §10）：搜索/设置入口挂
+ * MiuiPinnedTopBar 常驻动作槽。internal 供 AppNavForTest 挂真件走 NavHost 端到端覆盖跳转，
+ * 生产由 PhotosScreen 非多选分支调用（回调经 MainActivity 接 Routes.search()/Settings）。
+ */
+@Composable
+internal fun PhotosPinnedTopBar(
+    scrolled: Boolean,
+    onOpenSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    MiuiPinnedTopBar(title = "照片", scrolled = scrolled, actions = {
+        IconButton(onClick = onOpenSearch, modifier = Modifier.testTag("photos_search")) {
+            Icon(Icons.Filled.Search, contentDescription = "搜索")
+        }
+        IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
+    })
 }
 
 /** 无激活服务器时的引导态：文案 + 跳转服务器管理按钮。 */

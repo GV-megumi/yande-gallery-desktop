@@ -18,6 +18,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.Stable
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
@@ -40,13 +41,22 @@ import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
  * - onPreScroll：上滑（y<0）先收头部、消费掉收缩量，再把余量给内容滚动；
  * - onPostScroll：下滑（y>0）内容滚到顶后未消费的余量用来展开头部——中途下滑不弹头（exitUntilCollapsed 语义）；
  * - [settle]：松手后按 0.5 阈值动画贴齐全收/全展，不留半截标题。
+ *
+ * 挂载位置约束：与 PullToRefreshBox 同屏时 [connection] 必须挂其内层（内容侧）——post 阶段
+ * 内层连接先分发，顶部下拉余量先展开头部、展满后才轮到 PTR 攒刷新指示器；挂外层会被 PTR
+ * 全额截胡，收起态无法拖拽展开且拉标题误触发刷新（评审修复，Task 6 相册页复用同约束）。
  */
 @Stable
 class MiuiHeaderState(val heightPx: Float) {
     var offsetPx by mutableFloatStateOf(0f)   // 0（展开）.. -heightPx（收起）
         private set
     val collapseFraction: Float get() = if (heightPx <= 0f) 1f else -offsetPx / heightPx
-    val scrolled: Boolean get() = collapseFraction > 0.9f
+
+    /**
+     * 收起态判定用 derivedStateOf：组合期直读（PhotosScreen 顶栏门控等 inline 重组域）只在
+     * 阈值翻转时失效重组，折叠过渡逐帧 offsetPx 变化不再逐帧扰动读者（A8/D13 隔离纪律）。
+     */
+    val scrolled: Boolean by derivedStateOf { collapseFraction > 0.9f }
 
     val connection = object : NestedScrollConnection {
         override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
