@@ -11,16 +11,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +36,7 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
@@ -52,8 +46,7 @@ import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 图集详情：4 列网格 + 顶栏返回；T13 加多选（长按进入，批量下载/分享/删除/加入/移出图集）。 */
-@OptIn(ExperimentalMaterial3Api::class)
+/** 图集详情：4 列网格 + 居中双行顶栏（标题+数量副标题，spec §4.2）；T13 加多选（长按进入，批量下载/分享/删除/加入/移出图集）。 */
 @Composable
 fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel,
@@ -140,7 +133,7 @@ fun AlbumDetailScreen(
     Scaffold(
         topBar = {
             if (selectionActive) {
-                // 替换常规顶栏；Scaffold topBar 槽内自补状态栏 inset（TopAppBar 自带，Surface 需手动）
+                // 替换常规顶栏；Scaffold topBar 槽内自补状态栏 inset（MiuiSubPageTopBar 自带，Surface 需手动）
                 SelectionTopBar(
                     count = selected.size,
                     // 「全选」= 当前已加载进分页快照的图片（分页语义；继续滚动加载后可再点全选并入）
@@ -154,13 +147,12 @@ fun AlbumDetailScreen(
                     insetStatusBar = true,
                 )
             } else {
-                TopAppBar(
-                    title = { Text(title) },
-                    navigationIcon = {
-                        IconButton(onClick = onBack) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                        }
-                    },
+                // 居中标题 + 数量副标题（spec §4.2）；数量取镜像图集行的 imageCount（galleries 流已在收集）
+                val count = galleries.firstOrNull { it.id == viewModel.currentGalleryId }?.imageCount
+                MiuiSubPageTopBar(
+                    title = title,
+                    subtitle = count?.let { "$it 张" },
+                    onBack = onBack,
                 )
             }
         },

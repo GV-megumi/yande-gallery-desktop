@@ -216,7 +216,7 @@ class AlbumsWriteTest {
     }
 
     @Test
-    fun `离线点 FAB 出 snackbar 且不弹新建对话框`() {
+    fun `离线点顶栏加号出 snackbar 且不弹新建对话框`() {
         graph.connectionMonitor.reportNetworkLost()   // 压离线（online=false）
         val vm = AlbumsViewModel(graph)
         compose.setContent {
@@ -225,7 +225,7 @@ class AlbumsWriteTest {
         }
         compose.waitForIdle()
 
-        compose.onNodeWithTag("albums_new_fab").performClick()
+        compose.onNodeWithTag("albums_new").performClick()
         compose.waitForIdle()
 
         // D12A：离线点击给明确原因，不进入新建对话框（替换静默空转）

@@ -6,35 +6,38 @@ import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -50,17 +53,21 @@ import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
+import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 
 /**
- * 相册 tab：两列图集卡片网格。点击卡片跳图集详情；卡片长按弹「重命名/删除」菜单；
- * 右下 FAB 新建图集（选它而非 AppScaffold 顶栏「+」——顶栏是无 VM 引用的无状态壳，
- * 把对话框/快照/结果提示都留在本屏更内聚，不必把 albums 专属状态穿透进共享脚手架）。
- * 无图集时展示空态文案，但 FAB 仍在，可创建首个图集。写入口离线（connState.online=false）置灰。
+ * 相册 tab：折叠大标题 + 两列图集卡片网格（spec §4.1）。点击卡片跳图集详情；卡片长按弹
+ * 「重命名/删除」菜单；顶栏右上「+」新建图集（v0.5 去 FAB，原 FAB 语义平移至顶栏动作——
+ * 对话框/快照/结果提示仍留在本屏更内聚，不必把 albums 专属状态穿透进共享脚手架）。
+ * 无图集时展示空态文案，但「+」仍在，可创建首个图集。写入口离线（connState.online=false）置灰。
  */
 @Composable
 fun AlbumsScreen(
@@ -88,70 +95,65 @@ fun AlbumsScreen(
     val serverId = activeServer?.id ?: 0L
     val loader = viewModel.thumbnailLoader
 
-    Scaffold(
-        // v0.5 壳重构空窗期（Task 5→6）：壳级顶栏已删，先挂常驻态顶栏（scrolled=true 恒显居中
-        // 小标题）保住「相册」标题并垫开状态栏，防网格顶进状态栏下；Task 6 重排本页时替换为
-        // rememberMiuiHeaderState 折叠大标题结构（顶栏「+」随之接入、FAB 拆除）。
-        topBar = { MiuiPinnedTopBar(title = "相册", scrolled = true) },
-        floatingActionButton = {
-            // 离线置灰：disabled 配色 + 无障碍语义 disabled()；离线点击给 snackbar 明确原因（替换静默空转，spec §8）
-            FloatingActionButton(
-                onClick = {
-                    if (online) {
-                        newName = ""; showNew = true
-                    } else {
-                        scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+    // 折叠大标题（照片页同款 exitUntilCollapsed 结构）：本页无 PullToRefreshBox，connection 直挂
+    // 内容 Column；松手 settle 贴齐全收/全展，collectLatest 让贴齐动画可被新手势立即取消（Task 5 评审同款）。
+    val header = rememberMiuiHeaderState()
+    val gridState = rememberLazyGridState()
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }.collectLatest { if (!it) header.settle() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
+            MiuiPinnedTopBar(title = "相册", scrolled = header.scrolled, actions = {
+                // 离线可点但给明确原因（原 FAB 语义平移）；置灰观感 + 无障碍 disabled
+                val tint = if (online) MaterialTheme.colorScheme.onSurface
+                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                IconButton(
+                    onClick = {
+                        if (online) {
+                            newName = ""; showNew = true
+                        } else {
+                            scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                        }
+                    },
+                    modifier = Modifier
+                        .semantics { if (!online) disabled() }
+                        .testTag("albums_new"),
+                ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
+            })
+            MiuiLargeTitle("相册", header)
+            val cards = albums
+            when {
+                // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
+                cards == null -> Box(Modifier.fillMaxSize())
+                cards.isEmpty() -> AlbumsEmpty()
+                else -> LazyVerticalGrid(
+                    columns = GridCells.Fixed(2),
+                    state = gridState,
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                    modifier = Modifier.fillMaxSize().testTag("albums_grid"),
+                ) {
+                    items(cards, key = { it.gallery.id }) { card ->
+                        AlbumCardItem(
+                            card = card,
+                            baseUrl = baseUrl,
+                            serverId = serverId,
+                            loader = loader,
+                            online = online,
+                            onClick = { navController.navigate(Routes.albumDetail(card.gallery.id)) },
+                            onRename = { renameId = card.gallery.id; renameName = card.gallery.name },
+                            onDelete = { deleteId = card.gallery.id; deleteName = card.gallery.name },
+                        )
                     }
-                },
-                containerColor = if (online) {
-                    MaterialTheme.colorScheme.primaryContainer
-                } else {
-                    MaterialTheme.colorScheme.surfaceVariant
-                },
-                contentColor = if (online) {
-                    MaterialTheme.colorScheme.onPrimaryContainer
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.38f)
-                },
-                modifier = Modifier
-                    .semantics { if (!online) disabled() }
-                    .testTag("albums_new_fab"),
-            ) {
-                Icon(Icons.Filled.Add, contentDescription = "新建图集")
-            }
-        },
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        // 顶部 inset 由上面临时顶栏消费（statusBarsPadding 在组件内）、底部由壳级底栏消费，
-        // 内容 inset 归零避免双 inset
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-    ) { padding ->
-        val cards = albums
-        if (cards == null) {
-            // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
-            Box(Modifier.fillMaxSize().padding(padding))
-        } else if (cards.isEmpty()) {
-            AlbumsEmpty(Modifier.padding(padding))
-        } else {
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(2),
-                // 末行卡片给 FAB 让位（不被右下悬浮按钮遮挡）
-                contentPadding = PaddingValues(bottom = 88.dp),
-                modifier = Modifier.fillMaxSize().padding(padding).testTag("albums_grid"),
-            ) {
-                items(cards, key = { it.gallery.id }) { card ->
-                    AlbumCardItem(
-                        card = card,
-                        baseUrl = baseUrl,
-                        serverId = serverId,
-                        loader = loader,
-                        online = online,
-                        onClick = { navController.navigate(Routes.albumDetail(card.gallery.id)) },
-                        onRename = { renameId = card.gallery.id; renameName = card.gallery.name },
-                        onDelete = { deleteId = card.gallery.id; deleteName = card.gallery.name },
-                    )
                 }
             }
         }
+        SnackbarHost(
+            snackbarHostState,
+            Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp),
+        )
     }
 
     // 新建图集：输入名 → createGallery（名字去空白；空名不可提交）
@@ -235,7 +237,6 @@ private fun AlbumCardItem(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(8.dp)
                 .combinedClickable(
                     onClick = onClick,                    // 单击照旧进图集详情，不被长按菜单破坏
                     onLongClick = { menuOpen = true },
@@ -243,19 +244,21 @@ private fun AlbumCardItem(
                 .testTag("album_card_${card.gallery.id}"),
         ) {
             val coverId = card.coverImageId
+            // 封面 MIUI 卡片化（spec §4.1）：1:1 圆角封面 + 底下左对齐名称/数量两行
             if (coverId != null) {
                 RetryableAsyncImage(
                     model = thumbnailRequest(LocalContext.current, baseUrl, serverId, coverId),
                     imageLoader = loader,
                     contentDescription = card.gallery.name,
                     contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(MiuiTokens.CoverShape),
                 )
             } else {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .aspectRatio(1f)
+                        .clip(MiuiTokens.CoverShape)
                         .background(MaterialTheme.colorScheme.surfaceVariant),
                 )
             }
@@ -263,13 +266,14 @@ private fun AlbumCardItem(
                 card.gallery.name,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.padding(top = 4.dp),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.padding(top = 8.dp),
             )
             Text(
                 "${card.gallery.imageCount} 张",
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 2.dp),
             )
         }
         // 长按菜单：离线时两项 enabled=false 原生置灰（写入口离线不可用，spec §8）
@@ -350,7 +354,7 @@ private fun AlbumsEmpty(modifier: Modifier = Modifier) {
             textAlign = TextAlign.Center,
         )
         Text(
-            "点右下「+」新建，或连接服务器同步后在此查看",
+            "点右上「+」新建，或连接服务器同步后在此查看",
             style = MaterialTheme.typography.bodyMedium,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
