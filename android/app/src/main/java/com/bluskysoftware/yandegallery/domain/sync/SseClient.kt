@@ -103,8 +103,26 @@ class SseClient(
         }
     }
 
+    /** stale-source 裁决（读侧）：source 仍是当前连接才放行。与 connect() 同锁——新连接秒失败的
+     *  回调若抢在赋值前到达，会在锁上等 connect() 完成后再判，不会误吞真实失败。 */
+    @Synchronized
+    private fun isCurrent(source: EventSource): Boolean = source === eventSource
+
+    /** stale-source 裁决（清引用侧）：仅当 source 是当前连接才清 [eventSource] 并放行后续重连。 */
+    @Synchronized
+    private fun clearIfCurrent(source: EventSource): Boolean {
+        if (source !== eventSource) return false
+        eventSource = null
+        return true
+    }
+
+    // stale-source 守卫（BUG-05）：listener 复用给所有 EventSource，cancel() 触发的**异步** onFailure
+    // 若无守卫会把新连接引用清成 null 并再排一次重连——每次 restart 都多出一条孤儿长连（仍收流、
+    // 仍触发对账、退后台不断开），孤儿累积占满 OkHttp Dispatcher 槽位后全部请求排队假死。
+    // 三回调首行经 isCurrent/clearIfCurrent 裁决，旧连接的迟到回调一律忽略。
     private val listener = object : EventSourceListener() {
         override fun onEvent(source: EventSource, id: String?, type: String?, data: String) {
+            if (!isCurrent(source)) return
             if (type != null && (type.startsWith("gallery:") || type == "app:data-restored")) {
                 onQualifyingEvent()
             }
@@ -112,19 +130,18 @@ class SseClient(
 
         override fun onFailure(source: EventSource, t: Throwable?, response: Response?) {
             response?.close()
+            if (!clearIfCurrent(source)) return
             // 403：该服务器订阅权限未开，重连徒劳 → 只对这条 URL 降级（切服/restart 会清）。
             if (response?.code == 403 || (t as? ApiException)?.httpStatus == 403) {
                 disabledUrl = source.request().url.toString()
-                eventSource = null
                 return
             }
-            eventSource = null
             scheduleReconnect()
         }
 
         override fun onClosed(source: EventSource) {
+            if (!clearIfCurrent(source)) return
             // 服务端关闭连接（非 403 错误）→ 退避重连
-            eventSource = null
             scheduleReconnect()
         }
     }

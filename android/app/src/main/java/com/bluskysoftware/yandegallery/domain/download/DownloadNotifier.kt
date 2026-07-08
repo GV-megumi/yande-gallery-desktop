@@ -41,7 +41,8 @@ class AndroidDownloadNotifier(private val context: Context) : DownloadNotifier {
             .build()
         val id = imageId.hashCode()   // 每图独立通知 id（与 Interfaces 约定一致）
         return if (Build.VERSION.SDK_INT >= 29) {
-            // 29+ 必须带 FGS 类型；targetSdk 35 强制与清单 FOREGROUND_SERVICE_DATA_SYNC 匹配
+            // 29+ 必须带 FGS 类型。注意 31+ 还要求 manifest 给 WorkManager 的 SystemForegroundService
+            // 元素合并 foregroundServiceType="dataSync"（仅声明权限不够，BUG-01 曾因此全档闪退）
             ForegroundInfo(id, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             ForegroundInfo(id, notification)

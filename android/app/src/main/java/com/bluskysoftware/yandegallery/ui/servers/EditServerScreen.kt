@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,6 +44,8 @@ fun EditServerScreen(
     var apiKey by rememberSaveable { mutableStateOf("") }
     // 仅首屏预填一次；进程重建后 rememberSaveable 已恢复用户编辑值，不再用 DB 旧值覆盖。
     var prefilled by rememberSaveable { mutableStateOf(false) }
+    // 保存进行中防抖（BUG-09）：落库+onSaved(popBackStack) 是异步，快速双击会双 pop 过弹到上级页
+    var saving by remember { mutableStateOf(false) }
     // baseUrl 格式错误提示（M4-T14）：保存时校验，非法则字段标红不落库
     var baseUrlError by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -106,10 +109,11 @@ fun EditServerScreen(
                         baseUrlError = "地址格式不正确，应为 http://主机:端口"
                     } else {
                         baseUrlError = null
+                        saving = true
                         vm.update(serverId, name, normalized, apiKey) { onSaved() }
                     }
                 },
-                enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
+                enabled = !saving && baseUrl.isNotBlank() && apiKey.isNotBlank(),
                 modifier = Modifier.fillMaxWidth().testTag("edit_server_save"),
             ) {
                 Text("保存")

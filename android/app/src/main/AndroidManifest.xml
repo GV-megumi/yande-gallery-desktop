@@ -52,5 +52,13 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+
+        <!-- BUG-01（2026-07 联调 Critical）：API 31+ 要求 startForeground 的类型是该 service 元素
+             foregroundServiceType 的子集——仅声明 FOREGROUND_SERVICE_DATA_SYNC 权限不够，必须给
+             WorkManager 的宿主 service 合并上 dataSync，否则 DownloadWorker 升前台即 IllegalArgumentException 闪退 -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
     </application>
 </manifest>

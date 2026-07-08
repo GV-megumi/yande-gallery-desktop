@@ -87,15 +87,15 @@ class DownloadE2ETest {
                     workerClassName: String,
                     workerParameters: WorkerParameters,
                 ): ListenableWorker =
-                    // deps 接线与生产 AppWorkerFactory 逐项一致（apiProvider/downloadDao/onNotFound
-                    // 都取自同一 graph）；仅 gateway 换 fake、now 固定以便断言 downloadedAt。
+                    // deps 接线与生产 AppWorkerFactory 逐项一致（apiProvider/downloadDao 都取自同一
+                    // graph；404 对账钩子在 graph.okHttp 拦截器上，BUG-13 后 worker 无此参数）；
+                    // 仅 gateway 换 fake、now 固定以便断言 downloadedAt。
                     DownloadWorker(
                         appContext,
                         workerParameters,
                         apiProvider = { graph.api() },
                         gateway = gateway,
                         downloadDao = graph.db.downloadDao(),
-                        onNotFound = { graph.onBinaryNotFound?.invoke() },
                         now = { "2026-07-05T12:00:00Z" },
                         activeServerId = { graph.serverRepository.activeServer()?.id },
                         // fake notifier：返回最小 ForegroundInfo，TestListenableWorkerBuilder 自带

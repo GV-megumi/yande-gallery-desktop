@@ -183,9 +183,10 @@ class PhotosViewModelTest {
     fun `档位持久化——冷启动第二个 VM 回放上次档位`() = runTest {
         val vm1 = PhotosViewModel(graph)
         vm1.setDensityTier(DensityTier.DAY_3)
-        vm1.densityTier.first { it == DensityTier.DAY_3 }   // 确认写已落盘可回读
+        // BUG-18 后内存态即时生效、落盘异步：须等 DataStore 真正写完再建第二个 VM（其 init 只回填一次）
+        graph.prefsStore.densityTierName.first { it == DensityTier.DAY_3.name }
 
-        // 同 graph（同 DataStore）新建第二个 VM：Eagerly 首帧默认，随后回放持久档 DAY_3。
+        // 同 graph（同 DataStore）新建第二个 VM：首帧默认，init 回填持久档 DAY_3。
         val vm2 = PhotosViewModel(graph)
         assertEquals(DensityTier.DAY_3, vm2.densityTier.first { it != DensityTier.DEFAULT })
     }

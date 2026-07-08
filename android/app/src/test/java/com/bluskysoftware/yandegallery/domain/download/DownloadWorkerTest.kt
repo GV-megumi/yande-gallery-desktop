@@ -66,9 +66,13 @@ class DownloadWorkerTest {
     @After
     fun teardown() = db.close()
 
-    /** 真实客户端（含错误拦截器）指向 MockWebServer，Bearer key 无关紧要给 null。 */
-    private fun realApi(server: MockWebServer): DesktopApi =
-        ApiClientFactory.desktopApi(server.url("/").toString(), ApiClientFactory.okHttp({ null }))
+    /** 真实客户端（含错误拦截器）指向 MockWebServer，Bearer key 无关紧要给 null；
+     *  onBinaryNotFound 即生产 AppGraph 接到拦截器上的二进制 404 对账钩子（BUG-13 后 worker 不再自调）。 */
+    private fun realApi(server: MockWebServer, onBinaryNotFound: (() -> Unit)? = null): DesktopApi =
+        ApiClientFactory.desktopApi(
+            server.url("/").toString(),
+            ApiClientFactory.okHttp({ null }, onBinaryNotFound),
+        )
 
     /**
      * fake notifier：返回真实最小 ForegroundInfo——每条 doWork 路径拿到 body 后都会 setForeground 一次，
@@ -87,7 +91,6 @@ class DownloadWorkerTest {
     private fun buildWorker(
         api: DesktopApi?,
         gateway: MediaStoreGateway,
-        onNotFound: () -> Unit = {},
         now: () -> String = { "2026-07-05T00:00:00Z" },
         activeServerId: suspend () -> Long? = { 1L },
         inputData: Data = workDataOf(
@@ -110,7 +113,6 @@ class DownloadWorkerTest {
                         apiProvider = { api },
                         gateway = gateway,
                         downloadDao = dao,
-                        onNotFound = onNotFound,
                         now = now,
                         activeServerId = activeServerId,
                         notifier = fakeNotifier,
@@ -162,7 +164,7 @@ class DownloadWorkerTest {
     }
 
     @Test
-    fun `原图 404——真实拦截器抛 ApiException 触发 onNotFound 并失败`() = runTest {
+    fun `原图 404——拦截器统一触发一次对账钩子并失败（BUG-13 不双触发）`() = runTest {
         MockWebServer().use { server ->
             server.enqueue(
                 MockResponse().setResponseCode(404).setBody(
@@ -173,14 +175,14 @@ class DownloadWorkerTest {
             var notFound = 0
             val gateway = FakeMediaStoreGateway()
 
+            // 对账钩子挂在拦截器（生产接线），worker 侧已无 onNotFound——恰触发一次而非两次
             val result = buildWorker(
-                api = realApi(server),
+                api = realApi(server) { notFound++ },
                 gateway = gateway,
-                onNotFound = { notFound++ },
             ).doWork()
 
             assertEquals(ListenableWorker.Result.failure(), result)
-            assertEquals("原图 404 应触发一次对账钩子", 1, notFound)
+            assertEquals("原图 404 的对账钩子应恰好触发一次", 1, notFound)
             assertEquals("404 未创建条目，无需 discard", 0, gateway.discardCount)
             assertNull("404 不应落库", dao.byImageId(1L, imageId))
         }

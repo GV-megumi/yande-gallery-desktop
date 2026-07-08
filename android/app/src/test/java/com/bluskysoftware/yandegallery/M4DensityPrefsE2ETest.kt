@@ -108,7 +108,8 @@ class M4DensityPrefsE2ETest {
         withGraph { graph ->
             val vm1 = PhotosViewModel(graph)
             vm1.setDensityTier(DensityTier.DAY_3)
-            vm1.densityTier.first { it == DensityTier.DAY_3 }   // 写入回环确认（真 IO）
+            // BUG-18 后内存态即时、落盘异步：等 DataStore 真 IO 写完再建新 VM（其 init 只回填一次持久档）
+            graph.prefsStore.densityTierName.first { it == DensityTier.DAY_3.name }
             val vm2 = PhotosViewModel(graph)                    // 新实例（模拟重启读持久层）
             assertEquals(DensityTier.DAY_3, vm2.densityTier.first { it == DensityTier.DAY_3 })
         }

@@ -23,7 +23,7 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                 apiProvider = { graph.api() },
                 gateway = graph.mediaStoreGateway,
                 downloadDao = graph.db.downloadDao(),
-                onNotFound = { graph.onBinaryNotFound?.invoke() },   // M2 二进制 404 对账钩子（→ requestSync("binary-404")）
+                // 二进制 404 对账由 graph.okHttp 错误映射拦截器统一触发，worker 不再重复 nudge（BUG-13）
                 now = { java.time.Instant.now().toString() },
                 activeServerId = { graph.serverRepository.activeServer()?.id },   // 落行前校验（M4-T9 切服竞态）
                 notifier = AndroidDownloadNotifier(appContext),   // 前台下载通知（M4-D8）

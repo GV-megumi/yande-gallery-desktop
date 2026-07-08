@@ -61,6 +61,8 @@ fun AddServerScreen(
     var baseUrl by rememberSaveable { mutableStateOf(prefill.second) }
     var apiKey by rememberSaveable { mutableStateOf(prefill.third) }
     var testing by remember { mutableStateOf(false) }
+    // 保存进行中防抖（BUG-09）：入库+导航是异步，快速双击会插两条同名激活行
+    var saving by remember { mutableStateOf(false) }
     // baseUrl 格式错误提示（M4-T14）：保存时校验，非法则字段标红不落库
     var baseUrlError by rememberSaveable { mutableStateOf<String?>(null) }
 
@@ -139,10 +141,11 @@ fun AddServerScreen(
                             baseUrlError = "地址格式不正确，应为 http://主机:端口"
                         } else {
                             baseUrlError = null
+                            saving = true
                             vm.add(name, normalized, apiKey) { onSaved() }
                         }
                     },
-                    enabled = baseUrl.isNotBlank() && apiKey.isNotBlank(),
+                    enabled = !saving && baseUrl.isNotBlank() && apiKey.isNotBlank(),
                     modifier = Modifier.weight(1f).testTag("btn_save"),
                 ) {
                     Text("保存并激活")

@@ -86,9 +86,10 @@ data class DownloadEntity(
     val downloadedAt: String,
 )
 
-// 搜索历史（v1→2 迁移新增）：query 为主键（同词覆盖去重），at 为写入时间戳用于倒序。
+// 搜索历史（v1→2 迁移新增；v3→4 at 改 epochMillis）：query 为主键（同词覆盖去重），at 为写入
+// 时间戳用于倒序——曾存 Instant.toString()，整秒省略小数位使 TEXT 字典序错位（BUG-17）。
 @Entity(tableName = "search_history")
 data class SearchHistoryEntity(
     @PrimaryKey val query: String,
-    val at: String,
+    val at: Long,
 )

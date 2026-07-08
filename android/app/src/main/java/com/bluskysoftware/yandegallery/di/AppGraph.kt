@@ -79,20 +79,26 @@ class AppGraph(
         // 启动即跟踪激活服务器：① 冷启动时 Coil 的首个缩略图请求也要带上 Bearer（每次发射都刷新
         // activeSnapshot）；② 激活服务器按 id 变化时（新增/切服/删除）自动触发一次同步并重连 SSE
         // ——这样 README 承诺的「配对即激活→自动首次全量同步」与切服可靠性由一处收敛覆盖。
-        // lastActiveId 初值 null：既作「尚未同步任何服务器」哨兵，也让冷启动无服务器时(null==null)不误触发；
+        // lastActive 初值 null：既作「尚未同步任何服务器」哨兵，也让冷启动无服务器时(null==null)不误触发；
         // 加服务器(null→id)/切服(idA→idB)/删除(id→null) 都是一次 id 变化，恰触发一次。
+        // ③ 编辑激活行（id 不变、baseUrl/apiKey 变）也在此收敛（BUG-10）：activeSnapshot 已先行更新，
+        // restart 的 urlProvider 必读到新地址——曾由 ServersViewModel 手动 nudge，读到陈旧快照连回旧 URL。
         scope.launch {
-            var lastActiveId: Long? = null
+            var lastActive: ServerEntity? = null
+            var seeded = false
             serverRepository.observeActive().collect { active ->
                 activeSnapshot = active
-                val id = active?.id
-                if (id != lastActiveId) {
-                    lastActiveId = id
-                    if (autoSyncOnActiveChange) {
-                        // 切到真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
-                        if (id != null) syncScheduler.requestSync("server-changed")
-                        sseClient.restart()
+                val idChanged = active?.id != lastActive?.id
+                val endpointChanged = seeded && !idChanged &&
+                    (active?.baseUrl != lastActive?.baseUrl || active?.apiKey != lastActive?.apiKey)
+                lastActive = active
+                seeded = true
+                if ((idChanged || endpointChanged) && autoSyncOnActiveChange) {
+                    // 切到/编辑出真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
+                    if (active != null) {
+                        syncScheduler.requestSync(if (idChanged) "server-changed" else "server-edited")
                     }
+                    sseClient.restart()
                 }
             }
         }
@@ -190,9 +196,14 @@ class AppGraph(
         )
     }
 
-    // SSE 专用客户端：readTimeout=0，避免桌面无心跳空闲流被 30s 超时误杀成断连循环。
+    // SSE 专用客户端：readTimeout=0（桌面无心跳的空闲流不能被 30s 超时误杀）+ **独立 Dispatcher**
+    // （BUG-05）——newBuilder() 会共享原 Dispatcher，SSE 长连滞留会占满共享 maxRequestsPerHost=5
+    // 槽位，饿死同主机的缩略图/同步/下载请求；隔离后即便出现滞留连接也伤不到数据面。
     private val sseHttpClient by lazy {
-        okHttp.newBuilder().readTimeout(0, TimeUnit.MILLISECONDS).build()
+        okHttp.newBuilder()
+            .readTimeout(0, TimeUnit.MILLISECONDS)
+            .dispatcher(okhttp3.Dispatcher())
+            .build()
     }
 
     /** 事件订阅：/api/v1/events/system 有 gallery 事件 → 触发一次对账。 */

@@ -153,7 +153,7 @@ class WriteRepositoryTest {
         val api = FakeWriteApi().apply { failDeleteImage = ApiException("NOT_FOUND", "已删", 404) }
         val sync = AtomicInteger(0)
         val (repo, monitor) = build(api, sync)
-        monitor.reportFailure(ApiException("INTERNAL_ERROR", "先制造离线态"))
+        monitor.reportFailure(java.io.IOException("先制造离线态"))   // 连不上才算离线（BUG-02 分类）
         assertFalse(monitor.state.value.online)
 
         val result = repo.deleteImage(1)
@@ -176,8 +176,8 @@ class WriteRepositoryTest {
         assertTrue(result is WriteResult.Failed)
         assertFalse((result as WriteResult.Failed).unauthorized)
         assertNotNull(db.imageDao().byId(1))       // 回滚恢复
-        assertFalse(monitor.state.value.online)    // 上报失败
-        assertEquals(0, sync.get())                // 失败不 nudge
+        assertTrue(monitor.state.value.online)     // 服务器已应答：不误报离线（BUG-02）
+        assertEquals(1, sync.get())                // 应答式失败对账一次，回滚残差以服务端为准收敛
     }
 
     @Test
@@ -193,7 +193,7 @@ class WriteRepositoryTest {
         assertTrue((result as WriteResult.Failed).unauthorized)
         assertNotNull(db.imageDao().byId(1))       // 回滚恢复
         assertTrue(monitor.state.value.unauthorized)
-        assertFalse(monitor.state.value.online)
+        assertTrue(monitor.state.value.online)     // 401 也是服务器应答（BUG-02）；横幅按 unauthorized 展示
     }
 
     @Test
@@ -309,8 +309,8 @@ class WriteRepositoryTest {
         assertTrue(result is WriteResult.Failed)
         assertNull(db.imageDao().byId(1))       // 首块已成——保持删除
         assertNotNull(db.imageDao().byId(901))  // 次块失败——回滚恢复
-        assertFalse(monitor.state.value.online) // reportFailure
-        assertEquals(0, sync.get())             // 失败块不 nudge
+        assertTrue(monitor.state.value.online)  // 500 是服务器应答：不误报离线（BUG-02）
+        assertEquals(1, sync.get())             // 应答式失败对账一次（已成块的删除也需服务端确认收敛）
     }
 
     // ---- addTags / removeTags ----
@@ -373,7 +373,7 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertEquals(0, db.imageDao().tagLinkCount())      // 乐观链被回滚删除
-        assertFalse(monitor.state.value.online)
+        assertTrue(monitor.state.value.online)             // 500 是服务器应答：不误报离线（BUG-02）
     }
 
     // ---- createGallery / renameGallery / deleteGallery ----
@@ -407,7 +407,7 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertEquals("旧名", db.galleryDao().byId(1)?.name)   // 回滚旧名
-        assertFalse(monitor.state.value.online)
+        assertTrue(monitor.state.value.online)                // 500 是服务器应答：不误报离线（BUG-02）
     }
 
     @Test
@@ -439,7 +439,7 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertNotNull(db.galleryDao().byId(5))                // galleries 行回滚恢复
-        assertFalse(monitor.state.value.online)
+        assertTrue(monitor.state.value.online)                // 500 是服务器应答：不误报离线（BUG-02）
     }
 
     // ---- addToGallery / removeFromGallery ----
@@ -489,6 +489,98 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertEquals(emptyList<Long>(), db.imageDao().galleryIdsOf(1))  // 乐观链回滚
-        assertFalse(monitor.state.value.online)
+        assertTrue(monitor.state.value.online)                          // 500 是服务器应答：不误报离线（BUG-02）
+    }
+
+    // ---- 回滚对称性回归（BUG-03/04/14/15 + deleteGallery 同族）----
+
+    @Test
+    fun `deleteImage 失败——回滚重建被级联删除的图集与标签链（BUG-03）`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "g"))
+        db.tagDao().insertAll(listOf(TagEntity(7, "sky", null)))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        db.imageDao().insertTagLinks(listOf(ImageTagEntity(1, 7)))
+        val api = FakeWriteApi().apply { failDeleteImage = ApiException("PERMISSION_DENIED", "imageWrite 未开", 403) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.deleteImage(1)
+
+        assertTrue(result is WriteResult.Failed)
+        assertNotNull(db.imageDao().byId(1))
+        assertEquals("回滚须恢复图集链——否则图从图集凭空消失", listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals("回滚须恢复标签链——否则标签清空掉出搜索", listOf("sky"), db.imageDao().tagNamesOf(1))
+    }
+
+    @Test
+    fun `addToGallery 失败——回滚不误删选中图原有的成员关系（BUG-04）`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))   // 1 已在图集 G，2 是本次新加
+        db.galleryDao().insertOne(gallery(5, "g"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        val api = FakeWriteApi().apply { failAddToGallery = ApiException("PERMISSION_DENIED", "galleryWrite 未开", 403) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.addToGallery(5, listOf(1, 2))
+
+        assertTrue(result is WriteResult.Failed)
+        assertEquals("已在图集的 1 不得被回滚静默移出", listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals("本次新加的 2 回滚移除", emptyList<Long>(), db.imageDao().galleryIdsOf(2))
+    }
+
+    @Test
+    fun `addToGallery-removeFromGallery 空列表——不发请求直接成功（BUG-14）`() = runTest {
+        val api = FakeWriteApi()
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        assertEquals(WriteResult.Success, repo.addToGallery(5, emptyList()))
+        assertEquals(WriteResult.Success, repo.removeFromGallery(5, emptyList()))
+        assertEquals("空集不得发往服务端（桌面对空 imageIds 回 422）", emptyList<String>(), api.calls)
+    }
+
+    @Test
+    fun `addTags 失败——回滚不误删操作前已存在的同名标签链（BUG-15）`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.tagDao().insertAll(listOf(TagEntity(7, "sky", null)))
+        db.imageDao().insertTagLinks(listOf(ImageTagEntity(1, 7)))   // 操作前已有链
+        val api = FakeWriteApi().apply { failAddTags = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.addTags(1, listOf("sky"))
+
+        assertTrue(result is WriteResult.Failed)
+        assertEquals("操作前已存在的链必须存活", listOf("sky"), db.imageDao().tagNamesOf(1))
+    }
+
+    @Test
+    fun `deleteGallery 失败——回滚恢复成员链（例行同步不重建，BUG-03 同族）`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "g"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        val api = FakeWriteApi().apply { failDeleteGallery = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.deleteGallery(5)
+
+        assertTrue(result is WriteResult.Failed)
+        assertNotNull(db.galleryDao().byId(5))
+        assertEquals("回滚回来的图集不得变成空集", listOf(5L), db.imageDao().galleryIdsOf(1))
+    }
+
+    @Test
+    fun `batchDeleteImages 失败块回滚——镜像行连同图集标签链一并恢复（BUG-03 批量版）`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "g"))
+        db.tagDao().insertAll(listOf(TagEntity(7, "sky", null)))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        db.imageDao().insertTagLinks(listOf(ImageTagEntity(1, 7)))
+        val api = FakeWriteApi().apply { failBatchDelete = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.batchDeleteImages(listOf(1))
+
+        assertTrue(result is WriteResult.Failed)
+        assertNotNull(db.imageDao().byId(1))
+        assertEquals(listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals(listOf("sky"), db.imageDao().tagNamesOf(1))
     }
 }

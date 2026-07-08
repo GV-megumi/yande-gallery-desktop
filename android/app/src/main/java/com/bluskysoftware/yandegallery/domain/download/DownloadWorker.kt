@@ -15,11 +15,13 @@ import kotlinx.coroutines.CancellationException
  * 原图下载 worker：流式 GET /api/v1/images/{id}/file → 校验 Content-Length → 写入系统相册 → 落库。
  *
  * deps 经构造注入（[AppWorkerFactory] 从 AppGraph 提供真实实例，无 Hilt）：apiProvider 复用带
- * Bearer 的 okHttp（含错误映射拦截器）、gateway 写系统相册、downloadDao 记录、onNotFound 触发对账。
+ * Bearer 的 okHttp（含错误映射拦截器）、gateway 写系统相册、downloadDao 记录；原图 404 的对账
+ * nudge 由该拦截器统一触发（worker 不重复调，BUG-13）。
  * 前台进度通知（M4-D8）：[notifier] 建通道并产出 [androidx.work.ForegroundInfo]，doWork 拿到 body 后
- * setForeground 一次、拷贝循环内经 [shouldUpdateNotification] 节流（≥1s 或 ≥5%）刷新；setForeground
- * 全程 runCatching 包裹——33+ 未授权/31+ 后台 FGS 限制抛异常时优雅降级纯后台（下载不崩不阻），
- * 唯 CancellationException 向上重抛（不吞取消）。UI 仍经 WorkInfo/setProgress 观察状态。
+ * setForeground 一次、拷贝循环内经 [shouldUpdateNotification] 节流（≥1s 或 ≥5%）刷新，WorkInfo
+ * setProgress 同节流（BUG-12：每 64KB 一次 Room 写纯浪费）；setForeground 全程 runCatching 包裹
+ * ——33+ 未授权/31+ 后台 FGS 限制抛异常时优雅降级纯后台（下载不崩不阻），唯 CancellationException
+ * 向上重抛（不吞取消）。UI 经 WorkInfo 观察终态。
  */
 class DownloadWorker(
     context: Context,
@@ -27,7 +29,6 @@ class DownloadWorker(
     private val apiProvider: suspend () -> DesktopApi?,
     private val gateway: MediaStoreGateway,
     private val downloadDao: DownloadDao,
-    private val onNotFound: () -> Unit,
     private val now: () -> String,
     private val activeServerId: suspend () -> Long?,
     private val notifier: DownloadNotifier,
@@ -47,7 +48,9 @@ class DownloadWorker(
             api.downloadOriginal(imageId)
         } catch (e: ApiException) {
             if (e.httpStatus == 404) {
-                onNotFound(); return Result.failure()  // 原图已删，终止+触发对账
+                // 原图已删 → 终止。对账 nudge 已由 okHttp 错误映射拦截器统一触发（BINARY_PATH 含
+                // /file，onBinaryNotFound 先于本 ApiException 抛出）——此处再调会连触两轮同步（BUG-13）
+                return Result.failure()
             }
             return Result.retry()                       // 其它 HTTP 错误可重试
         } catch (e: CancellationException) {
@@ -84,11 +87,12 @@ class DownloadWorker(
                         while (true) {
                             val n = input.read(buf); if (n < 0) break
                             out.write(buf, 0, n); written += n
-                            setProgress(workDataOf(KEY_PROGRESS to written))
-                            // 通知节流：绝不每 64KB 调一次 setForeground（会刷爆系统通知服务）。
+                            // 通知与 WorkInfo 进度共用节流：每 64KB 各刷一次会刷爆系统通知服务，
+                            // setProgress 也是一次 Room 写（50 张×10MB ≈ 8000+ 次纯浪费 IO，BUG-12）。
                             if (shouldUpdateNotification(lastNotifyMs, timeMs(), lastPct, pctOf(written, expected))) {
                                 lastNotifyMs = timeMs()
                                 lastPct = pctOf(written, expected)
+                                setProgress(workDataOf(KEY_PROGRESS to written))
                                 runCatching {
                                     setForeground(notifier.foregroundInfo(imageId, filename, written, expected))
                                 }.onFailure { if (it is CancellationException) throw it }

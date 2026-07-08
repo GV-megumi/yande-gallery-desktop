@@ -77,7 +77,7 @@ class SyncSchedulerTest {
         scheduler.requestSync("x")
 
         assertTrue(mon.state.value.unauthorized)
-        assertFalse(mon.state.value.online)
+        assertTrue(mon.state.value.online)   // 401 是服务器应答，连接在（BUG-02 分类）；横幅按 unauthorized 展示
     }
 
     @Test
@@ -86,8 +86,8 @@ class SyncSchedulerTest {
             SyncOutcome(fullRebuild = false, upserted = 3, deleted = 0)
         }
         val mon = monitor(backgroundScope)
-        // 先制造一次失败态，再验证成功把它翻回 online
-        mon.reportFailure(ApiException("INTERNAL_ERROR", "boom"))
+        // 先制造一次失败态（连不上才算离线——BUG-02 分类），再验证成功把它翻回 online
+        mon.reportFailure(java.io.IOException("connect refused"))
         assertFalse(mon.state.value.online)
 
         val scheduler = SyncScheduler(syncRun, mon, backgroundScope, hadMirrorBefore = { false })

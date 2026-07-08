@@ -131,17 +131,30 @@ fun SearchScreen(
         },
     ) { padding ->
         Column(Modifier.fillMaxSize().padding(padding)) {
-            if (query.isBlank()) {
-                SearchHistory(
+            val server = activeServer
+            when {
+                query.isBlank() -> SearchHistory(
                     history = history,
                     onPick = { viewModel.onQueryChange(it) },
                     onClear = viewModel::clearHistory,
                 )
-            } else {
-                SearchResultGrid(
+                // 无激活服务器门控（BUG-16）：镜像残留行用 serverId=0/baseUrl="" 兜底只会整屏破图
+                // 且点重试不恢复——与时间轴引导态同口径给文案，不渲染注定失败的网格
+                server == null -> Box(
+                    modifier = Modifier.fillMaxSize().padding(32.dp).testTag("search_no_server"),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        "还没有连接任何服务器，请先在设置中添加并激活服务器",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.outline,
+                        textAlign = TextAlign.Center,
+                    )
+                }
+                else -> SearchResultGrid(
                     items = items,
-                    baseUrl = activeServer?.baseUrl.orEmpty(),
-                    serverId = activeServer?.id ?: 0L,
+                    baseUrl = server.baseUrl,
+                    serverId = server.id,
                     loader = viewModel.thumbnailLoader,
                     onOpenViewer = onOpenViewer,
                 )

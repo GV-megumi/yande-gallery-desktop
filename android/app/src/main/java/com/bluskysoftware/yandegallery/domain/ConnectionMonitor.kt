@@ -21,6 +21,10 @@ data class ConnState(
 /**
  * 连接监视器：同步/请求成功失败通过 report* 汇入；serverName 由注入的激活服务器名 Flow 维护。
  * 真实 401 一定是 ApiException（Task 3 错误映射拦截器保证），code=="UNAUTHORIZED" → 需要重新配对。
+ *
+ * 失败分类（BUG-02）：ApiException = 服务器**已应答**（401/403/422/500…），连接必然是通的，
+ * 绝不置离线——写权限未开的 403 曾被误判「未连接」，横幅+全体写按钮跟着误灰（README §3.3
+ * 「权限未开只弹失败、按钮不隐藏」）。只有非 ApiException（连接拒绝/超时/DNS）才翻 online=false。
  */
 class ConnectionMonitor(
     activeServerName: Flow<String?>,
@@ -42,8 +46,14 @@ class ConnectionMonitor(
     }
 
     fun reportFailure(e: Throwable) {
-        val unauthorized = (e as? ApiException)?.code == "UNAUTHORIZED"
-        _state.update { it.copy(online = false, unauthorized = unauthorized) }
+        val api = e as? ApiException
+        if (api != null) {
+            // 服务器已应答：连接是通的，不翻离线；401 单独立 unauthorized 引导重新配对（横幅优先级更高）
+            _state.update { it.copy(online = true, unauthorized = api.code == "UNAUTHORIZED") }
+        } else {
+            // 连不上（IOException/超时/DNS）才是真离线
+            _state.update { it.copy(online = false) }
+        }
     }
 
     /** 系统网络断开（NetworkCallback.onLost）：直接压横幅离线，不等下一次同步失败推断（D6b）。 */

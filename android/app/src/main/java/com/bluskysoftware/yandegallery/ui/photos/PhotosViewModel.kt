@@ -29,11 +29,14 @@ import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.map
@@ -81,14 +84,26 @@ class PhotosViewModel(
     /** 全量重建提示：dataVersion/serverId 变化时发一次，PhotosScreen 弹 Snackbar。 */
     val rebuildNotices: SharedFlow<Unit> = graph.syncScheduler.rebuildNotices
 
-    /** 时间轴密度档位（D1 四档）：DataStore 持久（跨进程），Eagerly 让首帧尽快用上记忆档。 */
-    val densityTier: StateFlow<DensityTier> =
-        graph.prefsStore.densityTierName
-            .map { DensityTier.fromName(it) }
-            .stateIn(viewModelScope, SharingStarted.Eagerly, DensityTier.DEFAULT)
+    /**
+     * 时间轴密度档位（D1 四档）：内存态为准、DataStore 只作持久化介质（BUG-18）——原实现读写都
+     * 走 DataStore 回环，setDensityTier 后 `.value` 数十 ms 内仍是旧档：快速连续两次独立捏合，
+     * 第二次 onGestureStart 用旧档播种会丢档；换列也恒落后手势一截。现在写入同步更新内存态
+     * （手势/网格立即见效），异步落盘；冷启动回填一次记忆档（compareAndSet 防手快用户被回冲）。
+     */
+    private val _densityTier = MutableStateFlow(DensityTier.DEFAULT)
+    val densityTier: StateFlow<DensityTier> = _densityTier.asStateFlow()
 
-    /** 切档（捏合手势/未来设置入口共用）：写 DataStore，UI 经 densityTier 回环更新。 */
+    init {
+        viewModelScope.launch {
+            val persisted = DensityTier.fromName(graph.prefsStore.densityTierName.first())
+            // 回填仅在用户尚未切档时生效；已抢先捏合则以用户操作为准
+            _densityTier.compareAndSet(DensityTier.DEFAULT, persisted)
+        }
+    }
+
+    /** 切档（捏合手势/未来设置入口共用）：内存态即时生效，DataStore 异步持久化（跨进程记忆）。 */
     fun setDensityTier(tier: DensityTier) {
+        _densityTier.value = tier
         viewModelScope.launch { graph.prefsStore.setDensityTierName(tier.name) }
     }
 

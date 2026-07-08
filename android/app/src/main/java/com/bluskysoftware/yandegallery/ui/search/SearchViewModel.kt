@@ -29,7 +29,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
-import java.time.Instant
+
+// 多词切分（BUG-11）：Java \s 不含全角空格 U+3000（中文输入法空格键常见产物），须显式并入，
+// 否则「词甲　词乙」整串当一个词、AND 交集失效
+private val TERM_SPLIT_REGEX = Regex("[\\s　]+")
 
 /**
  * 搜索页 ViewModel（Task 12）：即时输入 → debounce 重建搜索分页 + 搜索历史读写。
@@ -79,7 +82,7 @@ class SearchViewModel(private val graph: AppGraph) : ViewModel() {
                     flowOf(PagingData.empty(SETTLED_EMPTY_LOAD_STATES))
                 } else {
                     Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-                        graph.db.imageDao().searchPagingSource(buildSearchQuery(q.split(" ")))
+                        graph.db.imageDao().searchPagingSource(buildSearchQuery(q.split(TERM_SPLIT_REGEX)))
                     }.flow
                 }
             }
@@ -88,12 +91,13 @@ class SearchViewModel(private val graph: AppGraph) : ViewModel() {
     /** 搜索历史（最近 20 条，按写入时间倒序）；无输入时展示为可回填/可清空的 chips。 */
     val history: Flow<List<String>> = graph.db.searchHistoryDao().observeRecent(20)
 
-    /** 提交当前搜索词写历史（IME 搜索键触发）：query 主键去重，at 用 ISO-8601 时间戳（与库内约定一致）。 */
+    /** 提交当前搜索词写历史（IME 搜索键触发）：query 主键去重，at 存 epochMillis（BUG-17：
+     *  Instant.toString() 整秒会省略小数位，TEXT 字典序 ORDER BY 错位，chips 偶发倒置）。 */
     fun commitSearch() {
         val q = _query.value.trim()
         if (q.isEmpty()) return
         viewModelScope.launch {
-            graph.db.searchHistoryDao().upsert(SearchHistoryEntity(q, Instant.now().toString()))
+            graph.db.searchHistoryDao().upsert(SearchHistoryEntity(q, System.currentTimeMillis()))
         }
     }
 

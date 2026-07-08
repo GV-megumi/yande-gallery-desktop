@@ -44,10 +44,12 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
+import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -97,6 +99,11 @@ fun AlbumDetailScreen(
             shareJob = null
         }
     }
+
+    // legacy 存储权限门卫（BUG-07）：26-28 批量下载/带下载分享须先持 WRITE_EXTERNAL_STORAGE，29+ 直通
+    val storageGate = rememberLegacyStorageGate(onDenied = {
+        scope.launch { snackbarHostState.showSnackbar(LEGACY_STORAGE_DENIED_TEXT) }
+    })
 
     /** 批量分享完整流（M4-T11/D9）：缺失项先入队原图下载，等全部终态后自动分享；部分失败仍分享成功子集。 */
     fun shareSelected() {
@@ -165,12 +172,15 @@ fun AlbumDetailScreen(
                     online = connState.online,
                     inGallery = true,
                     onDownload = {
-                        val ids = viewModel.selection.selected.toList()
-                        viewModel.downloadSelected(ids)
-                        viewModel.selection.clear()
-                        scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
+                        storageGate {
+                            val ids = viewModel.selection.selected.toList()
+                            viewModel.downloadSelected(ids)
+                            viewModel.selection.clear()
+                            scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
+                        }
                     },
-                    onShare = { shareSelected() },
+                    // 批量分享可能给缺失项入队下载，一并过存储门卫（26-28 已全下载时多问一次权限，可接受）
+                    onShare = { storageGate { shareSelected() } },
                     onDelete = {
                         val ids = viewModel.selection.selected.toList()
                         scope.launch {

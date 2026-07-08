@@ -4,6 +4,7 @@ import android.content.Context
 import android.database.sqlite.SQLiteDatabase
 import androidx.room.Room
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -40,9 +41,9 @@ class MigrationTest {
         // 1) 手工建真实 v2 库文件，种 1 行 images + 1 行旧版（无 serverId）downloads
         createRealV2Database()
 
-        // 2) 用 Room 打开并注册迁移链——触发 2→3 迁移与 v3 schema 校验
+        // 2) 用 Room 打开并注册迁移链（库现为 v4，2→3→4 触发）与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
         try {
@@ -62,9 +63,9 @@ class MigrationTest {
         // 1) 手工建真实 v1 库文件（非 Room createAll 全新库），并种一行 images
         createRealV1Database()
 
-        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v3，1→2→3 全链）——触发迁移与最终 schema 校验
+        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v4，1→2→3→4 全链）——触发迁移与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
             .allowMainThreadQueries()
             .build()
         try {
@@ -76,10 +77,34 @@ class MigrationTest {
             db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='search_history'", null)
                 .use { assertTrue(it.moveToFirst()) }
 
-            // 且可用：写入并读回一条搜索历史
-            db.searchHistoryDao().upsert(SearchHistoryEntity("neko", "2026-07-05T00:00:00.000Z"))
+            // 且可用：写入并读回一条搜索历史（v4 起 at 为 epochMillis，BUG-17）
+            db.searchHistoryDao().upsert(SearchHistoryEntity("neko", 1751673600000L))
             db.query("SELECT COUNT(*) FROM search_history", null)
                 .use { assertTrue(it.moveToFirst()); assertEquals(1, it.getInt(0)) }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `v3 迁移到 v4 search_history at 转 epochMillis 且倒序修正`() = runTest {
+        // 1) 真实 v3 库：老格式 at 为 Instant.toString() 文本。种下 BUG-17 的错位场景——
+        //    同一秒内先写 A（整秒，无小数位）后写 B（.500）：TEXT 字典序 'Z'>'.' 使 A 误排在 B 前。
+        createRealV3Database()
+
+        // 2) Room 打开触发 3→4：Kotlin 侧逐行解析换算搬入 INTEGER 新表
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            // 数值换算正确（期望值用 Instant.parse 现算，与迁移实现同源同义）
+            db.query("SELECT at FROM search_history WHERE `query`='A'", null)
+                .use { it.moveToFirst(); assertEquals(java.time.Instant.parse("2026-07-05T00:00:01Z").toEpochMilli(), it.getLong(0)) }
+            db.query("SELECT at FROM search_history WHERE `query`='B'", null)
+                .use { it.moveToFirst(); assertEquals(java.time.Instant.parse("2026-07-05T00:00:01.500Z").toEpochMilli(), it.getLong(0)) }
+            // 倒序修正：B（后写）应排在 A 前；解析失败的 garbage 行兜底 0 排最末且不丢词
+            assertEquals(listOf("B", "A", "garbage"), db.searchHistoryDao().observeRecent(10).first())
         } finally {
             db.close()
         }
@@ -99,6 +124,24 @@ class MigrationTest {
             v1.version = 1 // PRAGMA user_version = 1，使 Room 判定需 1→2 迁移
         } finally {
             v1.close()
+        }
+    }
+
+    /** 复刻 v3 schema（照 3.json：v2 各表但 downloads 为复合主键新版），种 BUG-17 错位场景的 search_history。 */
+    private fun createRealV3Database() {
+        val dbFile = context.getDatabasePath(dbName)
+        dbFile.parentFile?.mkdirs()
+        val v3 = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+        try {
+            V3_STATEMENTS.forEach(v3::execSQL)
+            // A 先写（整秒——Instant.toString() 省略 .000）；B 后写（同秒 .500）；
+            // TEXT 字典序下 'Z' > '.' 使 A 误排 B 前（BUG-17 复现态）；garbage 为不可解析兜底行
+            v3.execSQL("INSERT INTO search_history (`query`, at) VALUES ('A', '2026-07-05T00:00:01Z')")
+            v3.execSQL("INSERT INTO search_history (`query`, at) VALUES ('B', '2026-07-05T00:00:01.500Z')")
+            v3.execSQL("INSERT INTO search_history (`query`, at) VALUES ('garbage', 'not-a-timestamp')")
+            v3.version = 3 // PRAGMA user_version = 3，使 Room 判定需 3→4 迁移
+        } finally {
+            v3.close()
         }
     }
 
@@ -145,6 +188,14 @@ class MigrationTest {
         val V2_STATEMENTS = V1_STATEMENTS.dropLast(1) + listOf(
             "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `at` TEXT NOT NULL, PRIMARY KEY(`query`))",
             "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9bad12e2c4ef32f36ccc17de8a121c62')",
+        )
+
+        /** v3 建表语句：v2 各表但 downloads 换 (serverId,imageId) 复合主键 + v3 identity_hash（schemas/.../3.json）。 */
+        val V3_STATEMENTS = V1_STATEMENTS.dropLast(3) + listOf(
+            "CREATE TABLE IF NOT EXISTS `downloads` (`serverId` INTEGER NOT NULL, `imageId` INTEGER NOT NULL, `mediaStoreUri` TEXT NOT NULL, `downloadedAt` TEXT NOT NULL, PRIMARY KEY(`serverId`, `imageId`))",
+            "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `at` TEXT NOT NULL, PRIMARY KEY(`query`))",
+            "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+            "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '18b3cdde619736728cc3bbe4c40ebb88')",
         )
     }
 }

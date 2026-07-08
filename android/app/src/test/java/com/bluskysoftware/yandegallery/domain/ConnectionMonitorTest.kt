@@ -31,12 +31,32 @@ class ConnectionMonitorTest {
             monitor.reportNetworkLost()                    // 断网直驱横幅（不等同步失败）
             assertEquals(false, awaitItem().online)
 
+            // 401：服务器已应答 → online 翻回 true + unauthorized 置位（BUG-02 分类；横幅按 unauthorized 优先）
             monitor.reportFailure(ApiException("UNAUTHORIZED", "401", 401))
-            assertEquals(true, awaitItem().unauthorized)
+            val unauth = awaitItem()
+            assertEquals(true, unauth.unauthorized)
+            assertEquals(true, unauth.online)
 
             monitor.reportSuccess()
             val ok = awaitItem()
             assertEquals(true, ok.online); assertEquals(false, ok.unauthorized)
+        }
+    }
+
+    @Test fun `应用级错误不误判离线——403-422-500 均不翻 online（BUG-02）`() = runTest {
+        val monitor = ConnectionMonitor(activeServerName = flowOf("桌面"), scope = backgroundScope)
+        monitor.state.test {
+            awaitItem()   // 初始
+            assertEquals("桌面", awaitItem().serverName)
+
+            // 写权限未开（README 头号联调坑）：403 只应由调用方弹失败提示，横幅不得报「未连接」；
+            // 422/500 同理——服务器已应答即连接是通的
+            monitor.reportFailure(ApiException("PERMISSION_DENIED", "imageWrite 未开", 403))
+            monitor.reportFailure(ApiException("VALIDATION_ERROR", "empty imageIds", 422))
+            monitor.reportFailure(ApiException("INTERNAL_ERROR", "boom", 500))
+            expectNoEvents()   // online=true/unauthorized=false 全程无翻转
+            assertEquals(true, monitor.state.value.online)
+            assertEquals(false, monitor.state.value.unauthorized)
         }
     }
 
@@ -48,8 +68,10 @@ class ConnectionMonitorTest {
             monitor.reportFailure(ApiException("UNAUTHORIZED", "401", 401))
             assertEquals(true, awaitItem().unauthorized)
 
-            // 断网/恢复只翻 online 位，unauthorized 必须存活（横幅仍应显示密钥失效）
+            // 断网/恢复只翻 online 位，unauthorized 必须存活（横幅仍应显示密钥失效）。
+            // 401 后 online=true（BUG-02 分类），断网翻 false 先有一次发射。
             monitor.reportNetworkLost()
+            assertEquals(false, awaitItem().online)
             monitor.reportNetworkRestored()
             val restored = awaitItem()
             assertEquals(true, restored.online)

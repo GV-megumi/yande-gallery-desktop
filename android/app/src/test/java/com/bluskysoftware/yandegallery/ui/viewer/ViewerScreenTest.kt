@@ -1,9 +1,14 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.paging.LoadState
+import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
@@ -84,5 +89,66 @@ class ViewerScreenTest {
         compose.waitForIdle()
 
         assertTrue("第 0 页 settle 后应预取相邻页 id=2，实际：$prefetched", 2L in prefetched)
+    }
+
+    /**
+     * BUG-06 回归：定位驱动 append 期间（located=false）不得渲染底部操作栏——此窗口
+     * currentPage 恒 0，分享/下载/删除会静默作用在时间轴最新一张「错图」上；返回键保持可用。
+     */
+    @Test
+    fun `定位完成前不渲染底部操作栏，返回仍可用（BUG-06）`() {
+        compose.setContent {
+            val items = flowOf(
+                PagingData.from(
+                    listOf(image(1), image(2)),
+                    LoadStates(
+                        refresh = LoadState.NotLoading(endOfPaginationReached = false),
+                        prepend = LoadState.NotLoading(endOfPaginationReached = true),
+                        // 未到底：定位循环持续等待 append，located 恒 false（静态流不再来数据）
+                        append = LoadState.NotLoading(endOfPaginationReached = false),
+                    ),
+                ),
+            ).collectAsLazyPagingItems()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            ViewerPager(
+                items = items,
+                initialImageId = 999L,   // 快照中不存在的深处 id
+                imageLoader = ImageLoader.Builder(context).build(),
+                modelFor = { "file:///nonexistent/${it.id}.jpg" },
+                onPrefetch = {},
+                onBack = {},
+            )
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("viewer_bottom_bar").assertDoesNotExist()
+        compose.onNodeWithTag("viewer_back").assertIsDisplayed()
+    }
+
+    @Test
+    fun `定位完成后操作栏渲染且对准目标图（非第 0 页错图）`() {
+        var barImageId: Long? = null
+        compose.setContent {
+            val items = flowOf(PagingData.from(listOf(image(1), image(2)))).collectAsLazyPagingItems()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            ViewerPager(
+                items = items,
+                initialImageId = 2L,
+                imageLoader = ImageLoader.Builder(context).build(),
+                modelFor = { "file:///nonexistent/${it.id}.jpg" },
+                onPrefetch = {},
+                onBack = {},
+                actionBar = { img, _ ->
+                    barImageId = img.id
+                    Text("bar", modifier = Modifier.testTag("test_action_bar"))
+                },
+            )
+        }
+        compose.waitForIdle()
+
+        // 容器存在（located 门控已放行）+ 槽内容可见；空槽容器的 isDisplayed 判定与像素尺寸有关，不作依赖
+        compose.onNodeWithTag("viewer_bottom_bar").assertExists()
+        compose.onNodeWithTag("test_action_bar").assertIsDisplayed()
+        assertEquals("操作栏入参应为定位目标图", 2L, barImageId)
     }
 }

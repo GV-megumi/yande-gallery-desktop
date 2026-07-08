@@ -65,7 +65,9 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
+import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -193,6 +195,11 @@ fun ViewerScreen(
     // 进行中一律忽略后续点按；离开页面 scope 亡即随之取消，无需额外清理。
     var shareJob by remember { mutableStateOf<Job?>(null) }
 
+    // legacy 存储权限门卫（BUG-07）：26-28 查看原图/带下载分享须先持 WRITE_EXTERNAL_STORAGE，29+ 直通
+    val storageGate = rememberLegacyStorageGate(onDenied = {
+        scope.launch { snackbar.showSnackbar(LEGACY_STORAGE_DENIED_TEXT) }
+    })
+
     /** 分享完整流（M4-T11/D9）：未下载先入队原图下载（带前台通知），等终态后自动 ACTION_SEND；
      *  离线且缺原图直接提示不入队；下载失败提示取消。离开页面即取消等待（scope 随 composition 亡），
      *  底层下载不取消（KEEP 队列继续，产物仍落库——D9 取消语义）。 */
@@ -260,8 +267,9 @@ fun ViewerScreen(
                     downloading = workState == WorkInfo.State.ENQUEUED || workState == WorkInfo.State.RUNNING,
                     online = connState.online,
                     highZoom = zoomedIn && !isDownloaded,
-                    onShare = { share(image) },
-                    onViewOriginal = { viewModel.enqueueDownload(image) },
+                    // 已下载副本直接分享无需写权限；缺原图的分享会先入队下载，与查看原图同过存储门卫（BUG-07）
+                    onShare = { if (isDownloaded) share(image) else storageGate { share(image) } },
+                    onViewOriginal = { storageGate { viewModel.enqueueDownload(image) } },
                     onDelete = {
                         // 打开确认框时快照：id/文件名（旋转不丢）+ 是否有本地副本（决定文案分支）
                         confirmDeleteId = image.id
@@ -525,25 +533,30 @@ fun ViewerPager(
             }
 
             // 底部操作栏（Task 11 填充）：当前页图片 + 高倍缩放标志交给装配层的 actionBar 槽。
+            // 与 located 同门控（BUG-06）：定位驱动 append 期间 currentPage 恒为 0（时间轴最新一张），
+            // 黑色占位层只盖画面不盖操作栏——此窗口内分享/下载/删除会静默作用在「错图」上
+            //（删除确认框显示的也是最新图文件名，误确认即删错图）。返回键保持可用，让用户能中途退出。
             // derivedStateOf：scale 逐帧变化，但槽只关心「是否越过阈值」的布尔翻转，避免捏合中整栏逐帧重组。
-            val highZoom by remember {
-                derivedStateOf {
-                    (zoomStates[pagerState.currentPage]?.scale ?: 1f) > HIGH_ZOOM_THRESHOLD
+            if (located) {
+                val highZoom by remember {
+                    derivedStateOf {
+                        (zoomStates[pagerState.currentPage]?.scale ?: 1f) > HIGH_ZOOM_THRESHOLD
+                    }
                 }
-            }
-            val currentImage = if (items.itemCount == 0) null
-            else items.peek(pagerState.currentPage.coerceIn(0, items.itemCount - 1))
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .fillMaxWidth()
-                    .background(Color.Black.copy(alpha = 0.4f))
-                    .navigationBarsPadding()
-                    .padding(8.dp)
-                    .testTag("viewer_bottom_bar"),
-                horizontalArrangement = Arrangement.Center,
-            ) {
-                if (currentImage != null) actionBar(currentImage, highZoom)
+                val currentImage = if (items.itemCount == 0) null
+                else items.peek(pagerState.currentPage.coerceIn(0, items.itemCount - 1))
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .fillMaxWidth()
+                        .background(Color.Black.copy(alpha = 0.4f))
+                        .navigationBarsPadding()
+                        .padding(8.dp)
+                        .testTag("viewer_bottom_bar"),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    if (currentImage != null) actionBar(currentImage, highZoom)
+                }
             }
         }
     }

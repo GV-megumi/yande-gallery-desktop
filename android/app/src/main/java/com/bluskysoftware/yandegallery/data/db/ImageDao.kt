@@ -23,6 +23,20 @@ interface ImageDao {
     @Query("SELECT galleryId FROM gallery_images WHERE imageId = :imageId")
     suspend fun galleryIdsOf(imageId: Long): List<Long>
 
+    // ---- 写回滚快照（BUG-03/04/15）：删除回滚须重建被 CASCADE 删的链；加链回滚须区分“操作前已存在” ----
+
+    @Query("SELECT * FROM gallery_images WHERE imageId IN (:imageIds)")
+    suspend fun galleryLinksOfImages(imageIds: List<Long>): List<GalleryImageEntity>
+
+    @Query("SELECT * FROM image_tags WHERE imageId IN (:imageIds)")
+    suspend fun tagLinksOfImages(imageIds: List<Long>): List<ImageTagEntity>
+
+    @Query("SELECT imageId FROM gallery_images WHERE galleryId = :galleryId AND imageId IN (:imageIds)")
+    suspend fun existingGalleryLinkImageIds(galleryId: Long, imageIds: List<Long>): List<Long>
+
+    @Query("SELECT tagId FROM image_tags WHERE imageId = :imageId AND tagId IN (:tagIds)")
+    suspend fun existingTagLinkTagIds(imageId: Long, tagIds: List<Long>): List<Long>
+
     @Query("DELETE FROM image_tags WHERE imageId = :imageId AND tagId IN (:tagIds)")
     suspend fun deleteTagLinks(imageId: Long, tagIds: List<Long>)
 

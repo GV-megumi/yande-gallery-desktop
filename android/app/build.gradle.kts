@@ -14,8 +14,8 @@ android {
         applicationId = "com.bluskysoftware.yandegallery"
         minSdk = 26
         targetSdk = 35
-        versionCode = 4
-        versionName = "0.4.0"
+        versionCode = 5
+        versionName = "0.4.1"
     }
 
     buildTypes {
@@ -33,6 +33,13 @@ android {
     testOptions {
         unitTests {
             isIncludeAndroidResources = true   // Robolectric 需要
+            all { test ->
+                // Robolectric 运行时按需下载 android-all-instrumented jar（如 legacy 分支用例的
+                // API 28 沙箱）；其内置 MavenArtifactFetcher 直连 maven central 在本机不可达，
+                // 指向阿里云 central 镜像（收录 org.robolectric 全系 android-all 构件）
+                test.systemProperty("robolectric.dependency.repo.url", "https://maven.aliyun.com/repository/central")
+                test.systemProperty("robolectric.dependency.repo.id", "aliyun")
+            }
         }
     }
 }

@@ -90,4 +90,28 @@ class SearchScreenTest {
             Dispatchers.resetMain()
         }
     }
+
+    /** BUG-16 回归：无激活服务器时输入词显示引导文案——serverId=0/baseUrl="" 兜底只会整屏破图。 */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `无激活服务器时输入词显示引导而非结果网格（BUG-16）`() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        val vm = SearchViewModel(graph)
+        try {
+            compose.setContent {
+                SearchScreen(viewModel = vm, onOpenViewer = {}, onBack = {})
+            }
+            vm.onQueryChange("neko")
+            compose.waitForIdle()
+
+            compose.onNodeWithTag("search_no_server").assertIsDisplayed()
+            compose.onNodeWithTag("search_grid").assertDoesNotExist()
+        } finally {
+            graph.shutdownForTest()
+            db.close()
+            Dispatchers.resetMain()
+        }
+    }
 }

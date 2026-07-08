@@ -119,6 +119,38 @@ class AppGraphTest {
     }
 
     @Test
+    fun `编辑激活服务器 baseUrl 后自动向新端点发起同步（BUG-10 server-edited 收敛）`() = runTest {
+        MockWebServer().use { serverA ->
+            MockWebServer().use { serverB ->
+                serverA.dispatcher = syncDispatcher("a")
+                serverB.dispatcher = syncDispatcher("b")
+                serverA.start()
+                serverB.start()
+
+                val autoGraph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+                try {
+                    val id = autoGraph.serverRepository.addAndActivate("s", serverA.url("/").toString(), "key")
+                    assertNotNull("激活应自动同步到 A", serverA.takeRequest(5, TimeUnit.SECONDS))
+
+                    // 编辑激活行 baseUrl（id 不变）：收集器按端点变化触发 server-edited，且 activeSnapshot
+                    // 已先行更新——同步/SSE 必须指向 B（历史 bug：VM 手动 nudge 读陈旧快照连回旧 URL）。
+                    // 注意 RetrofitSyncApi 按请求解析 api()：编辑若落在 A 同步中途，B 收到的首个同步
+                    // 请求未必是 meta（可能是同一轮的 images/tags 尾巴）——断言只锁定「同步请求到达 B」。
+                    autoGraph.serverRepository.updateServer(id, "s", serverB.url("/").toString(), "key")
+                    var req = serverB.takeRequest(5, TimeUnit.SECONDS)
+                    // 跳过可能先到的 SSE 订阅请求，找首个同步请求
+                    while (req != null && req.path?.startsWith("/api/v1/sync/") != true) {
+                        req = serverB.takeRequest(5, TimeUnit.SECONDS)
+                    }
+                    assertNotNull("编辑 baseUrl 后同步请求应到达新端点 B", req)
+                } finally {
+                    autoGraph.shutdownForTest()
+                }
+            }
+        }
+    }
+
+    @Test
     fun `无激活服务器时 api() 返回 null，激活后恢复`() = runTest {
         assertNull(graph.api())
 

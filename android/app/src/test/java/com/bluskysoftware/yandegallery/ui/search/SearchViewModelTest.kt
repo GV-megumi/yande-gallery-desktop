@@ -114,6 +114,14 @@ class SearchViewModelTest {
     }
 
     @Test
+    fun `全角空格 U+3000 也切分取交集（BUG-11）`() = runTest(scheduler) {
+        seed()
+        vm.onQueryChange("landscape　person")   // 中文输入法空格键产物
+        // 整串若不切分会当单词匹配落空；切分正确则与半角空格同结果
+        assertEquals(listOf(3L), resultIds())
+    }
+
+    @Test
     fun `空 query 不建 Pager——首个快照为空即便库中有数据（M4-T14）`() = runTest(scheduler) {
         seed()
         // query 保持空：不应对全表建 Pager 预载首页（历史 chips 界面），快照为空

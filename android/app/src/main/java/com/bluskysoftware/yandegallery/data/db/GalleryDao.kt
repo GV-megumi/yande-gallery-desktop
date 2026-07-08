@@ -54,6 +54,10 @@ interface GalleryDao {
     @Query("DELETE FROM gallery_images WHERE galleryId = :galleryId")
     suspend fun clearMembership(galleryId: Long)
 
+    /** 删图集前的成员链快照（回滚重建用——例行增量同步不重拉 changeSeq 未变的图，丢链不自愈）。 */
+    @Query("SELECT * FROM gallery_images WHERE galleryId = :galleryId")
+    suspend fun membershipOf(galleryId: Long): List<GalleryImageEntity>
+
     @Query("DELETE FROM galleries")
     suspend fun clearAll()
 

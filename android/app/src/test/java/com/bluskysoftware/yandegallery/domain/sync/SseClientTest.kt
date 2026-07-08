@@ -5,8 +5,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import okhttp3.OkHttpClient
+import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import org.junit.Assert.*
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
@@ -145,6 +148,51 @@ class SseClientTest {
                 assertEquals(1, count.get())
                 assertEquals("B 应被连接（403 降级已按服务器隔离，不再全局永久）", 1, serverB.requestCount)
                 assertEquals("A 不应因 restart 被重连", 1, serverA.requestCount)
+
+                sse.stop()
+                scope.cancel()
+            }
+        }
+    }
+
+    @Test
+    fun `restart 后旧连接迟到的取消回调不清新连接不再重连（BUG-05 孤儿守卫）`() {
+        MockWebServer().use { serverA ->
+            MockWebServer().use { serverB ->
+                // A：连接受理但不应答（挂住）——cancel 时产生异步 onFailure(canceled) 迟到回调
+                serverA.enqueue(MockResponse().setSocketPolicy(SocketPolicy.NO_RESPONSE))
+                // B：事件帧 + 长节流尾巴保持流打开（不触发 onClosed 的合法重连，隔离观察目标）
+                serverB.dispatcher = object : Dispatcher() {
+                    override fun dispatch(request: RecordedRequest): MockResponse = MockResponse()
+                        .addHeader("Content-Type", "text/event-stream")
+                        .setBody("event: gallery:images-changed\ndata: {}\n\n" + ": pad\n".repeat(400))
+                        .throttleBody(64, 60, TimeUnit.SECONDS)
+                }
+                serverA.start()
+                serverB.start()
+
+                val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+                val activeUrl = AtomicReference(serverA.url("/api/v1/events/system").toString())
+                val latch = CountDownLatch(1)
+                val sse = SseClient(
+                    client = OkHttpClient(),
+                    urlProvider = { activeUrl.get() },
+                    onGalleryEvent = { latch.countDown() },
+                    scope = scope,
+                    debounceMs = 50,
+                    // 短重连间隔：修复前旧连接的 canceled 回调会清掉新引用并再排一次重连，
+                    // 500ms 观察窗内 B 必然多出第二条连接（孤儿制造机）；修复后守卫直接忽略
+                    reconnectDelayMs = 100,
+                )
+
+                sse.start()
+                assertNotNull("A 应收到订阅请求", serverA.takeRequest(2, TimeUnit.SECONDS))
+
+                activeUrl.set(serverB.url("/api/v1/events/system").toString())
+                sse.restart()   // cancel A（其失败回调异步迟到）→ 立即连 B
+                assertTrue("B 应收到事件", latch.await(3, TimeUnit.SECONDS))
+                Thread.sleep(500)
+                assertEquals("旧连接的取消回调不得再触发重连——B 只被连一次", 1, serverB.requestCount)
 
                 sse.stop()
                 scope.cancel()

@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         ServerEntity::class, SyncStateEntity::class, DownloadEntity::class,
         SearchHistoryEntity::class,
     ],
-    version = 3,
+    version = 4,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -45,9 +45,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v3→4（BUG-17）：search_history.at 由 ISO 文本改 epochMillis 整数——Instant.toString()
+        // 整秒会省略小数位（.000 消失），TEXT 字典序 ORDER BY at DESC 混排错位。老行在 Kotlin 侧
+        // 解析换算后搬入新表（SQLite strftime 对尾缀 Z 的支持跨版本不稳，不用 SQL 转换）；
+        // 解析失败的行按 0 兜底（排到最老，不丢词）。
+        val MIGRATION_3_4 = object : androidx.room.migration.Migration(3, 4) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `search_history_new` " +
+                        "(`query` TEXT NOT NULL, `at` INTEGER NOT NULL, PRIMARY KEY(`query`))"
+                )
+                db.query("SELECT `query`, `at` FROM `search_history`").use { c ->
+                    while (c.moveToNext()) {
+                        val q = c.getString(0)
+                        val at = runCatching { java.time.Instant.parse(c.getString(1)).toEpochMilli() }
+                            .getOrDefault(0L)
+                        db.execSQL(
+                            "INSERT OR REPLACE INTO `search_history_new` (`query`, `at`) VALUES (?, ?)",
+                            arrayOf(q, at),
+                        )
+                    }
+                }
+                db.execSQL("DROP TABLE `search_history`")
+                db.execSQL("ALTER TABLE `search_history_new` RENAME TO `search_history`")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "yande-gallery.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
                 .build()
 
         // inMemory 每次全新建库，无历史版本，无需注册迁移。

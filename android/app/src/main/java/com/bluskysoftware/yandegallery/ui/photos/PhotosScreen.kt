@@ -60,9 +60,11 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
+import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
@@ -125,6 +127,11 @@ fun PhotosScreen(
 
     // 放弃等待（D9 取消语义）：退出多选/清选择即取消分享等待协程；底层下载不取消（KEEP 队列继续，产物仍落库）。
     var shareJob by remember { mutableStateOf<Job?>(null) }
+
+    // legacy 存储权限门卫（BUG-07）：26-28 批量下载/带下载分享须先持 WRITE_EXTERNAL_STORAGE，29+ 直通
+    val storageGate = rememberLegacyStorageGate(onDenied = {
+        scope.launch { snackbarHostState.showSnackbar(LEGACY_STORAGE_DENIED_TEXT) }
+    })
     LaunchedEffect(selectionActive) {
         if (!selectionActive) {
             shareJob?.cancel()
@@ -184,12 +191,15 @@ fun PhotosScreen(
                 },
                 onCancel = { viewModel.selection.clear() },
                 onDownload = {
-                    val ids = viewModel.selection.selected.toList()
-                    viewModel.downloadSelected(ids)
-                    viewModel.selection.clear()
-                    scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
+                    storageGate {
+                        val ids = viewModel.selection.selected.toList()
+                        viewModel.downloadSelected(ids)
+                        viewModel.selection.clear()
+                        scope.launch { snackbarHostState.showSnackbar("已加入下载队列（${ids.size} 张）") }
+                    }
                 },
-                onShare = { shareSelected() },
+                // 批量分享可能给缺失项入队下载，一并过存储门卫（26-28 已全下载时多问一次权限，可接受）
+                onShare = { storageGate { shareSelected() } },
                 onDelete = {
                     val ids = viewModel.selection.selected.toList()
                     scope.launch {
@@ -221,8 +231,9 @@ fun PhotosScreen(
     // 冷启动闪档（持久 MONTH、首帧 DEFAULT 后翻转）不经 changeTier——pendingAnchor 保持 null，
     // 锚定 effect 直接早退，重建后停留顶部，不会误锚/崩溃。
     var pendingAnchor by remember { mutableStateOf<PendingAnchor?>(null) }
-    // 跨越判定基准（评审 Minor#2）：collected tier 经 DataStore 回环有滞后，同一手势内快速连切
-    //（如 DAY_5→MONTH→DAY_5）用旧档会误判月↔日跨越方向；改记「最近一次已请求档」，未请求过回退 tier。
+    // 跨越判定基准（评审 Minor#2）：collected tier 是 Compose 状态，重组落定前有一帧滞后，同一手势内
+    // 快速连切（如 DAY_5→MONTH→DAY_5）用旧档会误判月↔日跨越方向；改记「最近一次已请求档」，未请求过回退 tier。
+    //（VM 侧档位已是内存态即时更新（BUG-18），此处滞后仅剩重组一帧，本基准继续兜底。）
     var lastRequestedTier by remember { mutableStateOf<DensityTier?>(null) }
 
     fun changeTier(new: DensityTier) {

@@ -33,6 +33,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -70,7 +71,10 @@ fun ScanScreen(
                 PackageManager.PERMISSION_GRANTED,
         )
     }
-    var denied by remember { mutableStateOf(false) }
+    var denied by rememberSaveable { mutableStateOf(false) }
+    // 已请求置位（rememberSaveable 跨旋转/进程重建存活）：旋转不重跑 launcher.launch——框架去重
+    // 虽挡住二次弹框，但迟到的 denied 回调会把已授予状态翻回伪「拒绝」（对齐 NotificationPermissionEffect）
+    var requested by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { result ->
@@ -78,7 +82,10 @@ fun ScanScreen(
         denied = !result
     }
     LaunchedEffect(Unit) {
-        if (!granted) launcher.launch(Manifest.permission.CAMERA)
+        if (!granted && !requested) {
+            requested = true
+            launcher.launch(Manifest.permission.CAMERA)
+        }
     }
 
     Scaffold(
