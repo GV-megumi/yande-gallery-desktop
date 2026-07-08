@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import android.net.Uri
 import androidx.compose.material.icons.Icons
@@ -81,6 +82,8 @@ fun AppScaffold(
     val showBottomBar = currentRoute == Routes.Photos || currentRoute == Routes.Albums
 
     Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         topBar = {
             // 照片 tab 多选激活（桥 model 非空）：壳级 swap 为选择顶栏，替换常规 TopAppBar（M4-T12/D11 消双顶栏）
             val bars = photosSelectionBars.model
