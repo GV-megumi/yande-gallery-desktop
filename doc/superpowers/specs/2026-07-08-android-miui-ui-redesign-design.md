@@ -1,5 +1,9 @@
 # 安卓 App UI 重塑：组件级仿 MIUI 相册（设计文档）
 
+> ✅ 已实施（v0.5.0 / versionCode 6，2026-07-09）：实施计划 `doc/superpowers/plans/2026-07-08-android-miui-ui-redesign.md`，
+> 工作流 9 任务全过双阶段审查，全量单测 61 类/332 例绿，MuMu 深浅双主题逐页截图核验通过；
+> §2.3 折叠头 nestedScroll 方案实机手感正常，未触发降级预案。
+
 - 日期：2026-07-08
 - 目标版本：0.5.0（versionCode 6）
 - 决策人确认：组件级仿 MIUI（不追像素级动效复刻）；字体跟随系统（不内置 MiSans）

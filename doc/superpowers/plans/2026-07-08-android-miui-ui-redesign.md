@@ -46,7 +46,7 @@
 
 **Files:** Modify `android/app/src/main/java/com/bluskysoftware/yandegallery/ui/theme/{Color,Type,Theme}.kt`、`MainActivity.kt`；Create `ui/theme/Tokens.kt`
 
-- [ ] **Step 1.1: 重写 Color.kt**（全文件替换）
+- [x] **Step 1.1: 重写 Color.kt**（全文件替换）
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.theme
@@ -76,7 +76,7 @@ val DarkHairline = Color(0x1AFFFFFF)   // 白 10% 发丝线
 val DarkError = Color(0xFFFF6B6B)
 ```
 
-- [ ] **Step 1.2: 重写 Type.kt**（全文件替换）
+- [x] **Step 1.2: 重写 Type.kt**（全文件替换）
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.theme
@@ -105,7 +105,7 @@ val AppTypography = Typography().run {
 }
 ```
 
-- [ ] **Step 1.3: 重写 Theme.kt**（全文件替换；补全 colorScheme + shapes + 系统栏图标色）
+- [x] **Step 1.3: 重写 Theme.kt**（全文件替换；补全 colorScheme + shapes + 系统栏图标色）
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.theme
@@ -193,7 +193,7 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
 }
 ```
 
-- [ ] **Step 1.4: 新建 ui/theme/Tokens.kt**
+- [x] **Step 1.4: 新建 ui/theme/Tokens.kt**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.theme
@@ -216,11 +216,11 @@ object MiuiTokens {
 }
 ```
 
-- [ ] **Step 1.5: MainActivity 开 edge-to-edge**
+- [x] **Step 1.5: MainActivity 开 edge-to-edge**
 
 `MainActivity.kt` 加 import `androidx.activity.enableEdgeToEdge`，`onCreate` 里 `super.onCreate(savedInstanceState)` 之后、取 graph 之前插入一行 `enableEdgeToEdge()`。
 
-- [ ] **Step 1.6: AppScaffold 内容 insets 归零**（防 edge-to-edge 后二级页双 inset）
+- [x] **Step 1.6: AppScaffold 内容 insets 归零**（防 edge-to-edge 后二级页双 inset）
 
 `ui/AppNav.kt` 的 `Scaffold(` 调用加参数（本 Task 只加这一处，壳重构在 Task 5）：
 
@@ -233,12 +233,12 @@ object MiuiTokens {
 
 需补 import：`androidx.compose.foundation.layout.WindowInsets`。此后内容区顶部 inset 全部交给各页面自己的 TopAppBar/自定义顶栏（设置族等二级页已是自带 Scaffold+TopAppBar 模式，自然处理）。
 
-- [ ] **Step 1.7: 全量测试**
+- [x] **Step 1.7: 全量测试**
 
 Run: `cd android && cmd //c "D:\\Android\\gw.bat :app:testDebugUnitTest"`
 Expected: BUILD SUCCESSFUL（纯 theme/inset 改动，无断言变化）。若有涉及颜色断言的用例失败，按新色值适配断言。
 
-- [ ] **Step 1.8: Commit**
+- [x] **Step 1.8: Commit**
 
 ```bash
 git add -A && git commit -m "feat(android): MIUI 主题基座——真黑/纯白配色全族、字号层级、12-20dp 圆角体系、edge-to-edge"
@@ -248,7 +248,7 @@ git add -A && git commit -m "feat(android): MIUI 主题基座——真黑/纯白
 
 **Files:** Modify `ui/photos/TimelineModels.kt`、`ui/photos/PhotosViewModel.kt:133`；Test `test/.../ui/photos/TimelineModelsTest.kt`
 
-- [ ] **Step 2.1: 先写失败测试**（TimelineModelsTest 追加；同时删除原 `dayDisplayOf 中文年月日` 用例——该函数将被移除）
+- [x] **Step 2.1: 先写失败测试**（TimelineModelsTest 追加；同时删除原 `dayDisplayOf 中文年月日` 用例——该函数将被移除）
 
 ```kotlin
     // 固定 today 注入保证跨年/跨日运行稳定（формatter 不内取 LocalDate.now()）
@@ -285,12 +285,12 @@ git add -A && git commit -m "feat(android): MIUI 主题基座——真黑/纯白
 
 注意跨年断言的期望：本地时区可能把 07-03 换算成 07-02/07-04，跨年期望串应同样用 `local` 拼（`"${local.year}年${local.monthValue}月${local.dayOfMonth}日"`），执行时按此改写上面第二行（不写死 7月3日）。
 
-- [ ] **Step 2.2: 跑测试确认红**
+- [x] **Step 2.2: 跑测试确认红**
 
 Run: `cd android && cmd //c "D:\\Android\\gw.bat :app:testDebugUnitTest --tests \"*TimelineModelsTest\""`
 Expected: FAIL（Unresolved reference: dayHeaderDisplayOf 编译错）。
 
-- [ ] **Step 2.3: TimelineModels.kt 实现**（删除 `dayDisplayOf`，追加下列函数；`monthDisplayOf`/`dayBubbleDisplayOf` 保留——sticky/气泡仍用）
+- [x] **Step 2.3: TimelineModels.kt 实现**（删除 `dayDisplayOf`，追加下列函数；`monthDisplayOf`/`dayBubbleDisplayOf` 保留——sticky/气泡仍用）
 
 ```kotlin
 private val WEEKDAY_CN = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
@@ -333,7 +333,7 @@ fun viewerTimeLabel(createdAt: String): String = runCatching {
 }.getOrElse { "" }
 ```
 
-- [ ] **Step 2.4: PhotosViewModel 接线**
+- [x] **Step 2.4: PhotosViewModel 接线**
 
 `PhotosViewModel.kt:133` 原：
 ```kotlin
@@ -348,15 +348,15 @@ TimelineItem.Header(
 )
 ```
 
-- [ ] **Step 2.5: 全量测试确认绿**（PhotosViewModelTest 若断言了旧 Header display 文案，按新格式适配——同年数据的期望改「M月d日 周X」形态，用与生产同函数拼期望）
+- [x] **Step 2.5: 全量测试确认绿**（PhotosViewModelTest 若断言了旧 Header display 文案，按新格式适配——同年数据的期望改「M月d日 周X」形态，用与生产同函数拼期望）
 
-- [ ] **Step 2.6: Commit** `feat(android): 时间轴日期头 MIUI 文案——今天/昨天/周X/跨年，viewer 日期标签就绪`
+- [x] **Step 2.6: Commit** `feat(android): 时间轴日期头 MIUI 文案——今天/昨天/周X/跨年，viewer 日期标签就绪`
 
 ### Task 3: MiuiDialog 统一弹窗（TDD）+ 全调用点替换
 
 **Files:** Create `ui/common/MiuiDialog.kt`；Test Create `test/.../ui/common/MiuiDialogTest.kt`；Modify `PhotosScreen.kt`、`AlbumDetailScreen.kt`、`AlbumsScreen.kt`、`ViewerScreen.kt`、`DetailPanel.kt`（TagEditDialog）、`SettingsScreen.kt`、`ServersScreen.kt`、`GalleryPickerDialog.kt`
 
-- [ ] **Step 3.1: 新建 MiuiDialogTest.kt（先红）**
+- [x] **Step 3.1: 新建 MiuiDialogTest.kt（先红）**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -431,9 +431,9 @@ class MiuiDialogTest {
 }
 ```
 
-- [ ] **Step 3.2: 跑该测试确认编译失败** `--tests "*MiuiDialogTest"` → Unresolved reference: MiuiDialog
+- [x] **Step 3.2: 跑该测试确认编译失败** `--tests "*MiuiDialogTest"` → Unresolved reference: MiuiDialog
 
-- [ ] **Step 3.3: 新建 ui/common/MiuiDialog.kt**
+- [x] **Step 3.3: 新建 ui/common/MiuiDialog.kt**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -554,9 +554,9 @@ private fun MiuiDialogButton(
 }
 ```
 
-- [ ] **Step 3.4: 跑 MiuiDialogTest 确认绿**
+- [x] **Step 3.4: 跑 MiuiDialogTest 确认绿**
 
-- [ ] **Step 3.5: 替换 9 处调用点**（模式统一：AlertDialog(title/text/confirmButton/dismissButton) → MiuiDialog；confirm onClick 原逻辑原样搬进 onConfirm；各处既有 testTag 经 confirmTag 透传）
+- [x] **Step 3.5: 替换 9 处调用点**（模式统一：AlertDialog(title/text/confirmButton/dismissButton) → MiuiDialog；confirm onClick 原逻辑原样搬进 onConfirm；各处既有 testTag 经 confirmTag 透传）
 
 1. `PhotosScreen.kt` 批量删除（`confirmBatchDelete` 块）：
 ```kotlin
@@ -656,15 +656,15 @@ fun GalleryPickerDialog(
 ```
 各文件删掉不再使用的 `AlertDialog`/`TextButton` import（TagEditDialog 若仍用 TextButton 保留）。
 
-- [ ] **Step 3.6: 全量测试**——预期需适配的既有断言：弹窗按钮从 `TextButton(文本)` 变胶囊 Box（`onNodeWithText("取消")` 仍可命中）；`GalleryPickerDialogTest` 若断言 ListItem 结构改为断言行 tag/文本。跑绿为准。
+- [x] **Step 3.6: 全量测试**——预期需适配的既有断言：弹窗按钮从 `TextButton(文本)` 变胶囊 Box（`onNodeWithText("取消")` 仍可命中）；`GalleryPickerDialogTest` 若断言 ListItem 结构改为断言行 tag/文本。跑绿为准。
 
-- [ ] **Step 3.7: Commit** `feat(android): MiuiDialog 统一弹窗——等宽双胶囊按钮/危险红确认，9 处 AlertDialog 全量换装`
+- [x] **Step 3.7: Commit** `feat(android): MiuiDialog 统一弹窗——等宽双胶囊按钮/危险红确认，9 处 AlertDialog 全量换装`
 
 ### Task 4: MiuiWidgets 共享部件 + 设置族换皮 + 横幅柔和化
 
 **Files:** Create `ui/common/MiuiWidgets.kt`；Modify `SettingsScreen.kt`、`CacheScreen.kt`、`ServersScreen.kt`、`AddServerScreen.kt`、`EditServerScreen.kt`、`ScanScreen.kt`（仅顶栏）、`ConnectionBanner.kt`、`AlbumsScreen.kt`（AlbumNameDialog 输入框换 MiuiTextField）、`DetailPanel.kt`（TagEditDialog 输入框同换）
 
-- [ ] **Step 4.1: 新建 ui/common/MiuiWidgets.kt**
+- [x] **Step 4.1: 新建 ui/common/MiuiWidgets.kt**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -894,7 +894,7 @@ private fun MiuiCapsuleButton(
 
 注意：上面 `MiuiCapsuleButton` 里 `.androidx.compose.ui.draw.clip(...)` 写法不合法，执行时用顶部 `import androidx.compose.ui.draw.clip` + `.clip(RoundedCornerShape(24.dp))`；`Spacer`/`Arrangement` 同理提升为顶部 import（此处为避免遗漏依赖显式全名标注）。
 
-- [ ] **Step 4.2: SettingsScreen 换皮**（保留全部 testTag 与文案；Scaffold 结构改为）
+- [x] **Step 4.2: SettingsScreen 换皮**（保留全部 testTag 与文案；Scaffold 结构改为）
 
 ```kotlin
     Scaffold(
@@ -922,7 +922,7 @@ private fun MiuiCapsuleButton(
 ```
 删除 ListItem/HorizontalDivider/TopAppBar/IconButton/ArrowBack import，补 verticalScroll/rememberScrollState/Arrangement。SettingsScreenTest 三用例断言（tag 点击回调/版本文本/Apache 文案）不受影响。
 
-- [ ] **Step 4.3: CacheScreen 换皮**（行为与 tag 全保留：`cache_clear_thumb/preview/downloads`）
+- [x] **Step 4.3: CacheScreen 换皮**（行为与 tag 全保留：`cache_clear_thumb/preview/downloads`）
 
 结构改为：`Scaffold(containerColor = surfaceContainerLow, topBar = { MiuiSubPageTopBar("缓存管理", onBack) }, snackbarHost = 原样)`；LazyColumn `contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp)`、`verticalArrangement = spacedBy(12.dp)`，三个区块各包 `MiuiCardGroup`：
 
@@ -939,7 +939,7 @@ item {
 ```
 （预览缓存同构；`CacheTierSection` 保留函数壳、内部按上式改写，参数不变。）已下载记录区：`MiuiCardGroup(title = "已下载记录（${downloads.size}）")` 内：清空按钮 `MiuiSecondaryButton("清空记录", enabled = downloads.isNotEmpty(), tag 保留)` + 说明文字 + 记录行改 `MiuiListItem(headline = rec.filename ?: "图片 #${rec.imageId}", supporting = rec.downloadedAt)`（注意 LazyColumn 的 `items(downloads)` 需挪进卡片：改为把记录行放同一 `item {}` 的 Column 内 `downloads.forEach { … }`——记录量级为已下载数，可接受；删除两处 `HorizontalDivider` item）。页脚提示文案原样保留。
 
-- [ ] **Step 4.4: ServersScreen 换皮**（激活台蓝点+「当前」；卡片化；底部按钮换胶囊）
+- [x] **Step 4.4: ServersScreen 换皮**（激活台蓝点+「当前」；卡片化；底部按钮换胶囊）
 
 ```kotlin
     Scaffold(
@@ -985,7 +985,7 @@ item {
 ```
 删除 ListItem/CheckCircle/Button/OutlinedButton/TopAppBar import，补 CircleShape/Spacer/PaddingValues/navigationBarsPadding/clip。
 
-- [ ] **Step 4.5: AddServerScreen / EditServerScreen 表单换皮**（两屏同构；校验/防抖/预填逻辑一字不动）
+- [x] **Step 4.5: AddServerScreen / EditServerScreen 表单换皮**（两屏同构；校验/防抖/预填逻辑一字不动）
 
 - 顶栏：`MiuiSubPageTopBar("添加服务器"/"编辑服务器", onBack)`；Scaffold `containerColor = surfaceContainerLow`。
 - 三个 `OutlinedTextField` → `MiuiTextField`（label 文案移到框上方参数）：
@@ -997,9 +997,9 @@ MiuiTextField(value = apiKey, onValueChange = { apiKey = it }, label = "API Key"
 - 按钮行：`MiuiSecondaryButton("测试连接", loading = testing, enabled = baseUrl.isNotBlank(), onClick = 原逻辑, modifier = weight(1f).testTag("btn_test"))` + `MiuiPrimaryButton("保存并激活"/"保存", enabled = !saving && …原条件, onClick = 原逻辑, modifier = weight(1f).testTag("btn_save"))`。
 - AlbumNameDialog 与 TagEditDialog 的 `OutlinedTextField` 同步换 `MiuiTextField`（`album_name_field` / `tag_edit_input` tag 保留；TagEditDialog 的 label="新标签" 保留在框上方）。
 
-- [ ] **Step 4.6: ScanScreen 顶栏**：`TopAppBar(title=扫码配对…)` → `MiuiSubPageTopBar("扫码配对", onBack)`（其余相机逻辑不动）。
+- [x] **Step 4.6: ScanScreen 顶栏**：`TopAppBar(title=扫码配对…)` → `MiuiSubPageTopBar("扫码配对", onBack)`（其余相机逻辑不动）。
 
-- [ ] **Step 4.7: ConnectionBanner 柔和化**（文案/tag/点击行为不动）
+- [x] **Step 4.7: ConnectionBanner 柔和化**（文案/tag/点击行为不动）
 
 ```kotlin
 @Composable
@@ -1039,7 +1039,7 @@ private fun BannerRow(text: String, bg: Color, fg: Color, tag: String, onClick: 
 ```
 ConnectionBannerTest 断言文案/tag/点击——不受影响。
 
-- [ ] **Step 4.8: 全量测试跑绿 → Commit** `feat(android): 设置族 MIUI 卡片化——SubPageTopBar/CardGroup/灰底输入框/胶囊按钮，横幅柔和化`
+- [x] **Step 4.8: 全量测试跑绿 → Commit** `feat(android): 设置族 MIUI 卡片化——SubPageTopBar/CardGroup/灰底输入框/胶囊按钮，横幅柔和化`
 
 ### Task 5: 壳重构（顶栏下放/MiuiNavBar/桥瘦身）+ 折叠大标题 + 照片页顶部接入
 
@@ -1047,7 +1047,7 @@ ConnectionBannerTest 断言文案/tag/点击——不受影响。
 
 **核心裁定（spec §2.3）**：大标题不进 LazyGrid（避免全部索引数学 +1 波及锚定/快滚/sticky），改用 nestedScroll exitUntilCollapsed——上滑先收头部再滚内容、下滑内容到顶后余量展开头部；松手 settle 到全收/全展。
 
-- [ ] **Step 5.1: 新建 ui/common/MiuiTopBars.kt**
+- [x] **Step 5.1: 新建 ui/common/MiuiTopBars.kt**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -1194,7 +1194,7 @@ fun MiuiPinnedTopBar(
 }
 ```
 
-- [ ] **Step 5.2: 新建 MiuiTopBarsTest.kt（覆盖状态机与顶栏门控）**
+- [x] **Step 5.2: 新建 MiuiTopBarsTest.kt（覆盖状态机与顶栏门控）**
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -1270,7 +1270,7 @@ class MiuiTopBarsTest {
 ```
 （执行时把 `scrolledState` 写成规范形式：`lateinit var` 提前声明即可，如上。）
 
-- [ ] **Step 5.3: PhotosSelectionBars 瘦身**（全文件替换）
+- [x] **Step 5.3: PhotosSelectionBars 瘦身**（全文件替换）
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui.common
@@ -1297,7 +1297,7 @@ class PhotosSelectionBars {
 }
 ```
 
-- [ ] **Step 5.4: 重写 AppNav.kt 壳**（Routes 与 NavHost 路由/转场不动；变化＝去 topBar、MiuiNavBar、bottomBar swap）
+- [x] **Step 5.4: 重写 AppNav.kt 壳**（Routes 与 NavHost 路由/转场不动；变化＝去 topBar、MiuiNavBar、bottomBar swap）
 
 ```kotlin
 // imports 增：Icons.Outlined.Photo / Icons.Outlined.PhotoAlbum（androidx.compose.material.icons.outlined.*）、
@@ -1373,7 +1373,7 @@ private fun MiuiNavBar(currentRoute: String?, onSelect: (String) -> Unit) {
 ```
 `AppNavForTest` 保持占位结构不动（占位 Text 无顶栏——顶栏已属页面职责）。
 
-- [ ] **Step 5.5: PhotosScreen 顶部接入**
+- [x] **Step 5.5: PhotosScreen 顶部接入**
 
 (a) 签名加两参数：
 ```kotlin
@@ -1449,7 +1449,7 @@ fun PhotosScreen(
 imports 增：Search/Settings 图标、IconButton、nestedScroll、snapshotFlow、MiuiPinnedTopBar/MiuiLargeTitle/rememberMiuiHeaderState、SelectionTopBar。
 注意：`resolved=false` 空白分支不加顶栏（防冷启动闪帧，原语义保留）。
 
-- [ ] **Step 5.6: MainActivity 接线**
+- [x] **Step 5.6: MainActivity 接线**
 
 photosContent 的 PhotosScreen 调用补：
 ```kotlin
@@ -1457,7 +1457,7 @@ photosContent 的 PhotosScreen 调用补：
     onOpenSettings = { nav.navigate(Routes.Settings) },
 ```
 
-- [ ] **Step 5.7: AppNavTest 适配**（全文件替换）
+- [x] **Step 5.7: AppNavTest 适配**（全文件替换）
 
 ```kotlin
 package com.bluskysoftware.yandegallery.ui
@@ -1510,15 +1510,15 @@ class AppNavTest {
 }
 ```
 
-- [ ] **Step 5.8: 全量测试**——重点观察 PhotosScreenTest（组件级注入，预期不受壳影响）；若有引用 8 参 Model 的其他用例一并改 5 参。
+- [x] **Step 5.8: 全量测试**——重点观察 PhotosScreenTest（组件级注入，预期不受壳影响）；若有引用 8 参 Model 的其他用例一并改 5 参。
 
-- [ ] **Step 5.9: Commit** `refactor(android): 壳顶栏下放页面自持——折叠大标题/无胶囊底栏/多选桥瘦身为底栏五字段`
+- [x] **Step 5.9: Commit** `refactor(android): 壳顶栏下放页面自持——折叠大标题/无胶囊底栏/多选桥瘦身为底栏五字段`
 
 ### Task 6: 相册页去 FAB + 顶栏「+」 + 封面卡片；图集详情居中顶栏
 
 **Files:** Modify `ui/albums/AlbumsScreen.kt`、`ui/albums/AlbumDetailScreen.kt`；Test：涉及 `albums_new_fab` 的用例改 `albums_new`（grep `albums_new_fab` 全仓替换后跑测）
 
-- [ ] **Step 6.1: AlbumsScreen 结构重排**（对话框/写逻辑/snackbar 一字不动；仅壳与卡片）
+- [x] **Step 6.1: AlbumsScreen 结构重排**（对话框/写逻辑/snackbar 一字不动；仅壳与卡片）
 
 外层 `Scaffold(floatingActionButton=…)` 拆掉，改：
 
@@ -1569,7 +1569,7 @@ class AppNavTest {
 ```
 imports：去 Scaffold/FloatingActionButton/WindowInsets；补 rememberLazyGridState/PaddingValues/Arrangement/nestedScroll/snapshotFlow/LaunchedEffect/Box/Alignment/MiuiTopBars 三件/testTag（保留 semantics/disabled）。
 
-- [ ] **Step 6.2: AlbumCardItem 卡片化**（菜单逻辑不动）
+- [x] **Step 6.2: AlbumCardItem 卡片化**（菜单逻辑不动）
 
 Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
 
@@ -1595,11 +1595,11 @@ Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 2.dp))
 ```
 
-- [ ] **Step 6.3: 空态文案改**：`"点右下「+」新建…"` → `"点右上「+」新建，或连接服务器同步后在此查看"`。
+- [x] **Step 6.3: 空态文案改**：`"点右下「+」新建…"` → `"点右上「+」新建，或连接服务器同步后在此查看"`。
 
-- [ ] **Step 6.4: 全仓替换 tag**：`grep -rl "albums_new_fab" android/` → 生产已改，测试文件里的 `albums_new_fab` 全部替换为 `albums_new`；断言 FAB 存在性的用例语义不变（同 tag 的 IconButton）。
+- [x] **Step 6.4: 全仓替换 tag**：`grep -rl "albums_new_fab" android/` → 生产已改，测试文件里的 `albums_new_fab` 全部替换为 `albums_new`；断言 FAB 存在性的用例语义不变（同 tag 的 IconButton）。
 
-- [ ] **Step 6.5: AlbumDetailScreen 顶栏**（Scaffold 骨架/多选/底栏逻辑不动）
+- [x] **Step 6.5: AlbumDetailScreen 顶栏**（Scaffold 骨架/多选/底栏逻辑不动）
 
 非多选分支的 TopAppBar 换：
 
@@ -1616,13 +1616,13 @@ Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
 ```
 若 `AlbumDetailViewModel` 无 `currentGalleryId` 公开属性（图集详情已有 `viewModel.currentGalleryId` 用于 GalleryPicker excludeIds——已确认存在），直接用之。删 TopAppBar/ArrowBack/IconButton 相关 import（IconButton 若他处用保留）。
 
-- [ ] **Step 6.6: 全量测试跑绿 → Commit** `feat(android): 相册页 MIUI 化——顶栏加号替代 FAB/12dp 圆角封面卡片，图集详情居中双行顶栏`
+- [x] **Step 6.6: 全量测试跑绿 → Commit** `feat(android): 相册页 MIUI 化——顶栏加号替代 FAB/12dp 圆角封面卡片，图集详情居中双行顶栏`
 
 ### Task 7: 网格体系统一（3dp 缝+圆角）+ 多选视觉 + sticky 滚动显隐 + 快滚把手
 
 **Files:** Modify `ui/photos/PhotosScreen.kt`（PhotosGrid/photoCell/sticky）、`ui/albums/AlbumDetailScreen.kt`（AlbumDetailGrid/imageCell）、`ui/search/SearchScreen.kt`（SearchResultGrid，仅格子部分——顶栏在 Task 8）、`ui/common/SelectionBars.kt`（SelectableCell）、`ui/common/FastScrollbar.kt`
 
-- [ ] **Step 7.1: PhotosGrid 间距**（骨架函数）
+- [x] **Step 7.1: PhotosGrid 间距**（骨架函数）
 
 ```kotlin
     LazyVerticalGrid(
@@ -1635,9 +1635,9 @@ Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
 ```
 Header 行 padding 改 `padding(horizontal = 16.dp, vertical = 10.dp)`（16sp 日期头呼吸感）。
 
-- [ ] **Step 7.2: photoCell 格子**（PhotosScreen 装配处）：`SelectableCell(modifier = Modifier.aspectRatio(1f).padding(1.dp))` → `Modifier.aspectRatio(1f).clip(MiuiTokens.CellShape)`。AlbumDetailScreen `imageCell` 同改；AlbumDetailGrid 加同款 spacedBy 双向间距 + `contentPadding = PaddingValues(top = 2.dp)`。SearchResultGrid：格子 `padding(1.dp)` → `clip(MiuiTokens.CellShape)`，网格加 spacedBy 双向间距。
+- [x] **Step 7.2: photoCell 格子**（PhotosScreen 装配处）：`SelectableCell(modifier = Modifier.aspectRatio(1f).padding(1.dp))` → `Modifier.aspectRatio(1f).clip(MiuiTokens.CellShape)`。AlbumDetailScreen `imageCell` 同改；AlbumDetailGrid 加同款 spacedBy 双向间距 + `contentPadding = PaddingValues(top = 2.dp)`。SearchResultGrid：格子 `padding(1.dp)` → `clip(MiuiTokens.CellShape)`，网格加 spacedBy 双向间距。
 
-- [ ] **Step 7.3: SelectableCell 多选视觉**（`ui/common/SelectionBars.kt` 内该函数替换；tag/语义保留）
+- [x] **Step 7.3: SelectableCell 多选视觉**（`ui/common/SelectionBars.kt` 内该函数替换；tag/语义保留）
 
 ```kotlin
 @OptIn(ExperimentalFoundationApi::class)
@@ -1689,7 +1689,7 @@ fun SelectableCell(
 ```
 imports 增：`animateFloatAsState`、`graphicsLayer`、`border`、`Icons.Filled.Check`；`CheckCircle` import 移除。涉及 `selection_badge`/`已选中` 的既有断言兼容（tag 在 Box、contentDescription 在 Icon）。
 
-- [ ] **Step 7.4: sticky 日期浮层滚动显隐**（PhotosScreen 装配处；StickyDateOverlay 组件本体与 `sticky_date` tag 不动，纯组件测试零影响）
+- [x] **Step 7.4: sticky 日期浮层滚动显隐**（PhotosScreen 装配处；StickyDateOverlay 组件本体与 `sticky_date` tag 不动，纯组件测试零影响）
 
 ```kotlin
                         // 仅滚动中浮现（spec §3 修重叠）：停止滚动 500ms 后淡出；collectLatest 保证
@@ -1713,15 +1713,15 @@ imports 增：`animateFloatAsState`、`graphicsLayer`、`border`、`Icons.Filled
 StickyDateOverlay 样式微调：`RoundedCornerShape(12.dp)` → `RoundedCornerShape(50)`、加 `border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)`（Surface 参数）。imports：collectLatest/delay/fadeIn/fadeOut/tween。
 若 PhotosScreenTest 有「sticky 在静止时可见」的既有断言：该断言测试的是 StickyDateOverlay 组件本体（直接组合），不经 AnimatedVisibility——先跑测确认，仅当断言经由 PhotosScreen 整屏装配时才需要在测试里模拟滚动或改断言目标为组件本体。
 
-- [ ] **Step 7.5: FastScrollbar 把手/气泡样式**（逻辑零改动）：thumb `size(width = 6.dp,…)` → `size(width = 5.dp,…)`、`RoundedCornerShape(3.dp)` → `RoundedCornerShape(50)`；气泡 Surface `RoundedCornerShape(16.dp)` → `RoundedCornerShape(50)`、`color = secondaryContainer` → `color = MaterialTheme.colorScheme.surfaceContainerHigh`、加 `shadowElevation = 3.dp`。
+- [x] **Step 7.5: FastScrollbar 把手/气泡样式**（逻辑零改动）：thumb `size(width = 6.dp,…)` → `size(width = 5.dp,…)`、`RoundedCornerShape(3.dp)` → `RoundedCornerShape(50)`；气泡 Surface `RoundedCornerShape(16.dp)` → `RoundedCornerShape(50)`、`color = secondaryContainer` → `color = MaterialTheme.colorScheme.surfaceContainerHigh`、加 `shadowElevation = 3.dp`。
 
-- [ ] **Step 7.6: 全量测试跑绿 → Commit** `feat(android): 网格 3dp 缝圆角统一三网格，多选蓝勾/空心圈/微缩，sticky 仅滚动中浮现`
+- [x] **Step 7.6: 全量测试跑绿 → Commit** `feat(android): 网格 3dp 缝圆角统一三网格，多选蓝勾/空心圈/微缩，sticky 仅滚动中浮现`
 
 ### Task 8: 搜索页胶囊搜索框 + 胶囊历史 chip
 
 **Files:** Modify `ui/search/SearchScreen.kt`；Test `SearchScreenTest.kt`（预期零改，跑确认）
 
-- [ ] **Step 8.1: 顶部区替换**（TopAppBar+TextField → 返回 + MiuiSearchField；预填/焦点/防重入逻辑不动）
+- [x] **Step 8.1: 顶部区替换**（TopAppBar+TextField → 返回 + MiuiSearchField；预填/焦点/防重入逻辑不动）
 
 ```kotlin
     Scaffold(
@@ -1754,7 +1754,7 @@ StickyDateOverlay 样式微调：`RoundedCornerShape(12.dp)` → `RoundedCornerS
     ) { padding -> …内容区三分支原样… }
 ```
 
-- [ ] **Step 8.2: 同文件新增私有 MiuiSearchField**
+- [x] **Step 8.2: 同文件新增私有 MiuiSearchField**
 
 ```kotlin
 /** 灰底胶囊搜索框（spec §7）：40dp 高、无下划线；testTag search_field/search_clear_query 契约保留。 */
@@ -1815,7 +1815,7 @@ private fun MiuiSearchField(
 imports 增：BasicTextField/SolidColor/CircleShape/clip/clickable/Surface/statusBarsPadding/size；删 TextField/TopAppBar。
 注意：原清除按钮是 IconButton（tag 在 IconButton 上）——现 tag 落在可点 Icon 上，`performClick` 兼容。
 
-- [ ] **Step 8.3: 历史区换皮**（SearchHistory 函数体；tag `search_clear_history`/`search_history_$q` 保留）
+- [x] **Step 8.3: 历史区换皮**（SearchHistory 函数体；tag `search_clear_history`/`search_history_$q` 保留）
 
 ```kotlin
     Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -1843,13 +1843,13 @@ imports 增：BasicTextField/SolidColor/CircleShape/clip/clickable/Surface/statu
 ```
 （`search_clear_history` 原是 TextButton「清空」——SearchScreenTest 若断言文本「清空」改为断言 tag 点击后历史清空；先跑测再按报错适配。AssistChip import 删除。）
 
-- [ ] **Step 8.4: 全量测试跑绿 → Commit** `feat(android): 搜索页 MIUI 化——灰底胶囊搜索框/胶囊历史词/垃圾桶清空`
+- [x] **Step 8.4: 全量测试跑绿 → Commit** `feat(android): 搜索页 MIUI 化——灰底胶囊搜索框/胶囊历史词/垃圾桶清空`
 
 ### Task 9: 大图页上下渐变 chrome + 顶部日期时间 + 多选栏/详情面板换皮
 
 **Files:** Modify `ui/viewer/ViewerScreen.kt`（ViewerPager chrome 区 + ModalBottomSheet 底色）、`ui/viewer/ViewerActionBar.kt`（图标 22dp）、`ui/common/SelectionBars.kt`（Top/Bottom 栏皮）；Test `ViewerScreenTest.kt` 增 2 例
 
-- [ ] **Step 9.1: ViewerPager chrome 重排**（located 门控/占位层/错误态/pager 全部不动）
+- [x] **Step 9.1: ViewerPager chrome 重排**（located 门控/占位层/错误态/pager 全部不动）
 
 `if (!immersive) { … }` 整块替换为（`currentImage` 提升到块外共用；`highZoom` 保持在底栏内 derivedStateOf）：
 
@@ -1940,16 +1940,16 @@ imports 增：BasicTextField/SolidColor/CircleShape/clip/clickable/Surface/statu
 ```
 imports 增：AnimatedVisibility/fadeIn/fadeOut/tween、Brush、Spacer/height、FontWeight、MaterialTheme、`viewerDateLabel`/`viewerTimeLabel`（`com.bluskysoftware.yandegallery.ui.photos.*`）、LocalDate、Icon/AutoMirrored 已有。原 `Row(...).background(Color.Black.copy(alpha = 0.4f))` 底栏块与旧返回键块删除。
 
-- [ ] **Step 9.2: ModalBottomSheet 底色**（ViewerScreen 装配处）：`ModalBottomSheet(onDismissRequest = …)` 加 `containerColor = MaterialTheme.colorScheme.surfaceContainerHigh`（20dp 顶圆角与拖动把手 M3 默认已随 shapes.extraLarge 生效）。
+- [x] **Step 9.2: ModalBottomSheet 底色**（ViewerScreen 装配处）：`ModalBottomSheet(onDismissRequest = …)` 加 `containerColor = MaterialTheme.colorScheme.surfaceContainerHigh`（20dp 顶圆角与拖动把手 M3 默认已随 shapes.extraLarge 生效）。
 
-- [ ] **Step 9.3: ViewerActionBar 微调**：`BarAction` 的 `Icon(icon, …)` 加 `modifier = Modifier.size(22.dp)`；Column padding 改 `padding(horizontal = 12.dp, vertical = 8.dp)`（labelSmall 已随 Type.kt 变 11sp，无需改）。
+- [x] **Step 9.3: ViewerActionBar 微调**：`BarAction` 的 `Icon(icon, …)` 加 `modifier = Modifier.size(22.dp)`；Column padding 改 `padding(horizontal = 12.dp, vertical = 8.dp)`（labelSmall 已随 Type.kt 变 11sp，无需改）。
 
-- [ ] **Step 9.4: SelectionBars 换皮**（回调/tag/文案零变化）
+- [x] **Step 9.4: SelectionBars 换皮**（回调/tag/文案零变化）
 
 SelectionTopBar：`Surface(color = surfaceContainerHigh)` → `Surface(color = MaterialTheme.colorScheme.surface)`，Surface 内 Column 包裹：原 Row + 尾随 `HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)`；「已选 $count 项」Text 改居中：`Text(…, modifier = Modifier.weight(1f), textAlign = TextAlign.Center)`。
 SelectionBottomBar：`Surface(color = surface)` + Column{ 顶部 HorizontalDivider(0.5.dp, outlineVariant)；原 Row }；`SelectionAction` 的 Icon 加 `Modifier.size(22.dp)`。
 
-- [ ] **Step 9.5: ViewerScreenTest 增 2 例**（文件已有 4 例，追加）
+- [x] **Step 9.5: ViewerScreenTest 增 2 例**（文件已有 4 例，追加）
 
 ```kotlin
     /** spec §5：定位完成前顶部日期无「当前图」语义——与操作栏同门控，不得渲染。 */
@@ -1996,24 +1996,24 @@ SelectionBottomBar：`Surface(color = surface)` + Column{ 顶部 HorizontalDivid
     }
 ```
 
-- [ ] **Step 9.6: 全量测试跑绿 → Commit** `feat(android): 大图页 MIUI chrome——上下渐变遮罩/居中日期时间/150ms fade，多选栏发丝线换皮`
+- [x] **Step 9.6: 全量测试跑绿 → Commit** `feat(android): 大图页 MIUI chrome——上下渐变遮罩/居中日期时间/150ms fade，多选栏发丝线换皮`
 
 ### Task 10: 版本 0.5.0 + 打包装机实机核验 + 文档收尾
 
 **Files:** Modify `android/app/build.gradle.kts`、`android/README.md`、spec 文档状态行；实机操作 MuMu（127.0.0.1:16384）与红魔 NX769J（FY24148102C9）
 
-- [ ] **Step 10.1: 版本号**：`versionCode = 5` → `6`；`versionName = "0.4.1"` → `"0.5.0"`。
+- [x] **Step 10.1: 版本号**：`versionCode = 5` → `6`；`versionName = "0.4.1"` → `"0.5.0"`。
 
-- [ ] **Step 10.2: 全量单测终跑**：`cd android && cmd //c "D:\\Android\\gw.bat :app:testDebugUnitTest"` → BUILD SUCCESSFUL，用例数应 ≥ 基线 314 + 新增（MiuiDialogTest 3 + MiuiTopBarsTest 2 + TimelineModelsTest 3 + ViewerScreenTest 2 ≈ 324+）。
+- [x] **Step 10.2: 全量单测终跑**：`cd android && cmd //c "D:\\Android\\gw.bat :app:testDebugUnitTest"` → BUILD SUCCESSFUL，用例数应 ≥ 基线 314 + 新增（MiuiDialogTest 3 + MiuiTopBarsTest 2 + TimelineModelsTest 3 + ViewerScreenTest 2 ≈ 324+）。
 
-- [ ] **Step 10.3: 打包**：`cmd //c "D:\\Android\\gw.bat :app:assembleDebug"` → `android/app/build/outputs/apk/debug/app-debug.apk`。
+- [x] **Step 10.3: 打包**：`cmd //c "D:\\Android\\gw.bat :app:assembleDebug"` → `android/app/build/outputs/apk/debug/app-debug.apk`。
 
-- [ ] **Step 10.4: 装机**（先 `adb devices` 核对序列号，勿凭序列号猜设备——memory 教训）：
+- [x] **Step 10.4: 装机**（先 `adb devices` 核对序列号，勿凭序列号猜设备——memory 教训）：
   - `adb -s 127.0.0.1:16384 install -r android/app/build/outputs/apk/debug/app-debug.apk`
   - `adb -s FY24148102C9 install -r ...`（真机 edge-to-edge/状态栏图标色重点核对）
   - 小米平板 `adb -s 4824f0aa install -r ...`（PIN 锁屏，装上即可，用户解锁自验）
 
-- [ ] **Step 10.5: MuMu 逐页截图对照 spec**（`adb exec-out screencap -p`，深色主题）：
+- [x] **Step 10.5: MuMu 逐页截图对照 spec**（`adb exec-out screencap -p`，深色主题）：
   1. 照片页顶部（大标题态）＋上滑后（小标题浮现+发丝线）＋日期头「今天/昨天/周X」＋3dp 缝圆角格子
   2. 滚动中 sticky 胶囊浮现、停止后淡出；快滚细把手+胶囊气泡
   3. 长按多选：空心圈/蓝勾/微缩 + 顶部选择栏 + 底部动作栏发丝线
@@ -2026,14 +2026,14 @@ SelectionBottomBar：`Surface(color = surface)` + Column{ 顶部 HorizontalDivid
   逐项与 spec §2-§8 核对；观感偏差当场修（禁写测试数据，全程只读操作——桌面端写权限全开，误触会真删库）。
   红魔上抽查 1/4/5/9 四项 + 状态栏图标色（浅色模式下须为深色图标——红魔默认浅色主题正好覆盖浅色配色核验）。
 
-- [ ] **Step 10.6: 折叠头手感核验**（实机）：照片页上滑大标题收起→继续滚内容；中途下滑不弹头；回顶后余量展开；松手无半截标题。若 nestedScroll 有跳变/掉帧，按 spec §2.3 预案降级为「二值动画收展」（`AnimatedVisibility` 包 MiuiLargeTitle，阈值 firstVisibleItemIndex>0）并记录到 spec。
+- [x] **Step 10.6: 折叠头手感核验**（实机）：照片页上滑大标题收起→继续滚内容；中途下滑不弹头；回顶后余量展开；松手无半截标题。若 nestedScroll 有跳变/掉帧，按 spec §2.3 预案降级为「二值动画收展」（`AnimatedVisibility` 包 MiuiLargeTitle，阈值 firstVisibleItemIndex>0）并记录到 spec。
 
-- [ ] **Step 10.7: 文档**：
+- [x] **Step 10.7: 文档**：
   - `android/README.md`：功能清单/截图口径处补一段「v0.5.0 UI 重塑（仿 MIUI 相册）」要点；版本号更新。
   - spec 文档顶部加状态行：`> ✅ 已实施（v0.5.0，实施计划 doc/superpowers/plans/2026-07-08-android-miui-ui-redesign.md）`。
   - 本计划文件勾选全部 checkbox。
 
-- [ ] **Step 10.8: 终提交** `feat(android): 仿 MIUI 相册 UI 重塑收官——版本 0.5.0，全量单测绿+双真机核验`
+- [x] **Step 10.8: 终提交** `feat(android): 仿 MIUI 相册 UI 重塑收官——版本 0.5.0，全量单测绿+双真机核验`
 
 ---
 

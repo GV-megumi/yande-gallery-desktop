@@ -262,3 +262,37 @@ M4 新增实机验证项（前台通知与 33+ 权限 / 捏合切档手感 / 滑
 转场观感 / 完整分享流 / API 29 删除语义 / 断网恢复横幅 / changeSeq 升级路径等）**不重复列于此**——
 已展开为 `docs/superpowers/plans/2026-07-05-M3实机联调计划.md` §J 的 J.1-J.10 用例，
 联调时照该计划执行（§K 已知限制的验收口径亦已按 M4 修复项更新）。
+
+---
+
+## 8. v0.5.0 UI 重塑（仿 MIUI 相册）
+
+2026-07-09 完成组件级仿 MIUI 相册的整体换皮（规格 `doc/superpowers/specs/2026-07-08-android-miui-ui-redesign-design.md`、
+实施计划 `doc/superpowers/plans/2026-07-08-android-miui-ui-redesign.md`）。行为契约、写路径与既有交互零改动，
+testTag 仅一处改名（`albums_new_fab`→`albums_new`）。要点：
+
+- **主题基座**：浅色纯白 / 深色 OLED 真黑 + `#1C1C1E` 卡片，MIUI 蓝主色保留；字号层级
+  （大标题 30/W700、小标题 17/W600、中文零字距）；圆角体系 12/16/20dp 全局注册；
+  `enableEdgeToEdge` + 系统栏图标深浅随主题（大图页强制白）。
+- **壳重构**：顶栏从 AppScaffold 下放各 tab 页自持；大标题随内容滚走（nestedScroll
+  exitUntilCollapsed + 松手 settle，折叠态 rememberSaveable 持久化），居中小标题+发丝线滚动后浮现；
+  底部导航去胶囊指示器（选中实心主色/未选线框灰）；多选桥瘦身为底栏五字段。
+- **照片页**：日期头 MIUI 文案（今天/昨天/M月d日 周X/跨年带年）；网格 3dp 等距缝 + 3dp 圆角
+  （照片/图集详情/搜索三网格统一取 `MiuiTokens`）；sticky 日期胶囊改「仅滚动中浮现」（修与列表头重叠）；
+  多选态空心圈/蓝底白勾/选中微缩；快滚把手细条化。
+- **相册页**：FAB 移除、顶栏右上「+」；封面 12dp 圆角 + 名称/数量下置；图集详情居中双行顶栏（名称+张数）。
+- **大图页**：上下渐变遮罩 chrome + 顶部居中「日期 / 时间」双行（located 门控同 BUG-06 口径）；
+  chrome 隐显 150ms fade；详情面板换 20dp 圆角深色卡。
+- **统一弹窗 `MiuiDialog`**：20dp 圆角、标题居中、等宽双胶囊按钮（灰取消/蓝确认/危险红），
+  替换全部 9 处 AlertDialog；图集选择器同步换皮。
+- **搜索页**：灰底胶囊搜索框（无下划线）+ 胶囊历史 chip + 垃圾桶清空。
+- **设置族**：卡片分组（`MiuiCardGroup`/`MiuiListItem`）、二级页居中标题、表单灰底圆角输入框 +
+  48dp 胶囊主按钮、服务器卡片蓝点+「当前」标记；连接横幅柔和化（琥珀/红 12-15% 底）。
+
+验证：全量 Robolectric 61 类 / 332 例 / 0 失败；MuMu（API 32）深浅双主题逐页截图对照规格通过
+（多选长按视觉 adb 无法驱动，由 SelectionActions/selection_ring 契约用例覆盖）；折叠头手感实机核验
+（上滑收起/中途下滑不弹头/settle 无半截标题）。红魔与小米平板待用户上手抽验（安装包 versionCode 6 / 0.5.0）。
+
+已知测试基建隐患：全量套件单 fork JVM 下 DataStore 类（CacheViewModelTest/M4DensityPrefsE2ETest 等）
+偶发 `UncompletedCoroutinesError` 60s 空转——与业务 diff 无关的协程饥饿存量病，重跑即绿但今日频率升高，
+建议后续专项治理（test Application 替身或 `forkEvery` 分片）。
