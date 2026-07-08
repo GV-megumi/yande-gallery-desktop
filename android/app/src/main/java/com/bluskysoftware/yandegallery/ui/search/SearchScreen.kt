@@ -16,7 +16,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -197,15 +196,15 @@ private fun MiuiSearchField(
                 )
             }
             if (value.isNotEmpty()) {
-                Icon(
-                    Icons.Filled.Close, contentDescription = "清除",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onClear)
-                        .testTag("search_clear_query"),
-                )
+                // 清除按钮必须是 IconButton（审查修复）：裸 Icon.clickable 不套 minimumInteractiveComponentSize，
+                // 命中区只剩 20dp 且丢 Role.Button 语义；tag 落按钮上与旧契约一致（performClick 兼容）
+                IconButton(onClick = onClear, modifier = Modifier.testTag("search_clear_query")) {
+                    Icon(
+                        Icons.Filled.Close, contentDescription = "清除",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
         }
     }

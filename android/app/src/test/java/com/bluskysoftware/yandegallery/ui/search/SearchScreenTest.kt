@@ -1,5 +1,9 @@
 package com.bluskysoftware.yandegallery.ui.search
 
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -84,6 +88,38 @@ class SearchScreenTest {
             compose.waitForIdle()
 
             assertEquals("dog", vm.query.value)    // 重建后不回冲为 cat
+        } finally {
+            graph.shutdownForTest()
+            db.close()
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * 审查修复回归：清除按钮必须是真按钮（IconButton 提供最小 48dp 命中区 + Role.Button 语义）。
+     * 裸 Icon.clickable 不套 minimumInteractiveComponentSize（命中区仅 20dp）且无 Role——
+     * performClick 打精确坐标测不出命中区缩水，故用 Role 断言钉住按钮语义，点击走旧契约清空查询。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `清除按钮具按钮语义且点击清空查询`() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        val vm = SearchViewModel(graph)
+        try {
+            compose.setContent {
+                SearchScreen(viewModel = vm, onOpenViewer = {}, onBack = {})
+            }
+            vm.onQueryChange("neko")
+            compose.waitForIdle()
+
+            compose.onNodeWithTag("search_clear_query")
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+                .performClick()
+            compose.waitForIdle()
+
+            assertEquals("", vm.query.value)
         } finally {
             graph.shutdownForTest()
             db.close()
