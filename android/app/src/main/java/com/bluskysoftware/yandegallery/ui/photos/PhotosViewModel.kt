@@ -28,6 +28,7 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
+import java.time.LocalDate
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -130,7 +131,11 @@ class PhotosViewModel(
                                 if (monthly) monthKeyOf(it.image.createdAt) else dayKeyOf(it.image.createdAt)
                             }
                             if (beforeKey != afterKey) {
-                                TimelineItem.Header(afterKey, if (monthly) monthDisplayOf(afterKey) else dayDisplayOf(afterKey))
+                                TimelineItem.Header(
+                                    afterKey,
+                                    if (monthly) monthHeaderDisplayOf(afterKey, LocalDate.now())
+                                    else dayHeaderDisplayOf(afterKey, LocalDate.now()),
+                                )
                             } else null
                         }
                     }

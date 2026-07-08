@@ -4,6 +4,7 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 /** 时间轴列表项：日期分组头 or 单张照片。 */
@@ -16,12 +17,6 @@ sealed interface TimelineItem {
 fun dayKeyOf(createdAt: String): String = runCatching {
     Instant.parse(createdAt).atZone(ZoneId.systemDefault()).toLocalDate().toString()
 }.getOrElse { createdAt.take(10) }
-
-/** 日期 key（yyyy-MM-dd）→ 中文年月日展示文案（如 2026年7月3日）。 */
-fun dayDisplayOf(dayKey: String): String = runCatching {
-    val date = LocalDate.parse(dayKey)
-    "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
-}.getOrElse { dayKey }
 
 /**
  * 时间轴密度四档（spec §7.1 / D1）：月视图 6 列（本计划裁定，spec 未定列数）+ 日视图 3/4/5 列。
@@ -77,3 +72,42 @@ fun timelineItemDateLabel(item: TimelineItem?, monthly: Boolean): String? = when
         if (monthly) monthDisplayOf(item.dayKey) else dayBubbleDisplayOf(item.dayKey)
     null -> null
 }
+
+private val WEEKDAY_CN = arrayOf("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+/** LocalDate → 周X（DayOfWeek.value 1..7 → 周一..周日）。 */
+fun weekdayCn(date: LocalDate): String = WEEKDAY_CN[date.dayOfWeek.value - 1]
+
+/**
+ * 日分组头 MIUI 文案（spec §3）：今天/昨天/同年「M月d日 周X」/跨年「yyyy年M月d日 周X」。
+ * [today] 由调用方传执行时日期（分页 map 时取 LocalDate.now()，跨午夜长驻会话滞后可接受——
+ * 下拉刷新/重建即恢复，spec §3 记录性取舍）；解析失败回退原 key。
+ */
+fun dayHeaderDisplayOf(dayKey: String, today: LocalDate): String = runCatching {
+    val date = LocalDate.parse(dayKey)
+    when {
+        date == today -> "今天"
+        date == today.minusDays(1) -> "昨天"
+        date.year == today.year -> "${date.monthValue}月${date.dayOfMonth}日 ${weekdayCn(date)}"
+        else -> "${date.year}年${date.monthValue}月${date.dayOfMonth}日 ${weekdayCn(date)}"
+    }
+}.getOrElse { dayKey }
+
+/** 月分组头 MIUI 文案：同年「M月」/跨年「yyyy年M月」；解析失败回退原 key。 */
+fun monthHeaderDisplayOf(monthKey: String, today: LocalDate): String = runCatching {
+    val (y, m) = monthKey.split("-").map { it.toInt() }
+    if (y == today.year) "${m}月" else "${y}年${m}月"
+}.getOrElse { monthKey }
+
+/** 大图页顶部日期行（spec §5）：同年「M月d日 周X」/跨年「yyyy年M月d日」；解析失败回退空串（不显）。 */
+fun viewerDateLabel(createdAt: String, today: LocalDate): String = runCatching {
+    val date = Instant.parse(createdAt).atZone(ZoneId.systemDefault()).toLocalDate()
+    if (date.year == today.year) "${date.monthValue}月${date.dayOfMonth}日 ${weekdayCn(date)}"
+    else "${date.year}年${date.monthValue}月${date.dayOfMonth}日"
+}.getOrElse { "" }
+
+/** 大图页顶部时间行：本地时区 HH:mm；解析失败回退空串。 */
+fun viewerTimeLabel(createdAt: String): String = runCatching {
+    Instant.parse(createdAt).atZone(ZoneId.systemDefault())
+        .format(DateTimeFormatter.ofPattern("HH:mm"))
+}.getOrElse { "" }

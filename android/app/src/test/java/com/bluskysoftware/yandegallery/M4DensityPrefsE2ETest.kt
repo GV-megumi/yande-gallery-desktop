@@ -11,6 +11,9 @@ import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.ui.photos.DensityTier
 import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.photos.TimelineItem
+import com.bluskysoftware.yandegallery.ui.photos.dayHeaderDisplayOf
+import com.bluskysoftware.yandegallery.ui.photos.dayKeyOf
+import com.bluskysoftware.yandegallery.ui.photos.monthHeaderDisplayOf
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -25,12 +28,12 @@ import kotlinx.coroutines.test.setMain
 import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.time.LocalDate
 
 /**
  * M4 密度档端到端（T17）：真 DataStore 临时文件 + in-memory Room 经 AppGraph 走完整装配链——
@@ -127,14 +130,22 @@ class M4DensityPrefsE2ETest {
             val vm = PhotosViewModel(graph)
             vm.setDensityTier(DensityTier.MONTH)
             vm.densityTier.first { it == DensityTier.MONTH }   // 先等档位落定再取快照（否则拿旧分组）
-            assertEquals(listOf("2026年7月", "2026年6月"), headerDisplays(vm))
+            // MIUI 头文案随运行日期变（同年只显月/跨年带年）：期望用与生产同函数拼，防跨年后脆断
+            val today = LocalDate.now()
+            assertEquals(
+                listOf(monthHeaderDisplayOf("2026-07", today), monthHeaderDisplayOf("2026-06", today)),
+                headerDisplays(vm),
+            )
 
             vm.setDensityTier(DensityTier.DAY_4)
             vm.densityTier.first { it == DensityTier.DAY_4 }
-            // 日头文案含本地时区日（TZ 相关不断言具体日），只断言分组粒度回到「日」
-            val displays = awaitHeaderDisplays(vm) { it.size == 2 && it.all { d -> d.endsWith("日") } }
-            assertEquals(2, displays.size)
-            assertTrue("切回日档后分组头应为「…月…日」形态：$displays", displays.all { it.endsWith("日") })
+            // 日头 MIUI 文案含周X且随时区/运行日期变：期望经生产同函数（dayKeyOf→dayHeaderDisplayOf）拼装
+            val expectedDays = listOf(
+                dayHeaderDisplayOf(dayKeyOf("2026-07-15T12:00:00.000Z"), today),
+                dayHeaderDisplayOf(dayKeyOf("2026-06-15T12:00:00.000Z"), today),
+            )
+            val displays = awaitHeaderDisplays(vm) { it == expectedDays }
+            assertEquals("切回日档后分组头应回到 MIUI 日头形态", expectedDays, displays)
         }
     }
 }

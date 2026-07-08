@@ -29,6 +29,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.time.LocalDate
 
 /**
  * PhotosViewModel 单元测试——Robolectric + :memory: Room + 临时文件 PrefsStore（隔离进程级 DataStore 单例）。
@@ -92,6 +93,12 @@ class PhotosViewModelTest {
             .filterIsInstance<TimelineItem.Header>()
             .map { it.display }
 
+    /** MIUI 日头文案含周X且随运行日期/时区变：期望经生产同函数（dayKeyOf→dayHeaderDisplayOf）拼装。 */
+    private fun expectedDayHeaders(today: LocalDate = LocalDate.now()): List<String> = listOf(
+        dayHeaderDisplayOf(dayKeyOf("2026-07-15T12:00:00.000Z"), today),
+        dayHeaderDisplayOf(dayKeyOf("2026-06-15T12:00:00.000Z"), today),
+    )
+
     @Test
     fun `切换激活服务器——多选清空`() = runTest {
         graph.serverRepository.addAndActivate("a", "http://a", "k")
@@ -150,7 +157,12 @@ class PhotosViewModelTest {
         vm.setDensityTier(DensityTier.MONTH)
         // 真 IO 回环：不等档位落定即取快照会拿到旧（日）分组，先 await MONTH 再断言（critic 定准）。
         vm.densityTier.first { it == DensityTier.MONTH }
-        assertEquals(listOf("2026年7月", "2026年6月"), headerDisplays(vm))
+        // MIUI 月头同年只显月/跨年带年：期望用与生产同函数拼，防跨年后脆断
+        val today = LocalDate.now()
+        assertEquals(
+            listOf(monthHeaderDisplayOf("2026-07", today), monthHeaderDisplayOf("2026-06", today)),
+            headerDisplays(vm),
+        )
     }
 
     @Test
@@ -159,9 +171,7 @@ class PhotosViewModelTest {
         val vm = PhotosViewModel(graph)
         // 默认 DAY_4（日分组）；prefs 为空 → densityTierName=null → fromName=DEFAULT。
         vm.densityTier.first { it == DensityTier.DAY_4 }
-        val displays = headerDisplays(vm)
-        assertEquals(2, displays.size)
-        assertTrue("日档分组头应为「…月…日」形态：$displays", displays.all { it.endsWith("日") })
+        assertEquals("日档分组头应为 MIUI 日头形态", expectedDayHeaders(), headerDisplays(vm))
     }
 
     // D2 可观测面：纯列数变化（默认 DAY_4 → DAY_3，monthGrouping 不翻）分组粒度须仍为「日」，不得误翻月。
@@ -174,9 +184,7 @@ class PhotosViewModelTest {
         val vm = PhotosViewModel(graph)
         vm.setDensityTier(DensityTier.DAY_3)
         vm.densityTier.first { it == DensityTier.DAY_3 }
-        val displays = headerDisplays(vm)
-        assertEquals(2, displays.size)
-        assertTrue("纯列数变化后仍应为日分组：$displays", displays.all { it.endsWith("日") })
+        assertEquals("纯列数变化后仍应为日分组", expectedDayHeaders(), headerDisplays(vm))
     }
 
     @Test

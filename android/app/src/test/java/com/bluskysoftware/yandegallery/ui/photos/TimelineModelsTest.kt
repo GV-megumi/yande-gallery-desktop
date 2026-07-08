@@ -4,6 +4,10 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
+import java.time.Instant
+import java.time.LocalDate
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 import java.util.Locale
 import java.util.TimeZone
 
@@ -25,9 +29,39 @@ class TimelineModelsTest {
         assertEquals("2026-07-03", dayKeyOf("2026-07-03 12:00:00"))
     }
 
+    // 固定 today 注入保证跨年/跨日运行稳定（formatter 不内取 LocalDate.now()）
     @Test
-    fun `展示文案为中文年月日`() {
-        assertEquals("2026年7月3日", dayDisplayOf("2026-07-03"))
+    fun `dayHeaderDisplayOf 今天昨天同年周X跨年（MIUI 文案）`() {
+        val today = LocalDate.of(2026, 7, 8)   // 周三
+        assertEquals("今天", dayHeaderDisplayOf("2026-07-08", today))
+        assertEquals("昨天", dayHeaderDisplayOf("2026-07-07", today))
+        assertEquals("7月3日 周五", dayHeaderDisplayOf("2026-07-03", today))
+        assertEquals("2025年12月31日 周三", dayHeaderDisplayOf("2025-12-31", today))
+        assertEquals("bad-key", dayHeaderDisplayOf("bad-key", today))   // 解析失败回退原 key
+    }
+
+    @Test
+    fun `monthHeaderDisplayOf 同年只显月跨年带年`() {
+        val today = LocalDate.of(2026, 7, 8)
+        assertEquals("7月", monthHeaderDisplayOf("2026-07", today))
+        assertEquals("2025年12月", monthHeaderDisplayOf("2025-12", today))
+        assertEquals("oops", monthHeaderDisplayOf("oops", today))
+    }
+
+    @Test
+    fun `viewer 日期时间标签（本地时区换算构造期望，防时区脆断言）`() {
+        val iso = "2026-07-03T04:05:00.000Z"
+        val local = Instant.parse(iso).atZone(ZoneId.systemDefault())
+        val expectDate = "${local.monthValue}月${local.dayOfMonth}日 ${weekdayCn(local.toLocalDate())}"
+        assertEquals(expectDate, viewerDateLabel(iso, local.toLocalDate()))
+        // 跨年（today 推后一年）→ 带年不带周；期望同用 local 拼（时区可能把 07-03 换算成 07-02/07-04）
+        assertEquals(
+            "${local.year}年${local.monthValue}月${local.dayOfMonth}日",
+            viewerDateLabel(iso, local.toLocalDate().plusYears(1)),
+        )
+        val expectTime = local.format(DateTimeFormatter.ofPattern("HH:mm"))
+        assertEquals(expectTime, viewerTimeLabel(iso))
+        assertEquals("", viewerDateLabel("garbage", local.toLocalDate()))
     }
 
     @Test
