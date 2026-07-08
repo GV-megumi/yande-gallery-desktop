@@ -8,6 +8,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
@@ -459,8 +461,22 @@ fun ViewerPager(
     val view = LocalView.current
     val activity = remember(view) { view.context.findActivity() }
     LaunchedEffect(immersive) { applySystemBars(activity, view, hide = immersive) }
+
+    // 系统栏图标强制白色（Task1 审查修复）：本页常黑全屏（黑底垫进状态栏/导航栏下），Theme.kt 的
+    // 全局跟随主题写入在浅色主题下给深色图标——压纯黑底后状态栏时间/电量完全不可读，必须页级覆盖。
+    // 必须用 SideEffect 而非一次性 DisposableEffect 体写入：同一帧组合里 SideEffect 统一在
+    // remember 观察者（含 DisposableEffect 体）之后、按组合顺序派发——活动重建（旋转/深浅色切换，
+    // Manifest 未声明 configChanges）整树重组时，本效应晚于外层 Theme 的 SideEffect 执行、稳定压过；
+    // 写进 DisposableEffect 体则重建帧会被 Theme 回写成主题色图标，缺陷在大图页内旋转后复现。
+    val darkTheme by rememberUpdatedState(isSystemInDarkTheme())
+    SideEffect { setSystemBarAppearanceLight(activity, view, light = false) }
     DisposableEffect(Unit) {
-        onDispose { applySystemBars(activity, view, hide = false) }
+        onDispose {
+            applySystemBars(activity, view, hide = false)
+            // 离开时按当前系统深浅恢复（不硬编码恢复值）：Theme 的 SideEffect 不会因路由返回重跑；
+            // rememberUpdatedState 保证浏览期间系统切换深浅后 dispose 仍取最新值（而非进入时快照）。
+            setSystemBarAppearanceLight(activity, view, light = !darkTheme)
+        }
     }
 
     Box(
@@ -569,6 +585,14 @@ private fun applySystemBars(activity: Activity?, view: android.view.View, hide: 
     controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
     if (hide) controller.hide(WindowInsetsCompat.Type.systemBars())
     else controller.show(WindowInsetsCompat.Type.systemBars())
+}
+
+/** 写系统栏（状态栏+导航栏）图标深浅：light=true 深色图标（浅底页用）；window 取不到时静默跳过。 */
+private fun setSystemBarAppearanceLight(activity: Activity?, view: android.view.View, light: Boolean) {
+    val window = activity?.window ?: return
+    val controller = WindowCompat.getInsetsController(window, view)
+    controller.isAppearanceLightStatusBars = light
+    controller.isAppearanceLightNavigationBars = light
 }
 
 /** 从 Compose 视图上下文向上剥 ContextWrapper 找宿主 Activity（拿 window 用）。 */

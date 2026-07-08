@@ -58,7 +58,11 @@ private val AppShapes = Shapes(
     extraLarge = RoundedCornerShape(20.dp),
 )
 
-/** 动态取色关闭（spec §7）：固定浅/深配色随系统；edge-to-edge 后系统栏图标深浅须显式跟主题。 */
+/**
+ * 动态取色关闭（spec §7）：固定浅/深配色随系统；edge-to-edge 后系统栏图标深浅须显式跟主题。
+ * 例外：ViewerScreen（常黑全屏页）在页内强制白图标、离开时按系统深浅恢复——浅色主题的深色图标
+ * 压纯黑底不可读，见 ViewerPager 的 SideEffect/DisposableEffect 覆盖。
+ */
 @Composable
 fun YandeGalleryTheme(content: @Composable () -> Unit) {
     val dark = isSystemInDarkTheme()

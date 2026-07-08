@@ -1,12 +1,17 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
+import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.core.view.WindowCompat
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
 import androidx.paging.PagingData
@@ -15,21 +20,25 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import kotlinx.coroutines.flow.flowOf
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * ViewerPager Robolectric 冒烟（镜像 PhotosScreenTest 装配）：fake PagingData 单图注入骨架层，
  * 渲染不崩 + 返回控件（testTag=viewer_back）存在且可点。
  * AsyncImage 在 Robolectric 下无网络，model 用不存在的 file uri——加载失败静默进 error 态即可。
+ * 规则用 createAndroidComposeRule（宿主同 createComposeRule 的 ComponentActivity）：
+ * 系统栏图标深浅用例需拿 activity.window 读写 WindowInsetsControllerCompat。
  */
 @RunWith(RobolectricTestRunner::class)
 class ViewerScreenTest {
     @get:Rule
-    val compose = createComposeRule()
+    val compose = createAndroidComposeRule<ComponentActivity>()
 
     private fun image(id: Long) = ImageEntity(
         id = id,
@@ -150,5 +159,72 @@ class ViewerScreenTest {
         compose.onNodeWithTag("viewer_bottom_bar").assertExists()
         compose.onNodeWithTag("test_action_bar").assertIsDisplayed()
         assertEquals("操作栏入参应为定位目标图", 2L, barImageId)
+    }
+
+    /** 在 [show] 为 true 时装配单图 ViewerPager（系统栏图标用例共用的最小骨架）。 */
+    private fun setViewerContent(show: () -> Boolean) {
+        compose.setContent {
+            if (show()) {
+                val items = flowOf(PagingData.from(listOf(image(1)))).collectAsLazyPagingItems()
+                val context = androidx.compose.ui.platform.LocalContext.current
+                ViewerPager(
+                    items = items,
+                    initialImageId = 1L,
+                    imageLoader = ImageLoader.Builder(context).build(),
+                    modelFor = { "file:///nonexistent/${it.id}.jpg" },
+                    onPrefetch = {},
+                    onBack = {},
+                )
+            }
+        }
+    }
+
+    /**
+     * Task1 审查修复回归：大图页是常黑全屏页（黑底垫进状态栏/导航栏下），进入时必须强制
+     * isAppearanceLight*=false（白图标）——否则浅色主题下 Theme.kt 的全局跟随主题写入让
+     * 深色图标压纯黑底，状态栏时间/电量完全不可读；离开时按当前系统深浅恢复（notnight → 深色图标）。
+     */
+    @Test
+    fun `进入强制系统栏白图标，离开按浅色主题恢复深图标`() {
+        val window = compose.activity.window
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        // 模拟 Theme.kt 浅色主题的全局写入：深色图标
+        compose.runOnIdle {
+            controller.isAppearanceLightStatusBars = true
+            controller.isAppearanceLightNavigationBars = true
+        }
+        var show by mutableStateOf(true)
+        setViewerContent { show }
+        compose.waitForIdle()
+
+        assertFalse("进入大图页应强制状态栏白图标", controller.isAppearanceLightStatusBars)
+        assertFalse("进入大图页应强制导航栏白图标", controller.isAppearanceLightNavigationBars)
+
+        show = false
+        compose.waitForIdle()
+        assertTrue("离开大图页应按浅色主题恢复状态栏深图标", controller.isAppearanceLightStatusBars)
+        assertTrue("离开大图页应按浅色主题恢复导航栏深图标", controller.isAppearanceLightNavigationBars)
+    }
+
+    /** 深色主题（night）离开大图页：恢复值须跟随 isSystemInDarkTheme()（白图标），不许硬编码浅色恢复。 */
+    @Test
+    @Config(qualifiers = "night")
+    fun `深色主题离开恢复白图标（恢复值不硬编码）`() {
+        val window = compose.activity.window
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        var show by mutableStateOf(true)
+        setViewerContent { show }
+        compose.waitForIdle()
+        assertFalse("深色主题进入大图页也应是白图标", controller.isAppearanceLightStatusBars)
+
+        // 模拟外部误写深色图标：若离开时硬编码恢复浅色态（或根本不恢复），下面断言即穿帮
+        compose.runOnIdle {
+            controller.isAppearanceLightStatusBars = true
+            controller.isAppearanceLightNavigationBars = true
+        }
+        show = false
+        compose.waitForIdle()
+        assertFalse("深色主题离开应恢复状态栏白图标（跟随 isSystemInDarkTheme）", controller.isAppearanceLightStatusBars)
+        assertFalse("深色主题离开应恢复导航栏白图标（跟随 isSystemInDarkTheme）", controller.isAppearanceLightNavigationBars)
     }
 }
