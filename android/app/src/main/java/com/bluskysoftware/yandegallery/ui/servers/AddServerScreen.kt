@@ -3,25 +3,13 @@ package com.bluskysoftware.yandegallery.ui.servers
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -34,14 +22,17 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.MiuiPrimaryButton
+import com.bluskysoftware.yandegallery.ui.common.MiuiSecondaryButton
+import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
+import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import kotlinx.coroutines.launch
 
 /**
- * 手动添加/预填添加服务器。
+ * 手动添加/预填添加服务器（spec §8.2：灰底圆角输入框 + 胶囊按钮）。
  * 扫码命中后，MainActivity 会在导航到本屏前把三字段写入本条目 savedStateHandle 的
  * `prefill_*` 键；此处一次性消费（remove）以预填表单，重进本屏时不会残留旧值。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddServerScreen(
     vm: ServersViewModel,
@@ -70,16 +61,8 @@ fun AddServerScreen(
     val scope = rememberCoroutineScope()
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("添加服务器") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        topBar = { MiuiSubPageTopBar("添加服务器", onBack) },
         snackbarHost = { SnackbarHost(snackbar) },
     ) { padding ->
         Column(
@@ -89,31 +72,30 @@ fun AddServerScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
+            MiuiTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("名称（可选）") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("field_name"),
+                label = "名称（可选）",
+                modifier = Modifier.testTag("field_name"),
             )
-            OutlinedTextField(
+            MiuiTextField(
                 value = baseUrl,
                 onValueChange = { baseUrl = it; baseUrlError = null },
-                label = { Text("服务器地址（http://…）") },
-                singleLine = true,
+                label = "服务器地址",
+                placeholder = "http://主机:端口",
                 isError = baseUrlError != null,
-                supportingText = baseUrlError?.let { msg -> { Text(msg) } },
-                modifier = Modifier.fillMaxWidth().testTag("field_baseUrl"),
+                supportingText = baseUrlError,
+                modifier = Modifier.testTag("field_baseUrl"),
             )
-            OutlinedTextField(
+            MiuiTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
-                label = { Text("API Key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("field_apiKey"),
+                label = "API Key",
+                modifier = Modifier.testTag("field_apiKey"),
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(
+                MiuiSecondaryButton(
+                    "测试连接",
                     onClick = {
                         testing = true
                         scope.launch {
@@ -124,17 +106,12 @@ fun AddServerScreen(
                             )
                         }
                     },
-                    enabled = !testing && baseUrl.isNotBlank(),
+                    enabled = baseUrl.isNotBlank(),
+                    loading = testing,
                     modifier = Modifier.weight(1f).testTag("btn_test"),
-                ) {
-                    if (testing) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(16.dp).padding(end = 4.dp),
-                        )
-                    }
-                    Text("测试连接")
-                }
-                Button(
+                )
+                MiuiPrimaryButton(
+                    "保存并激活",
                     onClick = {
                         val normalized = normalizeBaseUrl(baseUrl)
                         if (normalized == null) {
@@ -147,9 +124,7 @@ fun AddServerScreen(
                     },
                     enabled = !saving && baseUrl.isNotBlank() && apiKey.isNotBlank(),
                     modifier = Modifier.weight(1f).testTag("btn_save"),
-                ) {
-                    Text("保存并激活")
-                }
+                )
             }
         }
     }

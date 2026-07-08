@@ -22,7 +22,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -51,6 +50,7 @@ import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.launch
@@ -303,11 +303,10 @@ internal fun AlbumNameDialog(
         confirmTag = confirmTag,
         onConfirm = onConfirm,
         content = {
-            OutlinedTextField(
+            MiuiTextField(
                 value = name,
                 onValueChange = onNameChange,
-                label = { Text("图集名") },
-                singleLine = true,
+                label = "图集名",
                 modifier = Modifier.fillMaxWidth().testTag("album_name_field"),
             )
         },

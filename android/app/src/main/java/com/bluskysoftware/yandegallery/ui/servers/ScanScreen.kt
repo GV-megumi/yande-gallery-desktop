@@ -16,16 +16,10 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -45,6 +39,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.bluskysoftware.yandegallery.data.api.PairingPayload
 import com.bluskysoftware.yandegallery.data.api.parsePairingPayload
+import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -58,7 +53,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * CAMERA 权限运行时申请，拒绝时降级提示改用手动添加。
  * 相机部分无 JVM 测试，靠 Task 13 实机冒烟验证。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ScanScreen(
     onPayload: (PairingPayload) -> Unit,
@@ -89,16 +83,7 @@ fun ScanScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("扫码配对") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
+        topBar = { MiuiSubPageTopBar("扫码配对", onBack) },
     ) { padding ->
         Box(modifier = Modifier.fillMaxSize().padding(padding)) {
             if (granted) {

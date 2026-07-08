@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -18,7 +19,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -31,6 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -167,14 +168,16 @@ fun TagEditDialog(
                 }
             }
             Spacer(Modifier.height(12.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    label = { Text("新标签") },
-                    singleLine = true,
-                    modifier = Modifier.weight(1f).testTag("tag_edit_input"),
-                )
+            // MiuiTextField 标签固定在框上方；Box 承接 weight（其 modifier 参数落在内部 TextField 上，不能直接给 weight）
+            Row(verticalAlignment = Alignment.Bottom) {
+                Box(Modifier.weight(1f)) {
+                    MiuiTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        label = "新标签",
+                        modifier = Modifier.testTag("tag_edit_input"),
+                    )
+                }
                 TextButton(
                     onClick = {
                         onAdd(input.trim())

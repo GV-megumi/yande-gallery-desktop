@@ -6,16 +6,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -26,12 +18,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.bluskysoftware.yandegallery.ui.common.MiuiPrimaryButton
+import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
+import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 
 /**
- * 编辑服务器（spec §7.6）：结构镜像 AddServerScreen——首屏用 serverById 预填三字段，保存调 vm.update
+ * 编辑服务器（spec §7.6/§8.2）：结构镜像 AddServerScreen——首屏用 serverById 预填三字段，保存调 vm.update
  * （归一化落库 + SSE 重连 + 同步 nudge）。保存前经 normalizeBaseUrl 校验/归一化，非法则字段标红不落库（M4-T14）。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun EditServerScreen(
     vm: ServersViewModel,
@@ -61,16 +55,8 @@ fun EditServerScreen(
     }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("编辑服务器") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        topBar = { MiuiSubPageTopBar("编辑服务器", onBack) },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -79,30 +65,29 @@ fun EditServerScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
+            MiuiTextField(
                 value = name,
                 onValueChange = { name = it },
-                label = { Text("名称（可选）") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("field_name"),
+                label = "名称（可选）",
+                modifier = Modifier.testTag("field_name"),
             )
-            OutlinedTextField(
+            MiuiTextField(
                 value = baseUrl,
                 onValueChange = { baseUrl = it; baseUrlError = null },
-                label = { Text("服务器地址（http://…）") },
-                singleLine = true,
+                label = "服务器地址",
+                placeholder = "http://主机:端口",
                 isError = baseUrlError != null,
-                supportingText = baseUrlError?.let { msg -> { Text(msg) } },
-                modifier = Modifier.fillMaxWidth().testTag("field_baseUrl"),
+                supportingText = baseUrlError,
+                modifier = Modifier.testTag("field_baseUrl"),
             )
-            OutlinedTextField(
+            MiuiTextField(
                 value = apiKey,
                 onValueChange = { apiKey = it },
-                label = { Text("API Key") },
-                singleLine = true,
-                modifier = Modifier.fillMaxWidth().testTag("field_apiKey"),
+                label = "API Key",
+                modifier = Modifier.testTag("field_apiKey"),
             )
-            Button(
+            MiuiPrimaryButton(
+                "保存",
                 onClick = {
                     val normalized = normalizeBaseUrl(baseUrl)
                     if (normalized == null) {
@@ -114,10 +99,9 @@ fun EditServerScreen(
                     }
                 },
                 enabled = !saving && baseUrl.isNotBlank() && apiKey.isNotBlank(),
+                // 既有 testTag 契约保留：不随计划示例改名 btn_save（本屏无测试连接按钮，单按钮全宽）
                 modifier = Modifier.fillMaxWidth().testTag("edit_server_save"),
-            ) {
-                Text("保存")
-            }
+            )
         }
     }
 }

@@ -1,31 +1,31 @@
 package com.bluskysoftware.yandegallery.ui.servers
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -33,13 +33,17 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiPrimaryButton
+import com.bluskysoftware.yandegallery.ui.common.MiuiSecondaryButton
+import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ServersScreen(
     vm: ServersViewModel,
@@ -53,36 +57,15 @@ fun ServersScreen(
     var deleteTarget by remember { mutableStateOf<ServerEntity?>(null) }
 
     Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("服务器") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
-                    }
-                },
-            )
-        },
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        topBar = { MiuiSubPageTopBar("服务器", onBack) },
         bottomBar = {
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
+                Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                OutlinedButton(
-                    onClick = onScan,
-                    modifier = Modifier.weight(1f).testTag("btn_scan_add"),
-                ) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
-                    Text("  扫码添加")
-                }
-                Button(
-                    onClick = onAddManual,
-                    modifier = Modifier.weight(1f).testTag("btn_manual_add"),
-                ) {
-                    Text("手动添加")
-                }
+                MiuiSecondaryButton("扫码添加", onClick = onScan, modifier = Modifier.weight(1f).testTag("btn_scan_add"))
+                MiuiPrimaryButton("手动添加", onClick = onAddManual, modifier = Modifier.weight(1f).testTag("btn_manual_add"))
             }
         },
     ) { padding ->
@@ -97,34 +80,39 @@ fun ServersScreen(
                 )
             }
         } else {
-            LazyColumn(modifier = Modifier.fillMaxSize().padding(padding)) {
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
                 items(servers, key = { it.id }) { server ->
                     val isActive = server.id == active?.id
-                    ListItem(
-                        headlineContent = { Text(server.name) },
-                        supportingContent = { Text(server.baseUrl) },
-                        trailingContent = {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                if (isActive) {
-                                    Icon(
-                                        Icons.Filled.CheckCircle,
-                                        contentDescription = "已激活",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                    )
-                                }
-                                IconButton(
-                                    onClick = { onEdit(server.id) },
-                                    modifier = Modifier.testTag("server_edit_${server.id}"),
-                                ) {
-                                    Icon(Icons.Filled.Edit, contentDescription = "编辑")
-                                }
-                            }
-                        },
-                        modifier = Modifier.combinedClickable(
+                    Surface(
+                        shape = RoundedCornerShape(12.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
                             onClick = { vm.activate(server.id) },
                             onLongClick = { deleteTarget = server },
                         ),
-                    )
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.padding(start = 16.dp, top = 12.dp, bottom = 12.dp, end = 4.dp),
+                        ) {
+                            if (isActive) {
+                                Box(Modifier.size(8.dp).background(MaterialTheme.colorScheme.primary, CircleShape))
+                                Spacer(Modifier.size(8.dp))
+                            }
+                            Column(Modifier.weight(1f)) {
+                                Text(server.name, style = MaterialTheme.typography.bodyLarge)
+                                Text(server.baseUrl, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (isActive) Text("当前", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                            IconButton(onClick = { onEdit(server.id) }, modifier = Modifier.testTag("server_edit_${server.id}")) {
+                                Icon(Icons.Filled.Edit, contentDescription = "编辑")
+                            }
+                        }
+                    }
                 }
             }
         }
