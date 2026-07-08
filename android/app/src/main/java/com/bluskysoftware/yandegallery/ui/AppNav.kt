@@ -1,31 +1,44 @@
 package com.bluskysoftware.yandegallery.ui
 
+import android.net.Uri
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import android.net.Uri
+import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoAlbum
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.outlined.Photo
+import androidx.compose.material.icons.outlined.PhotoAlbum
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavHostController
 import androidx.navigation.NavType
 import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
-import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 
 object Routes {
     const val Photos = "photos"
@@ -53,14 +66,42 @@ object Routes {
         if (query.isNullOrBlank()) "search" else "search?initialQuery=${Uri.encode(query)}"
 }
 
-private data class BottomTab(val route: String, val label: String)
+private data class BottomTab(val route: String, val label: String, val filled: ImageVector, val outlined: ImageVector)
 
 private val bottomTabs = listOf(
-    BottomTab(Routes.Photos, "照片"),
-    BottomTab(Routes.Albums, "相册"),
+    BottomTab(Routes.Photos, "照片", Icons.Filled.Photo, Icons.Outlined.Photo),
+    BottomTab(Routes.Albums, "相册", Icons.Filled.PhotoAlbum, Icons.Outlined.PhotoAlbum),
 )
 
-@OptIn(ExperimentalMaterial3Api::class)
+/** MIUI 式底部导航（spec §2.4）：surface 底 + 顶发丝线，无胶囊指示器、无水波；选中实心主色/未选线框灰。 */
+@Composable
+private fun MiuiNavBar(currentRoute: String?, onSelect: (String) -> Unit) {
+    Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface)) {
+        HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+        Row(Modifier.fillMaxWidth().navigationBarsPadding().height(56.dp)) {
+            bottomTabs.forEach { tab ->
+                val selected = currentRoute == tab.route
+                val tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                        ) { onSelect(tab.route) }
+                        .testTag("tab_${tab.route}"),
+                ) {
+                    Icon(if (selected) tab.filled else tab.outlined, contentDescription = tab.label, tint = tint, modifier = Modifier.size(24.dp))
+                    Text(tab.label, style = MaterialTheme.typography.labelSmall, color = tint, modifier = Modifier.padding(top = 2.dp))
+                }
+            }
+        }
+    }
+}
+
 @Composable
 fun AppScaffold(
     navController: NavHostController,
@@ -84,38 +125,8 @@ fun AppScaffold(
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        topBar = {
-            // 照片 tab 多选激活（桥 model 非空）：壳级 swap 为选择顶栏，替换常规 TopAppBar（M4-T12/D11 消双顶栏）
-            val bars = photosSelectionBars.model
-            if (currentRoute == Routes.Photos && bars != null) {
-                SelectionTopBar(
-                    count = bars.count,
-                    onSelectAll = bars.onSelectAll,
-                    onCancel = bars.onCancel,
-                    insetStatusBar = true,   // Surface 内补状态栏 inset（背景连带着色状态栏区，对齐 AlbumDetail 用法）
-                )
-            } else if (showBottomBar) {
-                TopAppBar(
-                    title = { Text(if (currentRoute == Routes.Photos) "照片" else "相册") },
-                    actions = {
-                        // 搜索入口仅在照片 tab 呈现（相册 tab 无全库搜索语义）
-                        if (currentRoute == Routes.Photos) {
-                            IconButton(
-                                onClick = { navController.navigate(Routes.search()) },
-                                modifier = Modifier.testTag("photos_search"),
-                            ) {
-                                Icon(Icons.Filled.Search, contentDescription = "搜索")
-                            }
-                        }
-                        IconButton(onClick = { navController.navigate(Routes.Settings) }) {
-                            Icon(Icons.Filled.Settings, contentDescription = "设置")
-                        }
-                    },
-                )
-            }
-        },
         bottomBar = {
-            // 多选激活同步 swap 底栏：选择动作栏替换 NavigationBar（时间轴无图集上下文，inGallery=false）
+            // 多选激活：底部选择动作栏替换导航栏（顶部选择栏已在 PhotosScreen 内自渲染）
             val bars = photosSelectionBars.model
             if (currentRoute == Routes.Photos && bars != null) {
                 SelectionBottomBar(
@@ -127,26 +138,11 @@ fun AppScaffold(
                     onAddToGallery = bars.onAddToGallery,
                 )
             } else if (showBottomBar) {
-                NavigationBar {
-                    bottomTabs.forEach { tab ->
-                        NavigationBarItem(
-                            modifier = Modifier.testTag("tab_${tab.route}"),
-                            selected = currentRoute == tab.route,
-                            onClick = {
-                                navController.navigate(tab.route) {
-                                    popUpTo(navController.graph.startDestinationId) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
-                                }
-                            },
-                            icon = {
-                                Icon(
-                                    if (tab.route == Routes.Photos) Icons.Filled.Photo else Icons.Filled.PhotoAlbum,
-                                    contentDescription = tab.label,
-                                )
-                            },
-                            label = { Text(tab.label) },
-                        )
+                MiuiNavBar(currentRoute) { route ->
+                    navController.navigate(route) {
+                        popUpTo(navController.graph.startDestinationId) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
                     }
                 }
             }
@@ -211,7 +207,7 @@ fun AppScaffold(
     }
 }
 
-/** 测试与占位用：全部内容为占位 Text 的导航壳。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。 */
+/** 测试与占位用：全部内容为占位 Text 的导航壳（占位 Text 无顶栏——顶栏已属页面职责）。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。 */
 @Composable
 fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
     val nav = rememberNavController()

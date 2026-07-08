@@ -19,8 +19,13 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
@@ -39,8 +44,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -60,10 +67,14 @@ import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
+import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
+import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
+import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +87,8 @@ fun PhotosScreen(
     barsState: PhotosSelectionBars,
     onAddServer: () -> Unit,
     onOpenViewer: (imageId: Long) -> Unit,
+    onOpenSearch: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
     val activeServerResolved by viewModel.activeServerResolved.collectAsStateWithLifecycle()
@@ -100,10 +113,15 @@ fun PhotosScreen(
         Box(Modifier.fillMaxSize())
         return
     }
-    // 无激活服务器：不进网格分支，直接渲染引导态。
+    // 无激活服务器：不进网格分支，直接渲染引导态（仍带常驻顶栏——无服务器也可进设置）。
     val server = activeServer
     if (server == null) {
-        PhotosGuide(onAddServer = onAddServer)
+        Column(Modifier.fillMaxSize()) {
+            MiuiPinnedTopBar(title = "照片", scrolled = false, actions = {
+                IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
+            })
+            PhotosGuide(onAddServer = onAddServer)
+        }
         return
     }
 
@@ -172,23 +190,13 @@ fun PhotosScreen(
         }
     }
 
-    // 多选栏桥回填（M4-T12/D11）：两栏渲染上提 AppScaffold 壳级 swap，消双顶/双底栏。
-    // 「全选」等回调闭包捕获分页快照与屏内状态，须每次重组回填最新值；SideEffect 在
-    // composition 成功落定后写桥（避免组合期写状态警告/回滚脏写）。
+    // 多选底栏桥回填（M4-T12/D11→v0.5 瘦身）：顶部选择栏已随顶栏下放本屏自渲染，桥只管
+    // 壳级底栏 swap（NavigationBar ↔ SelectionBottomBar）。回调闭包捕获屏内状态，须每次重组
+    // 回填最新值；SideEffect 在 composition 成功落定后写桥（避免组合期写状态警告/回滚脏写）。
     SideEffect {
         barsState.model = if (selectionActive) {
             PhotosSelectionBars.Model(
-                count = selected.size,
                 online = connState.online,
-                // 「全选」= 当前已加载进分页快照的照片（分页语义；继续滚动加载后可再点全选并入）
-                onSelectAll = {
-                    viewModel.selection.selectAll(
-                        (0 until items.itemCount).mapNotNull {
-                            (items.peek(it) as? TimelineItem.Photo)?.image?.id
-                        },
-                    )
-                },
-                onCancel = { viewModel.selection.clear() },
                 onDownload = {
                     storageGate {
                         val ids = viewModel.selection.selected.toList()
@@ -213,7 +221,7 @@ fun PhotosScreen(
             null
         }
     }
-    // 离开照片路由（含切服后回引导态的早退分支）清桥，壳恢复常规 TopAppBar/NavigationBar
+    // 离开照片路由（含切服后回引导态的早退分支）清桥，壳恢复 MiuiNavBar
     DisposableEffect(Unit) {
         onDispose { barsState.model = null }
     }
@@ -254,11 +262,40 @@ fun PhotosScreen(
     }
 
     TimelineAnchorEffect(items, gridState, pendingAnchor, onDone = { pendingAnchor = null })
+    // 折叠大标题（spec §2.3 exitUntilCollapsed 裁定）：不进 LazyGrid（避免索引数学 +1 波及
+    // 锚定/快滚/sticky），根 Column 挂 nestedScroll 与网格滚动联动；松手后 settle 贴齐全收/全展。
+    val header = rememberMiuiHeaderState()
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }.collect { if (!it) header.settle() }
+    }
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
-            // 多选顶/底选择栏已上提 AppScaffold 壳级 swap（M4-T12，经 barsState 桥），内容区不再自渲染
+        Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
+            // 顶部区域页面自持（v0.5 壳重构）：多选中换选择顶栏（底栏仍经桥走壳级 swap），常态为常驻顶栏
+            if (selectionActive) {
+                SelectionTopBar(
+                    count = selected.size,
+                    // 「全选」= 当前已加载进分页快照的照片（分页语义；继续滚动加载后可再点全选并入）
+                    onSelectAll = {
+                        viewModel.selection.selectAll(
+                            (0 until items.itemCount).mapNotNull {
+                                (items.peek(it) as? TimelineItem.Photo)?.image?.id
+                            },
+                        )
+                    },
+                    onCancel = { viewModel.selection.clear() },
+                    insetStatusBar = true,
+                )
+            } else {
+                MiuiPinnedTopBar(title = "照片", scrolled = header.scrolled, actions = {
+                    IconButton(onClick = onOpenSearch, modifier = Modifier.testTag("photos_search")) {
+                        Icon(Icons.Filled.Search, contentDescription = "搜索")
+                    }
+                    IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
+                })
+            }
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
             ConnectionBanner(state = connState, onReconnectAuth = onAddServer)
+            MiuiLargeTitle("照片", header)
             PullToRefreshBox(
                 isRefreshing = refreshing,
                 onRefresh = viewModel::refresh,

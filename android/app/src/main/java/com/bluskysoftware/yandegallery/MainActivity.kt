@@ -54,6 +54,8 @@ class MainActivity : ComponentActivity() {
                             barsState = photosBars,
                             onAddServer = { nav.navigate(Routes.Servers) },
                             onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId)) },
+                            onOpenSearch = { nav.navigate(Routes.search()) },
+                            onOpenSettings = { nav.navigate(Routes.Settings) },
                         )
                     },
                     albumsContent = {
