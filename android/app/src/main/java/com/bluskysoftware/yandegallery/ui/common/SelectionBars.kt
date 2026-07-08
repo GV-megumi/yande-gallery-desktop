@@ -26,6 +26,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.RemoveCircleOutline
 import androidx.compose.material.icons.filled.SelectAll
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -40,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 
 /**
@@ -58,26 +60,30 @@ fun SelectionTopBar(
     modifier: Modifier = Modifier,
     insetStatusBar: Boolean = false,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier
-                .then(if (insetStatusBar) Modifier.statusBarsPadding() else Modifier)
-                .fillMaxWidth()
-                .padding(horizontal = 4.dp, vertical = 4.dp)
-                .testTag("selection_top_bar"),
-        ) {
-            IconButton(onClick = onCancel, modifier = Modifier.testTag("selection_cancel")) {
-                Icon(Icons.Filled.Close, contentDescription = "取消多选")
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxWidth()) {
+        Column {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .then(if (insetStatusBar) Modifier.statusBarsPadding() else Modifier)
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp, vertical = 4.dp)
+                    .testTag("selection_top_bar"),
+            ) {
+                IconButton(onClick = onCancel, modifier = Modifier.testTag("selection_cancel")) {
+                    Icon(Icons.Filled.Close, contentDescription = "取消多选")
+                }
+                Text(
+                    "已选 $count 项",
+                    style = MaterialTheme.typography.titleMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = onSelectAll, modifier = Modifier.testTag("selection_select_all")) {
+                    Icon(Icons.Filled.SelectAll, contentDescription = "全选")
+                }
             }
-            Text(
-                "已选 $count 项",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.weight(1f),
-            )
-            IconButton(onClick = onSelectAll, modifier = Modifier.testTag("selection_select_all")) {
-                Icon(Icons.Filled.SelectAll, contentDescription = "全选")
-            }
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
         }
     }
 }
@@ -100,31 +106,34 @@ fun SelectionBottomBar(
     onRemoveFromGallery: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHigh, modifier = modifier.fillMaxWidth()) {
-        Row(
-            horizontalArrangement = Arrangement.SpaceEvenly,
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(vertical = 4.dp)
-                .testTag("selection_bottom_bar"),
-        ) {
-            SelectionAction(Icons.Filled.Download, "下载", enabled = true, tag = "selection_action_download", onClick = onDownload)
-            SelectionAction(Icons.Filled.Share, "分享", enabled = true, tag = "selection_action_share", onClick = onShare)
-            SelectionAction(Icons.Filled.Delete, "删除", enabled = online, tag = "selection_action_delete", onClick = onDelete)
-            SelectionAction(
-                Icons.Filled.AddToPhotos, "加入图集",
-                enabled = online,
-                tag = "selection_action_add_to_gallery",
-                onClick = onAddToGallery,
-            )
-            if (inGallery) {
+    Surface(color = MaterialTheme.colorScheme.surface, modifier = modifier.fillMaxWidth()) {
+        Column {
+            HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+            Row(
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(vertical = 4.dp)
+                    .testTag("selection_bottom_bar"),
+            ) {
+                SelectionAction(Icons.Filled.Download, "下载", enabled = true, tag = "selection_action_download", onClick = onDownload)
+                SelectionAction(Icons.Filled.Share, "分享", enabled = true, tag = "selection_action_share", onClick = onShare)
+                SelectionAction(Icons.Filled.Delete, "删除", enabled = online, tag = "selection_action_delete", onClick = onDelete)
                 SelectionAction(
-                    Icons.Filled.RemoveCircleOutline, "移出图集",
+                    Icons.Filled.AddToPhotos, "加入图集",
                     enabled = online,
-                    tag = "selection_action_remove_from_gallery",
-                    onClick = { onRemoveFromGallery?.invoke() },
+                    tag = "selection_action_add_to_gallery",
+                    onClick = onAddToGallery,
                 )
+                if (inGallery) {
+                    SelectionAction(
+                        Icons.Filled.RemoveCircleOutline, "移出图集",
+                        enabled = online,
+                        tag = "selection_action_remove_from_gallery",
+                        onClick = { onRemoveFromGallery?.invoke() },
+                    )
+                }
             }
         }
     }
@@ -152,7 +161,7 @@ private fun SelectionAction(
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag(tag),
     ) {
-        Icon(icon, contentDescription = label, tint = tint)
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
         Text(label, color = tint, style = MaterialTheme.typography.labelSmall)
     }
 }

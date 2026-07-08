@@ -7,14 +7,20 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -25,6 +31,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -46,10 +53,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.core.view.WindowCompat
@@ -71,6 +80,9 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import com.bluskysoftware.yandegallery.ui.photos.viewerDateLabel
+import com.bluskysoftware.yandegallery.ui.photos.viewerTimeLabel
+import java.time.LocalDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -350,6 +362,7 @@ fun ViewerScreen(
                 detail = null
                 showTagEditor = false
             },
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ) {
             DetailPanel(
                 detail = d,
@@ -524,45 +537,86 @@ fun ViewerPager(
             }
         }
 
-        if (!immersive) {
-            IconButton(
-                onClick = onBack,
-                modifier = Modifier
-                    .align(Alignment.TopStart)
-                    .statusBarsPadding()
-                    .testTag("viewer_back"),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.ArrowBack,
-                    contentDescription = "返回",
-                    tint = Color.White,
-                )
-            }
+        val currentImage = if (items.itemCount == 0) null
+        else items.peek(pagerState.currentPage.coerceIn(0, items.itemCount - 1))
 
-            // 底部操作栏（Task 11 填充）：当前页图片 + 高倍缩放标志交给装配层的 actionBar 槽。
-            // 与 located 同门控（BUG-06）：定位驱动 append 期间 currentPage 恒为 0（时间轴最新一张），
-            // 黑色占位层只盖画面不盖操作栏——此窗口内分享/下载/删除会静默作用在「错图」上
-            //（删除确认框显示的也是最新图文件名，误确认即删错图）。返回键保持可用，让用户能中途退出。
-            // derivedStateOf：scale 逐帧变化，但槽只关心「是否越过阈值」的布尔翻转，避免捏合中整栏逐帧重组。
+        // 顶部 chrome：渐变遮罩 + 返回 + 居中日期/时间（spec §5）；chrome 隐显 150ms fade
+        AnimatedVisibility(
+            visible = !immersive,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.TopCenter),
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(0f to Color.Black.copy(alpha = 0.45f), 1f to Color.Transparent)),
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .statusBarsPadding()
+                        .testTag("viewer_back"),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回", tint = Color.White)
+                }
+                // 定位完成前无「当前图」语义：与操作栏同门控（BUG-06 同口径），只显返回
+                if (located && currentImage != null) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .statusBarsPadding()
+                            .padding(top = 6.dp, bottom = 20.dp)
+                            .testTag("viewer_title_date"),
+                    ) {
+                        Text(
+                            viewerDateLabel(currentImage.createdAt, LocalDate.now()),
+                            color = Color.White,
+                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
+                        )
+                        Text(
+                            viewerTimeLabel(currentImage.createdAt),
+                            color = Color.White.copy(alpha = 0.7f),
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                } else {
+                    Spacer(Modifier.statusBarsPadding().height(48.dp))   // 维持遮罩高度稳定
+                }
+            }
+        }
+
+        // 底部 chrome：渐变遮罩 + 操作栏（viewer_bottom_bar tag 与 located 门控原样）
+        AnimatedVisibility(
+            visible = !immersive,
+            enter = fadeIn(tween(150)),
+            exit = fadeOut(tween(150)),
+            modifier = Modifier.align(Alignment.BottomCenter),
+        ) {
             if (located) {
                 val highZoom by remember {
                     derivedStateOf {
                         (zoomStates[pagerState.currentPage]?.scale ?: 1f) > HIGH_ZOOM_THRESHOLD
                     }
                 }
-                val currentImage = if (items.itemCount == 0) null
-                else items.peek(pagerState.currentPage.coerceIn(0, items.itemCount - 1))
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                Box(
+                    Modifier
                         .fillMaxWidth()
-                        .background(Color.Black.copy(alpha = 0.4f))
-                        .navigationBarsPadding()
-                        .padding(8.dp)
-                        .testTag("viewer_bottom_bar"),
-                    horizontalArrangement = Arrangement.Center,
+                        .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = 0.55f))),
                 ) {
-                    if (currentImage != null) actionBar(currentImage, highZoom)
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 28.dp)
+                            .navigationBarsPadding()
+                            .padding(8.dp)
+                            .testTag("viewer_bottom_bar"),
+                        horizontalArrangement = Arrangement.Center,
+                    ) {
+                        if (currentImage != null) actionBar(currentImage, highZoom)
+                    }
                 }
             }
         }

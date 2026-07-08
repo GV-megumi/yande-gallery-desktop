@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -127,10 +128,10 @@ private fun BarAction(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(horizontal = 10.dp, vertical = 6.dp)
+            .padding(horizontal = 12.dp, vertical = 8.dp)
             .testTag(tag),
     ) {
-        Icon(icon, contentDescription = label, tint = tint)
+        Icon(icon, contentDescription = label, tint = tint, modifier = Modifier.size(22.dp))
         Text(label, color = tint, style = MaterialTheme.typography.labelSmall)
     }
 }

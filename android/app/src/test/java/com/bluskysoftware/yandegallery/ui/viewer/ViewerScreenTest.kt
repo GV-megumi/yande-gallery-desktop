@@ -161,6 +161,49 @@ class ViewerScreenTest {
         assertEquals("操作栏入参应为定位目标图", 2L, barImageId)
     }
 
+    /** spec §5：定位完成前顶部日期无「当前图」语义——与操作栏同门控，不得渲染。 */
+    @Test
+    fun `定位完成前不渲染顶部日期（沿用 BUG-06 口径）`() {
+        compose.setContent {
+            val items = flowOf(
+                PagingData.from(
+                    listOf(image(1), image(2)),
+                    LoadStates(
+                        refresh = LoadState.NotLoading(endOfPaginationReached = false),
+                        prepend = LoadState.NotLoading(endOfPaginationReached = true),
+                        append = LoadState.NotLoading(endOfPaginationReached = false),
+                    ),
+                ),
+            ).collectAsLazyPagingItems()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            ViewerPager(
+                items = items, initialImageId = 999L,
+                imageLoader = ImageLoader.Builder(context).build(),
+                modelFor = { "file:///nonexistent/${it.id}.jpg" },
+                onPrefetch = {}, onBack = {},
+            )
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("viewer_title_date").assertDoesNotExist()
+        compose.onNodeWithTag("viewer_back").assertIsDisplayed()
+    }
+
+    @Test
+    fun `定位完成后顶部渲染日期时间`() {
+        compose.setContent {
+            val items = flowOf(PagingData.from(listOf(image(1), image(2)))).collectAsLazyPagingItems()
+            val context = androidx.compose.ui.platform.LocalContext.current
+            ViewerPager(
+                items = items, initialImageId = 2L,
+                imageLoader = ImageLoader.Builder(context).build(),
+                modelFor = { "file:///nonexistent/${it.id}.jpg" },
+                onPrefetch = {}, onBack = {},
+            )
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("viewer_title_date").assertExists()
+    }
+
     /** 在 [show] 为 true 时装配单图 ViewerPager（系统栏图标用例共用的最小骨架）。 */
     private fun setViewerContent(show: () -> Boolean) {
         compose.setContent {
