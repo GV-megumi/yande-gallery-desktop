@@ -4,11 +4,13 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assert
+import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -41,14 +43,21 @@ class SearchScreenTest {
         compose.onNodeWithTag("search_empty_hint").assertIsDisplayed()
     }
 
+    /**
+     * 审查修复回归：历史 chip 换皮为 Surface+clickable 后必须显式给 Role.Button——
+     * 裸 clickable 无 Role，TalkBack 不播报为按钮；与清除按钮的按钮语义标准同口径，
+     * 用语义断言钉住防后续换皮再丢。
+     */
     @Test
-    fun `历史 chip 点击回填该词`() {
+    fun `历史 chip 具按钮语义且点击回填该词`() {
         var picked: String? = null
         compose.setContent {
             SearchHistory(history = listOf("neko", "sunset"), onPick = { picked = it }, onClear = {})
         }
-        compose.onNodeWithTag("search_history_neko").assertIsDisplayed()
-        compose.onNodeWithTag("search_history_neko").performClick()
+        compose.onNodeWithTag("search_history_neko")
+            .assertIsDisplayed()
+            .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Button))
+            .performClick()
         assertEquals("neko", picked)
     }
 
@@ -120,6 +129,33 @@ class SearchScreenTest {
             compose.waitForIdle()
 
             assertEquals("", vm.query.value)
+        } finally {
+            graph.shutdownForTest()
+            db.close()
+            Dispatchers.resetMain()
+        }
+    }
+
+    /**
+     * 审查修复回归：胶囊搜索框命中区必须填满 40dp 胶囊（装饰走 decorationBox）。
+     * 装饰作 BasicTextField 兄弟节点时，search_field 节点只有约 20dp 高的文本条带，
+     * 胶囊上下边带与放大镜区点击无响应（收起键盘后点胶囊无法重新唤起 IME）——
+     * 用 search_field 节点高度钉住"命中区=整个胶囊"的布局契约。
+     */
+    @OptIn(ExperimentalCoroutinesApi::class)
+    @Test
+    fun `搜索框命中区填满 40dp 胶囊`() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        val vm = SearchViewModel(graph)
+        try {
+            compose.setContent {
+                SearchScreen(viewModel = vm, onOpenViewer = {}, onBack = {})
+            }
+            compose.waitForIdle()
+
+            compose.onNodeWithTag("search_field").assertHeightIsEqualTo(40.dp)
         } finally {
             graph.shutdownForTest()
             db.close()

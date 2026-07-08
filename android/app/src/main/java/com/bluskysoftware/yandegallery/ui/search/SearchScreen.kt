@@ -48,6 +48,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -171,42 +172,53 @@ private fun MiuiSearchField(
         color = MaterialTheme.colorScheme.surfaceVariant,
         modifier = modifier.height(40.dp),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 12.dp)) {
-            Icon(
-                Icons.Filled.Search, contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(18.dp),
-            )
-            Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
-                if (value.isEmpty()) {
-                    Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { onSearch() }),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .focusRequester(focusRequester)
-                        .testTag("search_field"),
-                )
-            }
-            if (value.isNotEmpty()) {
-                // 清除按钮必须是 IconButton（审查修复）：裸 Icon.clickable 不套 minimumInteractiveComponentSize，
-                // 命中区只剩 20dp 且丢 Role.Button 语义；tag 落按钮上与旧契约一致（performClick 兼容）
-                IconButton(onClick = onClear, modifier = Modifier.testTag("search_clear_query")) {
+        // 放大镜/占位词/清除钮必须走 decorationBox 而非 BasicTextField 的兄弟节点（审查修复）：
+        // 兄弟布局时文本框命中区只有中间约 20dp 高的文本条带，胶囊上下边带与放大镜区全是死区
+        // （Surface 内建的空 pointerInput 会拦截落点）——用户收起键盘后点胶囊边缘无法重新唤起 IME。
+        // decorationBox 让整个 40dp 胶囊都是文本框命中区：点任意处聚焦并呼出键盘（已聚焦再点也会重新 show）。
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSearch() }),
+            modifier = Modifier
+                .fillMaxSize()
+                .focusRequester(focusRequester)
+                .testTag("search_field"),
+            decorationBox = { innerTextField ->
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
+                ) {
                     Icon(
-                        Icons.Filled.Close, contentDescription = "清除",
+                        Icons.Filled.Search, contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp),
+                        modifier = Modifier.size(18.dp),
                     )
+                    Box(Modifier.weight(1f).padding(horizontal = 8.dp), contentAlignment = Alignment.CenterStart) {
+                        if (value.isEmpty()) {
+                            Text(placeholder, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        innerTextField()
+                    }
+                    if (value.isNotEmpty()) {
+                        // 清除按钮必须是 IconButton（审查修复）：裸 Icon.clickable 不套 minimumInteractiveComponentSize，
+                        // 命中区只剩 20dp 且丢 Role.Button 语义；tag 落按钮上与旧契约一致（performClick 兼容）。
+                        // 置于 decorationBox 内与 Material TextField trailing icon 同构：按钮消费掉点击后不会触发聚焦。
+                        IconButton(onClick = onClear, modifier = Modifier.testTag("search_clear_query")) {
+                            Icon(
+                                Icons.Filled.Close, contentDescription = "清除",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(20.dp),
+                            )
+                        }
+                    }
                 }
-            }
-        }
+            },
+        )
     }
 }
 
@@ -241,12 +253,17 @@ fun SearchHistory(
         }
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             history.forEach { q ->
+                // 历史胶囊换皮为 Surface+clickable 后 Role.Button 必须显式补上（审查修复）：
+                // 裸 clickable 无 Role，TalkBack 不再播报为按钮，与同文件清除按钮的修复标准一致。
+                // 布局高约 34dp（<48dp）是 MIUI 密排刻意取舍：spec §7 要求 8dp 紧凑流式胶囊，
+                // 套 minimumInteractiveComponentSize 会把 FlowRow 每行撑到 48dp 破坏密度；
+                // 实际触摸命中由 Compose 指针命中区最小触控目标扩展兜底（间隙落点归最近胶囊）。
                 Surface(
                     shape = RoundedCornerShape(50),
                     color = MaterialTheme.colorScheme.surfaceVariant,
                     modifier = Modifier
                         .clip(RoundedCornerShape(50))
-                        .clickable { onPick(q) }
+                        .clickable(role = Role.Button) { onPick(q) }
                         .testTag("search_history_$q"),
                 ) {
                     Text(q, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp))
