@@ -1,7 +1,9 @@
 package com.bluskysoftware.yandegallery.ui.common
 
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,7 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddToPhotos
-import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
@@ -30,10 +32,12 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -157,7 +161,7 @@ private fun SelectionAction(
  * 可多选的网格格子包装（Photos/AlbumDetail 共用）：
  * - 非多选态：单击开大图（onOpen），长按进多选并选中当前格（onToggle）；
  * - 多选态：单击即切换选中，长按同样切换（不再进大图）；
- * - 选中态叠加半透明遮罩 + 右上角勾选角标。
+ * - 选中态：内容微缩 + 半透明遮罩 + 右上角蓝底白勾角标；多选中未选格子显空心圈提示可选（spec §3）。
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -175,23 +179,32 @@ fun SelectableCell(
             onLongClick = onToggle,
         ),
     ) {
-        content()
+        // MIUI 手感：选中格子微缩（spec §3）；缩放只作用内容，角标不缩
+        val scale by animateFloatAsState(if (selected) 0.94f else 1f, label = "cell_scale")
+        Box(Modifier.matchParentSize().graphicsLayer { scaleX = scale; scaleY = scale }) { content() }
         if (selected) {
+            Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = 0.3f)))
             Box(
-                Modifier
-                    .matchParentSize()
-                    .background(Color.Black.copy(alpha = 0.3f)),
-            )
-            Icon(
-                Icons.Filled.CheckCircle,
-                contentDescription = "已选中",
-                tint = MaterialTheme.colorScheme.primary,
+                contentAlignment = Alignment.Center,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
-                    .padding(4.dp)
+                    .padding(6.dp)
                     .size(20.dp)
-                    .background(Color.White, CircleShape)
+                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                    .border(1.5.dp, Color.White, CircleShape)
                     .testTag("selection_badge"),
+            ) {
+                Icon(Icons.Filled.Check, contentDescription = "已选中", tint = Color.White, modifier = Modifier.size(14.dp))
+            }
+        } else if (selectionActive) {
+            // 多选中未选：空心圈提示可选（MIUI 同款）
+            Box(
+                Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(20.dp)
+                    .border(1.5.dp, Color.White.copy(alpha = 0.85f), CircleShape)
+                    .testTag("selection_ring"),
             )
         }
     }

@@ -5,6 +5,10 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +51,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -76,7 +81,9 @@ import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
@@ -338,7 +345,7 @@ fun PhotosScreen(
                                     onToggle = { viewModel.selection.toggle(id) },
                                     modifier = Modifier
                                         .aspectRatio(1f)
-                                        .padding(1.dp),
+                                        .clip(MiuiTokens.CellShape),
                                 ) {
                                     RetryableAsyncImage(
                                         model = thumbnailRequest(LocalContext.current, baseUrl, serverId, id),
@@ -364,10 +371,27 @@ fun PhotosScreen(
                                 }
                             }
                         }
-                        StickyDateOverlay(
-                            label = topDateLabel,
+                        // 仅滚动中浮现（spec §3 修重叠）：停止滚动 500ms 后淡出；collectLatest 保证
+                        // 重新滚动会取消挂起中的隐藏
+                        var stickyVisible by remember { mutableStateOf(false) }
+                        LaunchedEffect(gridState) {
+                            snapshotFlow { gridState.isScrollInProgress }.collectLatest { scrolling ->
+                                if (scrolling) {
+                                    stickyVisible = true
+                                } else {
+                                    delay(500)
+                                    stickyVisible = false
+                                }
+                            }
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = stickyVisible && topDateLabel != null,
+                            enter = fadeIn(tween(120)),
+                            exit = fadeOut(tween(200)),
                             modifier = Modifier.align(Alignment.TopStart),
-                        )
+                        ) {
+                            StickyDateOverlay(label = topDateLabel)
+                        }
                         // 快速滚动滑块（D4）：映射已加载窗口，拖到底持续 append 延展
                         FastScrollbar(
                             gridState = gridState,
@@ -530,9 +554,10 @@ fun PhotosGuide(onAddServer: () -> Unit) {
 internal fun StickyDateOverlay(label: String?, modifier: Modifier = Modifier) {
     if (label == null) return
     Surface(
-        shape = RoundedCornerShape(12.dp),
+        shape = RoundedCornerShape(50),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 2.dp,
+        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant),
         modifier = modifier.padding(8.dp).testTag("sticky_date"),
     ) {
         Text(
@@ -609,6 +634,8 @@ fun PhotosGrid(
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
         state = state,
+        horizontalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
+        verticalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         modifier = modifier.fillMaxSize(),
     ) {
         items(
@@ -628,7 +655,7 @@ fun PhotosGrid(
                 is TimelineItem.Header -> Text(
                     item.display,
                     style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.animateItem().padding(horizontal = 12.dp, vertical = 8.dp),
+                    modifier = Modifier.animateItem().padding(horizontal = 16.dp, vertical = 10.dp),
                 )
                 is TimelineItem.Photo -> Box(Modifier.animateItem()) { photoCell(item) }
                 null -> Box(Modifier.aspectRatio(1f))

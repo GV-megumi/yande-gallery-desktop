@@ -39,6 +39,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.layout.ContentScale
@@ -55,6 +56,7 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
+import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 
 /**
  * 搜索页（Task 12）：顶部即时搜索框 + 无输入显历史 chips（点回填/可清空）+ 有输入显结果网格。
@@ -216,6 +218,8 @@ fun SearchResultGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(4),
+        horizontalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
+        verticalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         modifier = modifier.fillMaxSize().testTag("search_grid"),
     ) {
         items(
@@ -233,7 +237,7 @@ fun SearchResultGrid(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .aspectRatio(1f)
-                        .padding(1.dp)
+                        .clip(MiuiTokens.CellShape)
                         .clickable { onOpenViewer(image.id) },
                 )
             }

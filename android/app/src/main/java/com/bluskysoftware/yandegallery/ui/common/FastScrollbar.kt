@@ -152,8 +152,9 @@ fun FastScrollbar(
     ) {
         if (dragging && bubbleLabel != null) {
             Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.secondaryContainer,
+                shape = RoundedCornerShape(50),
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                shadowElevation = 3.dp,
                 modifier = Modifier
                     .align(thumbBias)
                     .offset(x = (-28).dp)
@@ -173,10 +174,10 @@ fun FastScrollbar(
             Modifier
                 .align(thumbBias)
                 .padding(end = 4.dp)
-                .size(width = 6.dp, height = ThumbHeight)
+                .size(width = 5.dp, height = ThumbHeight)
                 .background(
                     MaterialTheme.colorScheme.primary.copy(alpha = if (dragging) 1f else 0.5f),
-                    RoundedCornerShape(3.dp),
+                    RoundedCornerShape(50),
                 )
                 .testTag("fast_scroll_thumb"),
         )

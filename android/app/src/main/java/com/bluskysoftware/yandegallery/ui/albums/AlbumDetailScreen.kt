@@ -5,7 +5,9 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -23,6 +25,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -43,6 +46,7 @@ import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
+import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
@@ -206,7 +210,7 @@ fun AlbumDetailScreen(
                     onToggle = { viewModel.selection.toggle(image.id) },
                     modifier = Modifier
                         .aspectRatio(1f)
-                        .padding(1.dp),
+                        .clip(MiuiTokens.CellShape),
                 ) {
                     RetryableAsyncImage(
                         model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
@@ -301,6 +305,9 @@ fun AlbumDetailGrid(
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(4),
+        horizontalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
+        verticalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
+        contentPadding = PaddingValues(top = 2.dp),
         modifier = modifier.fillMaxSize(),
     ) {
         items(
