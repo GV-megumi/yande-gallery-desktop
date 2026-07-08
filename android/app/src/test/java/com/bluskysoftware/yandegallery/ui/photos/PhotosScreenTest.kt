@@ -8,6 +8,8 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -20,7 +22,10 @@ import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.launch
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -146,6 +151,107 @@ class PhotosScreenTest {
         compose.onNodeWithText("2026年6月").assertIsDisplayed()
 
         compose.runOnIdle { label.value = null }
+        compose.waitForIdle()
+        compose.onNodeWithTag("sticky_date").assertDoesNotExist()
+    }
+
+    // ---- sticky 滚动显隐门（Task7 审查回补：唯一有状态新行为，须经 AnimatedVisibility 门断言）----
+
+    /** sticky 显隐门夹具：网格 + ScrollAwareStickyDate 按 PhotosScreen 生产装配叠放（200dp 视口）。 */
+    @androidx.compose.runtime.Composable
+    private fun StickyFixture(gridState: LazyGridState, onScope: (CoroutineScope) -> Unit) {
+        onScope(rememberCoroutineScope())
+        // 流实例须 remember：防意外重组新建流重置网格（同锚定用例的豁口注释）
+        val flow = remember {
+            flowOf(
+                PagingData.from(
+                    listOf<TimelineItem>(
+                        TimelineItem.Header("2026-07-03", "2026年7月3日"),
+                        TimelineItem.Photo(image(1, "2026-07-03T00:00:00.000Z")),
+                    ),
+                ),
+            )
+        }
+        val items = flow.collectAsLazyPagingItems()
+        Box(Modifier.size(200.dp)) {
+            PhotosGrid(items = items, columns = 4, state = gridState, photoCell = stubCell)
+            ScrollAwareStickyDate(
+                gridState = gridState,
+                label = "2026年7月3日",
+                modifier = Modifier.align(Alignment.TopStart),
+            )
+        }
+    }
+
+    /**
+     * 开一段受控滚动会话：composition 作用域内 launch gridState.scroll 挂在 gate 上——
+     * isScrollInProgress 保持 true 直到放行 gate。比触摸手势免 slop/fling 时序噪声，
+     * 配合 mainClock 虚拟时间可精确排布 500ms 显隐计时（CompletableDeferred 门控为
+     * SyncSchedulerTest 同款惯例）。
+     */
+    private fun startScrollSession(scope: CoroutineScope, gridState: LazyGridState): CompletableDeferred<Unit> {
+        val gate = CompletableDeferred<Unit>()
+        compose.runOnIdle { scope.launch { gridState.scroll { gate.await() } } }
+        compose.waitForIdle()
+        return gate
+    }
+
+    /** 结束滚动会话（isScrollInProgress → false），等隐藏计时挂起就绪后返回。 */
+    private fun endScrollSession(gate: CompletableDeferred<Unit>) {
+        compose.runOnIdle { gate.complete(Unit) }
+        compose.waitForIdle()
+    }
+
+    @Test
+    fun `sticky 显隐门——静止不显示_滚动中显示_停止500ms后隐藏`() {
+        val gridState = LazyGridState()
+        lateinit var scope: CoroutineScope
+        compose.setContent { StickyFixture(gridState) { scope = it } }
+        compose.waitForIdle()
+
+        // 静止：label 非空也不得浮现——AnimatedVisibility 显隐门生效（门被删除/visible 写反在此变红）
+        compose.onNodeWithTag("sticky_date").assertDoesNotExist()
+
+        // 滚动中：浮现
+        val gate = startScrollSession(scope, gridState)
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+
+        // 停止滚动：500ms 计时内仍显示……
+        endScrollSession(gate)
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+        compose.mainClock.advanceTimeBy(400)
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+        // ……越过 500ms 计时触发隐藏，淡出动画走完后消失
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        compose.onNodeWithTag("sticky_date").assertDoesNotExist()
+    }
+
+    @Test
+    fun `sticky 停止后500ms内重新滚动——挂起中的隐藏被取消（collectLatest 语义）`() {
+        val gridState = LazyGridState()
+        lateinit var scope: CoroutineScope
+        compose.setContent { StickyFixture(gridState) { scope = it } }
+        compose.waitForIdle()
+
+        // 脉冲 #1：滚动浮现，停止（记 t≈0）挂起 500ms 隐藏计时
+        endScrollSession(startScrollSession(scope, gridState))
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+
+        // t≈300ms 重新滚动、t≈430ms 再停止：应取消旧计时并以第二次停止重开（新期限 t≈930ms）
+        compose.mainClock.advanceTimeBy(300)
+        val gate2 = startScrollSession(scope, gridState)
+        compose.mainClock.advanceTimeBy(130)
+        endScrollSession(gate2)
+
+        // t≈800ms：已越过首次停止的 500ms 原期限。误改 collect（c5050e1 同族缺陷）时旧计时
+        // 不可取消——t≈500ms 即隐藏、且挂起期间的重滚动被 snapshotFlow 终值重读吞掉不回显，
+        // 退场动画至 t≈700ms 落幕后节点消失；正确实现此刻必须仍完整可见。
+        compose.mainClock.advanceTimeBy(370)
+        compose.onNodeWithTag("sticky_date").assertIsDisplayed()
+
+        // 第二次停止的 500ms 期限过后照常隐藏
+        compose.mainClock.advanceTimeBy(200)
         compose.waitForIdle()
         compose.onNodeWithTag("sticky_date").assertDoesNotExist()
     }

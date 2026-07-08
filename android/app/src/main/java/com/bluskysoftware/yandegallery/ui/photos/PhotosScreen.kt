@@ -5,6 +5,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -371,27 +372,13 @@ fun PhotosScreen(
                                 }
                             }
                         }
-                        // 仅滚动中浮现（spec §3 修重叠）：停止滚动 500ms 后淡出；collectLatest 保证
-                        // 重新滚动会取消挂起中的隐藏
-                        var stickyVisible by remember { mutableStateOf(false) }
-                        LaunchedEffect(gridState) {
-                            snapshotFlow { gridState.isScrollInProgress }.collectLatest { scrolling ->
-                                if (scrolling) {
-                                    stickyVisible = true
-                                } else {
-                                    delay(500)
-                                    stickyVisible = false
-                                }
-                            }
-                        }
-                        androidx.compose.animation.AnimatedVisibility(
-                            visible = stickyVisible && topDateLabel != null,
-                            enter = fadeIn(tween(120)),
-                            exit = fadeOut(tween(200)),
+                        // 仅滚动中浮现（spec §3 修重叠）：显隐门抽为 ScrollAwareStickyDate，
+                        // 供 Robolectric 直测滚动态显隐与取消语义（Task7 审查回补）
+                        ScrollAwareStickyDate(
+                            gridState = gridState,
+                            label = topDateLabel,
                             modifier = Modifier.align(Alignment.TopStart),
-                        ) {
-                            StickyDateOverlay(label = topDateLabel)
-                        }
+                        )
                         // 快速滚动滑块（D4）：映射已加载窗口，拖到底持续 append 延展
                         FastScrollbar(
                             gridState = gridState,
@@ -565,6 +552,40 @@ internal fun StickyDateOverlay(label: String?, modifier: Modifier = Modifier) {
             style = MaterialTheme.typography.labelLarge,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
         )
+    }
+}
+
+/**
+ * sticky 日期条滚动显隐门（spec §3 修重叠）：仅滚动中浮现，停止滚动 500ms 后淡出。
+ * collectLatest 保证重新滚动会取消挂起中的隐藏计时——误改 collect 时计时不可取消，且计时
+ * 挂起期间的重滚动会被整段吞掉（snapshotFlow producer 只在收集体返回后重读终值），停后
+ * 500ms 必然淡出一次不再回显（Task5 settle 同族缺陷，c5050e1）。从 PhotosScreen 装配处
+ * 抽出为 internal，供 Robolectric 用 mainClock 驱动滚动态直测（PhotosScreenTest）。
+ */
+@Composable
+internal fun ScrollAwareStickyDate(
+    gridState: LazyGridState,
+    label: String?,
+    modifier: Modifier = Modifier,
+) {
+    var stickyVisible by remember { mutableStateOf(false) }
+    LaunchedEffect(gridState) {
+        snapshotFlow { gridState.isScrollInProgress }.collectLatest { scrolling ->
+            if (scrolling) {
+                stickyVisible = true
+            } else {
+                delay(500)
+                stickyVisible = false
+            }
+        }
+    }
+    AnimatedVisibility(
+        visible = stickyVisible && label != null,
+        enter = fadeIn(tween(120)),
+        exit = fadeOut(tween(200)),
+        modifier = modifier,
+    ) {
+        StickyDateOverlay(label = label)
     }
 }
 

@@ -117,4 +117,37 @@ class SelectionBarsTest {
         assertEquals(0, open)
         assertEquals(1, toggle)
     }
+
+    @Test
+    fun `格子多选态未选中——显示空心圈提示可选且无选中角标`() {
+        compose.setContent {
+            SelectableCell(
+                selected = false,
+                selectionActive = true,
+                onOpen = {},
+                onToggle = {},
+                modifier = Modifier.size(48.dp),
+            ) { Box(Modifier.size(48.dp)) }
+        }
+
+        // 空心圈与角标同在合并语义树内——用未合并树查找（同 selection_badge 断言口径）
+        compose.onNodeWithTag("selection_ring", useUnmergedTree = true).assertExists()
+        compose.onNodeWithTag("selection_badge", useUnmergedTree = true).assertDoesNotExist()
+    }
+
+    @Test
+    fun `格子非多选态——不显示空心圈`() {
+        compose.setContent {
+            SelectableCell(
+                selected = false,
+                selectionActive = false,
+                onOpen = {},
+                onToggle = {},
+                modifier = Modifier.size(48.dp),
+            ) { Box(Modifier.size(48.dp)) }
+        }
+
+        compose.onNodeWithTag("selection_ring", useUnmergedTree = true).assertDoesNotExist()
+        compose.onNodeWithTag("selection_badge", useUnmergedTree = true).assertDoesNotExist()
+    }
 }
