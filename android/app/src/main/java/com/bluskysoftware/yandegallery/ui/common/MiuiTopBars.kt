@@ -21,7 +21,8 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,8 +48,8 @@ import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
  * 全额截胡，收起态无法拖拽展开且拉标题误触发刷新（评审修复，Task 6 相册页复用同约束）。
  */
 @Stable
-class MiuiHeaderState(val heightPx: Float) {
-    var offsetPx by mutableFloatStateOf(0f)   // 0（展开）.. -heightPx（收起）
+class MiuiHeaderState(val heightPx: Float, initialOffsetPx: Float = 0f) {
+    var offsetPx by mutableFloatStateOf(initialOffsetPx.coerceIn(-heightPx, 0f))   // 0（展开）.. -heightPx（收起）
         private set
     val collapseFraction: Float get() = if (heightPx <= 0f) 1f else -offsetPx / heightPx
 
@@ -81,12 +82,27 @@ class MiuiHeaderState(val heightPx: Float) {
         if (target == offsetPx) return
         animate(initialValue = offsetPx, targetValue = target) { v, _ -> offsetPx = v }
     }
+
+    companion object {
+        /**
+         * 折叠进度 Saver（审查修复）：NavHost 离开目的地即弃组合，普通 remember 会把折叠态复位
+         * 全展开，而配套网格滚动位置走 rememberLazyGridState（saveable）恢复——「开大图返回/
+         * 照片↔相册切 tab 回来」出现网格停在深处、大标题却复位全展的跳变（material3
+         * rememberTopAppBarState 同为 rememberSaveable+Saver 持久化）。存比例而非像素：
+         * density 变化（字体缩放等）时按新高度等比还原并 clamp，不会越界。
+         */
+        fun saver(heightPx: Float): Saver<MiuiHeaderState, Float> = Saver(
+            save = { it.collapseFraction },
+            restore = { fraction -> MiuiHeaderState(heightPx, initialOffsetPx = -fraction * heightPx) },
+        )
+    }
 }
 
+/** 折叠态经 rememberSaveable 恢复：与 saveable 的网格滚动位置同生命周期，离开返回不跳变。 */
 @Composable
 fun rememberMiuiHeaderState(height: Dp = MiuiTokens.LargeTitleHeight): MiuiHeaderState {
     val px = with(LocalDensity.current) { height.toPx() }
-    return remember(px) { MiuiHeaderState(px) }
+    return rememberSaveable(px, saver = MiuiHeaderState.saver(px)) { MiuiHeaderState(px) }
 }
 
 /** 大标题行：高度随折叠收缩、文字随之淡出；挂在常驻顶栏与内容之间的普通布局位。 */

@@ -12,11 +12,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -48,6 +50,32 @@ class MiuiTopBarsTest {
         consumed = state.connection.onPostScroll(Offset.Zero, Offset(0f, 30f), NestedScrollSource.UserInput)
         assertEquals(30f, consumed.y)
         assertFalse(state.scrolled)
+    }
+
+    /**
+     * 折叠态 saveable 守卫（审查修复）：NavHost 离开目的地（开大图返回/照片↔相册切 tab）即弃组合，
+     * 网格滚动位置经 rememberLazyGridState（saveable）恢复，折叠态若走普通 remember 会复位全展——
+     * 返回后「网格停在深处、64dp 大标题却全展、小标题/发丝线消失」。模拟保存/恢复后折叠进度必须保持。
+     */
+    @Test
+    fun `折叠态经状态保存恢复后保持收起`() {
+        val restoration = StateRestorationTester(compose)
+        var state: MiuiHeaderState? = null
+        restoration.setContent { state = rememberMiuiHeaderState() }
+        compose.waitForIdle()
+        val before = state!!
+        compose.runOnIdle {
+            before.connection.onPreScroll(Offset(0f, -before.heightPx), NestedScrollSource.UserInput)
+        }
+        assertTrue(before.scrolled)
+
+        restoration.emulateSavedInstanceStateRestore()
+        compose.waitForIdle()
+
+        val after = state!!
+        assertNotSame(before, after)   // 确认经历了重建（新实例），排除同实例侥幸通过
+        assertEquals(-after.heightPx, after.offsetPx, 0.001f)
+        assertTrue(after.scrolled)
     }
 
     @Test
