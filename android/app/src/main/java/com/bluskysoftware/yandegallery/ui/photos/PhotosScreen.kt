@@ -277,7 +277,14 @@ fun PhotosScreen(
     // 发射在 settle 挂起期间排队，贴齐中再拖动会出现 animate 与 nested scroll 每帧竞写 offsetPx。
     val header = rememberMiuiHeaderState()
     LaunchedEffect(gridState) {
-        snapshotFlow { gridState.isScrollInProgress }.collectLatest { if (!it) header.settle() }
+        // 深处判定一并入流（终审 Minor#2）：快滚滑块 scrollToItem 不经 nestedScroll，跳到深处后
+        // 头部仍全展——空闲且首项已滚出视口时直接收起，与手指滚动后的收起态观感一致；顶部照旧 settle。
+        snapshotFlow { gridState.isScrollInProgress to (gridState.firstVisibleItemIndex > 0) }
+            .collectLatest { (scrolling, deep) ->
+                if (!scrolling) {
+                    if (deep) header.collapse() else header.settle()
+                }
+            }
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {

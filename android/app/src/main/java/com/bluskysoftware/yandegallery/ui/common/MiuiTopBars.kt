@@ -83,6 +83,15 @@ class MiuiHeaderState(val heightPx: Float, initialOffsetPx: Float = 0f) {
         animate(initialValue = offsetPx, targetValue = target) { v, _ -> offsetPx = v }
     }
 
+    /**
+     * 程序化跳位后强制收起（终审 Minor#2）：快滚滑块的 scrollToItem 不经 nestedScroll，
+     * 跳到列表深处后头部仍全展、与手指滚动后的收起态观感不一致——空闲且首项已滚出时调用。
+     */
+    suspend fun collapse() {
+        if (offsetPx == -heightPx) return
+        animate(initialValue = offsetPx, targetValue = -heightPx) { v, _ -> offsetPx = v }
+    }
+
     companion object {
         /**
          * 折叠进度 Saver（审查修复）：NavHost 离开目的地即弃组合，普通 remember 会把折叠态复位

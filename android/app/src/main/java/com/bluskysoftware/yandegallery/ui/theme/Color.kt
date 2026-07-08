@@ -12,6 +12,11 @@ val LightOnSurface = Color(0xFF1A1A1A)
 val LightOnSurfaceVariant = Color(0xFF8A8F99)
 val LightHairline = Color(0x14000000)   // 黑 8% 发丝线
 val LightError = Color(0xFFE53935)
+// 次级槽位（终审补映射）：FilterChip 选中态取 secondaryContainer、部分存量灰字取 outline——
+// 不映射会落到 M3 基线紫/紫灰，与 MIUI 蓝语言冲突
+val LightSecondaryContainer = Color(0xFFDCE9FF)
+val LightOnSecondaryContainer = Color(0xFF1A5BCC)
+val LightOutline = Color(0xFFA6ABB5)
 
 // 深色：OLED 真黑基调 + #1C1C1E 卡片（MIUI 深色相册）
 val DarkPrimary = Color(0xFF5C9BFF)
@@ -23,3 +28,6 @@ val DarkOnSurface = Color(0xFFF2F2F2)
 val DarkOnSurfaceVariant = Color(0xFF9AA0AA)
 val DarkHairline = Color(0x1AFFFFFF)   // 白 10% 发丝线
 val DarkError = Color(0xFFFF6B6B)
+val DarkSecondaryContainer = Color(0xFF1C3D63)
+val DarkOnSecondaryContainer = Color(0xFFA8C7FF)
+val DarkOutline = Color(0xFF7A8089)

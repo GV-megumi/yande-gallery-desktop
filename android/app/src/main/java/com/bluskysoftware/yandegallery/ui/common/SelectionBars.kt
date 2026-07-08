@@ -75,7 +75,7 @@ fun SelectionTopBar(
                 }
                 Text(
                     "已选 $count 项",
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.titleLarge,   // spec §6 定 17sp（终审 Minor#4 对齐）
                     textAlign = TextAlign.Center,
                     modifier = Modifier.weight(1f),
                 )

@@ -100,7 +100,13 @@ fun AlbumsScreen(
     val header = rememberMiuiHeaderState()
     val gridState = rememberLazyGridState()
     LaunchedEffect(gridState) {
-        snapshotFlow { gridState.isScrollInProgress }.collectLatest { if (!it) header.settle() }
+        // 深处判定一并入流（终审 Minor#2，照片页同款）：程序化跳位落深处后空闲直接收起
+        snapshotFlow { gridState.isScrollInProgress to (gridState.firstVisibleItemIndex > 0) }
+            .collectLatest { (scrolling, deep) ->
+                if (!scrolling) {
+                    if (deep) header.collapse() else header.settle()
+                }
+            }
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {

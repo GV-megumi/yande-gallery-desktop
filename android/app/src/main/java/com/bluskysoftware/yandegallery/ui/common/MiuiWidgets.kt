@@ -31,6 +31,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 
 /** 二级页顶栏（spec §8.2）：居中标题（可选副标题双行）+ 左返回 + 右动作槽；背景与页面同色。 */
@@ -51,10 +52,14 @@ fun MiuiSubPageTopBar(
         IconButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterStart)) {
             Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回")
         }
-        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.align(Alignment.Center)) {
-            Text(title, style = MaterialTheme.typography.titleLarge)
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            // 左右各让位 56dp（返回键/动作区宽），长标题（如用户自定义图集名）单行省略不压图标（终审 Minor#3）
+            modifier = Modifier.align(Alignment.Center).padding(horizontal = 56.dp),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (subtitle != null) {
-                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(subtitle, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
         }
         Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.align(Alignment.CenterEnd)) { actions() }
@@ -214,7 +219,7 @@ private fun MiuiCapsuleButton(
         modifier = modifier
             .height(48.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(if (canClick) container else container.copy(alpha = 0.5f))
+            .background(if (canClick) container else container.copy(alpha = 0.38f))   // 禁用透明度对齐 MiuiDialogButton（终审 Minor#5）
             .clickable(enabled = canClick, onClick = onClick)
             // 内容水平留白：wrap-content 场景（缓存页「清理」）保持胶囊形；weight 拉伸场景居中不受影响
             .padding(horizontal = 24.dp),

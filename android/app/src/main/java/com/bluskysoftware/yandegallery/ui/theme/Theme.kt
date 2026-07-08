@@ -28,6 +28,10 @@ private val LightColors = lightColorScheme(
     surfaceContainer = LightSurface,
     surfaceContainerHigh = LightSurface,
     surfaceContainerHighest = LightSurface,
+    secondary = LightPrimary,
+    secondaryContainer = LightSecondaryContainer,
+    onSecondaryContainer = LightOnSecondaryContainer,
+    outline = LightOutline,
     outlineVariant = LightHairline,
     error = LightError,
 )
@@ -45,6 +49,10 @@ private val DarkColors = darkColorScheme(
     surfaceContainer = DarkCard,
     surfaceContainerHigh = DarkCard,
     surfaceContainerHighest = DarkCard,
+    secondary = DarkPrimary,
+    secondaryContainer = DarkSecondaryContainer,
+    onSecondaryContainer = DarkOnSecondaryContainer,
+    outline = DarkOutline,
     outlineVariant = DarkHairline,
     error = DarkError,
 )
