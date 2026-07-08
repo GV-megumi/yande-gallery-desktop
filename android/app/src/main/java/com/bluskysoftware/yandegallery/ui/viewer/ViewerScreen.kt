@@ -22,7 +22,6 @@ import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +67,7 @@ import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
+import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
@@ -308,29 +308,20 @@ fun ViewerScreen(
 
     // 删除二次确认：文案按有无本地副本分支（spec §7.3 D10 / §8）——有副本明示级联删除，无副本明示本机无副本
     confirmDeleteId?.let { imageId ->
-        AlertDialog(
-            onDismissRequest = { confirmDeleteId = null },
-            title = { Text("删除图片") },
-            text = {
-                Text(
-                    if (confirmDeleteHasLocal) {
-                        "确定删除「$confirmDeleteName」？将从服务器删除；本机已保存的原图副本也会一并删除。"
-                    } else {
-                        "确定删除「$confirmDeleteName」？将从服务器删除（本机无已保存副本）。"
-                    },
-                )
+        MiuiDialog(
+            title = "删除图片",
+            text = if (confirmDeleteHasLocal) {
+                "确定删除「$confirmDeleteName」？将从服务器删除；本机已保存的原图副本也会一并删除。"
+            } else {
+                "确定删除「$confirmDeleteName」？将从服务器删除（本机无已保存副本）。"
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmDeleteId = null
-                        performDelete(imageId)
-                    },
-                    modifier = Modifier.testTag("viewer_delete_confirm"),
-                ) { Text("删除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmDeleteId = null }) { Text("取消") }
+            onDismiss = { confirmDeleteId = null },
+            confirmText = "删除",
+            destructive = true,
+            confirmTag = "viewer_delete_confirm",
+            onConfirm = {
+                confirmDeleteId = null
+                performDelete(imageId)
             },
         )
     }

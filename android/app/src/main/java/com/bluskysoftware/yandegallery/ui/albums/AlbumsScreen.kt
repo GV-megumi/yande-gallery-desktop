@@ -17,7 +17,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -28,7 +27,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -52,6 +50,7 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.Routes
+import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.launch
@@ -296,10 +295,14 @@ internal fun AlbumNameDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(title) },
-        text = {
+    MiuiDialog(
+        title = title,
+        onDismiss = onDismiss,
+        confirmText = confirmLabel,
+        confirmEnabled = name.isNotBlank(),
+        confirmTag = confirmTag,
+        onConfirm = onConfirm,
+        content = {
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChange,
@@ -308,14 +311,6 @@ internal fun AlbumNameDialog(
                 modifier = Modifier.fillMaxWidth().testTag("album_name_field"),
             )
         },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                enabled = name.isNotBlank(),
-                modifier = Modifier.testTag(confirmTag),
-            ) { Text(confirmLabel) }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
 }
 
@@ -326,17 +321,14 @@ internal fun DeleteAlbumConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("删除图集") },
-        text = { Text("确定删除图集「$albumName」？只删除图集本身，不删除其中的图片文件。") },
-        confirmButton = {
-            TextButton(
-                onClick = onConfirm,
-                modifier = Modifier.testTag("album_delete_confirm"),
-            ) { Text("删除") }
-        },
-        dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
+    MiuiDialog(
+        title = "删除图集",
+        text = "确定删除图集「$albumName」？只删除图集本身，不删除其中的图片文件。",
+        confirmText = "删除",
+        destructive = true,
+        confirmTag = "album_delete_confirm",
+        onConfirm = onConfirm,
+        onDismiss = onDismiss,
     )
 }
 

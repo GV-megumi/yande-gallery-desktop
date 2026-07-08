@@ -19,7 +19,6 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.LinearProgressIndicator
@@ -28,7 +27,6 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -61,6 +59,7 @@ import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
+import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
@@ -357,54 +356,45 @@ fun PhotosScreen(
     // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）
     if (confirmBatchDelete) {
         val count = selected.size
-        AlertDialog(
-            onDismissRequest = { confirmBatchDelete = false },
-            title = { Text("批量删除") },
-            text = {
-                Text(
-                    if (batchHasLocalCopies) {
-                        "确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本也会一并删除。"
-                    } else {
-                        "确定删除选中的 $count 张图片？将从服务器删除。"
-                    },
-                )
+        MiuiDialog(
+            title = "批量删除",
+            text = if (batchHasLocalCopies) {
+                "确定删除选中的 $count 张图片？将从服务器删除；本机已保存的原图副本也会一并删除。"
+            } else {
+                "确定删除选中的 $count 张图片？将从服务器删除。"
             },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        confirmBatchDelete = false
-                        val ids = viewModel.selection.selected.toList()
-                        scope.launch {
-                            val localUris = viewModel.downloadedUrisFor(ids).map { it.toUri() }   // 删行前快照
-                            when (val r = viewModel.batchDeleteSelected(ids)) {
-                                WriteResult.Success -> {
-                                    snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
-                                    if (localUris.isNotEmpty()) {
-                                        val pending = viewModel.buildBatchDeleteRequest(localUris)
-                                        if (pending != null) {
-                                            // 30+：一次系统批量确认；拒绝仅保留文件（行已清）
-                                            batchCascadeLauncher.launch(
-                                                IntentSenderRequest.Builder(pending.intentSender).build(),
-                                            )
-                                        } else {
-                                            val (deleted, kept) = viewModel.deleteLocalCopies(localUris)
-                                            if (kept > 0) {
-                                                snackbarHostState.showSnackbar("本机副本已删除 $deleted 张、保留 $kept 张（无删除权限）")
-                                            }
-                                        }
+            onDismiss = { confirmBatchDelete = false },
+            confirmText = "删除",
+            destructive = true,
+            confirmTag = "batch_delete_confirm",
+            onConfirm = {
+                confirmBatchDelete = false
+                val ids = viewModel.selection.selected.toList()
+                scope.launch {
+                    val localUris = viewModel.downloadedUrisFor(ids).map { it.toUri() }   // 删行前快照
+                    when (val r = viewModel.batchDeleteSelected(ids)) {
+                        WriteResult.Success -> {
+                            snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
+                            if (localUris.isNotEmpty()) {
+                                val pending = viewModel.buildBatchDeleteRequest(localUris)
+                                if (pending != null) {
+                                    // 30+：一次系统批量确认；拒绝仅保留文件（行已清）
+                                    batchCascadeLauncher.launch(
+                                        IntentSenderRequest.Builder(pending.intentSender).build(),
+                                    )
+                                } else {
+                                    val (deleted, kept) = viewModel.deleteLocalCopies(localUris)
+                                    if (kept > 0) {
+                                        snackbarHostState.showSnackbar("本机副本已删除 $deleted 张、保留 $kept 张（无删除权限）")
                                     }
                                 }
-                                is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("批量删除失败", r))
                             }
-                            // 成败都清选择：成功项已从网格消失，失败信息已提示，避免残留失效 id
-                            viewModel.selection.clear()
                         }
-                    },
-                    modifier = Modifier.testTag("batch_delete_confirm"),
-                ) { Text("删除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmBatchDelete = false }) { Text("取消") }
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("批量删除失败", r))
+                    }
+                    // 成败都清选择：成功项已从网格消失，失败信息已提示，避免残留失效 id
+                    viewModel.selection.clear()
+                }
             },
         )
     }

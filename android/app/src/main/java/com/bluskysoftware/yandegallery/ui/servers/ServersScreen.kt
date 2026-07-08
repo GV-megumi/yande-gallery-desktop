@@ -16,7 +16,6 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -26,7 +25,6 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,6 +37,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -132,18 +131,16 @@ fun ServersScreen(
     }
 
     deleteTarget?.let { target ->
-        AlertDialog(
-            onDismissRequest = { deleteTarget = null },
-            title = { Text("删除服务器") },
-            text = { Text("确定删除「${target.name}」？此操作不影响已下载到本机的图片。") },
-            confirmButton = {
-                TextButton(onClick = {
-                    vm.delete(target.id)
-                    deleteTarget = null
-                }) { Text("删除") }
-            },
-            dismissButton = {
-                TextButton(onClick = { deleteTarget = null }) { Text("取消") }
+        MiuiDialog(
+            title = "删除服务器",
+            text = "确定删除「${target.name}」？此操作不影响已下载到本机的图片。",
+            onDismiss = { deleteTarget = null },
+            confirmText = "删除",
+            destructive = true,
+            confirmTag = "server_delete_confirm",
+            onConfirm = {
+                vm.delete(target.id)
+                deleteTarget = null
             },
         )
     }

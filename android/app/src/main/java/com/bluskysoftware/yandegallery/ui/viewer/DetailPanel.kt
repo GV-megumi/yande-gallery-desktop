@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.InputChip
@@ -31,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -138,53 +138,53 @@ fun TagEditDialog(
     onDismiss: () -> Unit,
 ) {
     var input by remember { mutableStateOf("") }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text("编辑标签") },
-        text = {
-            Column {
-                if (tagNames.isEmpty()) {
-                    Text("暂无标签", style = MaterialTheme.typography.bodySmall)
-                } else {
-                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        tagNames.forEach { name ->
-                            InputChip(
-                                selected = false,
-                                onClick = { onRemove(name) },
-                                label = { Text(name) },
-                                trailingIcon = {
-                                    Icon(
-                                        Icons.Filled.Close,
-                                        contentDescription = "移除 $name",
-                                        modifier = Modifier.size(InputChipDefaults.IconSize),
-                                    )
-                                },
-                                modifier = Modifier.testTag("tag_edit_chip_$name"),
-                            )
-                        }
+    MiuiDialog(
+        title = "编辑标签",
+        onDismiss = onDismiss,
+        dismissText = null,
+        confirmText = "完成",
+        onConfirm = onDismiss,
+        content = {
+            if (tagNames.isEmpty()) {
+                Text("暂无标签", style = MaterialTheme.typography.bodySmall)
+            } else {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    tagNames.forEach { name ->
+                        InputChip(
+                            selected = false,
+                            onClick = { onRemove(name) },
+                            label = { Text(name) },
+                            trailingIcon = {
+                                Icon(
+                                    Icons.Filled.Close,
+                                    contentDescription = "移除 $name",
+                                    modifier = Modifier.size(InputChipDefaults.IconSize),
+                                )
+                            },
+                            modifier = Modifier.testTag("tag_edit_chip_$name"),
+                        )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    OutlinedTextField(
-                        value = input,
-                        onValueChange = { input = it },
-                        label = { Text("新标签") },
-                        singleLine = true,
-                        modifier = Modifier.weight(1f).testTag("tag_edit_input"),
-                    )
-                    TextButton(
-                        onClick = {
-                            onAdd(input.trim())
-                            input = ""
-                        },
-                        enabled = input.isNotBlank(),
-                        modifier = Modifier.testTag("tag_edit_add"),
-                    ) { Text("添加") }
-                }
+            }
+            Spacer(Modifier.height(12.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = { input = it },
+                    label = { Text("新标签") },
+                    singleLine = true,
+                    modifier = Modifier.weight(1f).testTag("tag_edit_input"),
+                )
+                TextButton(
+                    onClick = {
+                        onAdd(input.trim())
+                        input = ""
+                    },
+                    enabled = input.isNotBlank(),
+                    modifier = Modifier.testTag("tag_edit_add"),
+                ) { Text("添加") }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("完成") } },
     )
 }
 
