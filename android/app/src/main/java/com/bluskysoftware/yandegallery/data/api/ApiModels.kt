@@ -63,6 +63,7 @@ data class SyncGalleryDto(
     val name: String,
     val coverImageId: Long?,
     val imageCount: Int,
+    val createdAt: String? = null,   // v0.6：旧桌面缺字段反序列化为 null（spec §2.2/§6.3）
 )
 
 @Serializable

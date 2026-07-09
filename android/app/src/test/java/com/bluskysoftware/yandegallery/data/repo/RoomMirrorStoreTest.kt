@@ -5,6 +5,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.SyncGalleryDto
 import com.bluskysoftware.yandegallery.data.api.SyncImageItemDto
 import com.bluskysoftware.yandegallery.data.api.SyncTagDto
+import com.bluskysoftware.yandegallery.data.db.AlbumPrefsEntity
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
@@ -154,6 +155,18 @@ class RoomMirrorStoreTest {
         assertEquals("content://other", db.downloadDao().byImageId(2L, 7L)?.mediaStoreUri)  // 他服行保留
         assertEquals(listOf("content://own"), discarded)                     // 副本直删（后台定界，见实现注释）
         assertEquals(listOf(1L to 7L), removedKeys)                          // 两级缓存键清除回调
+    }
+
+    @Test
+    fun `replaceGalleries 映射createdAt并清孤儿偏好`() = runTest {
+        db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 1, pinned = true, pinnedAt = 1L))
+        db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 2, inOther = true))
+        store.replaceGalleries(listOf(
+            SyncGalleryDto(id = 1, name = "keep", coverImageId = null, imageCount = 0, createdAt = "2026-01-01T00:00:00.000Z"),
+        ))
+        assertEquals("2026-01-01T00:00:00.000Z", db.galleryDao().byId(1)?.createdAt)
+        assertNotNull(db.albumPrefsDao().byId(1))   // 图集仍在 → 偏好保留
+        assertNull(db.albumPrefsDao().byId(2))      // 图集消失 → 孤儿清理（spec §2.1）
     }
 
     @Test

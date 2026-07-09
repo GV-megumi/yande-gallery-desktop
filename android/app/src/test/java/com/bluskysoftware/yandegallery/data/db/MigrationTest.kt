@@ -41,9 +41,9 @@ class MigrationTest {
         // 1) 手工建真实 v2 库文件，种 1 行 images + 1 行旧版（无 serverId）downloads
         createRealV2Database()
 
-        // 2) 用 Room 打开并注册迁移链（库现为 v4，2→3→4 触发）与最终 schema 校验
+        // 2) 用 Room 打开并注册迁移链（库现为 v5，2→3→4→5 触发）与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
         try {
@@ -63,9 +63,9 @@ class MigrationTest {
         // 1) 手工建真实 v1 库文件（非 Room createAll 全新库），并种一行 images
         createRealV1Database()
 
-        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v4，1→2→3→4 全链）——触发迁移与最终 schema 校验
+        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v5，1→2→3→4→5 全链）——触发迁移与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
         try {
@@ -92,9 +92,9 @@ class MigrationTest {
         //    同一秒内先写 A（整秒，无小数位）后写 B（.500）：TEXT 字典序 'Z'>'.' 使 A 误排在 B 前。
         createRealV3Database()
 
-        // 2) Room 打开触发 3→4：Kotlin 侧逐行解析换算搬入 INTEGER 新表
+        // 2) Room 打开触发 3→4→5：Kotlin 侧逐行解析换算搬入 INTEGER 新表
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
             .allowMainThreadQueries()
             .build()
         try {
@@ -105,6 +105,35 @@ class MigrationTest {
                 .use { it.moveToFirst(); assertEquals(java.time.Instant.parse("2026-07-05T00:00:01.500Z").toEpochMilli(), it.getLong(0)) }
             // 倒序修正：B（后写）应排在 A 前；解析失败的 garbage 行兜底 0 排最末且不丢词
             assertEquals(listOf("B", "A", "garbage"), db.searchHistoryDao().observeRecent(10).first())
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `v4到v5_galleries补createdAt_album_prefs表可用`() = runTest {
+        // 1) 手工建真实 v4 库文件，种 1 行 galleries（尚无 createdAt 列、无 album_prefs 表）
+        createRealV4Database()
+
+        // 2) Room 打开触发 4→5 迁移与最终 v5 schema 校验
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+            .allowMainThreadQueries()
+            .build()
+        try {
+            // 旧行 createdAt 为 NULL（spec §2.2）
+            db.query("SELECT createdAt FROM galleries WHERE id = 1", null).use { c ->
+                assertTrue(c.moveToFirst())
+                assertTrue(c.isNull(0))
+            }
+            // 新表可写可读
+            db.openHelper.writableDatabase.execSQL(
+                "INSERT INTO album_prefs (galleryId, pinned, pinnedAt, inOther, manualOrder) VALUES (1, 1, 123, 0, NULL)"
+            )
+            db.query("SELECT pinned FROM album_prefs WHERE galleryId = 1", null).use { c ->
+                assertTrue(c.moveToFirst())
+                assertEquals(1, c.getInt(0))
+            }
         } finally {
             db.close()
         }
@@ -166,6 +195,20 @@ class MigrationTest {
         }
     }
 
+    /** 复刻 v4 schema（照 4.json：v3 各表但 search_history.at 为 INTEGER），种 galleries 一行（无 createdAt 列）。 */
+    private fun createRealV4Database() {
+        val dbFile = context.getDatabasePath(dbName)
+        dbFile.parentFile?.mkdirs()
+        val v4 = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
+        try {
+            V4_STATEMENTS.forEach(v4::execSQL)
+            v4.execSQL("INSERT INTO galleries (id, name, coverImageId, imageCount) VALUES (1, 'g', NULL, 0)")
+            v4.version = 4 // PRAGMA user_version = 4，使 Room 判定需 4→5 迁移
+        } finally {
+            v4.close()
+        }
+    }
+
     private companion object {
         /** v1 建表语句——逐字取自 schemas/.../1.json 的 createSql（${TABLE_NAME} 已展开）。 */
         val V1_STATEMENTS = listOf(
@@ -196,6 +239,13 @@ class MigrationTest {
             "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `at` TEXT NOT NULL, PRIMARY KEY(`query`))",
             "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
             "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '18b3cdde619736728cc3bbe4c40ebb88')",
+        )
+
+        /** v4 建表语句：v3 各表但 search_history.at 改 INTEGER（epochMillis，BUG-17）+ v4 identity_hash（schemas/.../4.json）。 */
+        val V4_STATEMENTS = V3_STATEMENTS.dropLast(3) + listOf(
+            "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `at` INTEGER NOT NULL, PRIMARY KEY(`query`))",
+            "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+            "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'afd39d6ad488151488467d6d1b95d215')",
         )
     }
 }

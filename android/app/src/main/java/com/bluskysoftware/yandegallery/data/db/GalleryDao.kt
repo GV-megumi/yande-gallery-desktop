@@ -13,6 +13,7 @@ data class AlbumCardRow(
     val name: String,
     val coverImageId: Long?,
     val imageCount: Int,
+    val createdAt: String?,
     val fallbackCoverId: Long?,
 )
 
@@ -26,7 +27,7 @@ interface GalleryDao {
      * 避免 ViewModel 逐项回查 coverFallback 形成 N+1。排序与 observeAll 一致（按 name）。
      */
     @Query(
-        """SELECT g.id, g.name, g.coverImageId, g.imageCount,
+        """SELECT g.id, g.name, g.coverImageId, g.imageCount, g.createdAt,
              (SELECT i.id FROM images i
                 JOIN gallery_images gi ON gi.imageId = i.id
                 WHERE gi.galleryId = g.id

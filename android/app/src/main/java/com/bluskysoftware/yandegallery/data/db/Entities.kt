@@ -23,6 +23,7 @@ data class GalleryEntity(
     val name: String,
     val coverImageId: Long?,
     val imageCount: Int,
+    val createdAt: String? = null,   // v5：/sync/galleries 下发的 ISO 串（旧桌面缺字段为 null，spec §2.2）
 )
 
 // 修正（T7 消费，schema 一步到位）：只保留对 images 的 CASCADE FK，不对 galleries 建 FK。
@@ -92,4 +93,19 @@ data class DownloadEntity(
 data class SearchHistoryEntity(
     @PrimaryKey val query: String,
     val at: Long,
+)
+
+/**
+ * 相册组织本机态（v0.6 spec §2.1）：置顶/「其他相册」收纳/区内手动序。
+ * 独立表、不建外键——图集同步是全量 replaceAll（清表重插），FK CASCADE 会把偏好一并误清；
+ * 孤儿行由 RoomMirrorStore.replaceGalleries 对账后清理。置顶与收纳互斥、跨区迁移清手动序，
+ * 两条规则收敛在 AlbumPrefsDao 的事务方法里。
+ */
+@Entity(tableName = "album_prefs")
+data class AlbumPrefsEntity(
+    @PrimaryKey val galleryId: Long,
+    val pinned: Boolean = false,
+    val pinnedAt: Long? = null,      // epoch ms，置顶区默认序（新置顶在前）
+    val inOther: Boolean = false,
+    val manualOrder: Int? = null,    // 区内手动序；NULL=未定序（手动模式排区尾按名兜底）
 )

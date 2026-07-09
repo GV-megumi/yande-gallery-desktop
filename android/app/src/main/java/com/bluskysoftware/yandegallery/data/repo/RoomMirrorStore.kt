@@ -91,8 +91,14 @@ class RoomMirrorStore(
         }
     }
 
-    override suspend fun replaceGalleries(items: List<SyncGalleryDto>) =
-        db.galleryDao().replaceAll(items.map { GalleryEntity(it.id, it.name, it.coverImageId, it.imageCount) })
+    override suspend fun replaceGalleries(items: List<SyncGalleryDto>) = db.withTransaction {
+        db.galleryDao().replaceAll(
+            items.map { GalleryEntity(it.id, it.name, it.coverImageId, it.imageCount, it.createdAt) },
+        )
+        // 对账清孤儿偏好（spec §2.1）：图集已消失的置顶/分组/手动序行一并清掉，
+        // 与 replaceAll 同事务——不留「图集没了偏好还在」的中间态窗口
+        db.albumPrefsDao().deleteOrphans()
+    }
 
     override suspend fun replaceTags(items: List<SyncTagDto>) =
         db.tagDao().replaceAll(items.map { TagEntity(it.id, it.name, it.category) })

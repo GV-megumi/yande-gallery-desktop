@@ -10,9 +10,9 @@ import androidx.room.RoomDatabase
         ImageEntity::class, GalleryEntity::class, GalleryImageEntity::class,
         TagEntity::class, ImageTagEntity::class,
         ServerEntity::class, SyncStateEntity::class, DownloadEntity::class,
-        SearchHistoryEntity::class,
+        SearchHistoryEntity::class, AlbumPrefsEntity::class,
     ],
-    version = 4,
+    version = 5,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -23,6 +23,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun syncStateDao(): SyncStateDao
     abstract fun downloadDao(): DownloadDao
     abstract fun searchHistoryDao(): SearchHistoryDao
+    abstract fun albumPrefsDao(): AlbumPrefsDao
 
     companion object {
         // v1→2：新增 search_history 表（其余表不变）。CREATE 语句须与 Room 对该实体的期望逐字一致。
@@ -71,9 +72,23 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v4→5（v0.6 功能补全）：galleries 补 createdAt（同步载荷新字段，旧行 NULL）；
+        // 新建 album_prefs（置顶/其他相册/手动序本机态，spec §2.1）。
+        val MIGRATION_4_5 = object : androidx.room.migration.Migration(4, 5) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `galleries` ADD COLUMN `createdAt` TEXT")
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `album_prefs` (`galleryId` INTEGER NOT NULL, " +
+                        "`pinned` INTEGER NOT NULL, `pinnedAt` INTEGER, " +
+                        "`inOther` INTEGER NOT NULL, `manualOrder` INTEGER, " +
+                        "PRIMARY KEY(`galleryId`))"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "yande-gallery.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .build()
 
         // inMemory 每次全新建库，无历史版本，无需注册迁移。
