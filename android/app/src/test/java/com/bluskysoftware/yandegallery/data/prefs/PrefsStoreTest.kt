@@ -43,6 +43,21 @@ class PrefsStoreTest {
         assertEquals(512L * 1024 * 1024, store.previewCacheMaxBytes.first())
     }
 
+    @Test fun `排序与列数四键读写回环_未设置为null`() = runTest {
+        assertNull(store.photosSortName.first())
+        assertNull(store.albumsSortName.first())
+        assertNull(store.albumDetailSortName.first())
+        assertNull(store.albumDetailColumns.first())
+        store.setPhotosSortName("TIME_ASC")
+        store.setAlbumsSortName("COUNT_DESC")
+        store.setAlbumDetailSortName("SIZE_DESC")
+        store.setAlbumDetailColumns(3)
+        assertEquals("TIME_ASC", store.photosSortName.first())
+        assertEquals("COUNT_DESC", store.albumsSortName.first())
+        assertEquals("SIZE_DESC", store.albumDetailSortName.first())
+        assertEquals(3, store.albumDetailColumns.first())
+    }
+
     @Test fun `磁盘读 IOException 兜底回默认值不崩溃`() = runTest {
         val broken = object : DataStore<Preferences> {
             override val data: Flow<Preferences> = flow { throw IOException("boom") }

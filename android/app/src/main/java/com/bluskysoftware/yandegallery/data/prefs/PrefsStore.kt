@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -55,10 +56,42 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_PREVIEW_MAX] = bytes }
     }
 
+    /** 照片页排序（PhotoSort.name）；未设置为 null，映射与默认收敛在 ViewPrefs（spec §2.3）。 */
+    val photosSortName: Flow<String?> = safeData.map { it[KEY_PHOTOS_SORT] }
+
+    suspend fun setPhotosSortName(name: String) {
+        dataStore.edit { it[KEY_PHOTOS_SORT] = name }
+    }
+
+    /** 相册页排序（AlbumSort.name）。 */
+    val albumsSortName: Flow<String?> = safeData.map { it[KEY_ALBUMS_SORT] }
+
+    suspend fun setAlbumsSortName(name: String) {
+        dataStore.edit { it[KEY_ALBUMS_SORT] = name }
+    }
+
+    /** 相册详情排序（PhotoSort.name，全部图集共用）。 */
+    val albumDetailSortName: Flow<String?> = safeData.map { it[KEY_DETAIL_SORT] }
+
+    suspend fun setAlbumDetailSortName(name: String) {
+        dataStore.edit { it[KEY_DETAIL_SORT] = name }
+    }
+
+    /** 相册详情列数档（3/4/5）。 */
+    val albumDetailColumns: Flow<Int?> = safeData.map { it[KEY_DETAIL_COLUMNS] }
+
+    suspend fun setAlbumDetailColumns(columns: Int) {
+        dataStore.edit { it[KEY_DETAIL_COLUMNS] = columns }
+    }
+
     companion object {
         private val KEY_DENSITY = stringPreferencesKey("timeline_density")
         private val KEY_THUMB_MAX = longPreferencesKey("thumb_cache_max_bytes")
         private val KEY_PREVIEW_MAX = longPreferencesKey("preview_cache_max_bytes")
+        private val KEY_PHOTOS_SORT = stringPreferencesKey("photos_sort")
+        private val KEY_ALBUMS_SORT = stringPreferencesKey("albums_sort")
+        private val KEY_DETAIL_SORT = stringPreferencesKey("album_detail_sort")
+        private val KEY_DETAIL_COLUMNS = intPreferencesKey("album_detail_columns")
         const val DEFAULT_THUMB_MAX_BYTES = 2L * 1024 * 1024 * 1024
         const val DEFAULT_PREVIEW_MAX_BYTES = 1L * 1024 * 1024 * 1024
     }
