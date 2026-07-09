@@ -1,6 +1,7 @@
 # 安卓通用图库功能补全设计（v0.6.0）
 
-> 状态：待实施。承接 v0.5.0 仿 MIUI UI 重塑（`2026-07-08-android-miui-ui-redesign-design.md`），本轮补功能面。
+> 状态：✅ 已实施（安卓 v0.6.0 / versionCode 7，桌面 0.4.0，2026-07-10）。承接 v0.5.0 仿 MIUI UI 重塑（`2026-07-08-android-miui-ui-redesign-design.md`）。
+> 实施偏离记录：菜单 testTag 带 `_${id}` 后缀（沿用仓内惯例）；ModalBottomSheet 补 skipPartiallyExpanded+可滚动列（矮屏面板尾行可达）；clearMirror 全清 album_prefs（换服撞号防附身，评审加固）；createGallery 乐观行带本机 createdAt（CREATED 排序不垫底）。其余按 spec 落地，排除项未越界。
 
 ## 0. 背景与决策快照
 

@@ -101,7 +101,9 @@ class WriteRepository(
     suspend fun createGallery(name: String): WriteResult {
         return try {
             val id = writeApi.createGallery(name)
-            db.galleryDao().insertOne(GalleryEntity(id, name, null, 0))
+            // 乐观行带本机时间戳（T2 质量审）：CREATED 排序下新建图集在同步回写前不垫底；
+            // 下一轮同步以桌面 createdAt 覆盖，毫秒级偏差无感
+            db.galleryDao().insertOne(GalleryEntity(id, name, null, 0, java.time.Instant.now().toString()))
             monitor.reportSuccess(); requestSync(); WriteResult.Success
         } catch (e: ApiException) {
             monitor.reportFailure(e); WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")

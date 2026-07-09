@@ -296,3 +296,23 @@ testTag 仅一处改名（`albums_new_fab`→`albums_new`）。要点：
 已知测试基建隐患：全量套件单 fork JVM 下 DataStore 类（CacheViewModelTest/M4DensityPrefsE2ETest 等）
 偶发 `UncompletedCoroutinesError` 60s 空转——与业务 diff 无关的协程饥饿存量病，重跑即绿但今日频率升高，
 建议后续专项治理（test Application 替身或 `forkEvery` 分片）。
+
+## 9. v0.6.0 通用图库功能补全
+
+对标一般手机图库（MIUI 相册为参照）补功能面，spec 见 `doc/superpowers/specs/2026-07-09-android-gallery-features-design.md`：
+
+- **照片页**：顶栏改 [搜索][⋯]，「⋯」面板收敛 排序（时间/大小/文件名+方向）、网格密度四档（原捏合仍可用）与设置入口；
+  非时间排序进平铺模式（无日期分组头、sticky 胶囊与快滚气泡隐藏）；大图页与网格同源排序（ViewPrefs 共享态）。
+- **相册页**：自适应网格（Adaptive 104dp，手机竖屏约 3 列）；三分区 置顶/全部相册/「其他相册」折叠行；
+  长按菜单扩 置顶/取消置顶、移入/移出其他相册（纯本机、离线可用）；排序 手动/名称/张数/创建时间；
+  「⋯」面板进拖拽重排模式（区内长按拖动，完成落盘手动序并自动切手动档）。
+- **其他相册**：独立路由 `albums_other` 二级页，移出即回主列表，清空自动返回。
+- **详情页**：「⋯」面板排序 + 列数 3/4/5（捏合同步生效，PinchStepState 泛型化共用）；多选恰 1 张出现「设为封面」。
+- **桌面封面能力包**（唯一桌面改动，0.4.0）：`PATCH /galleries/:id` 接受 `coverImageId`（成员校验/null 清除）；
+  `/sync/galleries` 与 `/galleries` 统一下发「有效封面」（显式 ?? 最近加入，读侧不回写）并新增 `createdAt`。
+- **本机数据**：Room v5——新表 `album_prefs`（置顶/收纳/手动序，互斥与跨区清序在 DAO 事务收敛，
+  换服 clearMirror 全清防撞号附身）+ `galleries.createdAt`；DataStore 新键 `photos_sort`/`albums_sort`/
+  `album_detail_sort`/`album_detail_columns`。组织状态为设备级偏好，不跨设备同步（spec 定界）。
+
+验证：全量 Robolectric 71 类 / 384 例 / 0 失败（净增 52 例）；桌面主进程 gate 130 文件 / 1676 例全绿。
+拖拽跟手手感与自适应列数观感为实机验证项（Robolectric 无法驱动拖拽手势，状态机/落盘已有单测）。
