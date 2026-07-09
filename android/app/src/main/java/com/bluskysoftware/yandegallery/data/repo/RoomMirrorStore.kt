@@ -47,6 +47,10 @@ class RoomMirrorStore(
         // 镜像身份失效（换服务器/dataVersion 变更）意味着 imageId→本地文件映射全部作废，
         // 必须一并清空，否则跨服同号 id 会命中错误的本地原图；系统相册中的文件本身保留。
         db.downloadDao().clearAll()
+        // album_prefs 同理（对齐 D10）：偏好按 galleryId 键，跨服低位 id 几乎必然撞号，
+        // 残留行会附身新服务器的同号图集（凭空置顶/从相册主区消失）；deleteOrphans 只管
+        // 「id 已不存在」的孤儿，撞号行它删不掉，必须随全量重建整表清空。
+        db.albumPrefsDao().clearAll()
         db.syncStateDao().clear()
     }
 

@@ -57,6 +57,22 @@ class AlbumPrefsDaoTest {
     }
 
     @Test
+    fun `同态重复调用不清手动序_setPinned不刷新pinnedAt`() = runTest {
+        // 守卫场景：组织菜单基于陈旧偏好态双发同态调用，不得抹掉拖拽手动序/扰动置顶区默认序
+        db.albumPrefsDao().setPinned(5, pinned = true, nowMs = 100L)
+        db.albumPrefsDao().applyManualOrder(listOf(5L))
+        db.albumPrefsDao().setPinned(5, pinned = true, nowMs = 999L)
+        val pinnedRow = db.albumPrefsDao().byId(5)!!
+        assertEquals(100L, pinnedRow.pinnedAt)      // 不刷新 pinnedAt
+        assertEquals(0, pinnedRow.manualOrder)      // 不清手动序
+
+        db.albumPrefsDao().setInOther(6, inOther = true)
+        db.albumPrefsDao().applyManualOrder(listOf(6L))
+        db.albumPrefsDao().setInOther(6, inOther = true)
+        assertEquals(0, db.albumPrefsDao().byId(6)!!.manualOrder)
+    }
+
+    @Test
     fun `applyManualOrder 按列表序重编号0起_未列出的行不动`() = runTest {
         db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 7, manualOrder = 42))
         db.albumPrefsDao().applyManualOrder(listOf(10L, 11L, 12L))

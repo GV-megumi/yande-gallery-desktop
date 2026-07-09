@@ -17,10 +17,15 @@ interface AlbumPrefsDao {
     @Upsert
     suspend fun upsert(entity: AlbumPrefsEntity)
 
-    /** 置顶/取消置顶（spec §2.1）：置顶强制移出「其他相册」（互斥）；两向都清手动序（跨区迁移）。 */
+    /**
+     * 置顶/取消置顶（spec §2.1）：置顶强制移出「其他相册」（互斥）；两向都清手动序（跨区迁移）。
+     * 同态守卫：目标态与存量一致时直接返回——「清手动序/写 pinnedAt」只发生在真实跨区迁移，
+     * 调用方基于陈旧偏好态双发不会抹掉拖拽手动序、不会扰动置顶区默认序。
+     */
     @Transaction
     suspend fun setPinned(galleryId: Long, pinned: Boolean, nowMs: Long) {
         val old = byId(galleryId) ?: AlbumPrefsEntity(galleryId)
+        if (old.pinned == pinned) return
         upsert(
             old.copy(
                 pinned = pinned,
@@ -31,10 +36,11 @@ interface AlbumPrefsDao {
         )
     }
 
-    /** 移入/移出「其他相册」（spec §2.1）：移入强制取消置顶（互斥）；两向都清手动序。 */
+    /** 移入/移出「其他相册」（spec §2.1）：移入强制取消置顶（互斥）；两向都清手动序。同态守卫同 setPinned。 */
     @Transaction
     suspend fun setInOther(galleryId: Long, inOther: Boolean) {
         val old = byId(galleryId) ?: AlbumPrefsEntity(galleryId)
+        if (old.inOther == inOther) return
         upsert(
             old.copy(
                 inOther = inOther,
@@ -57,4 +63,11 @@ interface AlbumPrefsDao {
     /** 图集同步对账后清孤儿（spec §2.1）。 */
     @Query("DELETE FROM album_prefs WHERE galleryId NOT IN (SELECT id FROM galleries)")
     suspend fun deleteOrphans()
+
+    /**
+     * clearMirror 用：偏好按 galleryId 键，镜像身份失效（换服务器/dataVersion 变更）后跨服
+     * 同号 id 几乎必然撞号，残留行会附身新服务器的同号图集——全清是最小正确实现（对齐 D10）。
+     */
+    @Query("DELETE FROM album_prefs")
+    suspend fun clearAll()
 }

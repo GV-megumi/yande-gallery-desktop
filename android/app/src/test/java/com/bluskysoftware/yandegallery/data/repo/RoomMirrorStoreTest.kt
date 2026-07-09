@@ -94,6 +94,7 @@ class RoomMirrorStoreTest {
         store.applyImagePage(listOf(imageItem(1, listOf(1), listOf(1))))
         store.replaceGalleries(listOf(SyncGalleryDto(1, "g", null, 1)))
         store.replaceTags(listOf(SyncTagDto(1, "t", null)))
+        db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 1, pinned = true, pinnedAt = 1L))
         store.writeSyncState(SyncState("srv", "cursor", 1, "2026-01-01T00:00:00.000Z"))
 
         store.clearMirror()
@@ -103,6 +104,8 @@ class RoomMirrorStoreTest {
         assertEquals(0L, rowCount("gallery_images"))
         assertEquals(0L, rowCount("tags"))
         assertEquals(0L, rowCount("image_tags"))
+        // album_prefs 按 galleryId 键——跨服同号 id 撞号会附身，随镜像身份失效一并清（对齐 D10）
+        assertEquals(0L, rowCount("album_prefs"))
         assertNull(store.readSyncState())
 
         // servers 不是镜像表，clearMirror 不应触碰它
