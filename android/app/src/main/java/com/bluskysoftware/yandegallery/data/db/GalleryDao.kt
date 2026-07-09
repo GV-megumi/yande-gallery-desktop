@@ -48,6 +48,10 @@ interface GalleryDao {
     @Query("UPDATE galleries SET name = :name WHERE id = :id")
     suspend fun updateName(id: Long, name: String)
 
+    /** 设封面本地回写（v0.6 spec §5.3）：PATCH 成功后即时更新镜像，下轮同步回读同值幂等。 */
+    @Query("UPDATE galleries SET coverImageId = :coverImageId WHERE id = :id")
+    suspend fun updateCover(id: Long, coverImageId: Long)
+
     @Query("DELETE FROM galleries WHERE id = :id")
     suspend fun deleteById(id: Long)
 

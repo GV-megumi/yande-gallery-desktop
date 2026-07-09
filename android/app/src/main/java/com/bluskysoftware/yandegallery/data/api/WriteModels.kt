@@ -12,6 +12,9 @@ data class ImageIdsBody(val imageIds: List<Long>)
 @Serializable
 data class GalleryNameDto(val name: String)
 
+@Serializable
+data class GalleryCoverDto(val coverImageId: Long)
+
 // 写接口响应 DTO。
 @Serializable
 data class RemovedDto(val removed: Boolean)

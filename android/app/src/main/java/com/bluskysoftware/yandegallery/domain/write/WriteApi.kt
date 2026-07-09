@@ -14,6 +14,7 @@ interface WriteApi {
     suspend fun removeImageTags(imageId: Long, names: List<String>)
     suspend fun createGallery(name: String): Long
     suspend fun renameGallery(galleryId: Long, name: String)
+    suspend fun setGalleryCover(galleryId: Long, coverImageId: Long)
     suspend fun deleteGallery(galleryId: Long)
     suspend fun addImagesToGallery(galleryId: Long, imageIds: List<Long>): AddMembersDto
     suspend fun removeImagesFromGallery(galleryId: Long, imageIds: List<Long>): Int

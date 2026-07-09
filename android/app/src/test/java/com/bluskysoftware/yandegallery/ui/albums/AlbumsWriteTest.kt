@@ -89,6 +89,7 @@ class AlbumsWriteTest {
         override suspend fun addImagesToGallery(galleryId: Long, imageIds: List<Long>): AddMembersDto =
             AddMembersDto(added = imageIds.size, missingImageIds = emptyList())
         override suspend fun removeImagesFromGallery(galleryId: Long, imageIds: List<Long>): Int = imageIds.size
+        override suspend fun setGalleryCover(galleryId: Long, coverImageId: Long) {}
     }
 
     private fun TestScope.vm(api: FakeWriteApi): AlbumsViewModel {

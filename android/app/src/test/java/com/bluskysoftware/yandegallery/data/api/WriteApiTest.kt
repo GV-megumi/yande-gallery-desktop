@@ -61,6 +61,18 @@ class WriteApiTest {
         }
     }
 
+    @Test fun `setGalleryCover 发 PATCH 且 body 为 coverImageId`() = runTest {
+        MockWebServer().use { s ->
+            s.enqueue(MockResponse().setBody("""{"success":true,"data":{"updated":true}}"""))
+            s.start()
+            api(s).setGalleryCover(7, GalleryCoverDto(10)).unwrap()
+            val recorded = s.takeRequest()
+            assertEquals("PATCH", recorded.method)
+            assertEquals("/api/v1/galleries/7", recorded.path)
+            assertEquals("""{"coverImageId":10}""", recorded.body.readUtf8())
+        }
+    }
+
     @Test fun `removeGalleryImages DELETE 带 body`() = runTest {
         MockWebServer().use { s ->
             s.enqueue(MockResponse().setBody("""{"success":true,"data":{"removed":2}}"""))

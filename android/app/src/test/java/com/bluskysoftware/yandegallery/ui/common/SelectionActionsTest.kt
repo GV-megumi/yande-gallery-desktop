@@ -73,6 +73,7 @@ class SelectionActionsTest {
             failRemoveFromGallery?.let { throw it }
             return imageIds.size
         }
+        override suspend fun setGalleryCover(galleryId: Long, coverImageId: Long) {}
     }
 
     private fun image(id: Long, createdAt: String = "2026-01-01T00:00:00.000Z") = ImageEntity(

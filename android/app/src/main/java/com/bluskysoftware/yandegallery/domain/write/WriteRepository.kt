@@ -121,6 +121,21 @@ class WriteRepository(
         )
     }
 
+    /** 设为封面（v0.6 spec §5.3）：先服务端后写本地镜像（相册卡片即时换面）；失败不动本地。 */
+    suspend fun setGalleryCover(galleryId: Long, imageId: Long): WriteResult {
+        return try {
+            writeApi.setGalleryCover(galleryId, imageId)
+            db.galleryDao().updateCover(galleryId, imageId)
+            monitor.reportSuccess(); requestSync(); WriteResult.Success
+        } catch (e: ApiException) {
+            monitor.reportFailure(e); WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
+        } catch (e: CancellationException) {
+            throw e   // 取消时结果未知，不上报，镜像靠下一轮同步对账收敛
+        } catch (e: Exception) {
+            monitor.reportFailure(e); WriteResult.Failed(e.message ?: "设为封面失败")
+        }
+    }
+
     suspend fun deleteGallery(galleryId: Long): WriteResult {
         val old = db.galleryDao().byId(galleryId)
         // 成员链快照（BUG-03 同族）：clearMembership 后回滚只恢复图集行，成员链例行同步不重建

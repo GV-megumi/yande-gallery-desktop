@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
 import com.bluskysoftware.yandegallery.data.api.ApiException
@@ -7,13 +8,19 @@ import com.bluskysoftware.yandegallery.data.api.BatchDeleteItemDto
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
+import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.write.WriteApi
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
@@ -27,6 +34,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 /**
  * M3-T13: AlbumDetailViewModel 多选批量动作——重点验「移出当前图集」成功清空选择/失败保留
@@ -39,17 +47,28 @@ class AlbumDetailViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var graph: AppGraph
 
+    // 排序/列数走真 DataStore 文件（临时文件独立实例）：VM 构造即触 graph.viewPrefs，
+    // 不隔离会撞进程级 uiPrefs 单例（PhotosViewModelTest 同款装置）。
+    private val prefsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val prefsTmp = File.createTempFile("album-detail-vm-prefs", ".preferences_pb").also { it.delete() }
+
     @Before
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
-        graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db)
+        graph = AppGraph(
+            ApplicationProvider.getApplicationContext(),
+            dbOverride = db,
+            prefsStoreOverride = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp }),
+        )
     }
 
     @After
     fun teardown() {
         graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
         db.close()
+        prefsScope.cancel()
+        prefsTmp.delete()
         Dispatchers.resetMain()
     }
 
@@ -70,6 +89,7 @@ class AlbumDetailViewModelTest {
             failRemoveFromGallery?.let { throw it }
             return imageIds.size
         }
+        override suspend fun setGalleryCover(galleryId: Long, coverImageId: Long) {}
     }
 
     private fun image(id: Long, createdAt: String = "2026-01-01T00:00:00.000Z") = ImageEntity(
@@ -101,6 +121,19 @@ class AlbumDetailViewModelTest {
         assertEquals(emptyList<Long>(), db.imageDao().galleryIdsOf(1))
         assertEquals(emptyList<Long>(), db.imageDao().galleryIdsOf(2))
         assertEquals(emptySet<Long>(), viewModel.selection.selected)   // brief 裁定：成功后清空
+    }
+
+    @Test
+    fun `detailSort与列数写穿ViewPrefs`() = runTest {
+        val viewModel = vm(5, FakeWriteApi())
+        viewModel.setDetailSort(PhotoSort.SIZE_ASC)
+        viewModel.setDetailColumns(5)
+        assertEquals(PhotoSort.SIZE_ASC, graph.viewPrefs.detailSort.value)   // 共享实例即时可见（spec §3.4）
+        assertEquals(5, graph.viewPrefs.detailColumns.value)
+        // 落盘走 graph 真 IO scope（advanceUntilIdle 驱不动真 Dispatchers.IO）：
+        // 按 PhotosViewModelTest 既有惯例 first{} 等值到位（写丢失时此处 runTest 超时红灯）
+        assertEquals("SIZE_ASC", graph.prefsStore.albumDetailSortName.first { it == "SIZE_ASC" })
+        assertEquals(5, graph.prefsStore.albumDetailColumns.first { it == 5 })
     }
 
     @Test

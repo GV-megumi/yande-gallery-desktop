@@ -53,6 +53,7 @@ class WriteRepositoryTest {
         var failDeleteGallery: ApiException? = null
         var failAddToGallery: ApiException? = null
         var failRemoveFromGallery: ApiException? = null
+        var failSetGalleryCover: ApiException? = null
 
         var createdGalleryId: Long = 100L
         var batchResults: List<BatchDeleteItemDto> = emptyList()
@@ -108,6 +109,10 @@ class WriteRepositoryTest {
         override suspend fun removeImagesFromGallery(galleryId: Long, imageIds: List<Long>): Int {
             calls += "removeImagesFromGallery"; failRemoveFromGallery?.let { throw it }
             return imageIds.size
+        }
+
+        override suspend fun setGalleryCover(galleryId: Long, coverImageId: Long) {
+            calls += "setGalleryCover"; failSetGalleryCover?.let { throw it }
         }
     }
 
@@ -440,6 +445,37 @@ class WriteRepositoryTest {
         assertTrue(result is WriteResult.Failed)
         assertNotNull(db.galleryDao().byId(5))                // galleries 行回滚恢复
         assertTrue(monitor.state.value.online)                // 500 是服务器应答：不误报离线（BUG-02）
+    }
+
+    // ---- setGalleryCover（v0.6 spec §5.3：非乐观——先服务端后写本地镜像）----
+
+    @Test
+    fun `setGalleryCover 成功后写本地镜像并nudge同步`() = runTest {
+        db.galleryDao().insertOne(gallery(1, "g"))
+        val api = FakeWriteApi()
+        val sync = AtomicInteger(0)
+        val (repo, _) = build(api, sync)
+
+        val result = repo.setGalleryCover(1, 10)
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(10L, db.galleryDao().byId(1)?.coverImageId)   // 本地即时生效（spec §5.3）
+        assertEquals(1, sync.get())   // 沿用本文件既有 requestSync 计数装置
+    }
+
+    @Test
+    fun `setGalleryCover 服务端失败不动本地镜像`() = runTest {
+        db.galleryDao().insertOne(gallery(1, "g"))
+        val api = FakeWriteApi().apply {
+            failSetGalleryCover = ApiException("VALIDATION_ERROR", "Cover image not in gallery", 422)
+        }
+        val sync = AtomicInteger(0)
+        val (repo, _) = build(api, sync)
+
+        val result = repo.setGalleryCover(1, 10)
+
+        assertTrue(result is WriteResult.Failed)
+        assertNull(db.galleryDao().byId(1)?.coverImageId)   // 非乐观：失败零残留
     }
 
     // ---- addToGallery / removeFromGallery ----

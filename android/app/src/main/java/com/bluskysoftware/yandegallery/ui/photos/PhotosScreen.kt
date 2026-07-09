@@ -84,9 +84,11 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
 import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
+import com.bluskysoftware.yandegallery.ui.common.detectPinchStep
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
@@ -253,7 +255,7 @@ fun PhotosScreen(
     val sort by viewModel.photoSort.collectAsStateWithLifecycle()
     var showOptions by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
-    val pinchState = remember { PinchDensityState() }
+    val pinchState = remember { PinchStepState<DensityTier>(larger = { it.larger() }, smaller = { it.smaller() }) }
     // 月↔日跨越锚定：跨越前记视口顶部照片在「新分组粒度」下的 key + 目标粒度，重建后按 Header 定位。
     // 冷启动闪档（持久 MONTH、首帧 DEFAULT 后翻转）不经 changeTier——pendingAnchor 保持 null，
     // 锚定 effect 直接早退，重建后停留顶部，不会误锚/崩溃。
@@ -351,17 +353,17 @@ fun PhotosScreen(
                 Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
                     // 进度条独立收集 syncPhase：每页 tick 的重组隔离在组件内，不再重组网格子树（D13/A8）
                     SyncProgressBar(viewModel.syncPhase)
-                    // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchDensity）。
-                    // currentTier 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档位。
+                    // 捏合手势挂网格外围父层（Initial pass 判定/消费，遍序理由见 detectPinchStep）。
+                    // currentValue 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档位。
                     // fillMaxSize：给 sticky 日期条/快速滚动滑块两个 overlay 提供对齐范围（T4）。
                     Box(
                         Modifier
                             .fillMaxSize()
                             .pointerInput(Unit) {
-                                detectPinchDensity(
+                                detectPinchStep(
                                     state = pinchState,
-                                    currentTier = { viewModel.densityTier.value },
-                                    onTierChange = ::changeTier,
+                                    currentValue = { viewModel.densityTier.value },
+                                    onChange = ::changeTier,
                                 )
                             },
                     ) {

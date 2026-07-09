@@ -75,6 +75,30 @@ class SelectionBarsTest {
     }
 
     @Test
+    fun `设为封面项仅在传入回调时出现且随在线态置灰`() {
+        compose.setContent {
+            SelectionBottomBar(
+                online = false, inGallery = true,
+                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {},
+                onRemoveFromGallery = {}, onSetCover = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_set_cover").assertIsDisplayed()   // 离线也显示、但禁用（写动作门控）
+        compose.onNodeWithTag("selection_action_set_cover").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `未传设为封面回调则不渲染该项`() {
+        compose.setContent {
+            SelectionBottomBar(
+                online = true, inGallery = true,
+                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {}, onRemoveFromGallery = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_set_cover").assertDoesNotExist()
+    }
+
+    @Test
     fun `格子非多选态——单击开大图，长按进多选`() {
         var open = 0
         var toggle = 0

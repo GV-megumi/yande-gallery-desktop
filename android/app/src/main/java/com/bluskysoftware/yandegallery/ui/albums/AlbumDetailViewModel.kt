@@ -31,6 +31,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -42,7 +43,7 @@ import kotlinx.coroutines.withContext
 class AlbumDetailViewModel(
     private val graph: AppGraph,
     private val galleryId: Long,
-    writeRepository: WriteRepository = graph.writeRepository,  // 测试注入缝（镜像 ViewerViewModel gateway 模式）
+    private val writeRepository: WriteRepository = graph.writeRepository,  // 测试注入缝（镜像 ViewerViewModel gateway 模式）
 ) : ViewModel() {
 
     /** 缩略图专用 loader（Task 9），图片格子直接消费。 */
@@ -59,11 +60,25 @@ class AlbumDetailViewModel(
             galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
         }
 
-    /** 图集内图片分页：galleryImagesPagingSource 已按 createdAt DESC 排序，此处无日期分组。 */
+    /** 详情排序/列数（v0.6 spec §5.1）：共享 ViewPrefs，全部图集共用一档。 */
+    val detailSort: StateFlow<PhotoSort> = graph.viewPrefs.detailSort
+    val detailColumns: StateFlow<Int> = graph.viewPrefs.detailColumns
+
+    fun setDetailSort(sort: PhotoSort) = graph.viewPrefs.setDetailSort(sort)
+
+    fun setDetailColumns(columns: Int) = graph.viewPrefs.setDetailColumns(columns)
+
+    /** 设为封面（spec §5.3）：委托 WriteRepository（先服务端后本地）。 */
+    suspend fun setCover(imageId: Long): WriteResult = writeRepository.setGalleryCover(galleryId, imageId)
+
+    /** 图集内图片分页（v0.6 spec §5.1）：随 detailSort 重建；无日期分组。 */
+    @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagingFlow: Flow<PagingData<ImageEntity>> =
-        Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-            graph.db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(galleryId, PhotoSort.DEFAULT))
-        }.flow.cachedIn(viewModelScope)
+        graph.viewPrefs.detailSort.flatMapLatest { sort ->
+            Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
+                graph.db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(galleryId, sort))
+            }.flow
+        }.cachedIn(viewModelScope)
 
     // ---- Task 13 多选：VM 持有选择状态 + 批量动作（Screen 不直接触 graph） ----
 

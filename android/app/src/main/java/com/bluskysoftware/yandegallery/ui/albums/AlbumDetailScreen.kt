@@ -13,6 +13,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreHoriz
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -26,8 +30,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.net.toUri
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,15 +41,24 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSortField
+import com.bluskysoftware.yandegallery.data.prefs.ViewPrefs
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
+import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
+import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
+import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
+import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
+import com.bluskysoftware.yandegallery.ui.common.detectPinchStep
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
@@ -67,6 +82,17 @@ fun AlbumDetailScreen(
     val serverId = activeServer?.id ?: 0L
     val loader = viewModel.thumbnailLoader
     val selectionActive = selected.isNotEmpty()
+
+    // v0.6 排序/列数（spec §5.1）：共享 ViewPrefs 一档全图集通用；捏合放大 = 列数减（格子变大）
+    val detailSort by viewModel.detailSort.collectAsStateWithLifecycle()
+    val columns by viewModel.detailColumns.collectAsStateWithLifecycle()
+    var showOptions by rememberSaveable { mutableStateOf(false) }
+    val pinchState = remember {
+        PinchStepState<Int>(
+            larger = { if (it > ViewPrefs.MIN_DETAIL_COLUMNS) it - 1 else null },   // 放大 → 列数减
+            smaller = { if (it < ViewPrefs.MAX_DETAIL_COLUMNS) it + 1 else null },
+        )
+    }
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -157,6 +183,11 @@ fun AlbumDetailScreen(
                     title = title,
                     subtitle = count?.let { "$it 张" },
                     onBack = onBack,
+                    actions = {
+                        IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("detail_more")) {
+                            Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+                        }
+                    },
                 )
             }
         },
@@ -184,6 +215,23 @@ fun AlbumDetailScreen(
                         }
                     },
                     onAddToGallery = { showGalleryPicker = true },
+                    // 设为封面（v0.6 spec §5.3）：恰选 1 张才出现；先服务端后本地，失败零残留
+                    onSetCover = if (selected.size == 1) {
+                        {
+                            val imageId = selected.first()
+                            scope.launch {
+                                when (val r = viewModel.setCover(imageId)) {
+                                    WriteResult.Success -> {
+                                        snackbarHostState.showSnackbar("已设为封面")
+                                        viewModel.selection.clear()
+                                    }
+                                    is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("设为封面失败", r))
+                                }
+                            }
+                        }
+                    } else {
+                        null
+                    },
                     onRemoveFromGallery = {
                         val ids = viewModel.selection.selected.toList()
                         scope.launch {
@@ -199,28 +247,53 @@ fun AlbumDetailScreen(
         },
         snackbarHost = { SnackbarHost(snackbarHostState) },
     ) { padding ->
-        AlbumDetailGrid(
-            items = items,
-            modifier = Modifier.padding(padding),
-            imageCell = { image ->
-                SelectableCell(
-                    selected = image.id in selected,
-                    selectionActive = selectionActive,
-                    onOpen = { onOpenViewer(image.id) },
-                    onToggle = { viewModel.selection.toggle(image.id) },
-                    modifier = Modifier
-                        .aspectRatio(1f)
-                        .clip(MiuiTokens.CellShape),
-                ) {
-                    RetryableAsyncImage(
-                        model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
-                        imageLoader = loader,
-                        contentDescription = image.filename,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize(),
+        // 捏合切列数（v0.6 spec §5.1）：手势挂网格外围父层（Initial pass 判定/消费，遍序理由见
+        // detectPinchStep）。currentValue 直读 StateFlow.value：pointerInput(Unit) 不重启，避免闭包捕获过期档。
+        Box(
+            Modifier
+                .padding(padding)
+                .pointerInput(Unit) {
+                    detectPinchStep(
+                        state = pinchState,
+                        currentValue = { viewModel.detailColumns.value },
+                        onChange = viewModel::setDetailColumns,
                     )
-                }
-            },
+                },
+        ) {
+            AlbumDetailGrid(
+                items = items,
+                columns = columns,
+                imageCell = { image ->
+                    SelectableCell(
+                        selected = image.id in selected,
+                        selectionActive = selectionActive,
+                        onOpen = { onOpenViewer(image.id) },
+                        onToggle = { viewModel.selection.toggle(image.id) },
+                        modifier = Modifier
+                            .aspectRatio(1f)
+                            .clip(MiuiTokens.CellShape),
+                    ) {
+                        RetryableAsyncImage(
+                            model = thumbnailRequest(LocalContext.current, baseUrl, serverId, image.id),
+                            imageLoader = loader,
+                            contentDescription = image.filename,
+                            contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+                },
+            )
+        }
+    }
+
+    // 「⋯」选项面板（v0.6 spec §5.1）：排序/列数，选择即生效即收
+    if (showOptions) {
+        AlbumDetailOptionsSheet(
+            sort = detailSort,
+            columns = columns,
+            onDismiss = { showOptions = false },
+            onSortField = { field -> viewModel.setDetailSort(field.next(detailSort)); showOptions = false },
+            onColumns = { viewModel.setDetailColumns(it); showOptions = false },
         )
     }
 
@@ -293,18 +366,47 @@ fun AlbumDetailScreen(
     }
 }
 
+/** 详情页「⋯」面板（spec §5.1）：排序（时间/大小/文件名）+ 列数（3/4/5）。 */
+@Composable
+internal fun AlbumDetailOptionsSheet(
+    sort: PhotoSort,
+    columns: Int,
+    onDismiss: () -> Unit,
+    onSortField: (PhotoSortField) -> Unit,
+    onColumns: (Int) -> Unit,
+) {
+    MiuiOptionsSheet(onDismiss = onDismiss) {
+        MiuiSheetCard("排序方式") {
+            PhotoSortField.entries.forEach { field ->
+                MiuiSortRow(
+                    label = field.label,
+                    selected = field.contains(sort),
+                    ascending = sort.ascending,
+                    tag = "detail_sort_option_${field.name.lowercase()}",
+                ) { onSortField(field) }
+            }
+        }
+        MiuiSheetCard("列数") {
+            (ViewPrefs.MIN_DETAIL_COLUMNS..ViewPrefs.MAX_DETAIL_COLUMNS).forEach { n ->
+                MiuiChoiceRow("$n 列", columns == n, "detail_columns_$n") { onColumns(n) }
+            }
+        }
+    }
+}
+
 /**
- * 图集详情网格骨架（无状态，便于测试注入 imageCell）：4 列固定网格，items 直接是 ImageEntity，
- * 无日期分组（分组头是照片时间轴 Task 10 的特性，图集详情按 spec 不需要）。
+ * 图集详情网格骨架（无状态，便于测试注入 imageCell）：[columns] 列固定网格（v0.6 3/4/5 档），
+ * items 直接是 ImageEntity，无日期分组（分组头是照片时间轴的特性，图集详情按 spec 不需要）。
  */
 @Composable
 fun AlbumDetailGrid(
     items: LazyPagingItems<ImageEntity>,
+    columns: Int,
     imageCell: @Composable (ImageEntity) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     LazyVerticalGrid(
-        columns = GridCells.Fixed(4),
+        columns = GridCells.Fixed(columns),
         horizontalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         verticalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         contentPadding = PaddingValues(top = 2.dp),

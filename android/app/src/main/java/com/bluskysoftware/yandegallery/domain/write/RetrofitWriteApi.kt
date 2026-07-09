@@ -2,6 +2,7 @@ package com.bluskysoftware.yandegallery.domain.write
 
 import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
+import com.bluskysoftware.yandegallery.data.api.GalleryCoverDto
 import com.bluskysoftware.yandegallery.data.api.GalleryNameDto
 import com.bluskysoftware.yandegallery.data.api.ImageIdsBody
 import com.bluskysoftware.yandegallery.data.api.TagNamesDto
@@ -36,6 +37,10 @@ class RetrofitWriteApi(private val apiProvider: suspend () -> DesktopApi?) : Wri
 
     override suspend fun renameGallery(galleryId: Long, name: String) {
         api().renameGallery(galleryId, GalleryNameDto(name)).unwrap()
+    }
+
+    override suspend fun setGalleryCover(galleryId: Long, coverImageId: Long) {
+        api().setGalleryCover(galleryId, GalleryCoverDto(coverImageId)).unwrap()
     }
 
     override suspend fun deleteGallery(galleryId: Long) {
