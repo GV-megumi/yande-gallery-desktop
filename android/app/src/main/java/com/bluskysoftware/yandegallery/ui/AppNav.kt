@@ -45,6 +45,8 @@ object Routes {
     const val Photos = "photos"
     const val Albums = "albums"
     const val AlbumDetail = "albums/{galleryId}"
+    // 不能用 "albums/other"——会被 albums/{galleryId} 模式吞掉（v0.6 T7 定名，T8 注册路由）
+    const val OtherAlbums = "albums_other"
     const val Settings = "settings"
     const val CacheManage = "settings/cache"
     const val Servers = "servers"

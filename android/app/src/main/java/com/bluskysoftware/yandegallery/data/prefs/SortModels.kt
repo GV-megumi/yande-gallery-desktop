@@ -43,6 +43,10 @@ enum class PhotoSortField(val label: String, val defaultSort: PhotoSort, val fli
 enum class AlbumSort {
     MANUAL, NAME_ASC, NAME_DESC, COUNT_DESC, COUNT_ASC, CREATED_DESC, CREATED_ASC;
 
+    /** 面板方向箭头用；MANUAL 无方向（恒 false，调用方不读）。 */
+    val ascending: Boolean
+        get() = this == NAME_ASC || this == COUNT_ASC || this == CREATED_ASC
+
     companion object {
         val DEFAULT = NAME_ASC
         fun fromName(name: String?): AlbumSort = entries.firstOrNull { it.name == name } ?: DEFAULT
