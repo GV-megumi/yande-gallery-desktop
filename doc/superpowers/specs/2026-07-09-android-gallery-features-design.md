@@ -99,7 +99,7 @@ enum class AlbumSort { MANUAL, NAME_ASC, NAME_DESC, COUNT_DESC, COUNT_ASC, CREAT
 
 ### 3.1 顶栏与「⋯」选项面板
 
-- 常驻顶栏动作改为 **[搜索] [⋯]**，原「设置」图标移除，设置入口挪进「⋯」面板（MIUI 同款层级）。设置入口沿用现有 testTag（迁移位置不改名，具体名以 PhotosScreen 现状为准），相关既有测试同步迁移。
+- 常驻顶栏动作改为 **[搜索] [⋯]**，原「设置」图标移除，设置入口挪进「⋯」面板（MIUI 同款层级）。plan 阶段核实：现有设置图标**无 testTag**，sheet 内设置行用新 tag `sheet_settings_row`（§8.2）；覆盖设置跳转的既有测试（AppNavTest/PhotosScreenTest）随顶栏签名变化同步迁移。
 - 「⋯」打开 **MiuiOptionsSheet**（新公共组件，见 §7）：MIUI 皮 ModalBottomSheet，内容为卡片组：
   1. **排序方式**卡片：时间 / 文件大小 / 文件名 三行，选中行行尾显示方向箭头（↓/↑）；
   2. **网格密度**卡片：四档单选行——「月视图(6列)」「大图(3列)」「标准(4列)」「紧凑(5列)」，联动现有 `setDensityTier`，与捏合手势共用同一状态；
@@ -197,8 +197,8 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 
 ### 6.1 `PATCH /api/v1/galleries/:galleryId` 扩展
 
-- body 接受 `{ name?: string, coverImageId?: number | null }`，**至少一项**，否则 400。
-- `coverImageId` 为数字时校验：图片存在**且**是该图集成员（查 `gallery_images`），否则 400（不静默忽略）；为 `null` 时清除显式封面（回落 §6.2 兜底）。
+- body 接受 `{ name?: string, coverImageId?: number | null }`，**至少一项**，否则 422（仓内 `validationError` 惯例，`VALIDATION_ERROR`；plan 阶段由 400 收敛）。
+- `coverImageId` 为数字时校验：图片存在**且**是该图集成员（查 `gallery_images`），否则 422（不静默忽略）；为 `null` 时清除显式封面（回落 §6.2 兜底）。
 - 实现复用/对齐既有 `setGalleryCover` 服务函数（实施时核实其校验行为，缺成员校验则补上）；`name` 分支行为不变。
 - 权限：路径已在 `galleryWrite` 映射内，**不新增权限规则**；`permissions` 相关测试补 coverImageId 用例即可。
 
@@ -207,7 +207,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 - `/api/v1/sync/galleries` 与 `/api/v1/galleries`（列表及按 id 查询）返回的 `coverImageId` 统一为**有效封面**：`COALESCE(显式 coverImageId, 该图集最近加入的一张)`，「最近加入」按 `gallery_images.addedAt DESC, imageId DESC`；空图集为 `null`。
 - 两处共用同一 SQL 片段/查询函数，避免口径漂移；`/galleries` 的 `coverImage{...}` 联查对象随之对齐。
 - 显式 `coverImageId` 字段本身**不回写数据库**（兜底只发生在读侧），桌面 UI 既有「打开图集补写第一张」逻辑不动（继续无害）。
-- **安卓端删除 N+1 兜底查询**（AlbumsViewModel 内「封面为空取图集内最新一张」逻辑），卡片直接用同步下发的 coverImageId；null（空图集）显示占位图标。
+- 安卓端现状修正（plan 阶段核实）：N+1 已在早前修复——`GalleryDao.observeAlbumCards` 用相关子查询一次性算出兜底封面。**保留该 SQL 兜底作双保险**（兼容旧桌面载荷），卡片语义不变；桌面兜底使同步下发值直接有效，仅空图集为 null（占位图标）。
 
 ### 6.3 `/sync/galleries` 载荷补 `createdAt`
 
@@ -287,7 +287,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 - [ ] 其他相册二级页可查看/移出，清空自动返回
 - [ ] 详情页排序/列数（菜单+捏合）生效且记忆；恰选 1 张时出现「设为封面」
 - [ ] 桌面 PATCH coverImageId 全用例过 `tests/main/`；sync 载荷含 createdAt 与有效封面
-- [ ] 安卓 N+1 封面兜底代码已删除
+- [ ] 桌面有效封面兜底生效（sync 载荷仅空图集为 null）；安卓 SQL 兜底保留作双保险
 - [ ] 安卓全量测试真绿；两端文档/版本号更新
 
 ## 11. 实施时核实项（plan 阶段落定，不留到编码中途）
