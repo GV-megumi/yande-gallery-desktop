@@ -260,11 +260,35 @@ describe('syncService', () => {
   });
 
   it('galleries/tags/image-ids 全量', async () => {
-    expect(await listSyncGalleries()).toEqual([{ id: 1, name: 'g1', coverImageId: null, imageCount: 0 }]);
+    // v0.6：载荷带 createdAt；g1 无显式封面但有成员 image1 → 有效封面兜底回落 1
+    expect(await listSyncGalleries()).toEqual([
+      { id: 1, name: 'g1', coverImageId: 1, imageCount: 0, createdAt: '2024-01-01T00:00:00.000Z' },
+    ]);
     expect(await listSyncTags()).toEqual([
       { id: 1, name: 't1', category: null },
       { id: 2, name: 't2', category: null },
     ]);
     expect(await listSyncImageIds()).toEqual([1, 2, 3, 4]);
+  });
+
+  it('listSyncGalleries：有效封面兜底 + createdAt 载荷（v0.6 spec §6.2/§6.3）', async () => {
+    // 装置适配：种子 seed() 已建 gallery1 + 成员行，这里清空后按用例自建三图集
+    // （DELETE galleries 经 FK CASCADE 连带清 gallery_images），断言与计划一致
+    await run(h.db, 'DELETE FROM galleries');
+    await run(h.db, `INSERT INTO galleries (id, name, coverImageId, imageCount, createdAt, updatedAt)
+      VALUES (1, 'explicit', 2, 2, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+             (2, 'fallback', NULL, 2, '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
+             (3, 'empty', NULL, 0, '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z')`);
+    // 种子 images 已有 id 1..4（本文件 seed()）；图集2 两个成员，addedAt 晚者 id=1 应当选
+    await run(h.db, `INSERT INTO gallery_images (galleryId, imageId, addedAt)
+      VALUES (1, 2, '2026-01-01T00:00:00.000Z'),
+             (2, 3, '2026-01-01T00:00:00.000Z'),
+             (2, 1, '2026-01-05T00:00:00.000Z')`);
+    const rows = await listSyncGalleries();
+    expect(rows).toEqual([
+      { id: 1, name: 'explicit', coverImageId: 2, imageCount: 2, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 2, name: 'fallback', coverImageId: 1, imageCount: 2, createdAt: '2026-01-02T00:00:00.000Z' },
+      { id: 3, name: 'empty', coverImageId: null, imageCount: 0, createdAt: '2026-01-03T00:00:00.000Z' },
+    ]);
   });
 });

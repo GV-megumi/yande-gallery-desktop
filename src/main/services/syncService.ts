@@ -8,6 +8,7 @@
  *    dataVersion 已 bump、客户端全量重建不会发出旧游标）；
  *  - listSyncImages 载荷**不含 filepath**（本地路径绝不经同步接口外泄），
  *    也不含 changeSeq（游标内部实现，android 端对游标不透明、载荷契约不变）；
+ *  - listSyncGalleries 下发「有效封面」（显式 ?? 最近加入）与 createdAt（v0.6 安卓排序用）；
  *  - IN 查询按 900 保守分块（SQLite 变量上限），避免超大页触碰 SQLITE_MAX_VARIABLE_NUMBER。
  */
 
@@ -195,9 +196,22 @@ export async function listSyncGalleries(): Promise<Array<{
   name: string;
   coverImageId: number | null;
   imageCount: number;
+  createdAt: string;
 }>> {
   const db = await getDatabase();
-  return all(db, 'SELECT id, name, coverImageId, imageCount FROM galleries ORDER BY id');
+  // 有效封面（v0.6 spec §6.2）：显式封面 ?? 最近加入的一张（gallery_images.addedAt 倒序）；
+  // 只发生在读侧，不回写。createdAt 供安卓相册「创建时间」排序（spec §6.3）。
+  return all(db, `
+    SELECT g.id, g.name,
+           COALESCE(
+             g.coverImageId,
+             (SELECT gi.imageId FROM gallery_images gi
+               JOIN images im ON im.id = gi.imageId
+              WHERE gi.galleryId = g.id
+              ORDER BY gi.addedAt DESC, gi.imageId DESC LIMIT 1)
+           ) AS coverImageId,
+           g.imageCount, g.createdAt
+      FROM galleries g ORDER BY g.id`);
 }
 
 export async function listSyncTags(): Promise<Array<{ id: number; name: string; category: string | null }>> {

@@ -14,6 +14,7 @@ import {
   deleteGallery,
   getGallery,
   removeImagesFromGallery,
+  setGalleryCover,
   updateGallery,
 } from '../../../src/main/services/galleryService.js';
 import type { Image } from '../../../src/shared/types.js';
@@ -33,6 +34,7 @@ vi.mock('../../../src/main/services/galleryService.js', () => ({
   createEmptyGallery: vi.fn(),
   addImagesToGallery: vi.fn(),
   removeImagesFromGallery: vi.fn(),
+  setGalleryCover: vi.fn(),
 }));
 
 const mockGetImageById = vi.mocked(getImageById);
@@ -45,6 +47,7 @@ const mockDeleteGallery = vi.mocked(deleteGallery);
 const mockCreateEmptyGallery = vi.mocked(createEmptyGallery);
 const mockAddImagesToGallery = vi.mocked(addImagesToGallery);
 const mockRemoveImagesFromGallery = vi.mocked(removeImagesFromGallery);
+const mockSetGalleryCover = vi.mocked(setGalleryCover);
 
 function findRoute(routes: ApiRoute[], pattern: string, method = 'GET'): ApiRoute {
   const route = routes.find((candidate) => candidate.method === method && candidate.pattern === pattern);
@@ -332,6 +335,77 @@ describe('gallery write API routes', () => {
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
+    });
+  });
+
+  describe('PATCH /galleries/:galleryId（v0.6 扩展 coverImageId）', () => {
+    it('仅 name：行为不变', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
+      mockUpdateGallery.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { name: ' 新名 ' } })))
+        .resolves.toEqual({ updated: true });
+      expect(mockUpdateGallery).toHaveBeenCalledWith(7, { name: '新名' });
+      expect(mockSetGalleryCover).not.toHaveBeenCalled();
+    });
+
+    it('仅 coverImageId：委托 setGalleryCover，不调 updateGallery', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
+      mockSetGalleryCover.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 10 } })))
+        .resolves.toEqual({ updated: true });
+      expect(mockSetGalleryCover).toHaveBeenCalledWith(7, 10);
+      expect(mockUpdateGallery).not.toHaveBeenCalled();
+    });
+
+    it('name 与 coverImageId 同传：两者都生效', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
+      mockUpdateGallery.mockResolvedValue({ success: true });
+      mockSetGalleryCover.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { name: 'n', coverImageId: 10 } })))
+        .resolves.toEqual({ updated: true });
+      expect(mockUpdateGallery).toHaveBeenCalledWith(7, { name: 'n' });
+      expect(mockSetGalleryCover).toHaveBeenCalledWith(7, 10);
+    });
+
+    it('coverImageId: null → 清除封面', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
+      mockSetGalleryCover.mockResolvedValue({ success: true });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: null } })))
+        .resolves.toEqual({ updated: true });
+      expect(mockSetGalleryCover).toHaveBeenCalledWith(7, null);
+    });
+
+    it('两者都缺 → 422', async () => {
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: {} })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+    });
+
+    it('coverImageId 非法（0/负数/小数/字符串）→ 422', async () => {
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      for (const bad of [0, -1, 1.5, 'x']) {
+        await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: bad } })))
+          .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+      }
+    });
+
+    it('setGalleryCover 校验失败（非成员/不存在）→ 422', async () => {
+      mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
+      mockSetGalleryCover.mockResolvedValue({ success: false, error: 'Cover image not in gallery' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 20 } })))
+        .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
+    });
+
+    it('图集不存在 → 404（预检语义不变）', async () => {
+      mockGetGallery.mockResolvedValue({ success: false, error: 'not found' });
+      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 10 } })))
+        .rejects.toMatchObject({ statusCode: 404 });
     });
   });
 

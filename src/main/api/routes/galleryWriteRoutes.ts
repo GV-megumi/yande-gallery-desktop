@@ -10,6 +10,7 @@ import {
   deleteGallery,
   getGallery,
   removeImagesFromGallery,
+  setGalleryCover,
   updateGallery,
 } from '../../services/galleryService.js';
 
@@ -145,18 +146,47 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const body = await jsonObject(context);
-        const name = typeof body.name === 'string' ? body.name.trim() : '';
-        if (!name) {
-          validationError('name is required');
+        // v0.6（安卓 spec §6.1）：body 接受 { name?, coverImageId?: number|null }，至少一项
+        const hasName = body.name !== undefined;
+        const hasCover = 'coverImageId' in body;
+        if (!hasName && !hasCover) {
+          validationError('name or coverImageId is required');
         }
-        // updateGallery 对缺失 id 静默成功，404 语义由预检提供
+        let name = '';
+        if (hasName) {
+          name = typeof body.name === 'string' ? body.name.trim() : '';
+          if (!name) {
+            validationError('name must be a non-empty string');
+          }
+        }
+        let coverImageId: number | null = null;
+        if (hasCover) {
+          const value = body.coverImageId;
+          if (value !== null && (!Number.isInteger(value) || (value as number) <= 0)) {
+            validationError('coverImageId must be a positive integer or null');
+          }
+          coverImageId = value as number | null;
+        }
+        // updateGallery/setGalleryCover 对缺失 id 静默成功，404 语义由预检提供
         const existing = await getGallery(galleryId);
         if (!existing.success || !existing.data) {
           notFound();
         }
-        const result = await updateGallery(galleryId, { name });
-        if (!result.success) {
-          throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to rename gallery');
+        if (hasName) {
+          const result = await updateGallery(galleryId, { name });
+          if (!result.success) {
+            throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to rename gallery');
+          }
+        }
+        if (hasCover) {
+          const result = await setGalleryCover(galleryId, coverImageId);
+          if (!result.success) {
+            // 存在性/成员校验失败按 422（仓内 validationError 惯例；spec §6.1）
+            if (result.error === 'Cover image not found' || result.error === 'Cover image not in gallery') {
+              validationError(result.error);
+            }
+            throw new ApiHttpError(500, 'INTERNAL_ERROR', result.error || 'Failed to set gallery cover');
+          }
         }
         return { updated: true };
       },

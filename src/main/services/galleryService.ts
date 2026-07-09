@@ -59,6 +59,8 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
   try {
     const db = await getDatabase();
 
+    // 有效封面（v0.6 spec §6.2）：显式 coverImageId ?? 最近加入的一张（gallery_images.addedAt 倒序）。
+    // 只发生在读侧，不回写 galleries.coverImageId；与 /sync/galleries 口径一致。
     const query = `
       SELECT
         g.*,
@@ -66,7 +68,13 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
         i.filename as coverFilename,
         i.filepath as coverFilepath
       FROM galleries g
-      LEFT JOIN images i ON g.coverImageId = i.id
+      LEFT JOIN images i ON i.id = COALESCE(
+        g.coverImageId,
+        (SELECT gi.imageId FROM gallery_images gi
+          JOIN images im ON im.id = gi.imageId
+         WHERE gi.galleryId = g.id
+         ORDER BY gi.addedAt DESC, gi.imageId DESC LIMIT 1)
+      )
       ORDER BY g.updatedAt DESC
     `;
 
@@ -109,6 +117,7 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
   try {
     const db = await getDatabase();
 
+    // 有效封面（v0.6 spec §6.2）：与 getGalleries 同款 ON 表达式，口径一致
     const query = `
       SELECT
         g.*,
@@ -116,7 +125,13 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
         i.filename as coverFilename,
         i.filepath as coverFilepath
       FROM galleries g
-      LEFT JOIN images i ON g.coverImageId = i.id
+      LEFT JOIN images i ON i.id = COALESCE(
+        g.coverImageId,
+        (SELECT gi.imageId FROM gallery_images gi
+          JOIN images im ON im.id = gi.imageId
+         WHERE gi.galleryId = g.id
+         ORDER BY gi.addedAt DESC, gi.imageId DESC LIMIT 1)
+      )
       WHERE g.id = ?
     `;
 
@@ -1141,24 +1156,33 @@ export async function changeFolderPath(
 }
 
 /**
- * 设置图库封面
+ * 设置图库封面（v0.6 扩展：接受 null 清除显式封面；补成员校验——封面必须是该图集成员，
+ * 杜绝跨图集串封面；安卓 spec §6.1）。桌面 UI 既有调用只传成员图 id，行为兼容。
  */
 export async function setGalleryCover(
   id: number,
-  coverImageId: number
+  coverImageId: number | null
 ): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
 
-    // 验证图片是否存在
-    const image = await get<{ id: number }>(
-      db,
-      'SELECT id FROM images WHERE id = ?',
-      [coverImageId]
-    );
-
-    if (!image) {
-      return { success: false, error: 'Cover image not found' };
+    if (coverImageId !== null) {
+      const image = await get<{ id: number }>(
+        db,
+        'SELECT id FROM images WHERE id = ?',
+        [coverImageId]
+      );
+      if (!image) {
+        return { success: false, error: 'Cover image not found' };
+      }
+      const member = await get<{ imageId: number }>(
+        db,
+        'SELECT imageId FROM gallery_images WHERE galleryId = ? AND imageId = ?',
+        [id, coverImageId]
+      );
+      if (!member) {
+        return { success: false, error: 'Cover image not in gallery' };
+      }
     }
 
     await run(db, `
