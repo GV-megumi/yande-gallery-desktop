@@ -165,15 +165,23 @@ fun AlbumsScreen(
                 }
             }
     }
+    val reorder = reorderState
     Box(Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
-            val reorder = reorderState
+        // 重排分支不渲染折叠头，也不挂其 nestedScroll（评审修复）：幽灵 onPreScroll 会先无反馈地
+        // 吃掉首段上滑（收满 64dp 的死区），且退出重排后 header 停在收起态、与主网格顶部错位。
+        Column(
+            Modifier
+                .fillMaxSize()
+                .then(if (reorder == null) Modifier.nestedScroll(header.connection) else Modifier),
+        ) {
             if (reorder != null) {
                 ReorderTopBar(
                     onCancel = { reorderState = null },
                     onDone = {
                         scope.launch {
-                            viewModel.commitManualOrder(reorder.pinnedOrder.toList(), reorder.normalOrder.toList())
+                            // 落盘协程挂 viewModelScope（评审修复）：点完成后立刻切 tab/旋转会弃组合并
+                            // 取消本 scope——join 只保「落盘完成才退重排」的时序，写库本体不随组合陪葬。
+                            viewModel.commitManualOrder(reorder.pinnedOrder.toList(), reorder.normalOrder.toList()).join()
                             reorderState = null
                         }
                     },
@@ -206,12 +214,21 @@ fun AlbumsScreen(
                     if (reorder.pinnedOrder.isNotEmpty()) {
                         item(key = "hdr_pinned", span = { GridItemSpan(maxLineSpan) }) { AlbumSectionHeader("置顶") }
                         items(reorder.pinnedOrder, key = { it }) { id ->
-                            Box(Modifier.animateItem()) { ReorderCell(id, cardById, controller, baseUrl, serverId, loader) }
+                            // 跨 item 绘制顺序只看 item 根 placeable 的 zIndex，挂内层节点是空操作（评审修复）；
+                            // 拖动中的 item 不挂 animateItem：placement 动画会把 move 后的基准位从旧槽位渐变到
+                            // 新槽位，与控制器「旧基准位−新基准位」的即时补偿叠加成反向跳一格。标准 reorderable
+                            // 模式——被拖项置顶 zIndex、只跟随 graphicsLayer 平移，让位动画留给邻居。
+                            Box(if (controller.draggingKey == id) Modifier.zIndex(1f) else Modifier.animateItem()) {
+                                ReorderCell(id, cardById, controller, baseUrl, serverId, loader)
+                            }
                         }
                     }
                     item(key = "hdr_all", span = { GridItemSpan(maxLineSpan) }) { AlbumSectionHeader("全部相册") }
                     items(reorder.normalOrder, key = { it }) { id ->
-                        Box(Modifier.animateItem()) { ReorderCell(id, cardById, controller, baseUrl, serverId, loader) }
+                        // 同置顶区：zIndex 挂 item 根 + 被拖项不挂 animateItem
+                        Box(if (controller.draggingKey == id) Modifier.zIndex(1f) else Modifier.animateItem()) {
+                            ReorderCell(id, cardById, controller, baseUrl, serverId, loader)
+                        }
                     }
                     // 其他相册折叠行在重排模式隐藏（spec §4.5）
                 }
@@ -421,7 +438,7 @@ private fun ReorderTopBar(onCancel: () -> Unit, onDone: () -> Unit) {
     }
 }
 
-/** 重排格子：长按拖动换位；拖动中置顶 zIndex + graphicsLayer 平移；菜单/点击禁用。 */
+/** 重排格子：长按拖动换位；拖动中 graphicsLayer 跟手平移（置顶 zIndex 由 items 侧挂 item 根）；菜单/点击禁用。 */
 @Composable
 private fun ReorderCell(
     id: Long,
@@ -441,7 +458,6 @@ private fun ReorderCell(
         onClick = {},
         enableMenu = false,
         modifier = Modifier
-            .zIndex(if (dragging) 1f else 0f)
             .graphicsLayer {
                 if (dragging) {
                     translationX = controller.dragOffset.x

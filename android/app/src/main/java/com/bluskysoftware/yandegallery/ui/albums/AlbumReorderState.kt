@@ -40,6 +40,11 @@ class AlbumReorderState(pinned: List<Long>, normal: List<Long>) {
 /**
  * LazyVerticalGrid 拖拽控制器（spec §4.5）：拖动中按被拖卡片中心命中同分区目标格即 move；
  * move 后被拖项基准位变为目标位，用「旧基准位 − 新基准位」反向补偿 dragOffset，视觉不跳。
+ *
+ * 已知限制（本期定界，评审记录）：无边缘自动滚动——目标命中只扫 visibleItemsInfo，且拖动
+ * 手势独占指针后网格不滚动，相册超一屏时需「拖到边缘→松手→滚动→再长按」分段完成。补
+ * autoscroll 需要滚动量反哺 dragOffset、被拖 item 滚出组合窗口后手势存活等配套，Robolectric
+ * 驱动不了这类连续滚动手感，随 Task 11 实机验证一并迭代。
  */
 class GridReorderController(
     private val gridState: LazyGridState,

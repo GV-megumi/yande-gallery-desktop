@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.initializer
 import androidx.lifecycle.viewmodel.viewModelFactory
+import androidx.room.withTransaction
 import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
@@ -13,6 +14,7 @@ import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -78,10 +80,18 @@ class AlbumsViewModel(
         viewModelScope.launch { graph.db.albumPrefsDao().setInOther(galleryId, inOther) }
     }
 
-    /** 拖拽落盘（spec §4.5）：两分区分别重编号 0..n（manualOrder 只在区内比较）+ 排序自动切手动。 */
-    suspend fun commitManualOrder(pinned: List<Long>, normal: List<Long>) {
-        graph.db.albumPrefsDao().applyManualOrder(pinned)
-        graph.db.albumPrefsDao().applyManualOrder(normal)
+    /**
+     * 拖拽落盘（spec §4.5）：两分区分别重编号 0..n（manualOrder 只在区内比较）+ 排序自动切手动。
+     * 两次 applyManualOrder 包同一 db.withTransaction（评审修复）：中途取消/崩溃不会出现
+     * 「置顶区已重编号、普通区没写、排序未切」的半保存。挂 viewModelScope 返回 Job——「完成」
+     * 是用户已确认的操作，VM 随 nav entry 存活，点完立刻切 tab/旋转也不丢；Screen 侧 join
+     * 该 Job 保持「落盘完成才退重排」的时序。
+     */
+    fun commitManualOrder(pinned: List<Long>, normal: List<Long>): Job = viewModelScope.launch {
+        graph.db.withTransaction {
+            graph.db.albumPrefsDao().applyManualOrder(pinned)
+            graph.db.albumPrefsDao().applyManualOrder(normal)
+        }
         graph.viewPrefs.setAlbumsSort(AlbumSort.MANUAL)
     }
 

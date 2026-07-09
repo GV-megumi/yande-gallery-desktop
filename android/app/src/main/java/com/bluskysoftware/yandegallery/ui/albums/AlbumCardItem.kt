@@ -53,7 +53,14 @@ internal fun AlbumCardItem(
                 .fillMaxWidth()
                 .combinedClickable(
                     onClick = onClick,
-                    onLongClick = { if (enableMenu) menuOpen = true },
+                    // enableMenu=false 必须传 null 而非空操作 lambda（评审修复链）：非 null onLongClick
+                    // 让 detectTapGestures 在长按成立后 consumeUntilUp() 吃掉全部 move 事件，重排模式
+                    // 外层的 detectDragGesturesAfterLongPress 会在首个 move 上被判消费而取消拖动。
+                    onLongClick = if (enableMenu) {
+                        { menuOpen = true }
+                    } else {
+                        null
+                    },
                 )
                 .testTag("album_card_${card.gallery.id}"),
         ) {
