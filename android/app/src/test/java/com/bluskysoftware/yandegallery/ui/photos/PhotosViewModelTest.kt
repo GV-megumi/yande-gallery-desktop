@@ -175,6 +175,19 @@ class PhotosViewModelTest {
         assertEquals("日档分组头应为 MIUI 日头形态", expectedDayHeaders(), headerDisplays(vm))
     }
 
+    @Test
+    fun `平铺模式——非时间排序快照零分组头，切回时间恢复`() = runTest {
+        // spec §8.1 点名必测项（终审 Important#1 补落）：isTime 语义或 combine 键被改坏时此处兜底。
+        seedCrossMonth()
+        val vm = PhotosViewModel(graph)
+        vm.setPhotoSort(PhotoSort.SIZE_DESC)
+        vm.photoSort.first { it == PhotoSort.SIZE_DESC }   // 真 IO 回环：等排序落定再取快照（critic 定准同款）
+        assertEquals("平铺模式不得插任何日期分组头（spec §3.2）", emptyList<String>(), headerDisplays(vm))
+        vm.setPhotoSort(PhotoSort.TIME_DESC)
+        vm.photoSort.first { it == PhotoSort.TIME_DESC }
+        assertEquals("切回时间排序分组头恢复", expectedDayHeaders(), headerDisplays(vm))
+    }
+
     // D2 可观测面：纯列数变化（默认 DAY_4 → DAY_3，monthGrouping 不翻）分组粒度须仍为「日」，不得误翻月。
     // 注：「不重建 Pager」的滚动保留优化由 pagingFlow 的 distinctUntilChanged(monthGrouping) 结构性保证
     // （标准 Paging 惯用法，开发中经 flatMapLatest 埋点实证：纯列数变化不再触发内层重建）；因 cachedIn 向

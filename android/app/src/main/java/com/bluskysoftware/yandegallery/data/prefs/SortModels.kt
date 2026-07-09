@@ -15,7 +15,10 @@ enum class PhotoSort(val column: String, val ascending: Boolean, val isTime: Boo
     /** ORDER BY 片段；[prefix] 供 JOIN 场景加表别名（如 "i."）。 */
     fun orderBy(prefix: String = ""): String {
         val dir = if (ascending) "ASC" else "DESC"
-        return "$prefix$column $dir, ${prefix}id $dir"
+        // 文件名大小写不敏感（终审 Minor#5）：SQLite 默认 BINARY collation 会把 Z.jpg 排到 a.jpg 前，
+        // 违背一般图库直觉；时间/大小为数值序不受影响
+        val col = if (this == NAME_ASC || this == NAME_DESC) "$prefix$column COLLATE NOCASE" else "$prefix$column"
+        return "$col $dir, ${prefix}id $dir"
     }
 
     companion object {

@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material3.Icon
@@ -92,6 +94,16 @@ fun AlbumDetailScreen(
             larger = { if (it > ViewPrefs.MIN_DETAIL_COLUMNS) it - 1 else null },   // 放大 → 列数减
             smaller = { if (it < ViewPrefs.MAX_DETAIL_COLUMNS) it + 1 else null },
         )
+    }
+    // 排序切换回顶（终审 Minor#3，照片页同款）：Pager 重建后网格不自动回顶，深滚后切排序会
+    // 钳在任意位置；lastAppliedDetailSort 经 rememberSaveable 抗返回恢复，仅真实切换时回顶
+    val detailGridState = rememberLazyGridState()
+    var lastAppliedDetailSort by rememberSaveable { mutableStateOf(detailSort.name) }
+    LaunchedEffect(detailSort) {
+        if (detailSort.name != lastAppliedDetailSort) {
+            lastAppliedDetailSort = detailSort.name
+            detailGridState.scrollToItem(0)
+        }
     }
 
     val context = LocalContext.current
@@ -263,6 +275,7 @@ fun AlbumDetailScreen(
             AlbumDetailGrid(
                 items = items,
                 columns = columns,
+                state = detailGridState,
                 imageCell = { image ->
                     SelectableCell(
                         selected = image.id in selected,
@@ -404,9 +417,11 @@ fun AlbumDetailGrid(
     columns: Int,
     imageCell: @Composable (ImageEntity) -> Unit,
     modifier: Modifier = Modifier,
+    state: LazyGridState = rememberLazyGridState(),   // v0.6 终审 Minor#3：宿主可控滚动位（排序回顶）
 ) {
     LazyVerticalGrid(
         columns = GridCells.Fixed(columns),
+        state = state,
         horizontalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         verticalArrangement = Arrangement.spacedBy(MiuiTokens.GridGap),
         contentPadding = PaddingValues(top = 2.dp),

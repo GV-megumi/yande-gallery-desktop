@@ -172,6 +172,8 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
         if (!existing.success || !existing.data) {
           notFound();
         }
+        // 语义说明（终审 Minor#1）：name 与 coverImageId 同传时先改名后设封面，封面校验失败
+        // 返回 422 但改名已持久化（非原子部分生效）。自家安卓端恒单字段提交，不为此引入事务。
         if (hasName) {
           const result = await updateGallery(galleryId, { name });
           if (!result.success) {

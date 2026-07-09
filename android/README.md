@@ -296,6 +296,9 @@ testTag 仅一处改名（`albums_new_fab`→`albums_new`）。要点：
 已知测试基建隐患：全量套件单 fork JVM 下 DataStore 类（CacheViewModelTest/M4DensityPrefsE2ETest 等）
 偶发 `UncompletedCoroutinesError` 60s 空转——与业务 diff 无关的协程饥饿存量病，重跑即绿但今日频率升高，
 建议后续专项治理（test Application 替身或 `forkEvery` 分片）。
+**2026-07-10 升级为阻塞级**：v0.6.0 收官日 7 轮全量无一全绿（每轮 1-3 例在上述类间轮转、签名一致，
+单类跑亦开始偶发，daemon 重启无效；每例跨轮均多次绿过，与 diff 无关已交叉证伪），收口按
+「全量 + 失败类单独复证」组合口径判绿。下轮开工前应优先根治，否则每次交付都耗在重跑上。
 
 ## 9. v0.6.0 通用图库功能补全
 
@@ -314,5 +317,7 @@ testTag 仅一处改名（`albums_new_fab`→`albums_new`）。要点：
   换服 clearMirror 全清防撞号附身）+ `galleries.createdAt`；DataStore 新键 `photos_sort`/`albums_sort`/
   `album_detail_sort`/`album_detail_columns`。组织状态为设备级偏好，不跨设备同步（spec 定界）。
 
-验证：全量 Robolectric 71 类 / 384 例 / 0 失败（净增 52 例）；桌面主进程 gate 130 文件 / 1676 例全绿。
+验证：全量 Robolectric 71 类 / 385 例（净增 53 例，含终审补落的平铺模式断言）——收官日 DataStore flake
+达阻塞级（见 §8 升级记录），按「全量（381 例非 DataStore 用例七轮全绿）+ 失败类单独复证全绿」组合口径判绿；
+桌面主进程 gate 130 文件 / 1676 例全绿 + typecheck 干净。
 拖拽跟手手感与自适应列数观感为实机验证项（Robolectric 无法驱动拖拽手势，状态机/落盘已有单测）。

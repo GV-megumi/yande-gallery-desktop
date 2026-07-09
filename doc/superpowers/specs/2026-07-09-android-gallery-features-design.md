@@ -2,6 +2,7 @@
 
 > 状态：✅ 已实施（安卓 v0.6.0 / versionCode 7，桌面 0.4.0，2026-07-10）。承接 v0.5.0 仿 MIUI UI 重塑（`2026-07-08-android-miui-ui-redesign-design.md`）。
 > 实施偏离记录：菜单 testTag 带 `_${id}` 后缀（沿用仓内惯例）；ModalBottomSheet 补 skipPartiallyExpanded+可滚动列（矮屏面板尾行可达）；clearMirror 全清 album_prefs（换服撞号防附身，评审加固）；createGallery 乐观行带本机 createdAt（CREATED 排序不垫底）。其余按 spec 落地，排除项未越界。
+> 终审补记（2026-07-10）：文件名排序加 `COLLATE NOCASE`（BINARY 会把 Z 排 a 前，违背一般图库直觉）；详情页切排序补回顶（照片页同款）；已知边界——搜索结果进大图沿用时间轴上下文，用户改排序后搜索网格（固定时间序）与大图滑动序会分叉（§1.2 排除项的后果，接受）；PATCH name+coverImageId 同传非原子（自家客户端恒单字段提交，已注释）。
 
 ## 0. 背景与决策快照
 

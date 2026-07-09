@@ -9,7 +9,8 @@ class SortModelsTest {
         assertEquals("createdAt DESC, id DESC", PhotoSort.TIME_DESC.orderBy())
         assertEquals("createdAt ASC, id ASC", PhotoSort.TIME_ASC.orderBy())
         assertEquals("fileSize DESC, id DESC", PhotoSort.SIZE_DESC.orderBy())
-        assertEquals("filename ASC, id ASC", PhotoSort.NAME_ASC.orderBy())
+        assertEquals("filename COLLATE NOCASE ASC, id ASC", PhotoSort.NAME_ASC.orderBy())
+        assertEquals("filename COLLATE NOCASE DESC, id DESC", PhotoSort.NAME_DESC.orderBy())
         assertEquals("i.createdAt DESC, i.id DESC", PhotoSort.TIME_DESC.orderBy("i."))
     }
 
