@@ -117,16 +117,18 @@ class PhotosViewModel(
     fun setPhotoSort(sort: PhotoSort) = graph.viewPrefs.setPhotoSort(sort)
 
     /**
-     * 时间轴分页流（M4-T2 重构 + v0.6 排序变体）：「月↔日分组粒度」或「排序」变化经 flatMapLatest
-     * 重建（丢滚动位置——排序切换由 Screen 回顶，月日切换由 T3 锚定回原日期）；纯列数变化不重建。
-     * 平铺模式（spec §3.2）：非时间排序不插分组头，网格纯照片流。
+     * 时间轴分页流（M4-T2 重构 + v0.6 排序变体）：「时间排序下的月↔日分组粒度」或「排序」变化经
+     * flatMapLatest 重建（丢滚动位置——排序切换由 Screen 回顶，月日切换由 T3 锚定回原日期）；
+     * 纯列数变化不重建。平铺模式（spec §3.2）：非时间排序不插分组头，网格纯照片流——分组键折算
+     * 恒 false（monthly && isTime），MONTH 档退化为纯 6 列，月↔日切档等同纯列数变化：不重建
+     * Pager、滚动位置天然保留（D2 不变式）；切回时间排序时 sort 变化本身携带正确分组粒度重建。
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagingFlow: Flow<PagingData<TimelineItem>> =
         combine(
             densityTier.map { it.monthGrouping }.distinctUntilChanged(),
             graph.viewPrefs.photoSort,
-        ) { monthly, sort -> monthly to sort }
+        ) { monthly, sort -> (monthly && sort.isTime) to sort }
             .distinctUntilChanged()
             .flatMapLatest { (monthly, sort) ->
                 Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {

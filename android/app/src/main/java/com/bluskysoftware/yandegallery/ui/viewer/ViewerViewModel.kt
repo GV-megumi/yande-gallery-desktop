@@ -85,20 +85,29 @@ class ViewerViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
-     * 分页流：galleryId != null → 图集分页（GalleryDao，按 ViewPrefs 详情排序与网格同序）；
-     * 否则 → 时间轴分页（ImageDao，按 ViewPrefs 照片排序）。只出 ImageEntity（不插日期分组头，那是网格的视觉层）。
+     * 排序快照（v0.6 spec §3.4 + 评审修复）：VM 构造期一次性读共享 ViewPrefs——工厂每代（Room 失效
+     * 重建 PagingSource）只用快照，单次 Viewer 会话恒同序，不会中途换序把当前页瞬移到别的图。
+     * 常规导航路径无脏读：viewer 只能从已应用该排序的网格进入，内存态先于导航更新。进程被杀后
+     * 直接恢复进 Viewer（返回栈还原）时 ViewPrefs 异步回填可能未落地、快照取到 DEFAULT——属冷启动
+     * 闪档同族取舍：仅初始序可能不同，会话内不再漂移。
+     */
+    private val timelineSort = graph.viewPrefs.photoSort.value
+    private val detailSort = graph.viewPrefs.detailSort.value
+
+    /**
+     * 分页流：galleryId != null → 图集分页（GalleryDao，按构造期快照的详情排序与网格同序）；
+     * 否则 → 时间轴分页（ImageDao，按构造期快照的照片排序）。只出 ImageEntity（不插日期分组头，
+     * 那是网格的视觉层）。搜索进入沿用时间轴上下文（既有口径）。
      */
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
             val gid = galleryId
-            // 与网格同序（v0.6 spec §3.4）：开页瞬间读共享 ViewPrefs 当前值——viewer 只能从已应用
-            // 该排序的网格进入，内存态先于导航更新，无脏读窗口。搜索进入沿用时间轴上下文（既有口径）。
             if (gid != null) {
                 graph.db.galleryDao().galleryImagesPagingSource(
-                    buildGalleryImagesQuery(gid, graph.viewPrefs.detailSort.value),
+                    buildGalleryImagesQuery(gid, detailSort),
                 )
             } else {
-                graph.db.imageDao().timelinePagingSource(buildTimelineQuery(graph.viewPrefs.photoSort.value))
+                graph.db.imageDao().timelinePagingSource(buildTimelineQuery(timelineSort))
             }
         }.flow.cachedIn(viewModelScope)
 

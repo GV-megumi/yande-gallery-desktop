@@ -145,7 +145,8 @@ class TimelineModelsTest {
             val today = LocalDate.of(2026, 7, 9)
             val jun = TimelineItem.Photo(imageAt("2026-06-30T10:00:00.000Z"))
             val jul = TimelineItem.Photo(imageAt("2026-07-01T10:00:00.000Z"))
-            assertNull(timelineSeparatorBetween(jul, TimelineItem.Photo(imageAt("2026-07-02T10:00:00.000Z")).let { it }, monthly = true, today).let { if (it?.dayKey == "2026-07") null else it })
+            // 同月两张之间不得插头（直断言：错误插入 Header("2026-07") 必红，评审修复原空断言）
+            assertNull(timelineSeparatorBetween(jul, TimelineItem.Photo(imageAt("2026-07-02T10:00:00.000Z")), monthly = true, today))
             assertEquals("2026-06", timelineSeparatorBetween(jul, jun, monthly = true, today)!!.dayKey)
         } finally {
             TimeZone.setDefault(prev)

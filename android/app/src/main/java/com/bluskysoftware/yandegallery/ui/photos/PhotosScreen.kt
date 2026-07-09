@@ -304,6 +304,10 @@ fun PhotosScreen(
     LaunchedEffect(sort) {
         if (sort.name != lastAppliedSort) {
             lastAppliedSort = sort.name
+            // 未消费的月↔日切档锚一并作废（评审修复）：排序一变，旧粒度锚定语义即失效。切到平铺后
+            // 快照无 Header，锚定 effect 只早退不 onDone，陈锚会存活到切回时间排序时被消费——驱动
+            // append 滚到数分钟前的旧月份，压过本回顶（两个 scrollToItem 竞写，锚定随 append 后发赢）。
+            pendingAnchor = null
             gridState.scrollToItem(0)
         }
     }
