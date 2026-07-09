@@ -111,6 +111,7 @@ fun AppScaffold(
     photosSelectionBars: PhotosSelectionBars,
     photosContent: @Composable () -> Unit,
     albumsContent: @Composable () -> Unit,
+    otherAlbumsContent: @Composable () -> Unit,
     settingsContent: @Composable () -> Unit,
     cacheContent: @Composable () -> Unit,
     serversContent: @Composable () -> Unit,
@@ -158,6 +159,7 @@ fun AppScaffold(
         ) {
             composable(Routes.Photos) { photosContent() }
             composable(Routes.Albums) { albumsContent() }
+            composable(Routes.OtherAlbums) { otherAlbumsContent() }
             composable(Routes.Settings) { settingsContent() }
             composable(Routes.CacheManage) { cacheContent() }
             composable(Routes.Servers) { serversContent() }
@@ -233,7 +235,18 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
                     Text("照片页占位")
                 }
             },
-            albumsContent = { Text("相册页占位") },
+            albumsContent = {
+                Column {
+                    Text("相册页占位")
+                    // 测试触发按钮（v0.6 T8）：经真 NavHost 覆盖 OtherAlbums 路由注册与模式优先级
+                    // （独立字面量 "albums_other" 不被 albums/{galleryId} 吞掉）
+                    Button(
+                        onClick = { nav.navigate(Routes.OtherAlbums) },
+                        modifier = Modifier.testTag("test_open_other_albums"),
+                    ) { Text("打开其他相册") }
+                }
+            },
+            otherAlbumsContent = { Text("其他相册占位") },
             settingsContent = { Text("设置页占位") },
             cacheContent = { Text("缓存管理占位") },
             serversContent = { Text("服务器页占位") },

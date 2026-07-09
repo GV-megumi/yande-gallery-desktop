@@ -45,6 +45,17 @@ class AppNavTest {
         compose.onNodeWithTag("photos_more").assertIsDisplayed()
     }
 
+    @Test
+    fun `其他相册路由注册且不被图集详情模式吞掉`() {
+        compose.setContent { AppNavForTest() }
+        // AppNavForTest 的相册占位带一颗测试触发按钮（v0.6 T8 加），经真 NavHost 跳转
+        compose.onNodeWithTag("tab_albums").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("test_open_other_albums").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText("其他相册占位").assertIsDisplayed()   // 命中占位而非「图集详情占位」
+    }
+
     // 壳只验证底栏 swap（顶部选择栏已在 PhotosScreen 内自渲染）
     @Test
     fun `照片tab多选激活时壳级swap底栏`() {

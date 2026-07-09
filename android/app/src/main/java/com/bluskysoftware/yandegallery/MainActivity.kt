@@ -15,6 +15,7 @@ import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsViewModel
+import com.bluskysoftware.yandegallery.ui.albums.OtherAlbumsScreen
 import com.bluskysoftware.yandegallery.ui.photos.PhotosScreen
 import com.bluskysoftware.yandegallery.ui.photos.PhotosViewModel
 import com.bluskysoftware.yandegallery.ui.search.SearchScreen
@@ -63,6 +64,14 @@ class MainActivity : ComponentActivity() {
                         AlbumsScreen(
                             viewModel = albumsVm,
                             navController = nav,
+                        )
+                    },
+                    otherAlbumsContent = {
+                        val albumsVm: AlbumsViewModel = viewModel(factory = AlbumsViewModel.factory(graph))
+                        OtherAlbumsScreen(
+                            viewModel = albumsVm,
+                            navController = nav,
+                            onBack = { nav.popBackStack() },
                         )
                     },
                     albumDetailContent = { galleryId ->
