@@ -25,6 +25,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.Button
@@ -66,15 +67,22 @@ import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSortField
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.ConnectionBanner
 import com.bluskysoftware.yandegallery.ui.common.FastScrollbar
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
+import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
+import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
+import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
+import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
@@ -241,6 +249,9 @@ fun PhotosScreen(
 
     // ---- 捏合切档（M4-T3）：离散档位状态 + 月↔日跨越锚定 ----
     val tier by viewModel.densityTier.collectAsStateWithLifecycle()
+    // v0.6 排序 + 「⋯」面板开关（spec §3.1）：排序共享 ViewPrefs，Viewer 同源同序
+    val sort by viewModel.photoSort.collectAsStateWithLifecycle()
+    var showOptions by rememberSaveable { mutableStateOf(false) }
     val gridState = rememberLazyGridState()
     val pinchState = remember { PinchDensityState() }
     // 月↔日跨越锚定：跨越前记视口顶部照片在「新分组粒度」下的 key + 目标粒度，重建后按 Header 定位。
@@ -254,7 +265,8 @@ fun PhotosScreen(
 
     fun changeTier(new: DensityTier) {
         val current = lastRequestedTier ?: tier
-        if (new.monthGrouping != current.monthGrouping) {
+        // 平铺门控（v0.6 spec §3.2）：非时间排序无分组头，月↔日锚定无意义且必失败弃锚——不置锚
+        if (new.monthGrouping != current.monthGrouping && sort.isTime) {
             val first = gridState.firstVisibleItemIndex
             val anchorCreatedAt = (first until items.itemCount).asSequence()
                 .mapNotNull { items.peek(it) as? TimelineItem.Photo }
@@ -286,6 +298,15 @@ fun PhotosScreen(
                 }
             }
     }
+    // 排序切换回顶（spec §3.3；跳过首帧——导航返回恢复组合时不得重置滚动位置）：
+    // lastAppliedSort 经 rememberSaveable 抗重组/返回恢复，仅真实切换时回顶
+    var lastAppliedSort by rememberSaveable { mutableStateOf(sort.name) }
+    LaunchedEffect(sort) {
+        if (sort.name != lastAppliedSort) {
+            lastAppliedSort = sort.name
+            gridState.scrollToItem(0)
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // 顶部区域页面自持（v0.5 壳重构）：多选中换选择顶栏（底栏仍经桥走壳级 swap），常态为常驻顶栏
@@ -307,7 +328,7 @@ fun PhotosScreen(
                 PhotosPinnedTopBar(
                     scrolled = header.scrolled,
                     onOpenSearch = onOpenSearch,
-                    onOpenSettings = onOpenSettings,
+                    onOpenMore = { showOptions = true },
                 )
             }
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
@@ -367,8 +388,9 @@ fun PhotosScreen(
                         )
                         // 视口顶部日期：derivedStateOf 只在文案变化时重组（滚动逐帧不扰动整屏）；
                         // 与滑块气泡共用 timelineItemDateLabel，向前回退最多 30 项找最近非空
-                        val topDateLabel by remember(items, tier) {
+                        val topDateLabel by remember(items, tier, sort) {
                             derivedStateOf {
+                                if (!sort.isTime) return@derivedStateOf null   // 平铺：sticky 胶囊不显示
                                 val top = gridState.firstVisibleItemIndex
                                 (top downTo maxOf(0, top - 30)).firstNotNullOfOrNull { i ->
                                     if (i in 0 until items.itemCount) {
@@ -391,7 +413,9 @@ fun PhotosScreen(
                             gridState = gridState,
                             itemCount = items.itemCount,
                             labelFor = { index ->
-                                if (index in 0 until items.itemCount) {
+                                if (!sort.isTime) {
+                                    null   // 平铺：日期气泡整体隐藏（spec §3.2）
+                                } else if (index in 0 until items.itemCount) {
                                     timelineItemDateLabel(items.peek(index), tier.monthGrouping)
                                 } else {
                                     null
@@ -410,6 +434,18 @@ fun PhotosScreen(
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
                 .padding(bottom = 8.dp),
+        )
+    }
+
+    // 「⋯」选项面板（v0.6 spec §3.1）：排序/密度/设置，选择即生效即收
+    if (showOptions) {
+        PhotosOptionsSheet(
+            sort = sort,
+            tier = tier,
+            onDismiss = { showOptions = false },
+            onSortField = { field -> viewModel.setPhotoSort(field.next(sort)); showOptions = false },
+            onTier = { changeTier(it); showOptions = false },   // 走 changeTier 复用月↔日锚定
+            onOpenSettings = { showOptions = false; onOpenSettings() },
         )
     }
 
@@ -498,22 +534,56 @@ private fun SyncProgressBar(syncPhaseFlow: StateFlow<SyncPhase>) {
 }
 
 /**
- * 照片 tab 常态顶栏装配（v0.5 壳重构后 photos_search 归属本页，spec §10）：搜索/设置入口挂
- * MiuiPinnedTopBar 常驻动作槽。internal 供 AppNavForTest 挂真件走 NavHost 端到端覆盖跳转，
- * 生产由 PhotosScreen 非多选分支调用（回调经 MainActivity 接 Routes.search()/Settings）。
+ * 照片 tab 常态顶栏（v0.6 spec §3.1）：[搜索][⋯]。设置入口迁入「⋯」面板（MIUI 同款层级）。
+ * internal 供 AppNavForTest 挂真件覆盖搜索路由跳转。
  */
 @Composable
 internal fun PhotosPinnedTopBar(
     scrolled: Boolean,
     onOpenSearch: () -> Unit,
-    onOpenSettings: () -> Unit,
+    onOpenMore: () -> Unit,
 ) {
     MiuiPinnedTopBar(title = "照片", scrolled = scrolled, actions = {
         IconButton(onClick = onOpenSearch, modifier = Modifier.testTag("photos_search")) {
             Icon(Icons.Filled.Search, contentDescription = "搜索")
         }
-        IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
+        IconButton(onClick = onOpenMore, modifier = Modifier.testTag("photos_more")) {
+            Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+        }
     })
+}
+
+/** 照片页「⋯」选项面板（spec §3.1）：排序 + 网格密度 + 设置。选择即生效即收。 */
+@Composable
+internal fun PhotosOptionsSheet(
+    sort: PhotoSort,
+    tier: DensityTier,
+    onDismiss: () -> Unit,
+    onSortField: (PhotoSortField) -> Unit,
+    onTier: (DensityTier) -> Unit,
+    onOpenSettings: () -> Unit,
+) {
+    MiuiOptionsSheet(onDismiss = onDismiss) {
+        MiuiSheetCard("排序方式") {
+            PhotoSortField.entries.forEach { field ->
+                MiuiSortRow(
+                    label = field.label,
+                    selected = field.contains(sort),
+                    ascending = sort.ascending,
+                    tag = "sort_option_${field.name.lowercase()}",
+                ) { onSortField(field) }
+            }
+        }
+        MiuiSheetCard("网格密度") {
+            MiuiChoiceRow("月视图（6 列）", tier == DensityTier.MONTH, "density_option_month") { onTier(DensityTier.MONTH) }
+            MiuiChoiceRow("大图（3 列）", tier == DensityTier.DAY_3, "density_option_day3") { onTier(DensityTier.DAY_3) }
+            MiuiChoiceRow("标准（4 列）", tier == DensityTier.DAY_4, "density_option_day4") { onTier(DensityTier.DAY_4) }
+            MiuiChoiceRow("紧凑（5 列）", tier == DensityTier.DAY_5, "density_option_day5") { onTier(DensityTier.DAY_5) }
+        }
+        MiuiSheetCard("更多") {
+            MiuiSheetNavRow("设置", tag = "sheet_settings_row", onClick = onOpenSettings)
+        }
+    }
 }
 
 /** 无激活服务器时的引导态：文案 + 跳转服务器管理按钮。 */

@@ -37,6 +37,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
@@ -110,35 +111,32 @@ class PhotosViewModel(
         viewModelScope.launch { graph.prefsStore.setDensityTierName(tier.name) }
     }
 
+    /** 照片排序（v0.6 spec §3）：共享 ViewPrefs——Viewer 同源保证网格与翻页同序（§3.4）。 */
+    val photoSort: StateFlow<PhotoSort> = graph.viewPrefs.photoSort
+
+    fun setPhotoSort(sort: PhotoSort) = graph.viewPrefs.setPhotoSort(sort)
+
     /**
-     * 时间轴分页流（M4-T2 重构）：仅「月↔日分组粒度」翻转经 flatMapLatest 重建（丢滚动位置、
-     * 由 Screen 锚定回原日期——T3）；纯列数变化（日 3/4/5）不重建本流，滚动位置天然保留（D2）。
-     * cachedIn 在最外层（SearchViewModel 同款拓扑）。
+     * 时间轴分页流（M4-T2 重构 + v0.6 排序变体）：「月↔日分组粒度」或「排序」变化经 flatMapLatest
+     * 重建（丢滚动位置——排序切换由 Screen 回顶，月日切换由 T3 锚定回原日期）；纯列数变化不重建。
+     * 平铺模式（spec §3.2）：非时间排序不插分组头，网格纯照片流。
      */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagingFlow: Flow<PagingData<TimelineItem>> =
-        densityTier
-            .map { it.monthGrouping }
+        combine(
+            densityTier.map { it.monthGrouping }.distinctUntilChanged(),
+            graph.viewPrefs.photoSort,
+        ) { monthly, sort -> monthly to sort }
             .distinctUntilChanged()
-            .flatMapLatest { monthly ->
+            .flatMapLatest { (monthly, sort) ->
                 Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-                    graph.db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
+                    graph.db.imageDao().timelinePagingSource(buildTimelineQuery(sort))
                 }.flow
                     .map { data -> data.map<ImageEntity, TimelineItem> { TimelineItem.Photo(it) } }
                     .map { data ->
+                        if (!sort.isTime) return@map data   // 平铺：无日期分组语义
                         data.insertSeparators { before, after ->
-                            val afterPhoto = after as? TimelineItem.Photo ?: return@insertSeparators null
-                            val afterKey = if (monthly) monthKeyOf(afterPhoto.image.createdAt) else dayKeyOf(afterPhoto.image.createdAt)
-                            val beforeKey = (before as? TimelineItem.Photo)?.let {
-                                if (monthly) monthKeyOf(it.image.createdAt) else dayKeyOf(it.image.createdAt)
-                            }
-                            if (beforeKey != afterKey) {
-                                TimelineItem.Header(
-                                    afterKey,
-                                    if (monthly) monthHeaderDisplayOf(afterKey, LocalDate.now())
-                                    else dayHeaderDisplayOf(afterKey, LocalDate.now()),
-                                )
-                            } else null
+                            timelineSeparatorBetween(before, after, monthly, LocalDate.now())
                         }
                     }
             }

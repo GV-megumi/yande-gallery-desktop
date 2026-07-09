@@ -2,6 +2,7 @@ package com.bluskysoftware.yandegallery.ui.photos
 
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 import java.time.Instant
@@ -107,6 +108,45 @@ class TimelineModelsTest {
             assertEquals("6月15日", timelineItemDateLabel(TimelineItem.Header("2026-06-15", "x"), monthly = false))
             assertEquals("2026年6月", timelineItemDateLabel(TimelineItem.Header("2026-06", "x"), monthly = true))
             assertNull(timelineItemDateLabel(null, monthly = false))
+        } finally {
+            TimeZone.setDefault(prev)
+        }
+    }
+
+    // ---- v0.6 T6：分组头纯函数（PhotosViewModel.insertSeparators 委托，平铺模式不调用）----
+
+    /** 构造指定 createdAt 的照片项（本文件此前无 ImageEntity 构造 helper，按 T6 计划新建）。 */
+    private fun imageAt(createdAt: String) = ImageEntity(1, "a.jpg", 1, 1, 1L, "jpg", createdAt, createdAt)
+
+    @Test
+    fun `timelineSeparatorBetween 跨日插头_同日不插_首项必插`() {
+        // dayKeyOf 走本地时区归日：钉死 TZ 与机器解耦（本文件既有装置范式）
+        val prev = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"))
+            val today = LocalDate.of(2026, 7, 9)
+            val p1 = TimelineItem.Photo(imageAt("2026-07-08T10:00:00.000Z"))
+            val p2 = TimelineItem.Photo(imageAt("2026-07-08T09:00:00.000Z"))
+            val p3 = TimelineItem.Photo(imageAt("2026-07-07T09:00:00.000Z"))
+            assertNotNull(timelineSeparatorBetween(null, p1, monthly = false, today))          // 首项
+            assertNull(timelineSeparatorBetween(p1, p2, monthly = false, today))               // 同日
+            val header = timelineSeparatorBetween(p2, p3, monthly = false, today)              // 跨日
+            assertEquals("2026-07-07", header!!.dayKey)
+        } finally {
+            TimeZone.setDefault(prev)
+        }
+    }
+
+    @Test
+    fun `timelineSeparatorBetween 月粒度按月键分组`() {
+        val prev = TimeZone.getDefault()
+        try {
+            TimeZone.setDefault(TimeZone.getTimeZone("Asia/Shanghai"))
+            val today = LocalDate.of(2026, 7, 9)
+            val jun = TimelineItem.Photo(imageAt("2026-06-30T10:00:00.000Z"))
+            val jul = TimelineItem.Photo(imageAt("2026-07-01T10:00:00.000Z"))
+            assertNull(timelineSeparatorBetween(jul, TimelineItem.Photo(imageAt("2026-07-02T10:00:00.000Z")).let { it }, monthly = true, today).let { if (it?.dayKey == "2026-07") null else it })
+            assertEquals("2026-06", timelineSeparatorBetween(jul, jun, monthly = true, today)!!.dayKey)
         } finally {
             TimeZone.setDefault(prev)
         }

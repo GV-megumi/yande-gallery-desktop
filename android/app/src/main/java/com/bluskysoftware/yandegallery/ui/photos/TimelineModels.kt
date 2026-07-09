@@ -111,3 +111,28 @@ fun viewerTimeLabel(createdAt: String): String = runCatching {
     Instant.parse(createdAt).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm"))
 }.getOrElse { "" }
+
+/**
+ * 相邻两项之间是否插分组头（v0.6 抽出纯函数供直测；PhotosViewModel.insertSeparators 委托）。
+ * 仅时间排序调用——平铺模式（非时间排序，spec §3.2)不插任何分组头。
+ */
+fun timelineSeparatorBetween(
+    before: TimelineItem?,
+    after: TimelineItem?,
+    monthly: Boolean,
+    today: LocalDate,
+): TimelineItem.Header? {
+    val afterPhoto = after as? TimelineItem.Photo ?: return null
+    val afterKey = if (monthly) monthKeyOf(afterPhoto.image.createdAt) else dayKeyOf(afterPhoto.image.createdAt)
+    val beforeKey = (before as? TimelineItem.Photo)?.let {
+        if (monthly) monthKeyOf(it.image.createdAt) else dayKeyOf(it.image.createdAt)
+    }
+    return if (beforeKey != afterKey) {
+        TimelineItem.Header(
+            afterKey,
+            if (monthly) monthHeaderDisplayOf(afterKey, today) else dayHeaderDisplayOf(afterKey, today),
+        )
+    } else {
+        null
+    }
+}

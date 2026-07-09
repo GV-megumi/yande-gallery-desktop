@@ -3,7 +3,6 @@ package com.bluskysoftware.yandegallery.ui
 import androidx.compose.runtime.remember
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -39,11 +38,11 @@ class AppNavTest {
     }
 
     @Test
-    fun `设置齿轮跳设置页`() {
+    fun `照片顶栏更多入口存在`() {
         compose.setContent { AppNavForTest() }
-        // 齿轮指 Settings（v0.4 起直达设置页）：点击后应落到设置页占位
-        compose.onNodeWithContentDescription("设置").performClick()
-        compose.onNodeWithText("设置页占位").assertIsDisplayed()
+        // v0.6：设置入口迁入「⋯」面板（spec §3.1）——顶栏只验 photos_more 存在；
+        // 「设置行 → onOpenSettings」跳转覆盖移至 PhotosScreenTest 的面板设置行用例，本处不再穿 NavHost。
+        compose.onNodeWithTag("photos_more").assertIsDisplayed()
     }
 
     // 壳只验证底栏 swap（顶部选择栏已在 PhotosScreen 内自渲染）

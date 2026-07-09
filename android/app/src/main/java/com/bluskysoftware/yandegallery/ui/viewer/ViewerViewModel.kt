@@ -24,7 +24,6 @@ import com.bluskysoftware.yandegallery.data.image.previewRequest
 import com.bluskysoftware.yandegallery.data.image.previewUrl
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
-import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
@@ -86,14 +85,21 @@ class ViewerViewModel(
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
 
     /**
-     * 分页流：galleryId != null → 图集分页（GalleryDao，按 createdAt DESC 与网格同序）；
-     * 否则 → 时间轴分页（ImageDao）。此处只出 ImageEntity（不插日期分组头，那是网格的视觉层）。
+     * 分页流：galleryId != null → 图集分页（GalleryDao，按 ViewPrefs 详情排序与网格同序）；
+     * 否则 → 时间轴分页（ImageDao，按 ViewPrefs 照片排序）。只出 ImageEntity（不插日期分组头，那是网格的视觉层）。
      */
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
             val gid = galleryId
-            if (gid != null) graph.db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(gid, PhotoSort.DEFAULT))
-            else graph.db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
+            // 与网格同序（v0.6 spec §3.4）：开页瞬间读共享 ViewPrefs 当前值——viewer 只能从已应用
+            // 该排序的网格进入，内存态先于导航更新，无脏读窗口。搜索进入沿用时间轴上下文（既有口径）。
+            if (gid != null) {
+                graph.db.galleryDao().galleryImagesPagingSource(
+                    buildGalleryImagesQuery(gid, graph.viewPrefs.detailSort.value),
+                )
+            } else {
+                graph.db.imageDao().timelinePagingSource(buildTimelineQuery(graph.viewPrefs.photoSort.value))
+            }
         }.flow.cachedIn(viewModelScope)
 
     /**

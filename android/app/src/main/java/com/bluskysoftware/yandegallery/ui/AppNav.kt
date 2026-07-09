@@ -211,7 +211,8 @@ fun AppScaffold(
 /**
  * 测试与占位用：内容为占位 Text 的导航壳。[photosSelectionBars] 缺省自建桥（既有零参调用不动）。
  * 照片占位额外挂生产真件 [PhotosPinnedTopBar]（回调镜像 MainActivity 接线）——顶栏下放页面后，
- * photos_search/设置入口 → 路由落点的端到端覆盖仍走真 NavHost（AppNavTest，spec §10 归属适配）。
+ * photos_search → 路由落点的端到端覆盖仍走真 NavHost（AppNavTest，spec §10 归属适配）；
+ * 设置入口 v0.6 迁入「⋯」面板（onOpenMore 此处空接，面板跳转覆盖在 PhotosScreenTest）。
  */
 @Composable
 fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
@@ -225,7 +226,7 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
                     PhotosPinnedTopBar(
                         scrolled = false,
                         onOpenSearch = { nav.navigate(Routes.search()) },
-                        onOpenSettings = { nav.navigate(Routes.Settings) },
+                        onOpenMore = {},
                     )
                     Text("照片页占位")
                 }

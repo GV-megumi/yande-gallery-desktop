@@ -14,31 +14,87 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.paging.LoadState
 import androidx.paging.LoadStates
 import androidx.paging.PagingData
 import androidx.paging.compose.collectAsLazyPagingItems
+import androidx.test.core.app.ApplicationProvider
+import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
+import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import java.io.File
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
+import kotlinx.coroutines.test.resetMain
+import kotlinx.coroutines.test.setMain
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
+@OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class PhotosScreenTest {
     @get:Rule
     val compose = createComposeRule()
+
+    // ---- 真 VM + in-memory graph 装置（v0.6 T6 面板用例用；PhotosViewModelTest/AlbumsWriteTest 形态合流）----
+
+    private lateinit var db: AppDatabase
+    private lateinit var graph: AppGraph
+
+    // 排序/密度走真 DataStore（临时文件独立实例）：隔离每个用例、避开进程级单例状态泄漏。
+    private val prefsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val prefsTmp = File.createTempFile("photos-screen-prefs", ".preferences_pb").also { it.delete() }
+
+    @Before
+    fun setup() {
+        // viewModelScope（Main.immediate）在 Robolectric paused looper 下不推进，换 Unconfined
+        // 让 StateFlow 收集即时追平（AlbumsWriteTest 真件屏测试同款；不影响 compose 自有帧钟）。
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        graph = AppGraph(
+            ApplicationProvider.getApplicationContext(),
+            dbOverride = db,
+            autoSyncOnActiveChange = false,
+            prefsStoreOverride = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp }),
+        )
+        // 激活服务器：PhotosScreen 须穿过引导态门进入网格分支常态顶栏（关自动同步/SSE，无真实服务器）
+        runBlocking { graph.serverRepository.addAndActivate("t6", "http://127.0.0.1:1", "k") }
+    }
+
+    @After
+    fun teardown() {
+        graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
+        db.close()
+        prefsScope.cancel()
+        prefsTmp.delete()
+        Dispatchers.resetMain()
+    }
 
     private fun image(id: Long, createdAt: String) = ImageEntity(
         id = id,
@@ -310,5 +366,56 @@ class PhotosScreenTest {
         assertNull(anchor.value)
         compose.onNodeWithText("2026年6月").assertIsDisplayed()
         assertTrue("应已从顶部滚走", gridState!!.firstVisibleItemIndex > 0)
+    }
+
+    // ---- v0.6 T6：「⋯」选项面板（排序/密度/设置，spec §3.1）----
+
+    /** 挂真 PhotosScreen：等 activeServer 的 Room 首发射穿过引导门、常态顶栏落定后返回。 */
+    private fun setPhotosScreen(vm: PhotosViewModel, onOpenSettings: () -> Unit = {}) {
+        compose.setContent {
+            PhotosScreen(
+                viewModel = vm,
+                barsState = PhotosSelectionBars(),
+                onAddServer = {},
+                onOpenViewer = {},
+                onOpenSearch = {},
+                onOpenSettings = onOpenSettings,
+            )
+        }
+        // activeServer 经 Room 后台 executor 首发射，waitForIdle 不追踪它 → waitUntil 轮询顶栏落定
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("photos_more").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test
+    fun `更多面板_切排序即生效并收面板_设置行触发回调`() {
+        var settingsOpened = 0
+        val vm = PhotosViewModel(graph)
+        setPhotosScreen(vm, onOpenSettings = { settingsOpened++ })
+        compose.onNodeWithTag("photos_more").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("options_sheet").assertIsDisplayed()
+        compose.onNodeWithTag("sort_option_size").performClick()
+        compose.waitForIdle()
+        assertEquals(PhotoSort.SIZE_DESC, graph.viewPrefs.photoSort.value)
+        compose.onNodeWithTag("options_sheet").assertDoesNotExist()   // 选择即收
+        compose.onNodeWithTag("photos_more").performClick()
+        compose.waitForIdle()
+        // Robolectric 默认 470dp 矮屏放不下整面板：先滚到尾部行再点（面板列可滚动，真机同语义）
+        compose.onNodeWithTag("sheet_settings_row").performScrollTo().performClick()
+        compose.waitForIdle()
+        assertEquals(1, settingsOpened)
+    }
+
+    @Test
+    fun `更多面板_密度行走 changeTier 档位即时切换`() {
+        val vm = PhotosViewModel(graph)
+        setPhotosScreen(vm)
+        compose.onNodeWithTag("photos_more").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("density_option_day3").performScrollTo().performClick()
+        compose.waitForIdle()
+        assertEquals(DensityTier.DAY_3, vm.densityTier.value)
     }
 }

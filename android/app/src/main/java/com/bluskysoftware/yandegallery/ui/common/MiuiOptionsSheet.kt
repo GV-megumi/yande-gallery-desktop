@@ -1,6 +1,8 @@
 package com.bluskysoftware.yandegallery.ui.common
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -21,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -36,6 +39,9 @@ import androidx.compose.ui.unit.dp
 fun MiuiOptionsSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
+        // MIUI 同款整面板直接全开（T6 定准）：M3 默认 PartiallyExpanded 只开半屏，三卡长面板的
+        // 尾部行（设置/手动排序入口）会压在屏外点不到、每次都得再拖一段——跳过半开态。
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
         containerColor = MaterialTheme.colorScheme.background,
         shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
         dragHandle = null,
@@ -44,6 +50,8 @@ fun MiuiOptionsSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.() 
         Column(
             Modifier
                 .fillMaxWidth()
+                // 矮屏/横屏兜底：全开仍放不下整面板时内容可滚动，所有行保持可触达
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = 16.dp)
                 .padding(top = 20.dp, bottom = 16.dp)
                 .navigationBarsPadding(),

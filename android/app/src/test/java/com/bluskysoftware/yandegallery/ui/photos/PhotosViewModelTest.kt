@@ -6,6 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
@@ -185,6 +186,17 @@ class PhotosViewModelTest {
         vm.setDensityTier(DensityTier.DAY_3)
         vm.densityTier.first { it == DensityTier.DAY_3 }
         assertEquals("纯列数变化后仍应为日分组", expectedDayHeaders(), headerDisplays(vm))
+    }
+
+    @Test
+    fun `photoSort 写穿 ViewPrefs 并异步落盘`() = runTest {
+        // 装置：沿用本文件既有 AppGraph 构造（in-memory db + 临时 PrefsStore override）
+        val vm = PhotosViewModel(graph)
+        vm.setPhotoSort(PhotoSort.SIZE_DESC)
+        assertEquals(PhotoSort.SIZE_DESC, graph.viewPrefs.photoSort.value)   // 共享实例即时可见（spec §3.4）
+        // 落盘走 graph 真 IO scope（advanceUntilIdle 驱不动真 Dispatchers.IO）：
+        // 按本文件档位持久化用例既有惯例 first{} 等值到位（写丢失时此处 runTest 超时红灯）
+        assertEquals("SIZE_DESC", graph.prefsStore.photosSortName.first { it == "SIZE_DESC" })
     }
 
     @Test
