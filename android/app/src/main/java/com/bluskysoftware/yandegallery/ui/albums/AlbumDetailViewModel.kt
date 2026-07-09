@@ -16,7 +16,9 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.db.buildGalleryImagesQuery
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
@@ -60,7 +62,7 @@ class AlbumDetailViewModel(
     /** 图集内图片分页：galleryImagesPagingSource 已按 createdAt DESC 排序，此处无日期分组。 */
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-            graph.db.galleryDao().galleryImagesPagingSource(galleryId)
+            graph.db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(galleryId, PhotoSort.DEFAULT))
         }.flow.cachedIn(viewModelScope)
 
     // ---- Task 13 多选：VM 持有选择状态 + 批量动作（Screen 不直接触 graph） ----

@@ -18,7 +18,9 @@ import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
@@ -120,7 +122,7 @@ class PhotosViewModel(
             .distinctUntilChanged()
             .flatMapLatest { monthly ->
                 Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
-                    graph.db.imageDao().timelinePagingSource()
+                    graph.db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
                 }.flow
                     .map { data -> data.map<ImageEntity, TimelineItem> { TimelineItem.Photo(it) } }
                     .map { data ->

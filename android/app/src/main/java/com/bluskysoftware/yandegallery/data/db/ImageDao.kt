@@ -5,8 +5,10 @@ import androidx.room.*
 
 @Dao
 interface ImageDao {
-    @Query("SELECT * FROM images ORDER BY createdAt DESC, id DESC")
-    fun timelinePagingSource(): PagingSource<Int, ImageEntity>
+    // 时间轴分页（v0.6 spec §3.3）：ORDER BY 随 PhotoSort 运行时拼接，走 @RawQuery（同 search 先例）；
+    // 查询由 TimelineQueries.buildTimelineQuery 构造，白名单枚举无注入面。
+    @RawQuery(observedEntities = [ImageEntity::class])
+    fun timelinePagingSource(query: androidx.sqlite.db.SupportSQLiteQuery): PagingSource<Int, ImageEntity>
 
     // 搜索分页：多关键词 AND 交集用运行时拼 SQL（@Query 的 IN 展开无法表达多子句 AND），故走 @RawQuery。
     // observedEntities 声明三表，使标签/关联变更也能触发 Paging 失效刷新。

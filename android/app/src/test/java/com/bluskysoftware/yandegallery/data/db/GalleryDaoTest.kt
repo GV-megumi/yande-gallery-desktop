@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery.data.db
 import androidx.paging.PagingSource
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -91,7 +92,7 @@ class GalleryDaoTest {
         db.imageDao().replaceGalleryLinks(1, listOf(1))
         db.imageDao().replaceGalleryLinks(2, listOf(1))
         db.imageDao().replaceGalleryLinks(3, listOf(1))
-        val page = db.galleryDao().galleryImagesPagingSource(1)
+        val page = db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(1, PhotoSort.DEFAULT))
             .load(PagingSource.LoadParams.Refresh(null, 10, false)) as PagingSource.LoadResult.Page
         assertEquals(listOf(2L, 3L, 1L), page.data.map { it.id })
     }

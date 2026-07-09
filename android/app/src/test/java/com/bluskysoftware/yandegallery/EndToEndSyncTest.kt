@@ -4,6 +4,8 @@ import androidx.paging.PagingSource
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
@@ -88,7 +90,7 @@ class EndToEndSyncTest {
 
             // 断言 3：时间轴 PagingSource 首页按 createdAt DESC 排序（2>3>1，非插入序/非 id 序）
             @Suppress("UNCHECKED_CAST")
-            val page = graph.db.imageDao().timelinePagingSource()
+            val page = graph.db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
                 .load(PagingSource.LoadParams.Refresh<Int>(null, 10, false))
                     as PagingSource.LoadResult.Page<Int, ImageEntity>
             assertEquals(listOf(2L, 3L, 1L), page.data.map { it.id })

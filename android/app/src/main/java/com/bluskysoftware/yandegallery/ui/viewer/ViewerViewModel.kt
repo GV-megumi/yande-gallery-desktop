@@ -18,10 +18,13 @@ import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
+import com.bluskysoftware.yandegallery.data.db.buildGalleryImagesQuery
+import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
 import com.bluskysoftware.yandegallery.data.image.previewRequest
 import com.bluskysoftware.yandegallery.data.image.previewUrl
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
@@ -89,8 +92,8 @@ class ViewerViewModel(
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         Pager(PagingConfig(pageSize = 120, enablePlaceholders = false)) {
             val gid = galleryId
-            if (gid != null) graph.db.galleryDao().galleryImagesPagingSource(gid)
-            else graph.db.imageDao().timelinePagingSource()
+            if (gid != null) graph.db.galleryDao().galleryImagesPagingSource(buildGalleryImagesQuery(gid, PhotoSort.DEFAULT))
+            else graph.db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
         }.flow.cachedIn(viewModelScope)
 
     /**

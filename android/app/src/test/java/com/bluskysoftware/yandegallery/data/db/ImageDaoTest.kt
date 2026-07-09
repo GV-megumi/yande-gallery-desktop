@@ -2,6 +2,7 @@ package com.bluskysoftware.yandegallery.data.db
 
 import androidx.paging.PagingSource
 import androidx.test.core.app.ApplicationProvider
+import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -34,7 +35,7 @@ class ImageDaoTest {
             image(2, "2026-01-03T00:00:00.000Z"),
             image(3, "2026-01-03T00:00:00.000Z"),
         ))
-        val page = db.imageDao().timelinePagingSource()
+        val page = db.imageDao().timelinePagingSource(buildTimelineQuery(PhotoSort.DEFAULT))
             .load(PagingSource.LoadParams.Refresh(null, 10, false)) as PagingSource.LoadResult.Page
         assertEquals(listOf(3L, 2L, 1L), page.data.map { it.id })
     }

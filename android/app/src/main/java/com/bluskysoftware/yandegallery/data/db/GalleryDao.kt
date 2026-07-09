@@ -68,11 +68,7 @@ interface GalleryDao {
         insertAll(items)
     }
 
-    @Query(
-        """SELECT i.* FROM images i
-           JOIN gallery_images gi ON gi.imageId = i.id
-           WHERE gi.galleryId = :galleryId
-           ORDER BY i.createdAt DESC, i.id DESC"""
-    )
-    fun galleryImagesPagingSource(galleryId: Long): PagingSource<Int, ImageEntity>
+    /** 图集成员分页（v0.6 spec §5.1 排序变体化）：查询由 buildGalleryImagesQuery 构造。 */
+    @RawQuery(observedEntities = [ImageEntity::class, GalleryImageEntity::class])
+    fun galleryImagesPagingSource(query: androidx.sqlite.db.SupportSQLiteQuery): PagingSource<Int, ImageEntity>
 }
