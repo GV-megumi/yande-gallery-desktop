@@ -78,6 +78,13 @@ class AlbumsViewModel(
         viewModelScope.launch { graph.db.albumPrefsDao().setInOther(galleryId, inOther) }
     }
 
+    /** 拖拽落盘（spec §4.5）：两分区分别重编号 0..n（manualOrder 只在区内比较）+ 排序自动切手动。 */
+    suspend fun commitManualOrder(pinned: List<Long>, normal: List<Long>) {
+        graph.db.albumPrefsDao().applyManualOrder(pinned)
+        graph.db.albumPrefsDao().applyManualOrder(normal)
+        graph.viewPrefs.setAlbumsSort(AlbumSort.MANUAL)
+    }
+
     /** 新建图集：委托 WriteRepository（乐观镜像 → 服务端 → 失败不新增行）；Screen 据结果提示。 */
     suspend fun createGallery(name: String): WriteResult = writeRepository.createGallery(name)
 

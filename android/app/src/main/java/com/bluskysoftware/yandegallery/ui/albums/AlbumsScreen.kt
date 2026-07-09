@@ -1,7 +1,9 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -10,7 +12,9 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -28,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -40,12 +45,15 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.disabled
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavHostController
 import com.bluskysoftware.yandegallery.data.prefs.AlbumSort
@@ -58,6 +66,7 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
 import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
 import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
+import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
@@ -94,6 +103,11 @@ fun AlbumsScreen(
     var deleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var deleteName by rememberSaveable { mutableStateOf("") }
     var showOptions by rememberSaveable { mutableStateOf(false) }
+
+    // 重排模式（spec §4.5）：非 null 即进重排。remember 非 saveable——旋转丢弃进行中的重排
+    // （进行中改动本就未落盘，记录性取舍）；返回键等价「取消」。
+    var reorderState by remember { mutableStateOf<AlbumReorderState?>(null) }
+    BackHandler(enabled = reorderState != null) { reorderState = null }
 
     val baseUrl = activeServer?.baseUrl.orEmpty()
     val serverId = activeServer?.id ?: 0L
@@ -153,58 +167,108 @@ fun AlbumsScreen(
     }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize().nestedScroll(header.connection)) {
-            MiuiPinnedTopBar(title = "相册", scrolled = header.scrolled, actions = {
-                // 离线可点但给明确原因（原 FAB 语义平移）；置灰观感 + 无障碍 disabled
-                val tint = if (online) MaterialTheme.colorScheme.onSurface
-                else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
-                IconButton(
-                    onClick = {
-                        if (online) {
-                            newName = ""; showNew = true
-                        } else {
-                            scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+            val reorder = reorderState
+            if (reorder != null) {
+                ReorderTopBar(
+                    onCancel = { reorderState = null },
+                    onDone = {
+                        scope.launch {
+                            viewModel.commitManualOrder(reorder.pinnedOrder.toList(), reorder.normalOrder.toList())
+                            reorderState = null
                         }
                     },
-                    modifier = Modifier
-                        .semantics { if (!online) disabled() }
-                        .testTag("albums_new"),
-                ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
-                IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("albums_more")) {
-                    Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurface)
+                )
+                val cardById = remember(sections) {
+                    val s = sections
+                    (s?.pinned.orEmpty() + s?.normal.orEmpty() + s?.other.orEmpty()).associateBy { it.gallery.id }
                 }
-            })
-            MiuiLargeTitle("相册", header)
-            val current = sections
-            when {
-                // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
-                current == null -> Box(Modifier.fillMaxSize())
-                current.isEmpty -> AlbumsEmpty()
-                else -> LazyVerticalGrid(
+                val reorderGridState = rememberLazyGridState()
+                val controller = remember(reorder) {
+                    GridReorderController(
+                        gridState = reorderGridState,
+                        // 分区头的 key 是字符串（"hdr_*"）——必须先类型闸再比较分区，否则强转崩溃
+                        canSwap = { from, to ->
+                            from is Long && to is Long &&
+                                reorder.sectionOf(from) != null &&
+                                reorder.sectionOf(from) == reorder.sectionOf(to)
+                        },
+                        onMove = { from, to -> reorder.move(from as Long, to as Long) },
+                    )
+                }
+                LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 104.dp),
-                    state = gridState,
+                    state = reorderGridState,
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize().testTag("albums_grid"),
+                    modifier = Modifier.fillMaxSize().testTag("albums_reorder_grid"),
                 ) {
-                    if (current.pinned.isNotEmpty()) {
-                        item(key = "hdr_pinned", span = { GridItemSpan(maxLineSpan) }) {
-                            AlbumSectionHeader("置顶", Modifier.testTag("albums_section_pinned"))
-                        }
-                        items(current.pinned, key = { it.gallery.id }) { card ->
-                            OrganizableAlbumCard(card, pinned = true)
+                    if (reorder.pinnedOrder.isNotEmpty()) {
+                        item(key = "hdr_pinned", span = { GridItemSpan(maxLineSpan) }) { AlbumSectionHeader("置顶") }
+                        items(reorder.pinnedOrder, key = { it }) { id ->
+                            Box(Modifier.animateItem()) { ReorderCell(id, cardById, controller, baseUrl, serverId, loader) }
                         }
                     }
-                    item(key = "hdr_all", span = { GridItemSpan(maxLineSpan) }) {
-                        AlbumSectionHeader("全部相册", Modifier.testTag("albums_section_all"))
+                    item(key = "hdr_all", span = { GridItemSpan(maxLineSpan) }) { AlbumSectionHeader("全部相册") }
+                    items(reorder.normalOrder, key = { it }) { id ->
+                        Box(Modifier.animateItem()) { ReorderCell(id, cardById, controller, baseUrl, serverId, loader) }
                     }
-                    items(current.normal, key = { it.gallery.id }) { card ->
-                        OrganizableAlbumCard(card, pinned = false)
+                    // 其他相册折叠行在重排模式隐藏（spec §4.5）
+                }
+            } else {
+                MiuiPinnedTopBar(title = "相册", scrolled = header.scrolled, actions = {
+                    // 离线可点但给明确原因（原 FAB 语义平移）；置灰观感 + 无障碍 disabled
+                    val tint = if (online) MaterialTheme.colorScheme.onSurface
+                    else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+                    IconButton(
+                        onClick = {
+                            if (online) {
+                                newName = ""; showNew = true
+                            } else {
+                                scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                            }
+                        },
+                        modifier = Modifier
+                            .semantics { if (!online) disabled() }
+                            .testTag("albums_new"),
+                    ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
+                    IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("albums_more")) {
+                        Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    if (current.other.isNotEmpty()) {
-                        item(key = "other_row", span = { GridItemSpan(maxLineSpan) }) {
-                            OtherAlbumsRow(count = current.other.size) {
-                                navController.navigate(Routes.OtherAlbums)
+                })
+                MiuiLargeTitle("相册", header)
+                val current = sections
+                when {
+                    // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
+                    current == null -> Box(Modifier.fillMaxSize())
+                    current.isEmpty -> AlbumsEmpty()
+                    else -> LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 104.dp),
+                        state = gridState,
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxSize().testTag("albums_grid"),
+                    ) {
+                        if (current.pinned.isNotEmpty()) {
+                            item(key = "hdr_pinned", span = { GridItemSpan(maxLineSpan) }) {
+                                AlbumSectionHeader("置顶", Modifier.testTag("albums_section_pinned"))
+                            }
+                            items(current.pinned, key = { it.gallery.id }) { card ->
+                                OrganizableAlbumCard(card, pinned = true)
+                            }
+                        }
+                        item(key = "hdr_all", span = { GridItemSpan(maxLineSpan) }) {
+                            AlbumSectionHeader("全部相册", Modifier.testTag("albums_section_all"))
+                        }
+                        items(current.normal, key = { it.gallery.id }) { card ->
+                            OrganizableAlbumCard(card, pinned = false)
+                        }
+                        if (current.other.isNotEmpty()) {
+                            item(key = "other_row", span = { GridItemSpan(maxLineSpan) }) {
+                                OtherAlbumsRow(count = current.other.size) {
+                                    navController.navigate(Routes.OtherAlbums)
+                                }
                             }
                         }
                     }
@@ -287,6 +351,20 @@ fun AlbumsScreen(
             onDismiss = { showOptions = false },
             onManual = { viewModel.setAlbumsSort(AlbumSort.MANUAL); showOptions = false },
             onSortField = { field -> viewModel.setAlbumsSort(field.next(sort)); showOptions = false },
+            extraRows = {
+                MiuiSheetCard("整理") {
+                    MiuiSheetNavRow("拖拽排序", tag = "albums_reorder_enter") {
+                        showOptions = false
+                        val s = sections
+                        if (s != null && !s.isEmpty) {
+                            reorderState = AlbumReorderState(
+                                pinned = s.pinned.map { it.gallery.id },
+                                normal = s.normal.map { it.gallery.id },
+                            )
+                        }
+                    }
+                }
+            },
         )
     }
 }
@@ -322,6 +400,66 @@ private fun OtherAlbumsRow(count: Int, onClick: () -> Unit) {
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
         )
     }
+}
+
+/** 重排模式顶栏（spec §4.5）：取消 / 标题 / 完成。 */
+@Composable
+private fun ReorderTopBar(onCancel: () -> Unit, onDone: () -> Unit) {
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .statusBarsPadding()
+            .height(48.dp),
+    ) {
+        TextButton(onClick = onCancel, modifier = Modifier.align(Alignment.CenterStart).testTag("reorder_cancel")) {
+            Text("取消", color = MaterialTheme.colorScheme.onSurface)
+        }
+        Text("拖动调整顺序", style = MaterialTheme.typography.titleLarge, modifier = Modifier.align(Alignment.Center))
+        TextButton(onClick = onDone, modifier = Modifier.align(Alignment.CenterEnd).testTag("reorder_done")) {
+            Text("完成", color = MaterialTheme.colorScheme.primary)
+        }
+    }
+}
+
+/** 重排格子：长按拖动换位；拖动中置顶 zIndex + graphicsLayer 平移；菜单/点击禁用。 */
+@Composable
+private fun ReorderCell(
+    id: Long,
+    cardById: Map<Long, AlbumCard>,
+    controller: GridReorderController,
+    baseUrl: String,
+    serverId: Long,
+    loader: coil3.ImageLoader,
+) {
+    val card = cardById[id] ?: return
+    val dragging = controller.draggingKey == id
+    AlbumCardItem(
+        card = card,
+        baseUrl = baseUrl,
+        serverId = serverId,
+        loader = loader,
+        onClick = {},
+        enableMenu = false,
+        modifier = Modifier
+            .zIndex(if (dragging) 1f else 0f)
+            .graphicsLayer {
+                if (dragging) {
+                    translationX = controller.dragOffset.x
+                    translationY = controller.dragOffset.y
+                }
+            }
+            .pointerInput(id) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { controller.onDragStart(id) },
+                    onDrag = { change, delta ->
+                        change.consume()
+                        controller.onDrag(delta)
+                    },
+                    onDragEnd = { controller.onDragEnd() },
+                    onDragCancel = { controller.onDragEnd() },
+                )
+            },
+    )
 }
 
 /** 相册页「⋯」面板（spec §4.4）：排序方式（手动/名称/张数/创建时间）。 */
