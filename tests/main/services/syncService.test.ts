@@ -291,4 +291,19 @@ describe('syncService', () => {
       { id: 3, name: 'empty', coverImageId: null, imageCount: 0, createdAt: '2026-01-03T00:00:00.000Z' },
     ]);
   });
+
+  it('listSyncGalleries：显式封面被移出图集后回落兜底，不下发非成员封面（审查 major 回归）', async () => {
+    await run(h.db, 'DELETE FROM galleries');
+    // g1 显式封面 2 但成员只剩 3（2 已被移出，images 行仍在）；g2 显式封面 2 且已无任何成员
+    await run(h.db, `INSERT INTO galleries (id, name, coverImageId, imageCount, createdAt, updatedAt)
+      VALUES (1, 'stale-cover', 2, 1, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
+             (2, 'stale-empty', 2, 0, '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z')`);
+    await run(h.db, `INSERT INTO gallery_images (galleryId, imageId, addedAt)
+      VALUES (1, 3, '2026-01-01T00:00:00.000Z')`);
+    const rows = await listSyncGalleries();
+    expect(rows).toEqual([
+      { id: 1, name: 'stale-cover', coverImageId: 3, imageCount: 1, createdAt: '2026-01-01T00:00:00.000Z' },
+      { id: 2, name: 'stale-empty', coverImageId: null, imageCount: 0, createdAt: '2026-01-02T00:00:00.000Z' },
+    ]);
+  });
 });

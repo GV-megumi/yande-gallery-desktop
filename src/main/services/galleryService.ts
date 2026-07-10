@@ -42,6 +42,9 @@ export interface Gallery {
   createdAt: string;
   updatedAt: string;
   coverImage?: Image;  // 关联的封面图
+  // v0.6 后 coverImageId 是「有效封面」（显式 ?? 兜底），渲染层无法据它区分兜底；
+  // 「设为封面」置灰判断与自动补写门用本字段（galleries.coverImageId 原值）。
+  explicitCoverImageId?: number | null;
 }
 
 export interface CreateGalleryDto {
@@ -61,15 +64,19 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
 
     // 有效封面（v0.6 spec §6.2）：显式 coverImageId ?? 最近加入的一张（gallery_images.addedAt 倒序）。
     // 只发生在读侧，不回写 galleries.coverImageId；与 /sync/galleries 口径一致。
+    // 显式封面须仍是成员（成员化子查询）：封面图被移出图集后 galleries.coverImageId 残留
+    // 非成员值，直接 COALESCE 会持续下发跨图集封面（审查确认 major），成员化后自动回落兜底。
     const query = `
       SELECT
         g.*,
+        g.coverImageId as explicitCoverImageId,
         i.id as coverImageId,
         i.filename as coverFilename,
         i.filepath as coverFilepath
       FROM galleries g
       LEFT JOIN images i ON i.id = COALESCE(
-        g.coverImageId,
+        (SELECT gi.imageId FROM gallery_images gi
+         WHERE gi.galleryId = g.id AND gi.imageId = g.coverImageId),
         (SELECT gi.imageId FROM gallery_images gi
           JOIN images im ON im.id = gi.imageId
          WHERE gi.galleryId = g.id
@@ -84,6 +91,7 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
       id: row.id,
       name: row.name,
       coverImageId: row.coverImageId,
+      explicitCoverImageId: row.explicitCoverImageId ?? null,
       imageCount: row.imageCount,
       lastScannedAt: row.lastScannedAt,
       autoScan: Boolean(row.autoScan),
@@ -117,16 +125,18 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
   try {
     const db = await getDatabase();
 
-    // 有效封面（v0.6 spec §6.2）：与 getGalleries 同款 ON 表达式，口径一致
+    // 有效封面（v0.6 spec §6.2）：与 getGalleries 同款 ON 表达式（含成员化守卫），口径一致
     const query = `
       SELECT
         g.*,
+        g.coverImageId as explicitCoverImageId,
         i.id as coverImageId,
         i.filename as coverFilename,
         i.filepath as coverFilepath
       FROM galleries g
       LEFT JOIN images i ON i.id = COALESCE(
-        g.coverImageId,
+        (SELECT gi.imageId FROM gallery_images gi
+         WHERE gi.galleryId = g.id AND gi.imageId = g.coverImageId),
         (SELECT gi.imageId FROM gallery_images gi
           JOIN images im ON im.id = gi.imageId
          WHERE gi.galleryId = g.id
@@ -145,6 +155,7 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
       id: row.id,
       name: row.name,
       coverImageId: row.coverImageId,
+      explicitCoverImageId: row.explicitCoverImageId ?? null,
       imageCount: row.imageCount,
       lastScannedAt: row.lastScannedAt,
       autoScan: Boolean(row.autoScan),
@@ -1175,21 +1186,28 @@ export async function setGalleryCover(
       if (!image) {
         return { success: false, error: 'Cover image not found' };
       }
-      const member = await get<{ imageId: number }>(
-        db,
-        'SELECT imageId FROM gallery_images WHERE galleryId = ? AND imageId = ?',
-        [id, coverImageId]
-      );
-      if (!member) {
-        return { success: false, error: 'Cover image not in gallery' };
+      // 成员校验并入 UPDATE 单语句：分步「SELECT 校验→UPDATE」在并发移出成员时有
+      // 落盘非成员封面（或撞 coverImageId 外键报 500）的窗口，EXISTS 与 SET 同语句原子执行。
+      const { changes } = await runWithChanges(db, `
+        UPDATE galleries
+        SET coverImageId = ?, updatedAt = ?
+        WHERE id = ?
+          AND EXISTS (SELECT 1 FROM gallery_images WHERE galleryId = galleries.id AND imageId = ?)
+      `, [coverImageId, new Date().toISOString(), id, coverImageId]);
+      if (changes === 0) {
+        // 图集缺失维持既有「静默成功」语义（404 由路由预检提供），其余即成员校验失败
+        const gallery = await get<{ id: number }>(db, 'SELECT id FROM galleries WHERE id = ?', [id]);
+        if (gallery) {
+          return { success: false, error: 'Cover image not in gallery' };
+        }
       }
+    } else {
+      await run(db, `
+        UPDATE galleries
+        SET coverImageId = NULL, updatedAt = ?
+        WHERE id = ?
+      `, [new Date().toISOString(), id]);
     }
-
-    await run(db, `
-      UPDATE galleries
-      SET coverImageId = ?, updatedAt = ?
-      WHERE id = ?
-    `, [coverImageId, new Date().toISOString(), id]);
 
     emitGalleryGalleriesChanged({ galleryId: id, action: 'coverChanged', affectedCount: 1 });
 

@@ -872,8 +872,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             void autoScanGalleryOnEnter(galleryId, requestRunId);
           }
 
-          // 如果没有封面且有图片，自动设置第一张图为封面
-          if (!gallery.coverImageId && data.length > 0 && data[0].id) {
+          // 如果没有显式封面且有图片，自动设置第一张图为封面。
+          // 判显式而非有效封面：coverImageId 对非空图集恒有值（读侧兜底），据它判断此门永不触发
+          if (!gallery.explicitCoverImageId && data.length > 0 && data[0].id) {
             console.log('[GalleryPage] 图集无封面，自动设置第一张图片为封面');
             try {
               await window.electronAPI.gallery.setGalleryCover(galleryId, data[0].id);
@@ -936,7 +937,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           return {
             ...prev,
             coverImage: newCoverImage || prev.coverImage,
-            coverImageId: imageId
+            coverImageId: imageId,
+            explicitCoverImageId: imageId
           };
         });
 
@@ -947,7 +949,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
               return {
                 ...gallery,
                 coverImage: newCoverImage || gallery.coverImage,
-                coverImageId: imageId
+                coverImageId: imageId,
+                explicitCoverImageId: imageId
               };
             }
             return gallery;
@@ -963,7 +966,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                 return {
                   ...gallery,
                   coverImage: newCoverImage || gallery.coverImage,
-                  coverImageId: imageId
+                  coverImageId: imageId,
+                  explicitCoverImageId: imageId
                 };
               }
               return gallery;

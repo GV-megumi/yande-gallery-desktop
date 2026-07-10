@@ -102,4 +102,27 @@ describe('getGalleries/getGallery 有效封面（v0.6 spec §6.2）', () => {
     });
     expect(row.coverImageId).toBeNull();
   });
+
+  it('显式封面被移出图集后回落兜底；全员移出后为空（审查 major 回归）', async () => {
+    // g1 显式封面 10 的成员行删除（images 行仍在，模拟「移出图集」）→ 回落最近加入的成员 20
+    await run(h.db, 'DELETE FROM gallery_images WHERE galleryId = 1 AND imageId = 10');
+    const stale = await getGallery(1);
+    expect(stale.data?.coverImageId).toBe(20);
+    expect(stale.data?.coverImage?.filename).toBe('b.jpg');
+    // 剩余成员也移出 → 有效封面为空，不得下发残留的非成员 coverImageId
+    await run(h.db, 'DELETE FROM gallery_images WHERE galleryId = 1');
+    const empty = await getGallery(1);
+    expect(empty.data?.coverImageId ?? null).toBeNull();
+    expect(empty.data?.coverImage).toBeUndefined();
+  });
+
+  it('explicitCoverImageId 透出显式封面原值，供渲染层区分兜底（置灰/自动补写门）', async () => {
+    const result = await getGalleries();
+    const byId = new Map(result.data!.map((g) => [g.id, g]));
+    expect(byId.get(1)?.explicitCoverImageId).toBe(10);   // 显式
+    expect(byId.get(2)?.explicitCoverImageId).toBeNull(); // 兜底：有效封面 30 但显式为空
+    const single = await getGallery(2);
+    expect(single.data?.explicitCoverImageId).toBeNull();
+    expect(single.data?.coverImageId).toBe(30);
+  });
 });

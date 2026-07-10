@@ -201,10 +201,13 @@ export async function listSyncGalleries(): Promise<Array<{
   const db = await getDatabase();
   // 有效封面（v0.6 spec §6.2）：显式封面 ?? 最近加入的一张（gallery_images.addedAt 倒序）；
   // 只发生在读侧，不回写。createdAt 供安卓相册「创建时间」排序（spec §6.3）。
+  // 显式封面须仍是成员（与 galleryService.getGalleries 同款成员化守卫）：封面图被移出
+  // 图集后残留的非成员 coverImageId 不得下发，否则安卓端持续显示跨图集封面且无法自愈。
   return all(db, `
     SELECT g.id, g.name,
            COALESCE(
-             g.coverImageId,
+             (SELECT gi.imageId FROM gallery_images gi
+              WHERE gi.galleryId = g.id AND gi.imageId = g.coverImageId),
              (SELECT gi.imageId FROM gallery_images gi
                JOIN images im ON im.id = gi.imageId
               WHERE gi.galleryId = g.id

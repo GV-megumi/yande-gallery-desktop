@@ -127,9 +127,10 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
         }
       }},
     ];
-    // 图集模式下添加「设为封面」
+    // 图集模式下添加「设为封面」——按显式封面判定：coverImageId 是「有效封面」（无显式时
+    // 兜底最近加入），若据它置灰会让用户无法把兜底图固定为显式封面（封面随新图漂移）
     if (onSetCover && currentGallery) {
-      const isCurrent = currentGallery.coverImageId === image.id;
+      const isCurrent = currentGallery.explicitCoverImageId === image.id;
       items.push(
         { type: 'divider' },
         { key: 'setCover', label: isCurrent ? '当前封面' : '设为封面', icon: <PicOutlined />, disabled: isCurrent, onClick: () => {
@@ -808,7 +809,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
             {onSetCover && currentGallery && (
               <div style={{ marginTop: spacing.lg, textAlign: 'right' }}>
                 <Button
-                  type={currentGallery.coverImageId === selectedImage.id ? 'primary' : 'default'}
+                  type={currentGallery.explicitCoverImageId === selectedImage.id ? 'primary' : 'default'}
                   onClick={() => {
                     if (onSetCover && selectedImage.id) {
                       console.log(`[ImageGrid] 设置封面请求: 图片ID ${selectedImage.id}`);
@@ -817,7 +818,7 @@ export const ImageGrid: React.FC<ImageGridProps> = React.memo(({
                     }
                   }}
                 >
-                  {currentGallery.coverImageId === selectedImage.id ? '当前封面' : '设为封面'}
+                  {currentGallery.explicitCoverImageId === selectedImage.id ? '当前封面' : '设为封面'}
                 </Button>
               </div>
             )}
