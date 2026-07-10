@@ -65,7 +65,7 @@ describe('sync API routes', () => {
 
   it('meta 委托 getSyncMeta 并写出 success envelope（handler 返回 undefined）', async () => {
     mockGetSyncMeta.mockResolvedValue({ serverId: 'srv-1', dataVersion: 3, imageCount: 4, latestCursor: 'cur' });
-    const route = findRoute('/api/v1/sync/meta');
+    const route = findRoute('/api/app/v1/sync/meta');
     const ctx = context();
 
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -76,7 +76,7 @@ describe('sync API routes', () => {
 
   it('galleries 委托 listSyncGalleries，载荷包在 items 下', async () => {
     mockListSyncGalleries.mockResolvedValue([{ id: 1, name: 'g1', coverImageId: null, imageCount: 0 }]);
-    const route = findRoute('/api/v1/sync/galleries');
+    const route = findRoute('/api/app/v1/sync/galleries');
     const ctx = context();
 
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -89,7 +89,7 @@ describe('sync API routes', () => {
 
   it('tags 委托 listSyncTags，载荷包在 items 下', async () => {
     mockListSyncTags.mockResolvedValue([{ id: 1, name: 't1', category: null }]);
-    const route = findRoute('/api/v1/sync/tags');
+    const route = findRoute('/api/app/v1/sync/tags');
     const ctx = context();
 
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -100,7 +100,7 @@ describe('sync API routes', () => {
 
   it('image-ids 委托 listSyncImageIds，响应 { ids }', async () => {
     mockListSyncImageIds.mockResolvedValue([1, 2, 3, 4]);
-    const route = findRoute('/api/v1/sync/image-ids');
+    const route = findRoute('/api/app/v1/sync/image-ids');
     const ctx = context();
 
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -111,7 +111,7 @@ describe('sync API routes', () => {
 
   it('images 缺 cursor 时传 null，默认 limit 2000', async () => {
     mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await expect(route.handler(context())).resolves.toBeUndefined();
 
@@ -122,7 +122,7 @@ describe('sync API routes', () => {
   it('images 合法 cursor 解码后传给 listSyncImages（携带自定义 limit）', async () => {
     mockDecodeSyncCursor.mockReturnValue({ s: 7 });
     mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await route.handler(context({ query: new URLSearchParams([['cursor', 'abc'], ['limit', '10']]) }));
 
@@ -136,7 +136,7 @@ describe('sync API routes', () => {
   it('images 旧形状 {u,i} 游标 → 200 非 422（decode 容忍换轨，plumbing 层不感知形状）', async () => {
     mockDecodeSyncCursor.mockReturnValue({ u: '2024-01-02T00:00:00.000Z', i: 3 });
     mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
     const ctx = context({ query: new URLSearchParams([['cursor', 'legacy']]) });
 
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -147,7 +147,7 @@ describe('sync API routes', () => {
 
   it('images 非法 cursor 抛 422，不触达 listSyncImages', async () => {
     mockDecodeSyncCursor.mockReturnValue(null);
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await expect(route.handler(context({ query: new URLSearchParams([['cursor', 'bad']]) }))).rejects.toMatchObject({
       name: 'ApiHttpError',
@@ -159,7 +159,7 @@ describe('sync API routes', () => {
 
   it('images limit 超 5000 被钳制为 5000', async () => {
     mockListSyncImages.mockResolvedValue({ items: [], nextCursor: null, hasMore: false });
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await route.handler(context({ query: new URLSearchParams([['limit', '999999']]) }));
 
@@ -170,7 +170,7 @@ describe('sync API routes', () => {
   // 绝不放行到 listSyncImages——否则 LIMIT limit+1 为非正数时 SQLite 视为无界，可全表返回。
   // （syncRoutes 另有 Math.max(1, ...) 本地兜底，双保险。）
   it('images limit=-2 抛 422，listSyncImages 绝不收到非正 limit', async () => {
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await expect(route.handler(context({ query: new URLSearchParams([['limit', '-2']]) }))).rejects.toMatchObject({
       name: 'ApiHttpError',
@@ -181,7 +181,7 @@ describe('sync API routes', () => {
   });
 
   it('images limit=0 抛 422，listSyncImages 绝不收到非正 limit', async () => {
-    const route = findRoute('/api/v1/sync/images');
+    const route = findRoute('/api/app/v1/sync/images');
 
     await expect(route.handler(context({ query: new URLSearchParams([['limit', '0']]) }))).rejects.toMatchObject({
       name: 'ApiHttpError',

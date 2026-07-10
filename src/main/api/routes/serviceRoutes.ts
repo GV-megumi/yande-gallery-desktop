@@ -8,6 +8,7 @@ function sanitizeStatus(status: ApiServiceStatus): ApiServiceStatus {
   return {
     running: status.running,
     enabled: status.enabled,
+    appEnabled: status.appEnabled,
     mode: status.mode,
     port: status.port,
     bindAddress: status.bindAddress,

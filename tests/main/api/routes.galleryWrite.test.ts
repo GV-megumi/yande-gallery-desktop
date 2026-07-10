@@ -117,7 +117,7 @@ describe('gallery write API routes', () => {
     it('预检后删除', async () => {
       mockGetImageById.mockResolvedValue({ success: true, data: image({ id: 5 }) });
       mockDeleteImage.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/images/:imageId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' } }))).resolves.toEqual({ removed: true });
 
@@ -127,7 +127,7 @@ describe('gallery write API routes', () => {
 
     it('不存在 → 404 且不调 deleteImage', async () => {
       mockGetImageById.mockResolvedValue({ success: false, error: 'Image not found' });
-      const route = findRoute(routes, '/api/v1/images/:imageId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
@@ -137,14 +137,14 @@ describe('gallery write API routes', () => {
     it('deleteImage 失败 → 500', async () => {
       mockGetImageById.mockResolvedValue({ success: true, data: image({ id: 5 }) });
       mockDeleteImage.mockResolvedValue({ success: false, error: 'disk error' });
-      const route = findRoute(routes, '/api/v1/images/:imageId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
     });
 
     it('非法 imageId → 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/:imageId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: 'abc' } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -161,7 +161,7 @@ describe('gallery write API routes', () => {
       mockDeleteImage
         .mockResolvedValueOnce({ success: true })
         .mockResolvedValueOnce({ success: false, error: 'disk error' });
-      const route = findRoute(routes, '/api/v1/images/batch-delete', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/batch-delete', 'POST');
 
       await expect(route.handler(context({ body: { imageIds: [1, 2, 3] } }))).resolves.toEqual({
         results: [
@@ -176,7 +176,7 @@ describe('gallery write API routes', () => {
     });
 
     it('空数组 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/batch-delete', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/batch-delete', 'POST');
 
       await expect(route.handler(context({ body: { imageIds: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -184,7 +184,7 @@ describe('gallery write API routes', () => {
     });
 
     it('非法元素（非整数/非正数）→ 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/batch-delete', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/batch-delete', 'POST');
 
       await expect(route.handler(context({ body: { imageIds: [1, 'two'] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -198,7 +198,7 @@ describe('gallery write API routes', () => {
     });
 
     it('缺失 imageIds 字段 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/batch-delete', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/batch-delete', 'POST');
 
       await expect(route.handler(context({ body: {} })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -208,7 +208,7 @@ describe('gallery write API routes', () => {
   describe('POST /images/:imageId/tags', () => {
     it('委托 addImageTags', async () => {
       mockAddImageTags.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'POST');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: ['cat', 'cute'] } })))
         .resolves.toEqual({ updated: true });
@@ -217,7 +217,7 @@ describe('gallery write API routes', () => {
 
     it('missing → 404', async () => {
       mockAddImageTags.mockResolvedValue({ success: false, missing: true, error: 'Image not found' });
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'POST');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: ['cat'] } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
@@ -225,14 +225,14 @@ describe('gallery write API routes', () => {
 
     it('service 失败（非 missing）→ 500', async () => {
       mockAddImageTags.mockResolvedValue({ success: false, error: 'db error' });
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'POST');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: ['cat'] } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
     });
 
     it('names 非法（空数组/非字符串/空白串）→ 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'POST');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'POST');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -247,7 +247,7 @@ describe('gallery write API routes', () => {
   describe('DELETE /images/:imageId/tags', () => {
     it('委托 removeImageTags', async () => {
       mockRemoveImageTags.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: ['cat'] } })))
         .resolves.toEqual({ updated: true });
@@ -256,14 +256,14 @@ describe('gallery write API routes', () => {
 
     it('missing → 404', async () => {
       mockRemoveImageTags.mockResolvedValue({ success: false, missing: true, error: 'Image not found' });
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: ['cat'] } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     });
 
     it('names 非法 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/images/:imageId/tags', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/images/:imageId/tags', 'DELETE');
 
       await expect(route.handler(context({ params: { imageId: '5' }, body: { names: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -274,14 +274,14 @@ describe('gallery write API routes', () => {
   describe('POST /galleries', () => {
     it('建空图集', async () => {
       mockCreateEmptyGallery.mockResolvedValue({ success: true, data: 7 });
-      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries', 'POST');
 
       await expect(route.handler(context({ body: { name: '新图集' } }))).resolves.toEqual({ id: 7 });
       expect(mockCreateEmptyGallery).toHaveBeenCalledWith('新图集');
     });
 
     it('空名/纯空白 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries', 'POST');
 
       await expect(route.handler(context({ body: { name: '  ' } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -292,7 +292,7 @@ describe('gallery write API routes', () => {
 
     it('service 失败 → 500', async () => {
       mockCreateEmptyGallery.mockResolvedValue({ success: false, error: 'db error' });
-      const route = findRoute(routes, '/api/v1/galleries', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries', 'POST');
 
       await expect(route.handler(context({ body: { name: '新图集' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
@@ -303,7 +303,7 @@ describe('gallery write API routes', () => {
     it('预检后重命名', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery({ id: 3 }) });
       mockUpdateGallery.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
         .resolves.toEqual({ updated: true });
@@ -313,7 +313,7 @@ describe('gallery write API routes', () => {
 
     it('缺失 → 404 且不调 updateGallery', async () => {
       mockGetGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
@@ -321,7 +321,7 @@ describe('gallery write API routes', () => {
     });
 
     it('name 非法（空/纯空白）→ 422，且不预检', async () => {
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '   ' } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -331,7 +331,7 @@ describe('gallery write API routes', () => {
     it('updateGallery 失败 → 500', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery({ id: 3 }) });
       mockUpdateGallery.mockResolvedValue({ success: false, error: 'db error' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { name: '改名' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
@@ -342,7 +342,7 @@ describe('gallery write API routes', () => {
     it('仅 name：行为不变', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
       mockUpdateGallery.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { name: ' 新名 ' } })))
         .resolves.toEqual({ updated: true });
       expect(mockUpdateGallery).toHaveBeenCalledWith(7, { name: '新名' });
@@ -352,7 +352,7 @@ describe('gallery write API routes', () => {
     it('仅 coverImageId：委托 setGalleryCover，不调 updateGallery', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
       mockSetGalleryCover.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 10 } })))
         .resolves.toEqual({ updated: true });
       expect(mockSetGalleryCover).toHaveBeenCalledWith(7, 10);
@@ -363,7 +363,7 @@ describe('gallery write API routes', () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
       mockUpdateGallery.mockResolvedValue({ success: true });
       mockSetGalleryCover.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { name: 'n', coverImageId: 10 } })))
         .resolves.toEqual({ updated: true });
       expect(mockUpdateGallery).toHaveBeenCalledWith(7, { name: 'n' });
@@ -373,20 +373,20 @@ describe('gallery write API routes', () => {
     it('coverImageId: null → 清除封面', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
       mockSetGalleryCover.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: null } })))
         .resolves.toEqual({ updated: true });
       expect(mockSetGalleryCover).toHaveBeenCalledWith(7, null);
     });
 
     it('两者都缺 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: {} })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
     });
 
     it('coverImageId 非法（0/负数/小数/字符串）→ 422', async () => {
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       for (const bad of [0, -1, 1.5, 'x']) {
         await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: bad } })))
           .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -396,14 +396,14 @@ describe('gallery write API routes', () => {
     it('setGalleryCover 校验失败（非成员/不存在）→ 422', async () => {
       mockGetGallery.mockResolvedValue({ success: true, data: gallery() });
       mockSetGalleryCover.mockResolvedValue({ success: false, error: 'Cover image not in gallery' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 20 } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
     });
 
     it('图集不存在 → 404（预检语义不变）', async () => {
       mockGetGallery.mockResolvedValue({ success: false, error: 'not found' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'PATCH');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 10 } })))
         .rejects.toMatchObject({ statusCode: 404 });
     });
@@ -412,7 +412,7 @@ describe('gallery write API routes', () => {
   describe('DELETE /galleries/:galleryId', () => {
     it('Gallery not found → 404', async () => {
       mockDeleteGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '9' } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
@@ -420,7 +420,7 @@ describe('gallery write API routes', () => {
 
     it('成功 → { removed: true }', async () => {
       mockDeleteGallery.mockResolvedValue({ success: true });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '9' } }))).resolves.toEqual({ removed: true });
       expect(mockDeleteGallery).toHaveBeenCalledWith(9);
@@ -428,7 +428,7 @@ describe('gallery write API routes', () => {
 
     it('其他 service 失败 → 500', async () => {
       mockDeleteGallery.mockResolvedValue({ success: false, error: 'disk error' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '9' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
@@ -438,7 +438,7 @@ describe('gallery write API routes', () => {
   describe('POST /galleries/:galleryId/images', () => {
     it('委托 addImagesToGallery', async () => {
       mockAddImagesToGallery.mockResolvedValue({ success: true, data: { added: 2, missingImageIds: [] } });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'POST');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1, 2] } })))
         .resolves.toEqual({ added: 2, missingImageIds: [] });
@@ -447,14 +447,14 @@ describe('gallery write API routes', () => {
 
     it('Gallery not found → 404', async () => {
       mockAddImagesToGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'POST');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     });
 
     it('imageIds 非法 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'POST');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
@@ -465,7 +465,7 @@ describe('gallery write API routes', () => {
 
     it('其他 service 失败 → 500', async () => {
       mockAddImagesToGallery.mockResolvedValue({ success: false, error: 'db error' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'POST');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'POST');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
@@ -475,7 +475,7 @@ describe('gallery write API routes', () => {
   describe('DELETE /galleries/:galleryId/images', () => {
     it('委托 removeImagesFromGallery', async () => {
       mockRemoveImagesFromGallery.mockResolvedValue({ success: true, data: { removed: 2 } });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1, 2] } })))
         .resolves.toEqual({ removed: 2 });
@@ -484,14 +484,14 @@ describe('gallery write API routes', () => {
 
     it('Gallery not found → 404', async () => {
       mockRemoveImagesFromGallery.mockResolvedValue({ success: false, error: 'Gallery not found' });
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [1] } })))
         .rejects.toMatchObject({ statusCode: 404, code: 'NOT_FOUND' });
     });
 
     it('imageIds 非法 → 422', async () => {
-      const route = findRoute(routes, '/api/v1/galleries/:galleryId/images', 'DELETE');
+      const route = findRoute(routes, '/api/app/v1/galleries/:galleryId/images', 'DELETE');
 
       await expect(route.handler(context({ params: { galleryId: '3' }, body: { imageIds: [] } })))
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });

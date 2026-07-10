@@ -5,11 +5,12 @@ import { getApiServiceConfig, saveConfig } from '../services/config.js';
 import { apiEventHub } from './events/eventHub.js';
 import { createApiLogRoutes } from './routes/apiLogRoutes.js';
 import { createBooruRoutes } from './routes/booruRoutes.js';
-import { createEventRoutes } from './routes/eventRoutes.js';
-import { createGalleryRoutes } from './routes/galleryRoutes.js';
+import { createAppEventRoutes, createEventRoutes } from './routes/eventRoutes.js';
+import { createGalleryRoutes, createImageBinaryRoutes } from './routes/galleryRoutes.js';
 import { createGalleryWriteRoutes } from './routes/galleryWriteRoutes.js';
 import { createServiceRoutes } from './routes/serviceRoutes.js';
 import { createSyncRoutes } from './routes/syncRoutes.js';
+import { remapToAppNamespace } from './appNamespace.js';
 import { generateApiKey } from './security.js';
 import { createApiHttpServer } from './server.js';
 import { emitApiServiceStatusChanged } from '../services/appEventPublisher.js';
@@ -45,14 +46,23 @@ function getBindAddress(mode: 'localhost' | 'lan'): string {
 }
 
 function createRoutes() {
+  const serviceRoutes = createServiceRoutes({ getStatus: getApiServiceStatus });
+  const imageBinaryRoutes = createImageBinaryRoutes();
+
   return [
-    ...createServiceRoutes({ getStatus: getApiServiceStatus }),
+    // Agent 面 /api/v1/*：设计文档 11 键细化权限（spec §3.2）
+    ...serviceRoutes,
     ...createGalleryRoutes(),
-    ...createGalleryWriteRoutes(),
+    ...imageBinaryRoutes,
     ...createBooruRoutes(),
     ...createApiLogRoutes(),
     ...createEventRoutes(apiEventHub),
+    // 手机面 /api/app/v1/*：「允许手机端连接」一门制（spec §3.1）
+    ...remapToAppNamespace(serviceRoutes),
+    ...remapToAppNamespace(imageBinaryRoutes),
     ...createSyncRoutes(),
+    ...createGalleryWriteRoutes(),
+    ...createAppEventRoutes(apiEventHub),
   ];
 }
 

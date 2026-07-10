@@ -24,3 +24,17 @@ export function createEventRoutes(eventHub: Pick<ApiEventHub, 'subscribe'>): Api
     },
   ];
 }
+
+/** 手机面只挂 system 单频道（最小暴露面，spec §3.1）；agent 面保留全频道参数路由。 */
+export function createAppEventRoutes(eventHub: Pick<ApiEventHub, 'subscribe'>): ApiRoute[] {
+  return [
+    {
+      method: 'GET',
+      pattern: '/api/app/v1/events/system',
+      handler: (context) => {
+        eventHub.subscribe('system', context.req, context.res);
+        return undefined;
+      },
+    },
+  ];
+}

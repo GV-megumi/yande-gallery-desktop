@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fingerprintApiKey } from '../../../src/main/api/security.js';
 import { ApiHttpError, type ApiRequestContext, type ApiRoute } from '../../../src/main/api/types.js';
-import { createGalleryRoutes } from '../../../src/main/api/routes/galleryRoutes.js';
+import { createGalleryRoutes, createImageBinaryRoutes } from '../../../src/main/api/routes/galleryRoutes.js';
 import { createServiceRoutes } from '../../../src/main/api/routes/serviceRoutes.js';
 import { getApiServiceConfig } from '../../../src/main/services/config.js';
 import { getGalleries, getGallery } from '../../../src/main/services/galleryService.js';
@@ -302,7 +302,7 @@ describe('gallery and image API routes', () => {
     mockGenerateThumbnail.mockResolvedValue({ success: true, data: 'M:/thumbs/source.webp' });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
     const ctx = context({ params: { imageId: '66' }, res });
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -324,7 +324,7 @@ describe('gallery and image API routes', () => {
     mockGenerateThumbnail.mockResolvedValue({ success: true, data: 'M:/thumbs/source.gif' });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
     const ctx = context({ params: { imageId: '67' }, res });
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -339,7 +339,7 @@ describe('gallery and image API routes', () => {
     mockGenerateThumbnail.mockResolvedValue({ success: true, data: 'M:/thumbs/source.jpg' });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
     await expect(route.handler(context({ params: { imageId: '68' }, res }))).resolves.toBeUndefined();
 
@@ -353,7 +353,7 @@ describe('gallery and image API routes', () => {
     mockGeneratePreview.mockResolvedValue({ success: true, data: 'M:/previews/source.webp' });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn(), removeHeader: vi.fn() } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/preview');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/preview');
 
     await expect(route.handler(context({ params: { imageId: '66' }, res }))).resolves.toBeUndefined();
 
@@ -364,7 +364,7 @@ describe('gallery and image API routes', () => {
 
   it('preview 路由对不存在的图片返回 404', async () => {
     mockGetImageById.mockResolvedValue({ success: false, error: 'Image not found' });
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/preview');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/preview');
     await expect(route.handler(context({ params: { imageId: '9' } })))
       .rejects.toMatchObject({ name: 'ApiHttpError', statusCode: 404 });
   });
@@ -375,7 +375,7 @@ describe('gallery and image API routes', () => {
     mockGetImageById.mockResolvedValue({ success: true, data: expectedImage });
     mockCreateReadStream.mockReturnValue(stream as ReturnType<typeof createReadStream>);
     const res = { setHeader: vi.fn() } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/file');
 
     const ctx = context({ params: { imageId: '77' }, res });
     await expect(route.handler(ctx)).resolves.toBeUndefined();
@@ -395,7 +395,7 @@ describe('gallery and image API routes', () => {
     mockPipeline.mockReturnValue(new Promise<void>((resolve) => {
       finishPipeline = resolve;
     }) as ReturnType<typeof pipeline>);
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/file');
 
     const resultPromise = route.handler(context({ params: { imageId: '78' } }));
     Promise.resolve(resultPromise).then(() => {
@@ -440,7 +440,7 @@ describe('gallery and image API routes', () => {
       missing: true,
       error: 'source missing M:/secret/file.jpg',
     });
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/thumbnail');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/thumbnail');
 
     await expect(route.handler(context({ params: { imageId: '88' } }))).rejects.toMatchObject({
       name: 'ApiHttpError',
@@ -458,7 +458,7 @@ describe('gallery and image API routes', () => {
     mockCreateReadStream.mockImplementation(() => {
       throw Object.assign(new Error('ENOENT M:/secret/original.png'), { code: 'ENOENT' });
     });
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/file');
 
     await expect(route.handler(context({ params: { imageId: '89' } }))).rejects.toMatchObject({
       name: 'ApiHttpError',
@@ -475,7 +475,7 @@ describe('gallery and image API routes', () => {
     mockGetImageById.mockResolvedValue({ success: true, data: image({ filepath: 'M:/secret/broken.png' }) });
     mockCreateReadStream.mockReturnValue({} as ReturnType<typeof createReadStream>);
     mockPipeline.mockRejectedValue(new Error('stream failed M:/secret/broken.png'));
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/file');
 
     await expect(route.handler(context({ params: { imageId: '90' } }))).rejects.toMatchObject({
       name: 'ApiHttpError',
@@ -501,7 +501,7 @@ describe('gallery and image API routes', () => {
       destroyed: false,
       destroy,
     } as unknown as ApiRequestContext['res'];
-    const route = findRoute(createGalleryRoutes(), '/api/v1/images/:imageId/file');
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/file');
 
     await expect(route.handler(context({ params: { imageId: '91' }, res }))).resolves.toBeUndefined();
 

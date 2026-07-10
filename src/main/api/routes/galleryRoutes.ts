@@ -102,6 +102,12 @@ export function createGalleryRoutes(): ApiRoute[] {
         return unwrapServiceResult(await getImageById(imageId), 'Failed to load image');
       },
     },
+  ];
+}
+
+/** 图片二进制三端点：agent 面（imageBinary 权限）与手机面（remap 共享 handler）都挂（spec §3.1）。 */
+export function createImageBinaryRoutes(): ApiRoute[] {
+  return [
     {
       method: 'GET',
       pattern: '/api/v1/images/:imageId/thumbnail',

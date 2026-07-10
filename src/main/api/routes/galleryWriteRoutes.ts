@@ -59,7 +59,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
   return [
     {
       method: 'DELETE',
-      pattern: '/api/v1/images/:imageId',
+      pattern: '/api/app/v1/images/:imageId',
       handler: async (context) => {
         const imageId = numberParam(context.params.imageId, 'imageId');
         // deleteImage 对缺失 id 静默成功，404 语义由预检提供（spec §5.4）
@@ -73,7 +73,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'POST',
-      pattern: '/api/v1/images/batch-delete',
+      pattern: '/api/app/v1/images/batch-delete',
       handler: async (context) => {
         const body = await jsonObject(context);
         const imageIds = idArrayField(body, 'imageIds');
@@ -94,7 +94,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'POST',
-      pattern: '/api/v1/images/:imageId/tags',
+      pattern: '/api/app/v1/images/:imageId/tags',
       handler: async (context) => {
         const imageId = numberParam(context.params.imageId, 'imageId');
         const names = stringArrayField(await jsonObject(context), 'names');
@@ -110,7 +110,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'DELETE',
-      pattern: '/api/v1/images/:imageId/tags',
+      pattern: '/api/app/v1/images/:imageId/tags',
       handler: async (context) => {
         const imageId = numberParam(context.params.imageId, 'imageId');
         const names = stringArrayField(await jsonObject(context), 'names');
@@ -126,7 +126,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'POST',
-      pattern: '/api/v1/galleries',
+      pattern: '/api/app/v1/galleries',
       handler: async (context) => {
         const body = await jsonObject(context);
         const name = typeof body.name === 'string' ? body.name.trim() : '';
@@ -142,7 +142,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'PATCH',
-      pattern: '/api/v1/galleries/:galleryId',
+      pattern: '/api/app/v1/galleries/:galleryId',
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const body = await jsonObject(context);
@@ -195,7 +195,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'DELETE',
-      pattern: '/api/v1/galleries/:galleryId',
+      pattern: '/api/app/v1/galleries/:galleryId',
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const result = await deleteGallery(galleryId);
@@ -210,7 +210,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'POST',
-      pattern: '/api/v1/galleries/:galleryId/images',
+      pattern: '/api/app/v1/galleries/:galleryId/images',
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const imageIds = idArrayField(await jsonObject(context), 'imageIds');
@@ -226,7 +226,7 @@ export function createGalleryWriteRoutes(): ApiRoute[] {
     },
     {
       method: 'DELETE',
-      pattern: '/api/v1/galleries/:galleryId/images',
+      pattern: '/api/app/v1/galleries/:galleryId/images',
       handler: async (context) => {
         const galleryId = numberParam(context.params.galleryId, 'galleryId');
         const imageIds = idArrayField(await jsonObject(context), 'imageIds');

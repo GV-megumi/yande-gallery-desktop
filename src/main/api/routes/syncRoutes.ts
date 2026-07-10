@@ -15,7 +15,8 @@ const DEFAULT_LIMIT = 2000;
 const MAX_LIMIT = 5000;
 
 /**
- * 移动端元数据同步的五路由（安卓相册 spec §5.3），权限均 galleryRead。
+ * 移动端元数据同步的五路由（安卓相册 spec §5.3），挂手机面 /api/app/v1，
+ * 整面受『允许手机端连接』一门制（spec §3.1），无细化权限。
  * 全部经 sendSuccessMaybeGzip 自写响应（按 Accept-Encoding 异步协商 gzip），handler await
  * 后返回 undefined，避免 server 再包一层 sendSuccess。
  */
@@ -23,7 +24,7 @@ export function createSyncRoutes(): ApiRoute[] {
   return [
     {
       method: 'GET',
-      pattern: '/api/v1/sync/meta',
+      pattern: '/api/app/v1/sync/meta',
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, await getSyncMeta());
         return undefined;
@@ -31,7 +32,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/v1/sync/images',
+      pattern: '/api/app/v1/sync/images',
       handler: async (context) => {
         const rawCursor = context.query.get('cursor');
         let cursor = null;
@@ -51,7 +52,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/v1/sync/galleries',
+      pattern: '/api/app/v1/sync/galleries',
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncGalleries() });
         return undefined;
@@ -59,7 +60,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/v1/sync/tags',
+      pattern: '/api/app/v1/sync/tags',
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncTags() });
         return undefined;
@@ -67,7 +68,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/v1/sync/image-ids',
+      pattern: '/api/app/v1/sync/image-ids',
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { ids: await listSyncImageIds() });
         return undefined;
