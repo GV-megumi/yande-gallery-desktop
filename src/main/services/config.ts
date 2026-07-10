@@ -1350,7 +1350,7 @@ export async function saveConfig(newConfig: ConfigSaveInput, configPath?: string
 }
 
 /**
- * 懒生成并持久化同步 serverId（GET /api/v1/sync/meta 用，spec §5.3）。
+ * 懒生成并持久化同步 serverId（GET /api/app/v1/sync/meta 用，手机面，spec §5.3）。
  * 首次为空时生成 UUID 并 saveConfig；持久化失败抛错。二次调用返回既有值。
  */
 export async function ensureSyncServerId(): Promise<string> {

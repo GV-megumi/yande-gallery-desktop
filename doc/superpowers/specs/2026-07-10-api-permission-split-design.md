@@ -44,9 +44,11 @@
 
 ## 4. 请求流水线
 
-IP 私网白名单、Bearer 鉴权保持不变（两面共享，先于分流执行）。之后按路径前缀分流：
+IP 私网白名单、Bearer 鉴权保持不变（两面共享，先于分流执行）；随后是**路由匹配**——请求路径未命中
+任何已挂载路由时直接 `404`，与两面开关状态无关（match-first）；路由匹配命中后，才按路径前缀分流查
+各自的面门：
 
-- `/api/app/v1/*` → 查 `app.enabled`：关 → `403 PERMISSION_DENIED`（message 注明手机端连接未开启；安卓已有该错误码处理路径）；开 → 匹配 app 路由表直达 handler，**不查细化权限**。
+- `/api/app/v1/*` → 查 `app.enabled`：关 → `403 PERMISSION_DENIED`（message 注明手机端连接未开启；安卓已有该错误码处理路径）；开 → 匹配 app 路由表直达 handler，**不查细化权限**。未挂载路径无论开关状态恒 `404`（路由匹配先于面门）。
 - `/api/v1/*` → 查 `enabled`（agent 门，服务器可能因手机开关而运行）：关 → `403 PERMISSION_DENIED`；开 → 现有 `resolvePermissionForRequest` + 细化权限逻辑不变。
 
 API 日志：手机面请求 `permissionKey` 记 `null`，路径前缀 `/api/app/` 自解释消费者身份，无日志 schema 改动。
