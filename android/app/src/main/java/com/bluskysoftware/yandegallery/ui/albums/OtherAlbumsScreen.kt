@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -104,7 +105,11 @@ fun OtherAlbumsScreen(
                 }
             }
         }
-        SnackbarHost(snackbarHostState, Modifier.align(Alignment.BottomCenter).padding(bottom = 8.dp))
+        // navigationBarsPadding：本路由无底栏、内容延伸到屏幕底缘，不加会被三键导航栏遮住（同 PhotosScreen）
+        SnackbarHost(
+            snackbarHostState,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 8.dp),
+        )
     }
 
     renameId?.let { id ->

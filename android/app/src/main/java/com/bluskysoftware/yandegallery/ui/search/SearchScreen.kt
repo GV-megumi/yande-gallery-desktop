@@ -79,6 +79,7 @@ fun SearchScreen(
     val query by viewModel.query.collectAsStateWithLifecycle()
     val history by viewModel.history.collectAsStateWithLifecycle(initialValue = emptyList())
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
+    val activeServerResolved by viewModel.activeServerResolved.collectAsStateWithLifecycle()
     val items = viewModel.pagingFlow.collectAsLazyPagingItems()
 
     val keyboard = LocalSoftwareKeyboardController.current
@@ -131,6 +132,9 @@ fun SearchScreen(
                     onPick = { viewModel.onQueryChange(it) },
                     onClear = viewModel::clearHistory,
                 )
+                // 三态门（照片页 A7 同款，审查 minor）：activeServer 初值 null，DB 首发射未到时
+                // 不能当「无服务器」——标签跳入（query 预填非空）会闪现错误引导文案再跳成结果
+                !activeServerResolved -> Box(Modifier.fillMaxSize())
                 // 无激活服务器门控（BUG-16）：镜像残留行用 serverId=0/baseUrl="" 兜底只会整屏破图
                 // 且点重试不恢复——与时间轴引导态同口径给文案，不渲染注定失败的网格
                 server == null -> Box(

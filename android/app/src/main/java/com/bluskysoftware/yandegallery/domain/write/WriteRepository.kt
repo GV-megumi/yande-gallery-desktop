@@ -22,6 +22,16 @@ class WriteRepository(
     private val monitor: ConnectionMonitor,
     private val requestSync: () -> Unit,
 ) {
+    // IN (:ids) 类 DAO 调用一律经此分块（审查确认 major）：API 26–30 框架 SQLite 绑定变量
+    // 上限 999，千级全选「加入/移出图集」会在乐观路径抛 too many SQL variables 直接崩溃
+    //（Robolectric 自带 SQLite 上限 32766，单测拦不住，靠此约定守护）。
+    private suspend fun existingGalleryLinksChunked(galleryId: Long, imageIds: List<Long>): List<Long> =
+        imageIds.chunked(BATCH_CHUNK).flatMap { db.imageDao().existingGalleryLinkImageIds(galleryId, it) }
+
+    private suspend fun deleteGalleryLinksChunked(galleryId: Long, imageIds: List<Long>) {
+        imageIds.chunked(BATCH_CHUNK).forEach { db.imageDao().deleteGalleryLinks(galleryId, it) }
+    }
+
     /**
      * 统一：跑一次写调用，成功 reportSuccess+nudge，404 当成功，其它失败 reportFailure。
      * 服务器已应答的失败（ApiException 非 404）额外 requestSync：回滚残差以服务端为准收敛（BUG-02）。
@@ -130,7 +140,10 @@ class WriteRepository(
             db.galleryDao().updateCover(galleryId, imageId)
             monitor.reportSuccess(); requestSync(); WriteResult.Success
         } catch (e: ApiException) {
-            monitor.reportFailure(e); WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
+            // 服务器已应答的失败（404 图集已删/422 成员关系陈旧）说明镜像分歧：对账一次
+            // 立即收敛幻影数据，与 guarded 的 BUG-02 约定对齐
+            monitor.reportFailure(e); requestSync()
+            WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
         } catch (e: CancellationException) {
             throw e   // 取消时结果未知，不上报，镜像靠下一轮同步对账收敛
         } catch (e: Exception) {
@@ -159,13 +172,13 @@ class WriteRepository(
         // 空集直接成功（BUG-14）：调用方滤重/滤死后可能为空，发给桌面会 422 → 虚假「失败」
         if (imageIds.isEmpty()) return WriteResult.Success
         // 只回滚真正新增的链（BUG-04）：选中项含已在图集的 X 时，失败回滚曾把 X 一并静默移出
-        val existing = db.imageDao().existingGalleryLinkImageIds(galleryId, imageIds).toSet()
+        val existing = existingGalleryLinksChunked(galleryId, imageIds).toSet()
         val newIds = imageIds.filter { it !in existing }
         return guarded(
             optimisticApply = {
                 if (newIds.isNotEmpty()) db.imageDao().insertGalleryLinks(newIds.map { GalleryImageEntity(galleryId, it) })
             },
-            rollback = { if (newIds.isNotEmpty()) db.imageDao().deleteGalleryLinks(galleryId, newIds) },
+            rollback = { if (newIds.isNotEmpty()) deleteGalleryLinksChunked(galleryId, newIds) },
             call = { writeApi.addImagesToGallery(galleryId, imageIds) },
         )
     }
@@ -173,9 +186,9 @@ class WriteRepository(
     suspend fun removeFromGallery(galleryId: Long, imageIds: List<Long>): WriteResult {
         if (imageIds.isEmpty()) return WriteResult.Success   // 空集直接成功（BUG-14，同 addToGallery）
         // 只回滚删前真实存在的链：不存在的链回滚重建会凭空加成员
-        val present = db.imageDao().existingGalleryLinkImageIds(galleryId, imageIds)
+        val present = existingGalleryLinksChunked(galleryId, imageIds)
         return guarded(
-            optimisticApply = { if (present.isNotEmpty()) db.imageDao().deleteGalleryLinks(galleryId, present) },
+            optimisticApply = { if (present.isNotEmpty()) deleteGalleryLinksChunked(galleryId, present) },
             rollback = {
                 if (present.isNotEmpty()) db.imageDao().insertGalleryLinks(present.map { GalleryImageEntity(galleryId, it) })
             },
@@ -203,7 +216,7 @@ class WriteRepository(
                 .let { if (it.isNotEmpty()) db.imageDao().insertTagLinks(it) }
         }
 
-        db.imageDao().deleteByIds(unique)                       // 乐观全删
+        unique.chunked(BATCH_CHUNK).forEach { db.imageDao().deleteByIds(it) }   // 乐观全删（IN 分块，同上限约定）
         val failedIds = mutableListOf<Long>()
         val chunks = unique.chunked(BATCH_CHUNK)
         for ((index, chunk) in chunks.withIndex()) {

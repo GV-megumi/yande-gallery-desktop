@@ -71,7 +71,13 @@ class MainActivity : ComponentActivity() {
                         OtherAlbumsScreen(
                             viewModel = albumsVm,
                             navController = nav,
-                            onBack = { nav.popBackStack() },
+                            // 防重入（对齐 Viewer M4-T14）：清空收纳区的自动返回与用户返回可能双触发，
+                            // 第二次会把下层 Albums 也 pop 掉落到照片页——仅当栈顶仍是本路由才 pop
+                            onBack = {
+                                if (nav.currentBackStackEntry?.destination?.route == Routes.OtherAlbums) {
+                                    nav.popBackStack()
+                                }
+                            },
                         )
                     },
                     albumDetailContent = { galleryId ->

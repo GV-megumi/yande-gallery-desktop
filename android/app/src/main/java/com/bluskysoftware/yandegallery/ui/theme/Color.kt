@@ -24,6 +24,9 @@ val DarkBackground = Color(0xFF000000)
 val DarkSurface = Color(0xFF000000)
 val DarkCard = Color(0xFF1C1C1E)
 val DarkSurfaceVariant = Color(0xFF1F2022)
+// 弹窗次按钮暗色专用：surfaceVariant 与弹窗底 DarkCard 每通道仅差 3（肉眼同色），取消胶囊
+// 会退化成裸文字——弹窗内用更亮一档的灰拉开层次（审查 minor）
+val DarkDialogButton = Color(0xFF2E2E30)
 val DarkOnSurface = Color(0xFFF2F2F2)
 val DarkOnSurfaceVariant = Color(0xFF9AA0AA)
 val DarkHairline = Color(0x1AFFFFFF)   // 白 10% 发丝线

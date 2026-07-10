@@ -82,6 +82,10 @@ class SseClient(
         }
         val request = Request.Builder().url(url).build()
         if (request.url.toString() == disabledUrl) return   // 该服务器 403 降级中
+        // 覆写前先取消存活连接（审查 minor）：onFailure 过守卫后、scheduleReconnect 排程前若插入
+        // restart()，迟到的重连定时到期会在此覆写 restart 建的连接——不取消即孤儿长连（BUG-05 族）。
+        // 正常路径此处恒为 null（clearIfCurrent/cancelConnection 已清），取消是纯防守。
+        cancelConnection()
         eventSource = EventSources.createFactory(client).newEventSource(request, listener)
     }
 

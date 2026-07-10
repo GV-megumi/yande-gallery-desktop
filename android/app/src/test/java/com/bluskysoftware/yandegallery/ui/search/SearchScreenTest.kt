@@ -8,6 +8,7 @@ import androidx.compose.ui.test.assertHeightIsEqualTo
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.unit.dp
@@ -176,7 +177,11 @@ class SearchScreenTest {
                 SearchScreen(viewModel = vm, onOpenViewer = {}, onBack = {})
             }
             vm.onQueryChange("neko")
-            compose.waitForIdle()
+            // 三态门后引导文案要等 activeServerResolved 经 Room 首发射翻真（真实回环）——
+            // 单次 waitForIdle 不等 IO，waitUntil 轮询等节点出现（awaitValue 纪律的 UI 版）
+            compose.waitUntil(timeoutMillis = 5_000) {
+                compose.onAllNodesWithTag("search_no_server").fetchSemanticsNodes().isNotEmpty()
+            }
 
             compose.onNodeWithTag("search_no_server").assertIsDisplayed()
             compose.onNodeWithTag("search_grid").assertDoesNotExist()

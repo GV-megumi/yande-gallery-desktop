@@ -564,6 +564,28 @@ class WriteRepositoryTest {
     }
 
     @Test
+    fun `addToGallery 千级选中——已存链查询与回滚删除按 900 分块跨界不丢不漏（审查 major 回归）`() = runTest {
+        // 真机 API 26–30 框架 SQLite 绑定变量上限 999，未分块 IN 会直接崩；Robolectric 自带
+        // SQLite 上限 32766 拦不住那个崩溃——本用例锁的是分块逻辑跨 900 界的语义正确性：
+        // 已存链 1..50 + 全选 1..1000 → 查询跨界（900+100）、回滚删除跨界（950=900+50）。
+        db.imageDao().upsertAll((1L..1000L).map { image(it) })
+        db.galleryDao().insertOne(gallery(5, "g"))
+        db.imageDao().insertGalleryLinks((1L..50L).map { GalleryImageEntity(5, it) })
+        val api = FakeWriteApi().apply { failAddToGallery = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.addToGallery(5, (1L..1000L).toList())
+
+        assertTrue(result is WriteResult.Failed)
+        for (kept in listOf(1L, 50L)) {
+            assertEquals("既有链 $kept 不得被回滚误删", listOf(5L), db.imageDao().galleryIdsOf(kept))
+        }
+        for (removed in listOf(51L, 900L, 901L, 1000L)) {
+            assertEquals("新增链 $removed（含分块边界）回滚移除", emptyList<Long>(), db.imageDao().galleryIdsOf(removed))
+        }
+    }
+
+    @Test
     fun `addToGallery-removeFromGallery 空列表——不发请求直接成功（BUG-14）`() = runTest {
         val api = FakeWriteApi()
         val (repo, _) = build(api, AtomicInteger(0))

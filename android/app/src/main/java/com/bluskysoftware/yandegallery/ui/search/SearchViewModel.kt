@@ -27,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
@@ -57,6 +58,12 @@ class SearchViewModel(private val graph: AppGraph) : ViewModel() {
     val activeServer: StateFlow<ServerEntity?> =
         graph.serverRepository.observeActive()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /** DB 首发射后翻 true（照片页 A7 同款三态门）：activeServer 初值 null 分不清「尚未答复」
+     *  与「确认无服务器」——标签跳入搜索（initialQuery 预填）会闪现无服务器引导文案（审查 minor）。 */
+    val activeServerResolved: StateFlow<Boolean> =
+        graph.serverRepository.observeActive().map { true }
+            .stateIn(viewModelScope, SharingStarted.Eagerly, false)
 
     private val _query = MutableStateFlow("")
 

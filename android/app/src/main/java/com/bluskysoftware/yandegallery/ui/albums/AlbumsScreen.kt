@@ -72,7 +72,9 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 相册 tab：折叠大标题 + 三分区自适应卡片网格（v0.6 spec §4.1/§4.2：置顶/全部相册/其他相册）。
@@ -181,7 +183,19 @@ fun AlbumsScreen(
                         scope.launch {
                             // 落盘协程挂 viewModelScope（评审修复）：点完成后立刻切 tab/旋转会弃组合并
                             // 取消本 scope——join 只保「落盘完成才退重排」的时序，写库本体不随组合陪葬。
-                            viewModel.commitManualOrder(reorder.pinnedOrder.toList(), reorder.normalOrder.toList()).join()
+                            val pinned = reorder.pinnedOrder.toList()
+                            val normal = reorder.normalOrder.toList()
+                            viewModel.commitManualOrder(pinned, normal).join()
+                            // 等 sections 反映新手动序再退重排（审查 minor）：join 只等 Room 事务提交，
+                            // combine 的 albumPrefs 源要等失效追踪重查询才发射——先退主网格会闪回旧序
+                            // 1~N 帧再跳新序。超时兜底：并发同步增删图集时集合不再逐项相等，不无限等。
+                            withTimeoutOrNull(3_000) {
+                                viewModel.sections.first { s ->
+                                    s != null &&
+                                        s.pinned.map { it.gallery.id } == pinned &&
+                                        s.normal.map { it.gallery.id } == normal
+                                }
+                            }
                             reorderState = null
                         }
                     },

@@ -59,6 +59,7 @@ import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
+import com.bluskysoftware.yandegallery.ui.common.awaitPagingRefreshSettled
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.detectPinchStep
 import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
@@ -102,6 +103,9 @@ fun AlbumDetailScreen(
     LaunchedEffect(detailSort) {
         if (detailSort.name != lastAppliedDetailSort) {
             lastAppliedDetailSort = detailSort.name
+            detailGridState.scrollToItem(0)
+            // 第二针（审查 minor，照片页同款）：新世代落地时按 key 维持滚动位置会抵消上句回顶
+            awaitPagingRefreshSettled(items)
             detailGridState.scrollToItem(0)
         }
     }
@@ -234,8 +238,10 @@ fun AlbumDetailScreen(
                             scope.launch {
                                 when (val r = viewModel.setCover(imageId)) {
                                     WriteResult.Success -> {
-                                        snackbarHostState.showSnackbar("已设为封面")
+                                        // 先退多选再提示：showSnackbar 挂起到消失(~4s)，后清会让
+                                        // 选择栏残留 4 秒（移出/下载路径均为即清，审查 minor 对齐）
                                         viewModel.selection.clear()
+                                        snackbarHostState.showSnackbar("已设为封面")
                                     }
                                     is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("设为封面失败", r))
                                 }

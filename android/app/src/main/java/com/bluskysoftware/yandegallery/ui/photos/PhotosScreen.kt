@@ -79,6 +79,7 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
 import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
+import com.bluskysoftware.yandegallery.ui.common.awaitPagingRefreshSettled
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
 import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
 import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
@@ -310,6 +311,10 @@ fun PhotosScreen(
             // 快照无 Header，锚定 effect 只早退不 onDone，陈锚会存活到切回时间排序时被消费——驱动
             // append 滚到数分钟前的旧月份，压过本回顶（两个 scrollToItem 竞写，锚定随 append 后发赢）。
             pendingAnchor = null
+            gridState.scrollToItem(0)
+            // 第二针（审查 minor）：上句作用于旧快照，新世代落地时按 key 维持滚动位置会把视口
+            // 拽回旧首项的新位置（小库/同键族确定复现）——等 refresh 落定再钉一次顶。
+            awaitPagingRefreshSettled(items)
             gridState.scrollToItem(0)
         }
     }

@@ -2,6 +2,7 @@ package com.bluskysoftware.yandegallery.ui.common
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
+import com.bluskysoftware.yandegallery.ui.theme.DarkDialogButton
 
 /**
  * MIUI 式统一弹窗（spec §8.3）：20dp 圆角、标题居中、底部等宽胶囊按钮排——
@@ -66,7 +68,9 @@ fun MiuiDialog(
                     if (dismissText != null) {
                         MiuiDialogButton(
                             label = dismissText,
-                            container = MaterialTheme.colorScheme.surfaceVariant,
+                            // 暗色下 surfaceVariant(#1F2022) 与弹窗底(#1C1C1E) 肉眼同色，取消键会
+                            // 退化成裸文字；亮色维持 spec §8.3 原值（审查 minor）
+                            container = if (isSystemInDarkTheme()) DarkDialogButton else MaterialTheme.colorScheme.surfaceVariant,
                             contentColor = MaterialTheme.colorScheme.onSurface,
                             enabled = true,
                             onClick = onDismiss,
