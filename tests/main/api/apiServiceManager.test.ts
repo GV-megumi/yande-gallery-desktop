@@ -11,6 +11,7 @@ const getApiServiceConfig = vi.fn(() => ({
   mode: 'localhost',
   port: 38947,
   apiKey: '',
+  app: { enabled: false },
   permissions: {},
   logs: { enabled: false, visibleInUi: false },
 }));
@@ -37,6 +38,7 @@ function createConfig(overrides: Record<string, unknown> = {}) {
     mode: 'localhost',
     port: 38947,
     apiKey: '',
+    app: { enabled: false },
     permissions: {},
     logs: { enabled: false, visibleInUi: false },
     ...overrides,
@@ -219,6 +221,77 @@ describe('apiServiceManager', () => {
       port: 38947,
       bindAddress: null,
     });
+  });
+
+  it('仅 app.enabled=true 也启动服务器，且绑定 0.0.0.0（spec §6）', async () => {
+    getApiServiceConfig.mockReturnValue(createConfig({
+      enabled: false,
+      app: { enabled: true },
+      apiKey: 'test-api-key',
+    }));
+    const fakeServer = createFakeServer();
+    createApiHttpServer.mockReturnValue(fakeServer);
+    const { syncApiServiceFromConfig } = await import('../../../src/main/api/apiServiceManager.js');
+
+    const sync = syncApiServiceFromConfig();
+    await flushPromises();
+    fakeServer.succeedListen();
+
+    await expect(sync).resolves.toMatchObject({
+      running: true,
+      enabled: false,
+      appEnabled: true,
+    });
+    expect(fakeServer.listen).toHaveBeenCalledWith(38947, '0.0.0.0', expect.any(Function));
+  });
+
+  it('enabled 与 app.enabled 均为 false 时不启动', async () => {
+    getApiServiceConfig.mockReturnValue(createConfig({ enabled: false, app: { enabled: false } }));
+    const { syncApiServiceFromConfig } = await import('../../../src/main/api/apiServiceManager.js');
+
+    await expect(syncApiServiceFromConfig()).resolves.toMatchObject({
+      running: false,
+      appEnabled: false,
+    });
+    expect(createApiHttpServer).not.toHaveBeenCalled();
+  });
+
+  it('agent localhost 模式 + app.enabled=true 时仍强制绑定 0.0.0.0（手机连接=局域网）', async () => {
+    getApiServiceConfig.mockReturnValue(createConfig({
+      enabled: true,
+      mode: 'localhost',
+      app: { enabled: true },
+      apiKey: 'test-api-key',
+    }));
+    const fakeServer = createFakeServer();
+    createApiHttpServer.mockReturnValue(fakeServer);
+    const { syncApiServiceFromConfig } = await import('../../../src/main/api/apiServiceManager.js');
+
+    const sync = syncApiServiceFromConfig();
+    await flushPromises();
+    fakeServer.succeedListen();
+    await sync;
+
+    expect(fakeServer.listen).toHaveBeenCalledWith(38947, '0.0.0.0', expect.any(Function));
+  });
+
+  it('app 关闭时绑定回归 mode 旧逻辑（localhost → 127.0.0.1）', async () => {
+    getApiServiceConfig.mockReturnValue(createConfig({
+      enabled: true,
+      mode: 'localhost',
+      app: { enabled: false },
+      apiKey: 'test-api-key',
+    }));
+    const fakeServer = createFakeServer();
+    createApiHttpServer.mockReturnValue(fakeServer);
+    const { syncApiServiceFromConfig } = await import('../../../src/main/api/apiServiceManager.js');
+
+    const sync = syncApiServiceFromConfig();
+    await flushPromises();
+    fakeServer.succeedListen();
+    await sync;
+
+    expect(fakeServer.listen).toHaveBeenCalledWith(38947, '127.0.0.1', expect.any(Function));
   });
 
   it('serializes concurrent sync calls so the second startup waits for the first lifecycle operation', async () => {

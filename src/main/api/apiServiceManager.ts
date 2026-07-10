@@ -20,6 +20,7 @@ let server: Server | null = null;
 let status: ApiServiceStatus = {
   running: false,
   enabled: false,
+  appEnabled: false,
   mode: 'localhost',
   port: 38947,
   bindAddress: null,
@@ -42,8 +43,13 @@ type EnsureApiKeyResult =
   | { success: true; config: ApiServiceConfig }
   | { success: false; error: string };
 
-function getBindAddress(mode: 'localhost' | 'lan'): string {
-  return mode === 'localhost' ? '127.0.0.1' : '0.0.0.0';
+function getBindAddress(config: Pick<ApiServiceConfig, 'mode' | 'app'>): string {
+  // 手机连接即意味着局域网可达（spec §6）：app 面开启时强制 0.0.0.0，
+  // mode 仅决定 agent-only 场景的监听面；应用层私网 IP 白名单恒在兜底。
+  if (config.app.enabled) {
+    return '0.0.0.0';
+  }
+  return config.mode === 'localhost' ? '127.0.0.1' : '0.0.0.0';
 }
 
 /**
@@ -84,12 +90,14 @@ export function getApiServiceStatus(): ApiServiceStatus {
     return {
       ...status,
       enabled: config.enabled,
+      appEnabled: config.app.enabled,
     };
   }
 
   return {
     ...status,
     enabled: config.enabled,
+    appEnabled: config.app.enabled,
     mode: config.mode,
     port: config.port,
   };
@@ -317,7 +325,8 @@ async function generateAndPersistMissingApiKey(config: ApiServiceConfig): Promis
 
 async function syncNow(): Promise<ApiServiceStatus> {
   const config = getApiServiceConfig();
-  if (!config.enabled) {
+  if (!config.enabled && !config.app.enabled) {
+    // 任一消费者开启即运行（spec §6）：agent 面 enabled 与手机面 app.enabled 是并集关系。
     await stopNow();
     return getApiServiceStatus();
   }
@@ -329,7 +338,8 @@ async function syncNow(): Promise<ApiServiceStatus> {
     if (!apiKeyResult.success) {
       setApiServiceStatus({
         running: false,
-        enabled: true,
+        enabled: config.enabled,
+        appEnabled: config.app.enabled,
         mode: config.mode,
         port: config.port,
         bindAddress: null,
@@ -342,7 +352,7 @@ async function syncNow(): Promise<ApiServiceStatus> {
     serverConfig = apiKeyResult.config;
   }
 
-  const bindAddress = getBindAddress(serverConfig.mode);
+  const bindAddress = getBindAddress(serverConfig);
   const nextServer = createApiHttpServer({ config: serverConfig, routes: createRoutes() });
   attachConnectionTracker(nextServer);
 
@@ -353,7 +363,8 @@ async function syncNow(): Promise<ApiServiceStatus> {
     preserveActiveRuntimeStatus = false;
     setApiServiceStatus({
       running: true,
-      enabled: true,
+      enabled: serverConfig.enabled,
+      appEnabled: serverConfig.app.enabled,
       mode: serverConfig.mode,
       port: serverConfig.port,
       bindAddress,
@@ -365,7 +376,8 @@ async function syncNow(): Promise<ApiServiceStatus> {
     detachConnectionTracker(nextServer);
     setApiServiceStatus({
       running: false,
-      enabled: true,
+      enabled: serverConfig.enabled,
+      appEnabled: serverConfig.app.enabled,
       mode: serverConfig.mode,
       port: serverConfig.port,
       bindAddress,
