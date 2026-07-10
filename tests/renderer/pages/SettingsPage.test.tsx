@@ -425,7 +425,7 @@ describe('SettingsPage general tab behavior', () => {
 
     const apiTab = await screen.findByText('API 服务');
     await userEvent.click(apiTab);
-    await screen.findByText('启用 API 服务');
+    await screen.findByText('运行状态');
 
     await act(async () => {
       appEventCallback?.({
@@ -446,7 +446,7 @@ describe('SettingsPage general tab behavior', () => {
       });
     });
 
-    await screen.findByText('运行中 http://127.0.0.1:38947');
+    await screen.findByText('运行中 http://127.0.0.1:38947（绑定 127.0.0.1）');
   });
 
   it('API 服务页应加载配置并保存启用状态的精确 patch', async () => {
@@ -458,7 +458,7 @@ describe('SettingsPage general tab behavior', () => {
     await screen.findByText('监听模式');
     await screen.findByText('图集读取');
 
-    const enableLabel = screen.getByText('启用 API 服务');
+    const enableLabel = screen.getByText('启用 Agent API');
     const enableRow = enableLabel.closest('div[style*="display: flex"]') as HTMLElement;
     const enableSwitch = enableRow.querySelector('.ant-switch') as HTMLButtonElement;
     await userEvent.click(enableSwitch);

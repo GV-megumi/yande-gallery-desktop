@@ -41,11 +41,11 @@ export const ApiPairingQrModal: React.FC<Props> = ({ open, onClose }) => {
   return (
     <Modal open={open} onCancel={onClose} footer={null} title="扫码配对移动端" width={420}>
       {loadError && <Alert type="error" message={loadError} showIcon style={{ marginBottom: 12 }} />}
-      {info && !info.running && (
-        <Alert type="warning" message="API 服务未运行，请先在上方启用" showIcon style={{ marginBottom: 12 }} />
+      {info && !info.appEnabled && (
+        <Alert type="warning" message="未开启「允许手机端连接」，请先在设置中打开该开关" showIcon style={{ marginBottom: 12 }} />
       )}
-      {info && info.mode !== 'lan' && (
-        <Alert type="warning" message="当前为仅本机模式，手机无法访问，请切换为局域网模式" showIcon style={{ marginBottom: 12 }} />
+      {info && info.appEnabled && !info.running && (
+        <Alert type="warning" message="API 服务未运行（启动失败），请查看设置页错误信息" showIcon style={{ marginBottom: 12 }} />
       )}
       {info && !info.apiKey && (
         <Alert type="warning" message="尚未生成 API Key，请先启用服务或生成 Key" showIcon style={{ marginBottom: 12 }} />

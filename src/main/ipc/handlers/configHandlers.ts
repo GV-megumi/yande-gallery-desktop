@@ -110,7 +110,9 @@ export function setupConfigHandlers() {
   const syncApiServiceAfterConfigSave = async (reason: string): Promise<string | undefined> => {
     try {
       const status: ApiServiceStatus = await syncApiServiceFromConfig();
-      if (status?.enabled === true && status.running === false && typeof status.lastError === 'string' && status.lastError.trim().length > 0) {
+      // enabled 语义已收窄为 agent 面：app-only（仅手机端开启）时 enabled 恒为 false，
+      // 若只看 enabled 会漏掉 app-only 启动失败的告警，因此需要与 appEnabled 取或。
+      if ((status?.enabled === true || status?.appEnabled === true) && status.running === false && typeof status.lastError === 'string' && status.lastError.trim().length > 0) {
         console.warn(`[IPC] API service resync reported start failure after ${reason}:`, status.lastError);
         return status.lastError;
       }
@@ -124,7 +126,8 @@ export function setupConfigHandlers() {
 
   ipcMain.handle(IPC_CHANNELS.API_SERVICE_GET_CONFIG, async () => {
     try {
-      return { success: true, data: getConfig().apiService };
+      // 归一化结果恒含 app 块与全部默认值，避免旧 yaml 缺省字段时渲染层拿到 undefined
+      return { success: true, data: getApiServiceConfig() };
     } catch (error) {
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
@@ -190,6 +193,7 @@ export function setupConfigHandlers() {
         port: apiService.port,
         mode: apiService.mode,
         running: status.running,
+        appEnabled: apiService.app.enabled,
         apiKey: apiService.apiKey,
         lanAddresses,
       };

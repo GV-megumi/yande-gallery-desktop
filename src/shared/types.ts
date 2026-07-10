@@ -29,6 +29,7 @@ export interface ApiServiceAppAccessConfig {
 }
 
 export interface ApiServiceConfig {
+  /** 启用 Agent API（/api/v1 面）；与手机面 app.enabled 相互独立 */
   enabled: boolean;
   mode: ApiServiceMode;
   port: number;
@@ -41,6 +42,7 @@ export interface ApiServiceConfig {
 
 export interface ApiServiceStatus {
   running: boolean;
+  /** Agent 面启用状态；与 running 解耦——app-only 运行时可为 false */
   enabled: boolean;
   /** 手机端连接开关状态（spec §6） */
   appEnabled: boolean;

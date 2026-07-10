@@ -22,8 +22,6 @@ const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
   galleryRead: '图集读取',
   imageRead: '图片元数据读取',
   imageBinary: '图片内容访问',
-  imageWrite: '图片写操作',
-  galleryWrite: '图集写操作',
   booruRead: 'Booru 只读',
   booruWrite: 'Booru 业务写操作',
   favoriteTagsRead: '收藏标签只读',
@@ -34,9 +32,10 @@ const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
   apiLogsRead: 'API 日志查看',
 };
 
-type ApiServicePatch = Partial<Omit<ApiServiceConfig, 'permissions' | 'logs'>> & {
+type ApiServicePatch = Partial<Omit<ApiServiceConfig, 'permissions' | 'logs' | 'app'>> & {
   permissions?: Partial<ApiServiceConfig['permissions']>;
   logs?: Partial<ApiServiceConfig['logs']>;
+  app?: Partial<ApiServiceConfig['app']>;
 };
 
 const mergeApiServicePatch = (config: ApiServiceConfig, patch: ApiServicePatch): ApiServiceConfig => ({
@@ -44,6 +43,7 @@ const mergeApiServicePatch = (config: ApiServiceConfig, patch: ApiServicePatch):
   ...patch,
   permissions: patch.permissions ? { ...config.permissions, ...patch.permissions } : config.permissions,
   logs: patch.logs ? { ...config.logs, ...patch.logs } : config.logs,
+  app: patch.app ? { ...config.app, ...patch.app } : config.app,
 });
 
 /** iOS 风格分组容器 */
@@ -377,8 +377,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   };
 
   const saveApiServiceNestedPatch = async (
-    key: 'permissions' | 'logs',
-    value: Partial<ApiServiceConfig['permissions']> | Partial<ApiServiceConfig['logs']>,
+    key: 'permissions' | 'logs' | 'app',
+    value: Partial<ApiServiceConfig['permissions']> | Partial<ApiServiceConfig['logs']> | Partial<ApiServiceConfig['app']>,
   ) => {
     await saveApiServicePatch({ [key]: value } as ApiServicePatch);
   };
@@ -1120,26 +1120,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       )}
       {activeTab === 'api' && !apiLoadError && apiConfig && apiStatus && (
         <>
-          <SettingsGroup title="API 服务" footer="默认仅本机访问；局域网模式仍会拦截非私网来源。">
-            <SettingsRow
-              label="启用 API 服务"
-              description={apiStatus.running ? `运行中 ${apiStatus.baseUrl || ''}` : (apiStatus.lastError || '未运行')}
-              extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}
-            />
-            <SettingsRow
-              label="监听模式"
-              extra={
-                <Segmented
-                  value={apiConfig.mode}
-                  onChange={(mode) => void saveApiServicePatch({ mode: mode as ApiServiceConfig['mode'] })}
-                  options={[
-                    { label: '仅本机', value: 'localhost' },
-                    { label: '局域网', value: 'lan' },
-                  ]}
-                  size="small"
-                />
-              }
-            />
+          {/* 共享基础：端口 / 运行状态 / Key（两面同用一把，spec §7） */}
+          <SettingsGroup title="API 服务" footer="端口与 API Key 由手机端与 Agent 共享；重新生成 Key 后所有已接入客户端需更新。">
             <SettingsRow
               label="端口"
               extra={
@@ -1155,22 +1137,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               }
             />
             <SettingsRow
-              label="当前绑定地址"
-              description={apiStatus.bindAddress || '-'}
+              label="运行状态"
+              description={apiStatus.running ? `运行中 ${apiStatus.baseUrl || ''}（绑定 ${apiStatus.bindAddress || '-'}）` : (apiStatus.lastError || '未运行')}
             />
-            <SettingsRow
-              label="移动端配对"
-              description="生成二维码，手机 App 扫码即可连接"
-              isLast
-              extra={
-                <Button size="small" onClick={() => setPairingModalOpen(true)}>
-                  显示二维码
-                </Button>
-              }
-            />
-          </SettingsGroup>
-
-          <SettingsGroup title="API Key" footer="生成后客户端需要使用新的 key。">
             <SettingsRow
               label="API Key"
               description={apiKeyVisible ? (apiConfig.apiKey || '未生成') : (apiConfig.apiKey ? '已生成，当前隐藏' : '未生成')}
@@ -1221,7 +1190,53 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             />
           </SettingsGroup>
 
-          <SettingsGroup title="权限">
+          {/* 手机面：一门制（spec §3.1/§7），开关独立拉起服务器并强制局域网绑定 */}
+          <SettingsGroup title="手机端连接" footer="开启后服务自动运行并绑定局域网地址，手机 App 的同步、浏览与图库编辑能力整体可用；关闭则手机面全部拒绝。">
+            <SettingsRow
+              label="允许手机端连接"
+              extra={
+                <Switch
+                  checked={Boolean(apiConfig.app?.enabled)}
+                  onChange={enabled => void saveApiServiceNestedPatch('app', { enabled })}
+                />
+              }
+            />
+            <SettingsRow
+              label="移动端配对"
+              description="生成二维码，手机 App 扫码即可连接"
+              isLast
+              extra={
+                <Button size="small" onClick={() => setPairingModalOpen(true)}>
+                  显示二维码
+                </Button>
+              }
+            />
+          </SettingsGroup>
+
+          {/* Agent 面：细化权限（spec §3.2/§7） */}
+          <SettingsGroup title="Agent API" footer="面向 CLI 与智能体的接口；默认仅本机访问，局域网模式仍会拦截非私网来源。">
+            <SettingsRow
+              label="启用 Agent API"
+              extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}
+            />
+            <SettingsRow
+              label="监听模式"
+              isLast
+              extra={
+                <Segmented
+                  value={apiConfig.mode}
+                  onChange={(mode) => void saveApiServicePatch({ mode: mode as ApiServiceConfig['mode'] })}
+                  options={[
+                    { label: '仅本机', value: 'localhost' },
+                    { label: '局域网', value: 'lan' },
+                  ]}
+                  size="small"
+                />
+              }
+            />
+          </SettingsGroup>
+
+          <SettingsGroup title="Agent 权限">
             {Object.entries(API_PERMISSION_LABELS).map(([key, label], index, entries) => {
               const permissionKey = key as ApiServicePermissionKey;
               return (
