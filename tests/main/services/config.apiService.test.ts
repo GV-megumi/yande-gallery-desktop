@@ -239,6 +239,24 @@ describe('apiService config defaults', () => {
     expect(apiService.permissions).not.toHaveProperty('galleryWrite');
   });
 
+  it('迁移：旧配置仅 galleryWrite 开启（无 imageWrite、无 app 块）时同样推导 app.enabled=true（钉住 || 两侧对称性，spec §5）', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        permissions: { galleryWrite: true },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    const apiService = configModule.getConfig().apiService!;
+    expect(apiService.app).toEqual({ enabled: true });
+    expect(apiService.permissions).not.toHaveProperty('imageWrite');
+    expect(apiService.permissions).not.toHaveProperty('galleryWrite');
+  });
+
   it('迁移：旧配置未开写权限时 app.enabled 默认 false', async () => {
     const configModule = await import('../../../src/main/services/config.js');
 

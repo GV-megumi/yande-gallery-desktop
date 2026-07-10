@@ -16,12 +16,12 @@ vi.mock('../../../src/main/api/events/eventHub.js', () => ({
 const permissions = {
   galleryRead: true, imageRead: true, imageBinary: true, booruRead: true, booruWrite: true,
   favoriteTagsRead: true, favoriteTagsWrite: true, downloadsRead: true, downloadsControl: true,
-  eventsSubscribe: true, apiLogsRead: true, imageWrite: true, galleryWrite: true,
+  eventsSubscribe: true, apiLogsRead: true,
 } satisfies ApiServiceConfig['permissions'];
 
 function config(): ApiServiceConfig {
   return {
-    enabled: true, mode: 'localhost', port: 0, apiKey: 'test-api-key', permissions,
+    enabled: true, mode: 'localhost', port: 0, apiKey: 'test-api-key', app: { enabled: false }, permissions,
     logs: { enabled: false, visibleInUi: false, retentionDays: 7, maxEntries: 100 },
   };
 }

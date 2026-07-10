@@ -191,7 +191,6 @@ export function setupConfigHandlers() {
       const data: ApiPairingInfo = {
         name: os.hostname(),
         port: apiService.port,
-        mode: apiService.mode,
         running: status.running,
         appEnabled: apiService.app.enabled,
         apiKey: apiService.apiKey,

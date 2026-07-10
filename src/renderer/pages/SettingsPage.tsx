@@ -1214,7 +1214,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </SettingsGroup>
 
           {/* Agent 面：细化权限（spec §3.2/§7） */}
-          <SettingsGroup title="Agent API" footer="面向 CLI 与智能体的接口；默认仅本机访问，局域网模式仍会拦截非私网来源。">
+          <SettingsGroup title="Agent API" footer="面向 CLI 与智能体的接口；默认仅本机访问，局域网模式仍会拦截非私网来源。开启手机端连接后服务将绑定局域网地址，本开关与监听模式仅控制 Agent 面。">
             <SettingsRow
               label="启用 Agent API"
               extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}

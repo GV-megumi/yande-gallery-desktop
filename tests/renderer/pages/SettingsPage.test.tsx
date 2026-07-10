@@ -292,14 +292,13 @@ beforeEach(() => {
       mode: 'localhost',
       port: 38947,
       apiKey: 'secret-key',
+      app: { enabled: false },
       permissions: {
         galleryRead: true,
         imageRead: true,
         imageBinary: false,
         booruRead: true,
         booruWrite: false,
-        imageWrite: false,
-        galleryWrite: false,
         favoriteTagsRead: true,
         favoriteTagsWrite: false,
         downloadsRead: true,
@@ -436,6 +435,7 @@ describe('SettingsPage general tab behavior', () => {
         payload: {
           running: true,
           enabled: true,
+          appEnabled: false,
           mode: 'localhost',
           port: 38947,
           bindAddress: '127.0.0.1',

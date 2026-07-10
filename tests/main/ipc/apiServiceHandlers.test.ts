@@ -110,6 +110,15 @@ describe('api service IPC handlers', () => {
     ]));
   });
 
+  it('API_SERVICE_GET_CONFIG 返回数据含 app 块', async () => {
+    const { IPC_CHANNELS, handlers } = await registerHandlers();
+
+    const result = await handlers.get(IPC_CHANNELS.API_SERVICE_GET_CONFIG)?.({});
+
+    expect(result.success).toBe(true);
+    expect(result.data.app).toEqual({ enabled: false });
+  });
+
   it('API_SERVICE_SAVE_CONFIG saves patch, resyncs service, and broadcasts config changes on success', async () => {
     const window = { webContents: { send: vi.fn() } };
     mocks.getAllWindows.mockReturnValue([window]);
@@ -260,7 +269,6 @@ describe('api service IPC handlers', () => {
       data: {
         name: 'test-host',
         port: 38947,
-        mode: 'localhost',
         running: false,
         appEnabled: false,
         apiKey: expect.any(String),

@@ -170,17 +170,19 @@ async function requestAndCaptureError(server: http.Server, options: {
   });
 }
 
+// 提升到文件顶层（两个 describe 之外），让 namespace gates describe 也享受同一套 mock 生命周期，
+// 避免其用例因缺少清理/复位而依赖执行顺序产生的隐式状态。
+beforeEach(() => {
+  vi.clearAllMocks();
+  mockRecordApiLog.mockResolvedValue(undefined);
+  mockPruneApiLogs.mockResolvedValue(undefined);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
 describe('createApiHttpServer', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    mockRecordApiLog.mockResolvedValue(undefined);
-    mockPruneApiLogs.mockResolvedValue(undefined);
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('returns 401 error envelope when bearer auth is missing', async () => {
     const handler = vi.fn();
     const server = createApiHttpServer({
@@ -701,17 +703,32 @@ describe('namespace gates（spec §4）', () => {
       authorization: 'Bearer test-api-key',
     });
     expect(agentDenied.statusCode).toBe(403);
+    expect((agentDenied.json as { error: { code: string } }).error.code).toBe('PERMISSION_DENIED');
     const appOk = await request(server, {
       path: '/api/app/v1/sync/meta',
       authorization: 'Bearer test-api-key',
     });
     expect(appOk.statusCode).toBe(200);
+    expect((appOk.json as { data: { ok: string } }).data.ok).toBe('app');
     await close(server);
   });
 
   it('手机面未挂载路径仍 404（如非 system 事件频道）', async () => {
     const server = createApiHttpServer({
       config: config({ app: { enabled: true } }),
+      routes: [appRoute],
+    });
+    const result = await request(server, {
+      path: '/api/app/v1/events/downloads',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(404);
+    await close(server);
+  });
+
+  it('手机面未挂载路径在 app 关闭时同样 404（route match 先于面门）', async () => {
+    const server = createApiHttpServer({
+      config: config(),
       routes: [appRoute],
     });
     const result = await request(server, {

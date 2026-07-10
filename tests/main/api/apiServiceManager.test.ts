@@ -211,6 +211,20 @@ describe('apiServiceManager', () => {
     expect(createApiHttpServer).not.toHaveBeenCalled();
   });
 
+  it('app-only 且首次生成 key 保存失败时同样不启动服务', async () => {
+    saveConfig.mockResolvedValueOnce({ success: false, error: 'save failed' });
+    getApiServiceConfig.mockReturnValue(createConfig({ enabled: false, app: { enabled: true }, apiKey: '' }));
+    const { syncApiServiceFromConfig } = await import('../../../src/main/api/apiServiceManager.js');
+
+    await expect(syncApiServiceFromConfig()).resolves.toMatchObject({
+      running: false,
+      enabled: false,
+      appEnabled: true,
+      lastError: 'save failed',
+    });
+    expect(createApiHttpServer).not.toHaveBeenCalled();
+  });
+
   it('reports stopped status when disabled', async () => {
     const { getApiServiceStatus } = await import('../../../src/main/api/apiServiceManager.js');
 
@@ -270,7 +284,7 @@ describe('apiServiceManager', () => {
     const sync = syncApiServiceFromConfig();
     await flushPromises();
     fakeServer.succeedListen();
-    await sync;
+    await expect(sync).resolves.toMatchObject({ running: true, enabled: true, appEnabled: true });
 
     expect(fakeServer.listen).toHaveBeenCalledWith(38947, '0.0.0.0', expect.any(Function));
   });
@@ -289,7 +303,7 @@ describe('apiServiceManager', () => {
     const sync = syncApiServiceFromConfig();
     await flushPromises();
     fakeServer.succeedListen();
-    await sync;
+    await expect(sync).resolves.toMatchObject({ running: true, enabled: true, appEnabled: false });
 
     expect(fakeServer.listen).toHaveBeenCalledWith(38947, '127.0.0.1', expect.any(Function));
   });

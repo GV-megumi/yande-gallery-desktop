@@ -58,7 +58,6 @@ export interface ApiServiceStatus {
 export interface ApiPairingInfo {
   name: string;
   port: number;
-  mode: ApiServiceMode;
   running: boolean;
   /** 「允许手机端连接」是否开启（配对弹窗提示用） */
   appEnabled: boolean;
