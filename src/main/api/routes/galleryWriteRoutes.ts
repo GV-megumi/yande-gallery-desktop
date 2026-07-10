@@ -55,6 +55,10 @@ async function requireImage(imageId: number): Promise<void> {
   }
 }
 
+/**
+ * 图片/图集写路由九端点（安卓相册 spec §5.4/§6.1），整组挂手机面 /api/app/v1，
+ * 整面受『允许手机端连接』一门制（spec §3.1），无细化权限。
+ */
 export function createGalleryWriteRoutes(): ApiRoute[] {
   return [
     {

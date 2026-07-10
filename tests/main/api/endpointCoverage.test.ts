@@ -73,30 +73,14 @@ const appEndpoints = [
 
 describe('API endpoint coverage', () => {
   it('双面路由装配完整覆盖文档端点（spec §3）', async () => {
-    const { createServiceRoutes } = await import('../../../src/main/api/routes/serviceRoutes.js');
-    const { createGalleryRoutes, createImageBinaryRoutes } = await import('../../../src/main/api/routes/galleryRoutes.js');
-    const { createGalleryWriteRoutes } = await import('../../../src/main/api/routes/galleryWriteRoutes.js');
-    const { createBooruRoutes } = await import('../../../src/main/api/routes/booruRoutes.js');
-    const { createApiLogRoutes } = await import('../../../src/main/api/routes/apiLogRoutes.js');
-    const { createEventRoutes, createAppEventRoutes } = await import('../../../src/main/api/routes/eventRoutes.js');
-    const { createSyncRoutes } = await import('../../../src/main/api/routes/syncRoutes.js');
-    const { remapToAppNamespace } = await import('../../../src/main/api/appNamespace.js');
+    // 消费 apiServiceManager 导出的真实装配函数（而非在测试里手工复刻装配清单），
+    // createRoutes 接线一旦漂移（如漏挂某个 remap 组）此测试立刻变红。
+    const { assembleApiRoutes } = await import('../../../src/main/api/apiServiceManager.js');
 
-    const serviceRoutes = createServiceRoutes({ getStatus: () => ({}) as any });
-    const imageBinaryRoutes = createImageBinaryRoutes();
-    const routes = [
-      ...serviceRoutes,
-      ...createGalleryRoutes(),
-      ...imageBinaryRoutes,
-      ...createBooruRoutes(),
-      ...createApiLogRoutes(),
-      ...createEventRoutes({ subscribe: () => undefined } as any),
-      ...remapToAppNamespace(serviceRoutes),
-      ...remapToAppNamespace(imageBinaryRoutes),
-      ...createSyncRoutes(),
-      ...createGalleryWriteRoutes(),
-      ...createAppEventRoutes({ subscribe: () => undefined } as any),
-    ];
+    const routes = assembleApiRoutes(
+      { getStatus: () => ({}) as any },
+      { subscribe: () => undefined } as any,
+    );
     const actual = routes.map((route) => [route.method, route.pattern]);
 
     expect(actual).toEqual(expect.arrayContaining(agentEndpoints));

@@ -1,3 +1,8 @@
+/**
+ * 图库读取路由，按命名空间归属分两组导出（spec §3.1/§3.2）：
+ * - createGalleryRoutes：agent 面 /api/v1 只读独占（galleryRead/imageRead 细化权限）；
+ * - createImageBinaryRoutes：两面共享——agent 面直挂（imageBinary 权限），手机面经 remapToAppNamespace 克隆。
+ */
 import { getGalleries, getGallery } from '../../services/galleryService.js';
 import { getImageById, getImages, getImagesByGallery } from '../../services/imageService.js';
 import { generatePreview, generateThumbnail } from '../../services/thumbnailService.js';
@@ -54,6 +59,7 @@ function pageQuery(context: ApiRequestContext): { page: number; pageSize: number
   };
 }
 
+/** 图集/图片元数据只读五端点：仅挂 agent 面 /api/v1（galleryRead/imageRead 细化权限，spec §3.2）。 */
 export function createGalleryRoutes(): ApiRoute[] {
   return [
     {

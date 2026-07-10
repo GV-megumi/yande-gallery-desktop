@@ -2,7 +2,7 @@ import type { Server } from 'http';
 import type { Socket } from 'net';
 import type { ApiServiceConfig, ApiServiceStatus } from '../../shared/types.js';
 import { getApiServiceConfig, saveConfig } from '../services/config.js';
-import { apiEventHub } from './events/eventHub.js';
+import { apiEventHub, type ApiEventHub } from './events/eventHub.js';
 import { createApiLogRoutes } from './routes/apiLogRoutes.js';
 import { createBooruRoutes } from './routes/booruRoutes.js';
 import { createAppEventRoutes, createEventRoutes } from './routes/eventRoutes.js';
@@ -13,6 +13,7 @@ import { createSyncRoutes } from './routes/syncRoutes.js';
 import { remapToAppNamespace } from './appNamespace.js';
 import { generateApiKey } from './security.js';
 import { createApiHttpServer } from './server.js';
+import type { ApiRoute } from './types.js';
 import { emitApiServiceStatusChanged } from '../services/appEventPublisher.js';
 
 let server: Server | null = null;
@@ -45,8 +46,15 @@ function getBindAddress(mode: 'localhost' | 'lan'): string {
   return mode === 'localhost' ? '127.0.0.1' : '0.0.0.0';
 }
 
-function createRoutes() {
-  const serviceRoutes = createServiceRoutes({ getStatus: getApiServiceStatus });
+/**
+ * 双面路由装配（纯函数）：唯一的装配真值，endpointCoverage 测试直接消费本函数，
+ * createRoutes 接线漂移（如漏挂 remap 组）会立刻被测试暴露。
+ */
+export function assembleApiRoutes(
+  statusProvider: { getStatus: () => ApiServiceStatus },
+  eventHub: Pick<ApiEventHub, 'subscribe'>,
+): ApiRoute[] {
+  const serviceRoutes = createServiceRoutes(statusProvider);
   const imageBinaryRoutes = createImageBinaryRoutes();
 
   return [
@@ -56,14 +64,18 @@ function createRoutes() {
     ...imageBinaryRoutes,
     ...createBooruRoutes(),
     ...createApiLogRoutes(),
-    ...createEventRoutes(apiEventHub),
+    ...createEventRoutes(eventHub),
     // 手机面 /api/app/v1/*：「允许手机端连接」一门制（spec §3.1）
     ...remapToAppNamespace(serviceRoutes),
     ...remapToAppNamespace(imageBinaryRoutes),
     ...createSyncRoutes(),
     ...createGalleryWriteRoutes(),
-    ...createAppEventRoutes(apiEventHub),
+    ...createAppEventRoutes(eventHub),
   ];
+}
+
+function createRoutes() {
+  return assembleApiRoutes({ getStatus: getApiServiceStatus }, apiEventHub);
 }
 
 export function getApiServiceStatus(): ApiServiceStatus {
