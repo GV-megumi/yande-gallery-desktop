@@ -6,20 +6,11 @@ describe('api permission mapping', () => {
     ['GET', '/api/v1/galleries', 'galleryRead'],
     ['GET', '/api/v1/galleries/1', 'galleryRead'],
     ['GET', '/api/v1/galleries/1/images', 'galleryRead'],
-    ['POST', '/api/v1/galleries', 'galleryWrite'],
-    ['PATCH', '/api/v1/galleries/3', 'galleryWrite'],
-    ['DELETE', '/api/v1/galleries/3', 'galleryWrite'],
-    ['POST', '/api/v1/galleries/3/images', 'galleryWrite'],
-    ['DELETE', '/api/v1/galleries/3/images', 'galleryWrite'],
     ['GET', '/api/v1/images', 'imageRead'],
     ['GET', '/api/v1/images/5', 'imageRead'],
     ['GET', '/api/v1/images/5/thumbnail', 'imageBinary'],
     ['GET', '/api/v1/images/5/preview', 'imageBinary'],
     ['GET', '/api/v1/images/5/file', 'imageBinary'],
-    ['DELETE', '/api/v1/images/5', 'imageWrite'],
-    ['POST', '/api/v1/images/batch-delete', 'imageWrite'],
-    ['POST', '/api/v1/images/5/tags', 'imageWrite'],
-    ['DELETE', '/api/v1/images/5/tags', 'imageWrite'],
     ['GET', '/api/v1/booru-sites', 'booruRead'],
     ['GET', '/api/v1/booru-sites/active', 'booruRead'],
     ['GET', '/api/v1/booru-posts/search', 'booruRead'],
@@ -53,11 +44,6 @@ describe('api permission mapping', () => {
     ['GET', '/api/v1/events/api-logs', 'eventsSubscribe'],
     ['GET', '/api/v1/events/system', 'eventsSubscribe'],
     ['GET', '/api/v1/api-logs', 'apiLogsRead'],
-    ['GET', '/api/v1/sync/meta', 'galleryRead'],
-    ['GET', '/api/v1/sync/images', 'galleryRead'],
-    ['GET', '/api/v1/sync/galleries', 'galleryRead'],
-    ['GET', '/api/v1/sync/tags', 'galleryRead'],
-    ['GET', '/api/v1/sync/image-ids', 'galleryRead'],
   ] as const)('maps %s %s to %s', (method, pathname, permission) => {
     expect(resolvePermissionForRequest(method, pathname)).toBe(permission);
   });
@@ -91,6 +77,25 @@ describe('api permission mapping', () => {
     ['GET', '/api/v1/config'],
     ['GET', '/api/v1/system'],
   ] as const)('does not map unplanned service alias %s %s', (method, pathname) => {
+    expect(resolvePermissionForRequest(method, pathname)).toBeUndefined();
+  });
+
+  it.each([
+    ['POST', '/api/v1/galleries'],
+    ['PATCH', '/api/v1/galleries/3'],
+    ['DELETE', '/api/v1/galleries/3'],
+    ['POST', '/api/v1/galleries/3/images'],
+    ['DELETE', '/api/v1/galleries/3/images'],
+    ['DELETE', '/api/v1/images/5'],
+    ['POST', '/api/v1/images/batch-delete'],
+    ['POST', '/api/v1/images/5/tags'],
+    ['DELETE', '/api/v1/images/5/tags'],
+    ['GET', '/api/v1/sync/meta'],
+    ['GET', '/api/v1/sync/images'],
+    ['GET', '/api/v1/sync/galleries'],
+    ['GET', '/api/v1/sync/tags'],
+    ['GET', '/api/v1/sync/image-ids'],
+  ] as const)('agent 面不再注册已迁移到手机面的路由 %s %s（spec §3.2）', (method, pathname) => {
     expect(resolvePermissionForRequest(method, pathname)).toBeUndefined();
   });
 

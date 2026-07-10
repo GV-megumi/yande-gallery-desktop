@@ -13,17 +13,8 @@ const apiPermissionRules: ApiPermissionRule[] = [
   { method: 'GET', path: /^\/api\/v1\/service\/health\/?$/, permissionKey: null },
 
   { method: 'GET', path: /^\/api\/v1\/galleries(?:\/[^/]+(?:\/images)?)?\/?$/, permissionKey: 'galleryRead' },
-  { method: 'POST', path: /^\/api\/v1\/galleries\/?$/, permissionKey: 'galleryWrite' },
-  { method: 'PATCH', path: /^\/api\/v1\/galleries\/[^/]+\/?$/, permissionKey: 'galleryWrite' },
-  { method: 'DELETE', path: /^\/api\/v1\/galleries\/[^/]+\/?$/, permissionKey: 'galleryWrite' },
-  { method: 'POST', path: /^\/api\/v1\/galleries\/[^/]+\/images\/?$/, permissionKey: 'galleryWrite' },
-  { method: 'DELETE', path: /^\/api\/v1\/galleries\/[^/]+\/images\/?$/, permissionKey: 'galleryWrite' },
   { method: 'GET', path: /^\/api\/v1\/images(?:\/[^/]+)?\/?$/, permissionKey: 'imageRead' },
   { method: 'GET', path: /^\/api\/v1\/images\/[^/]+\/(?:thumbnail|preview|file)\/?$/, permissionKey: 'imageBinary' },
-  { method: 'DELETE', path: /^\/api\/v1\/images\/[^/]+\/?$/, permissionKey: 'imageWrite' },
-  { method: 'POST', path: /^\/api\/v1\/images\/batch-delete\/?$/, permissionKey: 'imageWrite' },
-  { method: 'POST', path: /^\/api\/v1\/images\/[^/]+\/tags\/?$/, permissionKey: 'imageWrite' },
-  { method: 'DELETE', path: /^\/api\/v1\/images\/[^/]+\/tags\/?$/, permissionKey: 'imageWrite' },
 
   { method: 'GET', path: /^\/api\/v1\/booru-sites(?:\/active)?\/?$/, permissionKey: 'booruRead' },
   { method: 'GET', path: /^\/api\/v1\/booru-posts\/search\/?$/, permissionKey: 'booruRead' },
@@ -47,8 +38,6 @@ const apiPermissionRules: ApiPermissionRule[] = [
 
   { method: 'GET', path: new RegExp(`^/api/v1/events/(?:${eventChannelPattern})/?$`), permissionKey: 'eventsSubscribe' },
   { method: 'GET', path: /^\/api\/v1\/api-logs\/?$/, permissionKey: 'apiLogsRead' },
-
-  { method: 'GET', path: /^\/api\/v1\/sync\/(?:meta|images|galleries|tags|image-ids)\/?$/, permissionKey: 'galleryRead' },
 ];
 
 export function resolvePermissionForRequest(
