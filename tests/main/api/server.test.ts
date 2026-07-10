@@ -34,8 +34,6 @@ const defaultPermissions: ApiServiceConfig['permissions'] = {
   imageBinary: true,
   booruRead: true,
   booruWrite: true,
-  imageWrite: true,
-  galleryWrite: true,
   favoriteTagsRead: true,
   favoriteTagsWrite: true,
   downloadsRead: true,
@@ -50,6 +48,9 @@ function config(overrides: Partial<ApiServiceConfig> = {}): ApiServiceConfig {
     mode: 'localhost',
     port: 0,
     apiKey: 'test-api-key',
+    app: {
+      enabled: false,
+    },
     permissions: {
       ...defaultPermissions,
       ...overrides.permissions,
@@ -647,5 +648,91 @@ describe('createApiHttpServer', () => {
     } finally {
       await close(server);
     }
+  });
+});
+
+describe('namespace gates（spec §4）', () => {
+  const appRoute: ApiRoute = {
+    method: 'GET',
+    pattern: '/api/app/v1/sync/meta',
+    handler: () => ({ ok: 'app' }),
+  };
+  const agentRoute: ApiRoute = {
+    method: 'GET',
+    pattern: '/api/v1/galleries',
+    handler: () => ({ ok: 'agent' }),
+  };
+
+  it('app.enabled=false 时手机面 403 PERMISSION_DENIED', async () => {
+    const server = createApiHttpServer({ config: config(), routes: [appRoute] });
+    const result = await request(server, {
+      path: '/api/app/v1/sync/meta',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(403);
+    expect((result.json as { error: { code: string } }).error.code).toBe('PERMISSION_DENIED');
+    await close(server);
+  });
+
+  it('app.enabled=true 时手机面放行且不查细化权限', async () => {
+    const allPermissionsOff = Object.fromEntries(
+      Object.keys(defaultPermissions).map((key) => [key, false]),
+    ) as ApiServiceConfig['permissions'];
+    const server = createApiHttpServer({
+      config: config({ app: { enabled: true }, permissions: allPermissionsOff }),
+      routes: [appRoute],
+    });
+    const result = await request(server, {
+      path: '/api/app/v1/sync/meta',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(200);
+    expect((result.json as { data: { ok: string } }).data.ok).toBe('app');
+    await close(server);
+  });
+
+  it('enabled=false（app-only 运行）时 agent 面 403 而手机面可用', async () => {
+    const server = createApiHttpServer({
+      config: config({ enabled: false, app: { enabled: true } }),
+      routes: [appRoute, agentRoute],
+    });
+    const agentDenied = await request(server, {
+      path: '/api/v1/galleries',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(agentDenied.statusCode).toBe(403);
+    const appOk = await request(server, {
+      path: '/api/app/v1/sync/meta',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(appOk.statusCode).toBe(200);
+    await close(server);
+  });
+
+  it('手机面未挂载路径仍 404（如非 system 事件频道）', async () => {
+    const server = createApiHttpServer({
+      config: config({ app: { enabled: true } }),
+      routes: [appRoute],
+    });
+    const result = await request(server, {
+      path: '/api/app/v1/events/downloads',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(404);
+    await close(server);
+  });
+
+  it('手机面请求日志 permissionKey 记 null', async () => {
+    const server = createApiHttpServer({
+      config: config({ app: { enabled: true }, logs: { enabled: true, visibleInUi: true } }),
+      routes: [appRoute],
+    });
+    await request(server, { path: '/api/app/v1/sync/meta', authorization: 'Bearer test-api-key' });
+    expect(mockRecordApiLog).toHaveBeenCalledWith(expect.objectContaining({
+      path: '/api/app/v1/sync/meta',
+      permissionKey: null,
+      success: true,
+    }));
+    await close(server);
   });
 });

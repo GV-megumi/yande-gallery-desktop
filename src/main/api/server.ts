@@ -1,6 +1,7 @@
 import http from 'http';
 import type { ApiServiceConfig, ApiServicePermissionKey } from '../../shared/types.js';
 import { pruneApiLogs, recordApiLog, type NewApiLogEntry } from '../services/apiLogService.js';
+import { APP_API_PREFIX } from './appNamespace.js';
 import { apiEventHub } from './events/eventHub.js';
 import { resolvePermissionForRequest } from './permissions.js';
 import { sendApiError, sendSuccess, type NormalizedApiError } from './response.js';
@@ -76,15 +77,28 @@ export function createApiHttpServer(options: CreateApiHttpServerOptions): http.S
         throw new ApiHttpError(404, 'NOT_FOUND', 'Not found');
       }
 
-      const permissionKey = resolvePermissionForRequest(method, url.pathname);
-      if (permissionKey === undefined) {
-        throw new Error('API route permission is not configured');
-      }
+      // 命名空间分流（spec §4）：手机面整面一门制，agent 面走细化权限；
+      // 服务器可能因任一面开启而运行，故两面各自查门。
+      if (url.pathname.startsWith(`${APP_API_PREFIX}/`)) {
+        if (options.config.app.enabled !== true) {
+          throw new ApiHttpError(403, 'PERMISSION_DENIED', 'Mobile app access is disabled');
+        }
+        // logState.permissionKey 保持 null：路径前缀已自解释消费者身份（spec §4）
+      } else {
+        if (options.config.enabled !== true) {
+          throw new ApiHttpError(403, 'PERMISSION_DENIED', 'Agent API is disabled');
+        }
 
-      logState.permissionKey = permissionKey;
+        const permissionKey = resolvePermissionForRequest(method, url.pathname);
+        if (permissionKey === undefined) {
+          throw new Error('API route permission is not configured');
+        }
 
-      if (permissionKey && options.config.permissions[permissionKey] !== true) {
-        throw new ApiHttpError(403, 'PERMISSION_DENIED', 'Permission denied');
+        logState.permissionKey = permissionKey;
+
+        if (permissionKey && options.config.permissions[permissionKey] !== true) {
+          throw new ApiHttpError(403, 'PERMISSION_DENIED', 'Permission denied');
+        }
       }
 
       const data = await routeMatch.route.handler({
@@ -95,7 +109,7 @@ export function createApiHttpServer(options: CreateApiHttpServerOptions): http.S
         query: url.searchParams,
         params: routeMatch.params,
         sourceIp,
-        permissionKey,
+        permissionKey: logState.permissionKey,
       });
 
       if (data !== undefined && canWriteJson(res)) {
