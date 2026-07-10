@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.photos
 
+import com.bluskysoftware.yandegallery.awaitValue
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.paging.testing.asSnapshot
 import androidx.test.core.app.ApplicationProvider
@@ -108,12 +109,10 @@ class PhotosViewModelTest {
 
         graph.serverRepository.addAndActivate("b", "http://b", "k")
 
-        vm.selection.selectedFlow.test {
-            var cur = awaitItem()
-            while (cur.isNotEmpty()) cur = awaitItem()
-            assertTrue(cur.isEmpty())
-            cancelAndIgnoreRemainingEvents()
-        }
+        // 终态轮询断言（原 turbine 等发射同受真实回环时序竞态，见 TestAwait）：清空经
+        // graph observeActive(真 IO) → VM 收集器 → selection.clear() 两级真实链路
+        val cleared = awaitValue({ vm.selection.selected }) { it.isEmpty() }
+        assertTrue(cleared.isEmpty())
     }
 
     @Test
@@ -131,12 +130,9 @@ class PhotosViewModelTest {
     fun `activeServerResolved——DB 首发射后翻 true（无激活服务器亦然，resolved 不等于有服务器）`() = runTest {
         // 不种服务器：observeActive 首发射 null，但 resolved（map{true}）仍应翻 true——门控只判「DB 是否已答复」。
         val vm = PhotosViewModel(graph)
-        vm.activeServerResolved.test {
-            var resolved = awaitItem()
-            while (!resolved) resolved = awaitItem()
-            assertTrue("DB 首发射后 activeServerResolved 应为 true（即使无激活服务器）", resolved)
-            cancelAndIgnoreRemainingEvents()
-        }
+        // 终态轮询断言（原 turbine 等发射同受真实回环时序竞态，见 TestAwait）
+        val resolved = awaitValue({ vm.activeServerResolved.first() }) { it }
+        assertTrue("DB 首发射后 activeServerResolved 应为 true（即使无激活服务器）", resolved)
         assertEquals("此用例无激活服务器：resolved=true 与「有服务器」无关", null, graph.serverRepository.activeServer())
     }
 
@@ -157,7 +153,7 @@ class PhotosViewModelTest {
         val vm = PhotosViewModel(graph)
         vm.setDensityTier(DensityTier.MONTH)
         // 真 IO 回环：不等档位落定即取快照会拿到旧（日）分组，先 await MONTH 再断言（critic 定准）。
-        vm.densityTier.first { it == DensityTier.MONTH }
+        awaitValue({ vm.densityTier.first() }) { it == DensityTier.MONTH }
         // MIUI 月头同年只显月/跨年带年：期望用与生产同函数拼，防跨年后脆断
         val today = LocalDate.now()
         assertEquals(
@@ -171,7 +167,7 @@ class PhotosViewModelTest {
         seedCrossMonth()
         val vm = PhotosViewModel(graph)
         // 默认 DAY_4（日分组）；prefs 为空 → densityTierName=null → fromName=DEFAULT。
-        vm.densityTier.first { it == DensityTier.DAY_4 }
+        awaitValue({ vm.densityTier.first() }) { it == DensityTier.DAY_4 }
         assertEquals("日档分组头应为 MIUI 日头形态", expectedDayHeaders(), headerDisplays(vm))
     }
 
@@ -181,10 +177,10 @@ class PhotosViewModelTest {
         seedCrossMonth()
         val vm = PhotosViewModel(graph)
         vm.setPhotoSort(PhotoSort.SIZE_DESC)
-        vm.photoSort.first { it == PhotoSort.SIZE_DESC }   // 真 IO 回环：等排序落定再取快照（critic 定准同款）
+        awaitValue({ vm.photoSort.first() }) { it == PhotoSort.SIZE_DESC }   // 真 IO 回环：等排序落定再取快照（critic 定准同款）
         assertEquals("平铺模式不得插任何日期分组头（spec §3.2）", emptyList<String>(), headerDisplays(vm))
         vm.setPhotoSort(PhotoSort.TIME_DESC)
-        vm.photoSort.first { it == PhotoSort.TIME_DESC }
+        awaitValue({ vm.photoSort.first() }) { it == PhotoSort.TIME_DESC }
         assertEquals("切回时间排序分组头恢复", expectedDayHeaders(), headerDisplays(vm))
     }
 
@@ -197,7 +193,7 @@ class PhotosViewModelTest {
         seedCrossMonth()
         val vm = PhotosViewModel(graph)
         vm.setDensityTier(DensityTier.DAY_3)
-        vm.densityTier.first { it == DensityTier.DAY_3 }
+        awaitValue({ vm.densityTier.first() }) { it == DensityTier.DAY_3 }
         assertEquals("纯列数变化后仍应为日分组", expectedDayHeaders(), headerDisplays(vm))
     }
 
@@ -207,9 +203,8 @@ class PhotosViewModelTest {
         val vm = PhotosViewModel(graph)
         vm.setPhotoSort(PhotoSort.SIZE_DESC)
         assertEquals(PhotoSort.SIZE_DESC, graph.viewPrefs.photoSort.value)   // 共享实例即时可见（spec §3.4）
-        // 落盘走 graph 真 IO scope（advanceUntilIdle 驱不动真 Dispatchers.IO）：
-        // 按本文件档位持久化用例既有惯例 first{} 等值到位（写丢失时此处 runTest 超时红灯）
-        assertEquals("SIZE_DESC", graph.prefsStore.photosSortName.first { it == "SIZE_DESC" })
+        // 落盘走 graph 真 IO scope：轮询等值断言（谓词 first{} 有 DataStore lost-wakeup 竞态，见 TestAwait 注释）
+        assertEquals("SIZE_DESC", awaitValue({ graph.prefsStore.photosSortName.first() }) { it == "SIZE_DESC" })
     }
 
     @Test
@@ -217,7 +212,7 @@ class PhotosViewModelTest {
         val vm1 = PhotosViewModel(graph)
         vm1.setDensityTier(DensityTier.DAY_3)
         // BUG-18 后内存态即时生效、落盘异步：须等 DataStore 真正写完再建第二个 VM（其 init 只回填一次）
-        graph.prefsStore.densityTierName.first { it == DensityTier.DAY_3.name }
+        awaitValue({ graph.prefsStore.densityTierName.first() }) { it == DensityTier.DAY_3.name }
 
         // 同 graph（同 DataStore）新建第二个 VM：首帧默认，init 回填持久档 DAY_3。
         val vm2 = PhotosViewModel(graph)

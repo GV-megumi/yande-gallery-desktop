@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import com.bluskysoftware.yandegallery.awaitValue
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
@@ -132,8 +133,8 @@ class AlbumDetailViewModelTest {
         assertEquals(5, graph.viewPrefs.detailColumns.value)
         // 落盘走 graph 真 IO scope（advanceUntilIdle 驱不动真 Dispatchers.IO）：
         // 按 PhotosViewModelTest 既有惯例 first{} 等值到位（写丢失时此处 runTest 超时红灯）
-        assertEquals("SIZE_ASC", graph.prefsStore.albumDetailSortName.first { it == "SIZE_ASC" })
-        assertEquals(5, graph.prefsStore.albumDetailColumns.first { it == 5 })
+        assertEquals("SIZE_ASC", awaitValue({ graph.prefsStore.albumDetailSortName.first() }) { it == "SIZE_ASC" })
+        assertEquals(5, awaitValue({ graph.prefsStore.albumDetailColumns.first() }) { it == 5 })
     }
 
     @Test

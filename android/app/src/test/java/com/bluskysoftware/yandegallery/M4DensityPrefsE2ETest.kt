@@ -112,9 +112,9 @@ class M4DensityPrefsE2ETest {
             val vm1 = PhotosViewModel(graph)
             vm1.setDensityTier(DensityTier.DAY_3)
             // BUG-18 后内存态即时、落盘异步：等 DataStore 真 IO 写完再建新 VM（其 init 只回填一次持久档）
-            graph.prefsStore.densityTierName.first { it == DensityTier.DAY_3.name }
+            awaitValue({ graph.prefsStore.densityTierName.first() }) { it == DensityTier.DAY_3.name }
             val vm2 = PhotosViewModel(graph)                    // 新实例（模拟重启读持久层）
-            assertEquals(DensityTier.DAY_3, vm2.densityTier.first { it == DensityTier.DAY_3 })
+            assertEquals(DensityTier.DAY_3, awaitValue({ vm2.densityTier.first() }) { it == DensityTier.DAY_3 })
         }
     }
 
@@ -129,7 +129,7 @@ class M4DensityPrefsE2ETest {
             )
             val vm = PhotosViewModel(graph)
             vm.setDensityTier(DensityTier.MONTH)
-            vm.densityTier.first { it == DensityTier.MONTH }   // 先等档位落定再取快照（否则拿旧分组）
+            awaitValue({ vm.densityTier.first() }) { it == DensityTier.MONTH }   // 先等档位落定再取快照（否则拿旧分组）
             // MIUI 头文案随运行日期变（同年只显月/跨年带年）：期望用与生产同函数拼，防跨年后脆断
             val today = LocalDate.now()
             assertEquals(
@@ -138,7 +138,7 @@ class M4DensityPrefsE2ETest {
             )
 
             vm.setDensityTier(DensityTier.DAY_4)
-            vm.densityTier.first { it == DensityTier.DAY_4 }
+            awaitValue({ vm.densityTier.first() }) { it == DensityTier.DAY_4 }
             // 日头 MIUI 文案含周X且随时区/运行日期变：期望经生产同函数（dayKeyOf→dayHeaderDisplayOf）拼装
             val expectedDays = listOf(
                 dayHeaderDisplayOf(dayKeyOf("2026-07-15T12:00:00.000Z"), today),

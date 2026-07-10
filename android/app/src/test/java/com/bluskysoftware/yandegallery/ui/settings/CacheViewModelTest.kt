@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.settings
 
+import com.bluskysoftware.yandegallery.awaitValue
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
@@ -66,7 +67,7 @@ class CacheViewModelTest {
     fun `refresh 后 stats 非 null 且上限为默认 2G 1G`() = runTest {
         val vm = CacheViewModel(graph)
         vm.refresh()
-        val stats = vm.stats.first { it != null }!!
+        val stats = awaitValue({ vm.stats.first() }) { it != null }!!   // 轮询等值（TestAwait 机理注释）
         assertNotNull(stats)
         assertEquals(2L * 1024 * 1024 * 1024, stats.thumbMax)
         assertEquals(1L * 1024 * 1024 * 1024, stats.previewMax)
@@ -76,7 +77,7 @@ class CacheViewModelTest {
     fun `setThumbLimitBytes 后 thumbLimitBytes 回读为新值`() = runTest {
         val vm = CacheViewModel(graph)
         vm.setThumbLimitBytes(4L * 1024 * 1024 * 1024)
-        val v = vm.thumbLimitBytes.first { it == 4L * 1024 * 1024 * 1024 }
+        val v = awaitValue({ vm.thumbLimitBytes.first() }) { it == 4L * 1024 * 1024 * 1024 }
         assertEquals(4L * 1024 * 1024 * 1024, v)
     }
 
@@ -102,14 +103,14 @@ class CacheViewModelTest {
         )
         val vm = CacheViewModel(graph)
 
-        val list = vm.downloads.first { it.isNotEmpty() }
+        val list = awaitValue({ vm.downloads.first() }) { it.isNotEmpty() }
         assertEquals(1, list.size)
         assertEquals(7L, list[0].imageId)
         assertEquals("content://media/7", list[0].mediaStoreUri)
         assertEquals("neko.jpg", list[0].filename)
 
         vm.clearDownloadRecords()
-        val empty = vm.downloads.first { it.isEmpty() }
+        val empty = awaitValue({ vm.downloads.first() }) { it.isEmpty() }
         assertEquals(0, empty.size)
     }
 

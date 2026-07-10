@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.albums
 
+import com.bluskysoftware.yandegallery.awaitValue
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
@@ -107,11 +108,11 @@ class AlbumsViewModelTest {
         viewModel.setPinned(1, true)
         // 组织写经 viewModelScope 落到 Room 真实执行器线程；advanceUntilIdle 只推虚拟时钟不等
         // 真实线程（SearchViewModelTest 同坑）——用 observeAll().first{谓词} 挂起等目标态，确定性等价。
-        db.albumPrefsDao().observeAll().first { rows -> rows.any { it.galleryId == 1L && it.pinned } }
+        awaitValue({ db.albumPrefsDao().observeAll().first() }) { rows -> rows.any { it.galleryId == 1L && it.pinned } }
         assertTrue(db.albumPrefsDao().byId(1)!!.pinned)
 
         viewModel.setInOther(1, true)
-        db.albumPrefsDao().observeAll().first { rows -> rows.any { it.galleryId == 1L && it.inOther } }
+        awaitValue({ db.albumPrefsDao().observeAll().first() }) { rows -> rows.any { it.galleryId == 1L && it.inOther } }
         val row = db.albumPrefsDao().byId(1)!!
         assertTrue(row.inOther)
         assertFalse(row.pinned)   // 互斥由 DAO 事务保证

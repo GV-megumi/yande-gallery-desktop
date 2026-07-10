@@ -293,12 +293,21 @@ testTag 仅一处改名（`albums_new_fab`→`albums_new`）。要点：
 （多选长按视觉 adb 无法驱动，由 SelectionActions/selection_ring 契约用例覆盖）；折叠头手感实机核验
 （上滑收起/中途下滑不弹头/settle 无半截标题）。红魔与小米平板待用户上手抽验（安装包 versionCode 6 / 0.5.0）。
 
-已知测试基建隐患：全量套件单 fork JVM 下 DataStore 类（CacheViewModelTest/M4DensityPrefsE2ETest 等）
-偶发 `UncompletedCoroutinesError` 60s 空转——与业务 diff 无关的协程饥饿存量病，重跑即绿但今日频率升高，
-建议后续专项治理（test Application 替身或 `forkEvery` 分片）。
-**2026-07-10 升级为阻塞级**：v0.6.0 收官日 7 轮全量无一全绿（每轮 1-3 例在上述类间轮转、签名一致，
-单类跑亦开始偶发，daemon 重启无效；每例跨轮均多次绿过，与 diff 无关已交叉证伪），收口按
-「全量 + 失败类单独复证」组合口径判绿。下轮开工前应优先根治，否则每次交付都耗在重跑上。
+~~已知测试基建隐患：DataStore 类偶发 `UncompletedCoroutinesError` 60s 空转~~ **已于 2026-07-10 根治**
+（spec：`doc/superpowers/specs/2026-07-10-android-test-flake-root-fix-design.md`），双层根因与修复：
+
+1. **Robolectric 每测试方法实例化真实 YandeGalleryApp**→AppGraph→Room 库永不释放——
+   `app/src/test/resources/robolectric.properties` 换裸 Application 替身；全量从 2m36s 降至 **~30s**。
+2. **flake 真身：DataStore data flow 的 lost-wakeup 竞态**——runTest 内谓词 `first { 条件 }` 等
+   「写后新值」，收集者初读旧值后若写完成通知发生在其注册前则永久挂起（实证：挂死用例内裸
+   `first()` 能读到目标值）。修复为 `awaitValue({ flow.first() }) { 条件 }` 轮询等值
+   （`TestAwait.kt`，每轮全新收集读现值 + Default 真实调度器）。
+   **测试纪律：今后 runTest 内等真实回环（DataStore/Room）产生的值，一律 awaitValue，
+   禁用谓词 first{} 与 turbine 等发射。**
+
+验证：全量 **五连真跑全绿**（71 类/385 例/0 失败，每轮 ~30s），三惯犯类（CacheViewModelTest/
+PhotosViewModelTest/M4DensityPrefsE2ETest）单跑复证绿。排查中证伪并撤销：forkEvery 分片、
+java.io.tmpdir 迁移、双调度器分裂假说（详见 spec 排查记录）。
 
 ## 9. v0.6.0 通用图库功能补全
 

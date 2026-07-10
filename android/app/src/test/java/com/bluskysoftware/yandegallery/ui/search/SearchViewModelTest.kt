@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.search
 
+import com.bluskysoftware.yandegallery.awaitValue
 import androidx.paging.testing.asSnapshot
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
@@ -136,16 +137,16 @@ class SearchViewModelTest {
     fun `commitSearch 写入历史`() = runTest(scheduler) {
         vm.onQueryChange("sunset")
         vm.commitSearch()
-        assertTrue("sunset" in vm.history.first { "sunset" in it })
+        assertTrue("sunset" in awaitValue({ vm.history.first() }) { "sunset" in it })
     }
 
     @Test
     fun `clearHistory 清空历史`() = runTest(scheduler) {
         vm.onQueryChange("sunset")
         vm.commitSearch()
-        assertTrue(vm.history.first { it.isNotEmpty() }.isNotEmpty())
+        assertTrue(awaitValue({ vm.history.first() }) { it.isNotEmpty() }.isNotEmpty())
 
         vm.clearHistory()
-        assertTrue(vm.history.first { it.isEmpty() }.isEmpty())
+        assertTrue(awaitValue({ vm.history.first() }) { it.isEmpty() }.isEmpty())
     }
 }
