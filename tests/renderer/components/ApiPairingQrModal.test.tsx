@@ -10,8 +10,8 @@ const getPairingInfo = vi.fn();
 const basePairing = {
   name: 'test-host',
   port: 38947,
-  mode: 'lan' as const,
   running: true,
+  appEnabled: true,
   apiKey: 'secret-key',
   lanAddresses: ['192.168.1.10'],
 };
@@ -88,15 +88,26 @@ describe('ApiPairingQrModal', () => {
     expect(getPairingInfo).not.toHaveBeenCalled();
   });
 
-  it('mode 为 localhost 时提示仅本机模式警告', async () => {
+  it('appEnabled=false 时提示未开启「允许手机端连接」', async () => {
     getPairingInfo.mockResolvedValue({
       success: true,
-      data: { ...basePairing, mode: 'localhost' },
+      data: { ...basePairing, appEnabled: false },
     });
 
     render(<ApiPairingQrModal open onClose={vi.fn()} />);
 
-    expect(await screen.findByText(/仅本机模式/)).toBeTruthy();
+    expect(await screen.findByText(/未开启「允许手机端连接」/)).toBeTruthy();
+  });
+
+  it('appEnabled=true 但服务未运行时提示启动失败警告', async () => {
+    getPairingInfo.mockResolvedValue({
+      success: true,
+      data: { ...basePairing, appEnabled: true, running: false },
+    });
+
+    render(<ApiPairingQrModal open onClose={vi.fn()} />);
+
+    expect(await screen.findByText(/API 服务未运行（启动失败）/)).toBeTruthy();
   });
 
   it('lanAddresses 多个时渲染 IP 选择器', async () => {
