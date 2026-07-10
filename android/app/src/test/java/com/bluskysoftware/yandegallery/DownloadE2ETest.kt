@@ -117,11 +117,11 @@ class DownloadE2ETest {
 
             assertEquals(ListenableWorker.Result.success(), result)
 
-            // ① 请求形状：恰一次 GET /api/v1/images/77/file，Bearer 来自激活服务器行（非硬编码 provider）
+            // ① 请求形状：恰一次 GET /api/app/v1/images/77/file，Bearer 来自激活服务器行（非硬编码 provider）
             assertEquals("成功链路应恰好一次请求", 1, server.requestCount)
             val req = server.takeRequest()
             assertEquals("GET", req.method)
-            assertEquals("/api/v1/images/77/file", req.path)
+            assertEquals("/api/app/v1/images/77/file", req.path)
             assertEquals("Bearer key-dl", req.getHeader("Authorization"))
 
             // ② 网关效果：完整字节 + finalize（挂起条目转正）+ 无 discard

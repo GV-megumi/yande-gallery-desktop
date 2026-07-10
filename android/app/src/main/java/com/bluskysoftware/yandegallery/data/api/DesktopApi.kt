@@ -15,64 +15,64 @@ import retrofit2.http.Query
 import retrofit2.http.Streaming
 
 interface DesktopApi {
-    @GET("api/v1/service/info")
+    @GET("api/app/v1/service/info")
     suspend fun serviceInfo(): ApiEnvelope<JsonObject>
 
-    @GET("api/v1/sync/meta")
+    @GET("api/app/v1/sync/meta")
     suspend fun syncMeta(): ApiEnvelope<SyncMetaDto>
 
-    @GET("api/v1/sync/images")
+    @GET("api/app/v1/sync/images")
     suspend fun syncImages(
         @Query("cursor") cursor: String? = null,
         @Query("limit") limit: Int? = null,
     ): ApiEnvelope<SyncImagesPageDto>
 
-    @GET("api/v1/sync/galleries")
+    @GET("api/app/v1/sync/galleries")
     suspend fun syncGalleries(): ApiEnvelope<ItemsDto<SyncGalleryDto>>
 
-    @GET("api/v1/sync/tags")
+    @GET("api/app/v1/sync/tags")
     suspend fun syncTags(): ApiEnvelope<ItemsDto<SyncTagDto>>
 
-    @GET("api/v1/sync/image-ids")
+    @GET("api/app/v1/sync/image-ids")
     suspend fun syncImageIds(): ApiEnvelope<ImageIdsDto>
 
     // ---- 写接口（M3）----
     // Retrofit 的 @DELETE 不允许 @Body，带 body 的删除用 @HTTP(hasBody=true)。
 
-    @DELETE("api/v1/images/{imageId}")
+    @DELETE("api/app/v1/images/{imageId}")
     suspend fun deleteImage(@Path("imageId") imageId: Long): ApiEnvelope<RemovedDto>
 
-    @POST("api/v1/images/batch-delete")
+    @POST("api/app/v1/images/batch-delete")
     suspend fun batchDeleteImages(@Body body: ImageIdsBody): ApiEnvelope<BatchDeleteDto>
 
-    @POST("api/v1/images/{imageId}/tags")
+    @POST("api/app/v1/images/{imageId}/tags")
     suspend fun addImageTags(@Path("imageId") imageId: Long, @Body body: TagNamesDto): ApiEnvelope<UpdatedDto>
 
-    @HTTP(method = "DELETE", path = "api/v1/images/{imageId}/tags", hasBody = true)
+    @HTTP(method = "DELETE", path = "api/app/v1/images/{imageId}/tags", hasBody = true)
     suspend fun removeImageTags(@Path("imageId") imageId: Long, @Body body: TagNamesDto): ApiEnvelope<UpdatedDto>
 
-    @POST("api/v1/galleries")
+    @POST("api/app/v1/galleries")
     suspend fun createGallery(@Body body: GalleryNameDto): ApiEnvelope<CreatedIdDto>
 
-    @PATCH("api/v1/galleries/{galleryId}")
+    @PATCH("api/app/v1/galleries/{galleryId}")
     suspend fun renameGallery(@Path("galleryId") galleryId: Long, @Body body: GalleryNameDto): ApiEnvelope<UpdatedDto>
 
     // v0.6：设图集封面（桌面 PATCH 已扩展接受 coverImageId，spec §6.1）
-    @PATCH("api/v1/galleries/{galleryId}")
+    @PATCH("api/app/v1/galleries/{galleryId}")
     suspend fun setGalleryCover(@Path("galleryId") galleryId: Long, @Body body: GalleryCoverDto): ApiEnvelope<UpdatedDto>
 
-    @DELETE("api/v1/galleries/{galleryId}")
+    @DELETE("api/app/v1/galleries/{galleryId}")
     suspend fun deleteGallery(@Path("galleryId") galleryId: Long): ApiEnvelope<RemovedDto>
 
-    @POST("api/v1/galleries/{galleryId}/images")
+    @POST("api/app/v1/galleries/{galleryId}/images")
     suspend fun addGalleryImages(@Path("galleryId") galleryId: Long, @Body body: ImageIdsBody): ApiEnvelope<AddMembersDto>
 
-    @HTTP(method = "DELETE", path = "api/v1/galleries/{galleryId}/images", hasBody = true)
+    @HTTP(method = "DELETE", path = "api/app/v1/galleries/{galleryId}/images", hasBody = true)
     suspend fun removeGalleryImages(@Path("galleryId") galleryId: Long, @Body body: ImageIdsBody): ApiEnvelope<RemoveMembersDto>
 
     // 原图流式下载：@Streaming 避免整体缓存到内存；Range 头支持断点续传（Task 8 用）。
     @Streaming
-    @GET("api/v1/images/{imageId}/file")
+    @GET("api/app/v1/images/{imageId}/file")
     suspend fun downloadOriginal(
         @Path("imageId") imageId: Long,
         @Header("Range") range: String? = null,

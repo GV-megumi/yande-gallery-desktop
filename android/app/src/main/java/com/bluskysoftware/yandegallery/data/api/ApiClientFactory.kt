@@ -13,7 +13,7 @@ object ApiClientFactory {
     @kotlinx.serialization.Serializable
     private data class ErrorEnvelope(val error: ApiErrorDto? = null)
 
-    private val BINARY_PATH = Regex("""/api/v1/images/\d+/(thumbnail|preview|file)/?$""")
+    private val BINARY_PATH = Regex("""/api/app/v1/images/\d+/(thumbnail|preview|file)/?$""")
 
     /**
      * Bearer 拦截器动态取 key：切换激活服务器后无需重建 OkHttpClient。

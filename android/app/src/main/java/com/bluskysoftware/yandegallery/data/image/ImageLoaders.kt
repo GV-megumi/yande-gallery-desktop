@@ -10,7 +10,7 @@ import okhttp3.OkHttpClient
 import okio.Path.Companion.toOkioPath
 
 fun thumbnailUrl(baseUrl: String, imageId: Long): String =
-    "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/thumbnail"
+    "${baseUrl.trimEnd('/')}/api/app/v1/images/$imageId/thumbnail"
 
 /**
  * 缓存键按本机 servers 行 id 做命名空间：多服务器的 imageId 各来自不同桌面库，可能重号，
@@ -54,10 +54,10 @@ fun thumbnailRequest(context: Context, baseUrl: String, serverId: Long, imageId:
         .build()
 
 fun previewUrl(baseUrl: String, imageId: Long): String =
-    "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/preview"
+    "${baseUrl.trimEnd('/')}/api/app/v1/images/$imageId/preview"
 
 fun fileUrl(baseUrl: String, imageId: Long): String =
-    "${baseUrl.trimEnd('/')}/api/v1/images/$imageId/file"
+    "${baseUrl.trimEnd('/')}/api/app/v1/images/$imageId/file"
 
 /**
  * serverId 命名空间（与 v0.2.0 review 修复的 thumbnailCacheKey 一致）：多服务器同 imageId 不同图，

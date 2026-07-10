@@ -13,7 +13,7 @@ class ImageLoadersTest {
     @Test
     fun `thumbnailUrl 拼接——baseUrl 不带尾斜杠`() {
         assertEquals(
-            "http://192.168.1.10:8080/api/v1/images/7/thumbnail",
+            "http://192.168.1.10:8080/api/app/v1/images/7/thumbnail",
             thumbnailUrl("http://192.168.1.10:8080", 7L),
         )
     }
@@ -21,7 +21,7 @@ class ImageLoadersTest {
     @Test
     fun `thumbnailUrl 拼接——baseUrl 带尾斜杠`() {
         assertEquals(
-            "http://192.168.1.10:8080/api/v1/images/7/thumbnail",
+            "http://192.168.1.10:8080/api/app/v1/images/7/thumbnail",
             thumbnailUrl("http://192.168.1.10:8080/", 7L),
         )
     }
@@ -35,8 +35,8 @@ class ImageLoadersTest {
 
     @Test
     fun `previewUrl 拼接（含尾斜杠两种）`() {
-        assertEquals("http://h:1/api/v1/images/7/preview", previewUrl("http://h:1", 7L))
-        assertEquals("http://h:1/api/v1/images/7/preview", previewUrl("http://h:1/", 7L))
+        assertEquals("http://h:1/api/app/v1/images/7/preview", previewUrl("http://h:1", 7L))
+        assertEquals("http://h:1/api/app/v1/images/7/preview", previewUrl("http://h:1/", 7L))
     }
 
     @Test
@@ -48,6 +48,6 @@ class ImageLoadersTest {
 
     @Test
     fun `fileUrl 拼接`() {
-        assertEquals("http://h:1/api/v1/images/7/file", fileUrl("http://h:1/", 7L))
+        assertEquals("http://h:1/api/app/v1/images/7/file", fileUrl("http://h:1/", 7L))
     }
 }

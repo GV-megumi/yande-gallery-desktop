@@ -114,14 +114,14 @@ class EndToEndSyncTest {
 
             // 六个响应恰好按引擎调用顺序被消费
             val metaReq = server.takeRequest()
-            assertEquals("/api/v1/sync/meta", metaReq.path)
+            assertEquals("/api/app/v1/sync/meta", metaReq.path)
             // 堵 auth 盲区：请求须携带 Bearer 头（okHttp 拦截器把激活 key 注入 Authorization）
             assertEquals("Bearer key-e2e", metaReq.getHeader("Authorization"))
-            assertEquals("/api/v1/sync/images?limit=2000", server.takeRequest().path)
-            assertEquals("/api/v1/sync/images?cursor=cursor-1&limit=2000", server.takeRequest().path)
-            assertEquals("/api/v1/sync/image-ids", server.takeRequest().path)
-            assertEquals("/api/v1/sync/galleries", server.takeRequest().path)
-            assertEquals("/api/v1/sync/tags", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/images?limit=2000", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/images?cursor=cursor-1&limit=2000", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/image-ids", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/galleries", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/tags", server.takeRequest().path)
         }
     }
 }

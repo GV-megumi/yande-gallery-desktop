@@ -28,7 +28,7 @@ import java.util.concurrent.TimeUnit
  * 三类断言（全是链路外部可观察效果，不打内部 seam）：
  *   ① 请求形状：方法/路径/Bearer/body——锁定与 M1 galleryWriteRoutes 的契约；
  *   ② 镜像库效果：行删除 / image_tags 建链（乐观应用立即可见）；
- *   ③ 对账链路：写成功后 `/api/v1/sync/meta` 请求真实发出（scheduler 接线是活的）。
+ *   ③ 对账链路：写成功后 `/api/app/v1/sync/meta` 请求真实发出（scheduler 接线是活的）。
  */
 @RunWith(RobolectricTestRunner::class)
 class WriteReconcileE2ETest {
@@ -73,10 +73,10 @@ class WriteReconcileE2ETest {
             assertNull("镜像行应已删除", db.imageDao().byId(7))
             assertEquals(0L, db.imageDao().countAll())
 
-            // ① 请求形状：DELETE /api/v1/images/7 + Bearer（写请求先完成、对账才启动，FIFO 首个必为它）
+            // ① 请求形状：DELETE /api/app/v1/images/7 + Bearer（写请求先完成、对账才启动，FIFO 首个必为它）
             val req = server.takeRequest()
             assertEquals("DELETE", req.method)
-            assertEquals("/api/v1/images/7", req.path)
+            assertEquals("/api/app/v1/images/7", req.path)
             assertEquals("Bearer key-write", req.getHeader("Authorization"))
 
             // ③ 写成功 → requestSync("write") 冗余对账：sync/meta 请求须真实发出。
@@ -84,7 +84,7 @@ class WriteReconcileE2ETest {
             //    后台 scheduler 把失败静默上报横幅，不影响断言。
             val reconcile = server.takeRequest(5, TimeUnit.SECONDS)
             assertNotNull("写成功后应发出一次对账同步请求", reconcile)
-            assertEquals("/api/v1/sync/meta", reconcile!!.path)
+            assertEquals("/api/app/v1/sync/meta", reconcile!!.path)
         }
     }
 
@@ -109,7 +109,7 @@ class WriteReconcileE2ETest {
             assertEquals(0L, db.imageDao().countAll())
             val req = server.takeRequest()
             assertEquals("DELETE", req.method)
-            assertEquals("/api/v1/images/8", req.path)
+            assertEquals("/api/app/v1/images/8", req.path)
         }
     }
 
@@ -129,10 +129,10 @@ class WriteReconcileE2ETest {
             // ② 乐观建链立即可见：image_tags 关联行已出现（详情面板即时刷新的数据源）
             assertEquals(listOf("风景"), db.imageDao().tagNamesOf(9))
 
-            // ① 请求形状：POST /api/v1/images/9/tags，body 为 {"names":[...]}（契约字段名 names）
+            // ① 请求形状：POST /api/app/v1/images/9/tags，body 为 {"names":[...]}（契约字段名 names）
             val req = server.takeRequest()
             assertEquals("POST", req.method)
-            assertEquals("/api/v1/images/9/tags", req.path)
+            assertEquals("/api/app/v1/images/9/tags", req.path)
             assertEquals("Bearer key-write", req.getHeader("Authorization"))
             assertTrue(req.body.readUtf8().contains(""""names":["风景"]"""))
         }

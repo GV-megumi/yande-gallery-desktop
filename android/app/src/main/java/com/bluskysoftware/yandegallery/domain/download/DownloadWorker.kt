@@ -12,7 +12,7 @@ import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import kotlinx.coroutines.CancellationException
 
 /**
- * 原图下载 worker：流式 GET /api/v1/images/{id}/file → 校验 Content-Length → 写入系统相册 → 落库。
+ * 原图下载 worker：流式 GET /api/app/v1/images/{id}/file → 校验 Content-Length → 写入系统相册 → 落库。
  *
  * deps 经构造注入（[AppWorkerFactory] 从 AppGraph 提供真实实例，无 Hilt）：apiProvider 复用带
  * Bearer 的 okHttp（含错误映射拦截器）、gateway 写系统相册、downloadDao 记录；原图 404 的对账

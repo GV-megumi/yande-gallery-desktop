@@ -23,7 +23,7 @@ class ApiClientTest {
 
             assertEquals("s", meta.serverId)
             val recorded = server.takeRequest()
-            assertEquals("/api/v1/sync/meta", recorded.path)
+            assertEquals("/api/app/v1/sync/meta", recorded.path)
             assertEquals("Bearer test-key", recorded.getHeader("Authorization"))
         }
     }
@@ -37,7 +37,7 @@ class ApiClientTest {
             server.start()
             val api = ApiClientFactory.desktopApi(server.url("/").toString(), ApiClientFactory.okHttp({ "k" }))
             api.syncImages(cursor = "abc", limit = 500)
-            assertEquals("/api/v1/sync/images?cursor=abc&limit=500", server.takeRequest().path)
+            assertEquals("/api/app/v1/sync/images?cursor=abc&limit=500", server.takeRequest().path)
         }
     }
 
@@ -74,9 +74,9 @@ class ApiClientTest {
                     client.newCall(okhttp3.Request.Builder().url(server.url(path)).build()).execute()
                 }
             }
-            call("/api/v1/images/7/thumbnail")
+            call("/api/app/v1/images/7/thumbnail")
             assertEquals(1, hooked)
-            call("/api/v1/sync/meta")
+            call("/api/app/v1/sync/meta")
             assertEquals(1, hooked)
         }
     }

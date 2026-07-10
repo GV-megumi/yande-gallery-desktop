@@ -17,7 +17,7 @@ class WriteApiTest {
             val r = api(s).deleteImage(5).unwrap()
             assertTrue(r.removed)
             val req = s.takeRequest()
-            assertEquals("DELETE", req.method); assertEquals("/api/v1/images/5", req.path)
+            assertEquals("DELETE", req.method); assertEquals("/api/app/v1/images/5", req.path)
             assertEquals("Bearer k", req.getHeader("Authorization"))
         }
     }
@@ -28,7 +28,7 @@ class WriteApiTest {
             s.start()
             api(s).addImageTags(9, TagNamesDto(listOf("cat", "dog"))).unwrap()
             val req = s.takeRequest()
-            assertEquals("POST", req.method); assertEquals("/api/v1/images/9/tags", req.path)
+            assertEquals("POST", req.method); assertEquals("/api/app/v1/images/9/tags", req.path)
             assertTrue(req.body.readUtf8().contains("\"names\":[\"cat\",\"dog\"]"))
         }
     }
@@ -68,7 +68,7 @@ class WriteApiTest {
             api(s).setGalleryCover(7, GalleryCoverDto(10)).unwrap()
             val recorded = s.takeRequest()
             assertEquals("PATCH", recorded.method)
-            assertEquals("/api/v1/galleries/7", recorded.path)
+            assertEquals("/api/app/v1/galleries/7", recorded.path)
             assertEquals("""{"coverImageId":10}""", recorded.body.readUtf8())
         }
     }
@@ -79,7 +79,7 @@ class WriteApiTest {
             s.start()
             assertEquals(2, api(s).removeGalleryImages(3, ImageIdsBody(listOf(1, 2))).unwrap().removed)
             val req = s.takeRequest()
-            assertEquals("DELETE", req.method); assertEquals("/api/v1/galleries/3/images", req.path)
+            assertEquals("DELETE", req.method); assertEquals("/api/app/v1/galleries/3/images", req.path)
             assertTrue(req.body.readUtf8().contains("imageIds"))
         }
     }

@@ -13,7 +13,7 @@ import okhttp3.sse.EventSourceListener
 import okhttp3.sse.EventSources
 
 /**
- * 桌面事件订阅（spec §6/§8）：监听 /api/v1/events/system，`gallery:*` 或 `app:data-restored`
+ * 桌面事件订阅（spec §6/§8）：监听 /api/app/v1/events/system，`gallery:*` 或 `app:data-restored`
  * 事件 2s 防抖后触发一次对账；断线 30s 退避重连；403（eventsSubscribe 未开，桌面默认关）
  * 按 baseUrl 隔离降级——只对该 SSE URL 停连，切到别的服务器不受影响，也不做进程全局永久关闭。
  *

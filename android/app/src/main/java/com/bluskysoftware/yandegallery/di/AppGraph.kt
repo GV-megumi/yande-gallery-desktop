@@ -209,13 +209,13 @@ class AppGraph(
             .build()
     }
 
-    /** 事件订阅：/api/v1/events/system 有 gallery 事件 → 触发一次对账。 */
+    /** 事件订阅：/api/app/v1/events/system 有 gallery 事件 → 触发一次对账。 */
     val sseClient by lazy {
         SseClient(
             client = sseHttpClient,
             urlProvider = {
                 activeSnapshot?.baseUrl?.let { base ->
-                    "${base.trimEnd('/')}/api/v1/events/system"
+                    "${base.trimEnd('/')}/api/app/v1/events/system"
                 }
             },
             onGalleryEvent = { syncScheduler.requestSync("sse") },

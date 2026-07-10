@@ -38,7 +38,7 @@ class SseClientTest {
             val latch = CountDownLatch(1)
             val sse = SseClient(
                 client = OkHttpClient(),
-                urlProvider = { server.url("/api/v1/events/system").toString() },
+                urlProvider = { server.url("/api/app/v1/events/system").toString() },
                 onGalleryEvent = { count.incrementAndGet(); latch.countDown() },
                 scope = scope,
                 debounceMs = 50,
@@ -75,7 +75,7 @@ class SseClientTest {
             )
 
             sse.start()
-            activeUrl.set(server.url("/api/v1/events/system").toString())
+            activeUrl.set(server.url("/api/app/v1/events/system").toString())
             // 50ms 短退避重试应在 url 就绪后建立订阅请求（takeRequest 超时等待）
             assertNotNull("url 就绪后短退避应建立订阅", server.takeRequest(2, TimeUnit.SECONDS))
 
@@ -95,7 +95,7 @@ class SseClientTest {
             val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
             val sse = SseClient(
                 client = OkHttpClient(),
-                urlProvider = { server.url("/api/v1/events/system").toString() },
+                urlProvider = { server.url("/api/app/v1/events/system").toString() },
                 onGalleryEvent = {},
                 scope = scope,
                 debounceMs = 50,
@@ -122,7 +122,7 @@ class SseClientTest {
                 serverB.start()
 
                 val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-                val activeUrl = AtomicReference(serverA.url("/api/v1/events/system").toString())
+                val activeUrl = AtomicReference(serverA.url("/api/app/v1/events/system").toString())
                 val count = AtomicInteger(0)
                 val latch = CountDownLatch(1)
                 val sse = SseClient(
@@ -141,7 +141,7 @@ class SseClientTest {
                 assertEquals("A 收到 403 后应停连、不重连", 1, serverA.requestCount)
 
                 // 切换到 B：restart 清 A 的 403 降级并按新 URL 重连
-                activeUrl.set(serverB.url("/api/v1/events/system").toString())
+                activeUrl.set(serverB.url("/api/app/v1/events/system").toString())
                 sse.restart()
                 assertTrue("切服后应连 B 并收到事件", latch.await(3, TimeUnit.SECONDS))
                 Thread.sleep(200)
@@ -172,7 +172,7 @@ class SseClientTest {
                 serverB.start()
 
                 val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
-                val activeUrl = AtomicReference(serverA.url("/api/v1/events/system").toString())
+                val activeUrl = AtomicReference(serverA.url("/api/app/v1/events/system").toString())
                 val latch = CountDownLatch(1)
                 val sse = SseClient(
                     client = OkHttpClient(),
@@ -188,7 +188,7 @@ class SseClientTest {
                 sse.start()
                 assertNotNull("A 应收到订阅请求", serverA.takeRequest(2, TimeUnit.SECONDS))
 
-                activeUrl.set(serverB.url("/api/v1/events/system").toString())
+                activeUrl.set(serverB.url("/api/app/v1/events/system").toString())
                 sse.restart()   // cancel A（其失败回调异步迟到）→ 立即连 B
                 assertTrue("B 应收到事件", latch.await(3, TimeUnit.SECONDS))
                 Thread.sleep(500)

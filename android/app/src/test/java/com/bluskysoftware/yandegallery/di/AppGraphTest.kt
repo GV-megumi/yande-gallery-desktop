@@ -52,13 +52,13 @@ class AppGraphTest {
         override fun dispatch(request: RecordedRequest): MockResponse {
             val path = request.path ?: ""
             val json = when {
-                path.startsWith("/api/v1/sync/meta") ->
+                path.startsWith("/api/app/v1/sync/meta") ->
                     """{"success":true,"data":{"serverId":"$serverId","dataVersion":1,"imageCount":0,"latestCursor":null}}"""
-                path.startsWith("/api/v1/sync/images") ->
+                path.startsWith("/api/app/v1/sync/images") ->
                     """{"success":true,"data":{"items":[],"nextCursor":null,"hasMore":false}}"""
-                path.startsWith("/api/v1/sync/image-ids") -> """{"success":true,"data":{"ids":[]}}"""
-                path.startsWith("/api/v1/sync/galleries") -> """{"success":true,"data":{"items":[]}}"""
-                path.startsWith("/api/v1/sync/tags") -> """{"success":true,"data":{"items":[]}}"""
+                path.startsWith("/api/app/v1/sync/image-ids") -> """{"success":true,"data":{"ids":[]}}"""
+                path.startsWith("/api/app/v1/sync/galleries") -> """{"success":true,"data":{"items":[]}}"""
+                path.startsWith("/api/app/v1/sync/tags") -> """{"success":true,"data":{"items":[]}}"""
                 else -> return MockResponse().setResponseCode(404)
             }
             return MockResponse().setBody(json).addHeader("Content-Type", "application/json")
@@ -79,7 +79,7 @@ class AppGraphTest {
                 graph.serverRepository.addAndActivate("a", serverA.url("/").toString(), "key-a")
                 val metaA = graph.api()!!.syncMeta().unwrap()
                 assertEquals("a", metaA.serverId)
-                assertEquals("/api/v1/sync/meta", serverA.takeRequest().path)
+                assertEquals("/api/app/v1/sync/meta", serverA.takeRequest().path)
 
                 graph.serverRepository.addAndActivate("b", serverB.url("/").toString(), "key-b")
                 // 让 init 预热 collector（Dispatchers.IO，真实时间）追平到服务器 B——
@@ -88,7 +88,7 @@ class AppGraphTest {
 
                 val metaB = graph.api()!!.syncMeta().unwrap()
                 assertEquals("b", metaB.serverId)
-                assertEquals("/api/v1/sync/meta", serverB.takeRequest().path)
+                assertEquals("/api/app/v1/sync/meta", serverB.takeRequest().path)
                 // A 不得收到第二个请求，B 恰好收到一个
                 assertEquals(1, serverA.requestCount)
                 assertEquals(1, serverB.requestCount)
@@ -111,7 +111,7 @@ class AppGraphTest {
                 // 首个自动请求必是 meta；未修复（不自动触发）时 takeRequest 超时返回 null。
                 val req = server.takeRequest(5, TimeUnit.SECONDS)
                 assertNotNull("激活服务器后应自动发起同步（应收到 meta 请求）", req)
-                assertEquals("/api/v1/sync/meta", req!!.path)
+                assertEquals("/api/app/v1/sync/meta", req!!.path)
             } finally {
                 autoGraph.shutdownForTest()   // 方法内建的第二个 graph 同样要先停协程，防泄漏到关库后
             }
@@ -139,7 +139,7 @@ class AppGraphTest {
                     autoGraph.serverRepository.updateServer(id, "s", serverB.url("/").toString(), "key")
                     var req = serverB.takeRequest(5, TimeUnit.SECONDS)
                     // 跳过可能先到的 SSE 订阅请求，找首个同步请求
-                    while (req != null && req.path?.startsWith("/api/v1/sync/") != true) {
+                    while (req != null && req.path?.startsWith("/api/app/v1/sync/") != true) {
                         req = serverB.takeRequest(5, TimeUnit.SECONDS)
                     }
                     assertNotNull("编辑 baseUrl 后同步请求应到达新端点 B", req)
