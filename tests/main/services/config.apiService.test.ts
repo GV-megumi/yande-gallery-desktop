@@ -35,14 +35,15 @@ const defaultApiServiceConfig = {
   mode: 'localhost',
   port: 38947,
   apiKey: '',
+  app: {
+    enabled: false,
+  },
   permissions: {
     galleryRead: true,
     imageRead: true,
     imageBinary: false,
     booruRead: true,
     booruWrite: false,
-    imageWrite: false,
-    galleryWrite: false,
     favoriteTagsRead: true,
     favoriteTagsWrite: false,
     downloadsRead: true,
@@ -218,5 +219,54 @@ describe('apiService config defaults', () => {
 
     expect(configModule.getConfig().apiService).toEqual(expected);
     expect(configModule.getApiServiceConfig()).toEqual(expected);
+  });
+
+  it('迁移：旧配置 imageWrite/galleryWrite 开启时推导 app.enabled=true，且输出剔除旧键（spec §5）', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        permissions: { imageWrite: true, galleryRead: true },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    const apiService = configModule.getConfig().apiService!;
+    expect(apiService.app).toEqual({ enabled: true });
+    expect(apiService.permissions).not.toHaveProperty('imageWrite');
+    expect(apiService.permissions).not.toHaveProperty('galleryWrite');
+  });
+
+  it('迁移：旧配置未开写权限时 app.enabled 默认 false', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        permissions: { galleryRead: true, imageWrite: false },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    expect(configModule.getConfig().apiService!.app).toEqual({ enabled: false });
+  });
+
+  it('迁移：显式 app.enabled=false 不被旧写权限信号覆盖', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        app: { enabled: false },
+        permissions: { imageWrite: true, galleryWrite: true },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    expect(configModule.getConfig().apiService!.app).toEqual({ enabled: false });
   });
 });

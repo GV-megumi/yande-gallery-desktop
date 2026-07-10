@@ -5,8 +5,6 @@ export type ApiServicePermissionKey =
   | 'galleryRead'
   | 'imageRead'
   | 'imageBinary'
-  | 'imageWrite'
-  | 'galleryWrite'
   | 'booruRead'
   | 'booruWrite'
   | 'favoriteTagsRead'
@@ -25,11 +23,18 @@ export interface ApiServiceLogsConfig {
   maxEntries?: number;
 }
 
+/** 手机 App 面（/api/app/v1）访问配置：一门制，无细化权限（spec §3.1） */
+export interface ApiServiceAppAccessConfig {
+  enabled: boolean;
+}
+
 export interface ApiServiceConfig {
   enabled: boolean;
   mode: ApiServiceMode;
   port: number;
   apiKey: string;
+  /** 允许手机端连接（独立于 agent 面 enabled，任一开启即运行服务器） */
+  app: ApiServiceAppAccessConfig;
   permissions: ApiServicePermissions;
   logs: ApiServiceLogsConfig;
 }
@@ -37,6 +42,8 @@ export interface ApiServiceConfig {
 export interface ApiServiceStatus {
   running: boolean;
   enabled: boolean;
+  /** 手机端连接开关状态（spec §6） */
+  appEnabled: boolean;
   mode: ApiServiceMode;
   port: number;
   bindAddress: string | null;
@@ -51,6 +58,8 @@ export interface ApiPairingInfo {
   port: number;
   mode: ApiServiceMode;
   running: boolean;
+  /** 「允许手机端连接」是否开启（配对弹窗提示用） */
+  appEnabled: boolean;
   apiKey: string;
   lanAddresses: string[];
 }

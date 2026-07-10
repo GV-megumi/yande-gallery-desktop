@@ -324,12 +324,11 @@ const DEFAULT_CONFIG: AppConfig = {
     mode: 'localhost',
     port: 38947,
     apiKey: '',
+    app: { enabled: false },
     permissions: {
       galleryRead: true,
       imageRead: true,
       imageBinary: false,
-      imageWrite: false,
-      galleryWrite: false,
       booruRead: true,
       booruWrite: false,
       favoriteTagsRead: true,
@@ -687,7 +686,15 @@ export async function loadConfig(configPath?: string): Promise<AppConfig> {
     // 与 DEFAULT_CONFIG 深合并，填充缺失字段
     const { merged, wasFilled } = deepMergeWithDefaults(DEFAULT_CONFIG, rawConfig);
     config = merged as AppConfig;
-    config.apiService = normalizeApiServiceConfig({ apiService: config.apiService }, undefined);
+    // 用「深合并前的原始 apiService」而非 merged 之后的值喂给归一化函数：
+    // deepMergeWithDefaults 会给所有缺失字段（含新增的 app 块）无差别填充默认值，
+    // 一旦喂 merged 值，normalizeApiServiceConfig 就再也看不到「app.enabled 原本缺失」这个信号，
+    // 旧配置 imageWrite/galleryWrite → app.enabled 的迁移推导（spec §5）会失效。
+    // normalizeApiServiceConfig 自身对每个字段都有 defaults 兜底，效果等价，不影响其它字段的既有行为。
+    config.apiService = normalizeApiServiceConfig(
+      { apiService: rawConfig.apiService as ApiServiceConfig | undefined },
+      undefined,
+    );
 
     console.log('[config] 配置文件加载成功:', configFilePath);
 
@@ -1017,6 +1024,7 @@ export function toRendererSafeConfig(source: AppConfig): RendererSafeAppConfig {
         enabled: source.apiService.enabled,
         mode: source.apiService.mode,
         port: source.apiService.port,
+        app: source.apiService.app,
         hasApiKey: source.apiService.apiKey.trim().length > 0,
         permissions: source.apiService.permissions,
         logs: source.apiService.logs,
@@ -1093,6 +1101,11 @@ function normalizeApiServiceConfig(
   const currentMode = normalizeMode(current?.mode, defaults.mode);
   const currentPort = normalizePort(current?.port, defaults.port);
   const currentApiKey = normalizeString(current?.apiKey, defaults.apiKey);
+  // 迁移（spec §5）：旧配置无 app 块时，imageWrite/galleryWrite 曾开启是「手机在用」的最强信号；
+  // 旧键不再进入类型系统，经 Record 读取一次性消费，下次保存后自然从 yaml 消失。
+  const legacyPermissions = (current?.permissions ?? {}) as Record<string, unknown>;
+  const legacyMobileSignal = legacyPermissions.imageWrite === true || legacyPermissions.galleryWrite === true;
+  const currentAppEnabled = normalizeBoolean(current?.app?.enabled, legacyMobileSignal || defaults.app.enabled);
   const currentPermissions: Partial<ApiServicePermissions> = current?.permissions ?? {};
   const inputPermissions: Partial<ApiServicePermissions> = input?.permissions ?? {};
   const currentLogs: Partial<ApiServiceLogsConfig> = current?.logs ?? {};
@@ -1103,12 +1116,13 @@ function normalizeApiServiceConfig(
     mode: normalizeMode(input?.mode, currentMode),
     port: normalizePort(input?.port, currentPort),
     apiKey: normalizeString(input?.apiKey, currentApiKey),
+    app: {
+      enabled: normalizeBoolean(input?.app?.enabled, currentAppEnabled),
+    },
     permissions: {
       galleryRead: normalizeBoolean(inputPermissions.galleryRead, normalizeBoolean(currentPermissions.galleryRead, defaults.permissions.galleryRead)),
       imageRead: normalizeBoolean(inputPermissions.imageRead, normalizeBoolean(currentPermissions.imageRead, defaults.permissions.imageRead)),
       imageBinary: normalizeBoolean(inputPermissions.imageBinary, normalizeBoolean(currentPermissions.imageBinary, defaults.permissions.imageBinary)),
-      imageWrite: normalizeBoolean(inputPermissions.imageWrite, normalizeBoolean(currentPermissions.imageWrite, defaults.permissions.imageWrite)),
-      galleryWrite: normalizeBoolean(inputPermissions.galleryWrite, normalizeBoolean(currentPermissions.galleryWrite, defaults.permissions.galleryWrite)),
       booruRead: normalizeBoolean(inputPermissions.booruRead, normalizeBoolean(currentPermissions.booruRead, defaults.permissions.booruRead)),
       booruWrite: normalizeBoolean(inputPermissions.booruWrite, normalizeBoolean(currentPermissions.booruWrite, defaults.permissions.booruWrite)),
       favoriteTagsRead: normalizeBoolean(inputPermissions.favoriteTagsRead, normalizeBoolean(currentPermissions.favoriteTagsRead, defaults.permissions.favoriteTagsRead)),
