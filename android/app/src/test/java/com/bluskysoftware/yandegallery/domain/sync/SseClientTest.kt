@@ -18,8 +18,9 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicReference
 
 /**
- * SSE 客户端行为：一帧 gallery:* 事件防抖后回调一次；403（订阅权限未开）→ 永久降级不重连。
- * 防抖用注入短延时 + 门闩，确定性弱化处：断言「至少触发、且不重复」，不依赖精确 2s 计时。
+ * SSE 客户端行为：一帧 gallery:* 事件防抖后回调一次；403（如桌面「允许手机端连接」关闭）
+ * → 永久降级不重连。防抖用注入短延时 + 门闩，确定性弱化处：断言「至少触发、且不重复」，
+ * 不依赖精确 2s 计时。
  */
 class SseClientTest {
 
@@ -115,7 +116,7 @@ class SseClientTest {
     fun `切换服务器 restart 清 403 降级并连新 baseUrl`() {
         MockWebServer().use { serverA ->
             MockWebServer().use { serverB ->
-                // A：eventsSubscribe 未开 → 403 降级；B：已开，重连后应收到事件
+                // A：（模拟）手机面「允许手机端连接」关闭 → 403 降级；B：已开，重连后应收到事件
                 serverA.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"FORBIDDEN"}}"""))
                 serverB.enqueue(eventStream("event: gallery:images-changed\ndata: {}\n\n"))
                 serverA.start()

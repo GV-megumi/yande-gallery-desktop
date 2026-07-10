@@ -14,7 +14,8 @@ import okhttp3.sse.EventSources
 
 /**
  * 桌面事件订阅（spec §6/§8）：监听 /api/app/v1/events/system，`gallery:*` 或 `app:data-restored`
- * 事件 2s 防抖后触发一次对账；断线 30s 退避重连；403（eventsSubscribe 未开，桌面默认关）
+ * 事件 2s 防抖后触发一次对账；断线 30s 退避重连；403（该端点在手机面命名空间 `/api/app/v1`，仅受桌面
+ * 「允许手机端连接」`app.enabled` 单开关控制——与 agent 面 eventsSubscribe 细化权限无关）
  * 按 baseUrl 隔离降级——只对该 SSE URL 停连，切到别的服务器不受影响，也不做进程全局永久关闭。
  *
  * 生命周期以激活服务器驱动：[start]/[stop] 绑前后台；[restart] 在激活服务器变化时调用——
@@ -135,7 +136,7 @@ class SseClient(
         override fun onFailure(source: EventSource, t: Throwable?, response: Response?) {
             response?.close()
             if (!clearIfCurrent(source)) return
-            // 403：该服务器订阅权限未开，重连徒劳 → 只对这条 URL 降级（切服/restart 会清）。
+            // 403：该服务器手机面连接开关未开，重连徒劳 → 只对这条 URL 降级（切服/restart 会清）。
             if (response?.code == 403 || (t as? ApiException)?.httpStatus == 403) {
                 disabledUrl = source.request().url.toString()
                 return

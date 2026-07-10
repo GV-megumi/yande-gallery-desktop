@@ -56,10 +56,14 @@ class ServersViewModelTest {
     }
 
     @Test
-    fun `imageBinary 未开——测试成功但附带缩略图权限提醒`() = withVm { vm ->
+    fun `连接成功——不再依响应里的 agent 面 imageBinary 权限键产生警告文案（agent 权限键残留清理回归）`() = withVm { vm ->
         MockWebServer().use { server ->
             server.enqueue(
                 MockResponse()
+                    // imageBinary 是 agent 面（/api/v1/*）专属的 11 键细化权限之一，与手机 App 走的
+                    // 手机面（/api/app/v1/*）完全无关；即使响应里带着它且为 false，testConnection
+                    // 也不应再解析或据此产生任何缩略图/权限相关警告——连接成功只有一种纯成功文案，
+                    // 防止未来有人把权限告警逻辑加回来（曾经的缺陷：手机面已开仍误报「缩略图将无法加载」）。
                     .setBody("""{"success":true,"data":{"name":"d","permissions":{"imageBinary":false}}}""")
                     .addHeader("Content-Type", "application/json"),
             )
@@ -68,7 +72,7 @@ class ServersViewModelTest {
             val result = vm.testConnection("${server.hostName}:${server.port}", "k")
 
             assertTrue(result.isSuccess)
-            assertTrue("应提醒 imageBinary 未开", result.getOrNull()!!.contains("imageBinary"))
+            assertEquals("连接成功", result.getOrNull())
         }
     }
 
