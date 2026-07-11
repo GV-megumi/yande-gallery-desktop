@@ -51,9 +51,10 @@ import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
 import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
-import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
-import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuGroupRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiMoreMenu
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
+import com.bluskysoftware.yandegallery.ui.common.photoSortPreview
 import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
@@ -200,8 +201,19 @@ fun AlbumDetailScreen(
                     subtitle = count?.let { "$it 张" },
                     onBack = onBack,
                     actions = {
-                        IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("detail_more")) {
-                            Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+                        Box {
+                            IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("detail_more")) {
+                                Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+                            }
+                            // 「⋯」多级菜单（面板改版）：锚定本按钮右上角弹出；排序/列数分类进二级，选择即生效即收
+                            AlbumDetailMoreMenu(
+                                expanded = showOptions,
+                                sort = detailSort,
+                                columns = columns,
+                                onDismiss = { showOptions = false },
+                                onSortField = { field -> viewModel.setDetailSort(field.next(detailSort)); showOptions = false },
+                                onColumns = { viewModel.setDetailColumns(it); showOptions = false },
+                            )
                         }
                     },
                 )
@@ -305,17 +317,6 @@ fun AlbumDetailScreen(
         }
     }
 
-    // 「⋯」选项面板（v0.6 spec §5.1）：排序/列数，选择即生效即收
-    if (showOptions) {
-        AlbumDetailOptionsSheet(
-            sort = detailSort,
-            columns = columns,
-            onDismiss = { showOptions = false },
-            onSortField = { field -> viewModel.setDetailSort(field.next(detailSort)); showOptions = false },
-            onColumns = { viewModel.setDetailColumns(it); showOptions = false },
-        )
-    }
-
     // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）
     if (confirmBatchDelete) {
         val count = selected.size
@@ -385,32 +386,42 @@ fun AlbumDetailScreen(
     }
 }
 
-/** 详情页「⋯」面板（spec §5.1）：排序（时间/大小/文件名）+ 列数（3/4/5）。 */
+/**
+ * 详情页「⋯」多级菜单（面板改版，spec §5.1）：一级「排序方式 / 列数」分类，
+ * 二级明细（时间/大小/文件名；3/4/5 列）。选择即生效即收菜单。
+ */
 @Composable
-internal fun AlbumDetailOptionsSheet(
+internal fun AlbumDetailMoreMenu(
+    expanded: Boolean,
     sort: PhotoSort,
     columns: Int,
     onDismiss: () -> Unit,
     onSortField: (PhotoSortField) -> Unit,
     onColumns: (Int) -> Unit,
 ) {
-    MiuiOptionsSheet(onDismiss = onDismiss) {
-        MiuiSheetCard("排序方式") {
-            PhotoSortField.entries.forEach { field ->
-                MiuiSortRow(
-                    label = field.label,
-                    selected = field.contains(sort),
-                    ascending = sort.ascending,
-                    tag = "detail_sort_option_${field.name.lowercase()}",
-                ) { onSortField(field) }
+    MiuiMoreMenu(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        root = { openPage ->
+            MiuiMenuGroupRow("排序方式", photoSortPreview(sort), tag = "menu_group_sort") { openPage("sort", "排序方式") }
+            MiuiMenuGroupRow("列数", "$columns 列", tag = "menu_group_columns") { openPage("columns", "列数") }
+        },
+        page = { key ->
+            when (key) {
+                "sort" -> PhotoSortField.entries.forEach { field ->
+                    MiuiSortRow(
+                        label = field.label,
+                        selected = field.contains(sort),
+                        ascending = sort.ascending,
+                        tag = "detail_sort_option_${field.name.lowercase()}",
+                    ) { onSortField(field) }
+                }
+                "columns" -> (ViewPrefs.MIN_DETAIL_COLUMNS..ViewPrefs.MAX_DETAIL_COLUMNS).forEach { n ->
+                    MiuiChoiceRow("$n 列", columns == n, "detail_columns_$n") { onColumns(n) }
+                }
             }
-        }
-        MiuiSheetCard("列数") {
-            (ViewPrefs.MIN_DETAIL_COLUMNS..ViewPrefs.MAX_DETAIL_COLUMNS).forEach { n ->
-                MiuiChoiceRow("$n 列", columns == n, "detail_columns_$n") { onColumns(n) }
-            }
-        }
-    }
+        },
+    )
 }
 
 /**

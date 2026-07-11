@@ -18,7 +18,6 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.unit.dp
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.paging.LoadState
@@ -389,32 +388,37 @@ class PhotosScreenTest {
     }
 
     @Test
-    fun `更多面板_切排序即生效并收面板_设置行触发回调`() {
+    fun `更多菜单_二级切排序即生效并收菜单_设置行触发回调`() {
         var settingsOpened = 0
         val vm = PhotosViewModel(graph)
         setPhotosScreen(vm, onOpenSettings = { settingsOpened++ })
         compose.onNodeWithTag("photos_more").performClick()
         compose.waitForIdle()
-        compose.onNodeWithTag("options_sheet").assertIsDisplayed()
+        compose.onNodeWithTag("options_menu").assertIsDisplayed()
+        // 面板改版：排序在「排序方式」二级页，先进分类再点明细
+        compose.onNodeWithTag("menu_group_sort").performClick()
+        compose.waitForIdle()
         compose.onNodeWithTag("sort_option_size").performClick()
         compose.waitForIdle()
         assertEquals(PhotoSort.SIZE_DESC, graph.viewPrefs.photoSort.value)
-        compose.onNodeWithTag("options_sheet").assertDoesNotExist()   // 选择即收
+        compose.onNodeWithTag("options_menu").assertDoesNotExist()   // 选择即收
         compose.onNodeWithTag("photos_more").performClick()
         compose.waitForIdle()
-        // Robolectric 默认 470dp 矮屏放不下整面板：先滚到尾部行再点（面板列可滚动，真机同语义）
-        compose.onNodeWithTag("sheet_settings_row").performScrollTo().performClick()
+        // 设置为一级直达行，重开后菜单回到一级页可直接点
+        compose.onNodeWithTag("sheet_settings_row").performClick()
         compose.waitForIdle()
         assertEquals(1, settingsOpened)
     }
 
     @Test
-    fun `更多面板_密度行走 changeTier 档位即时切换`() {
+    fun `更多菜单_密度二级行走 changeTier 档位即时切换`() {
         val vm = PhotosViewModel(graph)
         setPhotosScreen(vm)
         compose.onNodeWithTag("photos_more").performClick()
         compose.waitForIdle()
-        compose.onNodeWithTag("density_option_day3").performScrollTo().performClick()
+        compose.onNodeWithTag("menu_group_density").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("density_option_day3").performClick()
         compose.waitForIdle()
         assertEquals(DensityTier.DAY_3, vm.densityTier.value)
     }

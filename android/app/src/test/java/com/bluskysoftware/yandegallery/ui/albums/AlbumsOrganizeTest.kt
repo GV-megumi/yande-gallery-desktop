@@ -121,10 +121,13 @@ class AlbumsOrganizeTest {
     }
 
     @Test
-    fun `排序面板_点张数切COUNT_DESC`() {
+    fun `排序菜单_二级点张数切COUNT_DESC`() {
         seedGalleries(1)
         setAlbumsScreen(waitCardId = 1)
         compose.onNodeWithTag("albums_more").performClick()
+        compose.waitForIdle()
+        // 面板改版：排序在「排序方式」二级页，先进分类再点明细
+        compose.onNodeWithTag("menu_group_sort").performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("album_sort_option_count").performClick()
         compose.waitForIdle()

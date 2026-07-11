@@ -78,12 +78,14 @@ import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
-import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuDivider
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuGroupRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuNavRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiMoreMenu
 import com.bluskysoftware.yandegallery.ui.common.awaitPagingRefreshSettled
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
-import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
-import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
+import com.bluskysoftware.yandegallery.ui.common.photoSortPreview
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
@@ -340,6 +342,18 @@ fun PhotosScreen(
                     scrolled = header.scrolled,
                     onOpenSearch = onOpenSearch,
                     onOpenMore = { showOptions = true },
+                    moreMenu = {
+                        // 「⋯」多级菜单（面板改版）：锚定本按钮右上角弹出；排序/密度分类进二级，选择即生效即收
+                        PhotosMoreMenu(
+                            expanded = showOptions,
+                            sort = sort,
+                            tier = tier,
+                            onDismiss = { showOptions = false },
+                            onSortField = { field -> viewModel.setPhotoSort(field.next(sort)); showOptions = false },
+                            onTier = { changeTier(it); showOptions = false },   // 走 changeTier 复用月↔日锚定
+                            onOpenSettings = { showOptions = false; onOpenSettings() },
+                        )
+                    },
                 )
             }
             // 顶部连接横幅：offline / unauthorized（点击跳服务器页重新配对）
@@ -448,18 +462,6 @@ fun PhotosScreen(
         )
     }
 
-    // 「⋯」选项面板（v0.6 spec §3.1）：排序/密度/设置，选择即生效即收
-    if (showOptions) {
-        PhotosOptionsSheet(
-            sort = sort,
-            tier = tier,
-            onDismiss = { showOptions = false },
-            onSortField = { field -> viewModel.setPhotoSort(field.next(sort)); showOptions = false },
-            onTier = { changeTier(it); showOptions = false },   // 走 changeTier 复用月↔日锚定
-            onOpenSettings = { showOptions = false; onOpenSettings() },
-        )
-    }
-
     // 批量删除二次确认：明示数量（brief 契约）；选中含已下载副本时明示本机副本一并级联（spec §8，M4-T9）
     if (confirmBatchDelete) {
         val count = selected.size
@@ -545,7 +547,8 @@ private fun SyncProgressBar(syncPhaseFlow: StateFlow<SyncPhase>) {
 }
 
 /**
- * 照片 tab 常态顶栏（v0.6 spec §3.1）：[搜索][⋯]。设置入口迁入「⋯」面板（MIUI 同款层级）。
+ * 照片 tab 常态顶栏（v0.6 spec §3.1）：[搜索][⋯]。设置入口迁入「⋯」菜单（MIUI 同款层级）。
+ * [moreMenu] 槽与 ⋯ 按钮同 Box——DropdownMenu 锚定其右上角原位弹出（面板改版）。
  * internal 供 AppNavForTest 挂真件覆盖搜索路由跳转。
  */
 @Composable
@@ -553,20 +556,36 @@ internal fun PhotosPinnedTopBar(
     scrolled: Boolean,
     onOpenSearch: () -> Unit,
     onOpenMore: () -> Unit,
+    moreMenu: @Composable () -> Unit = {},
 ) {
     MiuiPinnedTopBar(title = "照片", scrolled = scrolled, actions = {
         IconButton(onClick = onOpenSearch, modifier = Modifier.testTag("photos_search")) {
             Icon(Icons.Filled.Search, contentDescription = "搜索")
         }
-        IconButton(onClick = onOpenMore, modifier = Modifier.testTag("photos_more")) {
-            Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+        Box {
+            IconButton(onClick = onOpenMore, modifier = Modifier.testTag("photos_more")) {
+                Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项")
+            }
+            moreMenu()
         }
     })
 }
 
-/** 照片页「⋯」选项面板（spec §3.1）：排序 + 网格密度 + 设置。选择即生效即收。 */
+/** 「网格密度」分类行的当前值预览。 */
+private fun densityLabel(tier: DensityTier): String = when (tier) {
+    DensityTier.MONTH -> "月视图"
+    DensityTier.DAY_3 -> "大图"
+    DensityTier.DAY_4 -> "标准"
+    DensityTier.DAY_5 -> "紧凑"
+}
+
+/**
+ * 照片页「⋯」多级菜单（面板改版）：一级「排序方式 / 网格密度」分类 + 「设置」直达，
+ * 点分类进二级明细。选择即生效即收菜单。
+ */
 @Composable
-internal fun PhotosOptionsSheet(
+internal fun PhotosMoreMenu(
+    expanded: Boolean,
     sort: PhotoSort,
     tier: DensityTier,
     onDismiss: () -> Unit,
@@ -574,27 +593,34 @@ internal fun PhotosOptionsSheet(
     onTier: (DensityTier) -> Unit,
     onOpenSettings: () -> Unit,
 ) {
-    MiuiOptionsSheet(onDismiss = onDismiss) {
-        MiuiSheetCard("排序方式") {
-            PhotoSortField.entries.forEach { field ->
-                MiuiSortRow(
-                    label = field.label,
-                    selected = field.contains(sort),
-                    ascending = sort.ascending,
-                    tag = "sort_option_${field.name.lowercase()}",
-                ) { onSortField(field) }
+    MiuiMoreMenu(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        root = { openPage ->
+            MiuiMenuGroupRow("排序方式", photoSortPreview(sort), tag = "menu_group_sort") { openPage("sort", "排序方式") }
+            MiuiMenuGroupRow("网格密度", densityLabel(tier), tag = "menu_group_density") { openPage("density", "网格密度") }
+            MiuiMenuDivider()
+            MiuiMenuNavRow("设置", tag = "sheet_settings_row", onClick = onOpenSettings)
+        },
+        page = { key ->
+            when (key) {
+                "sort" -> PhotoSortField.entries.forEach { field ->
+                    MiuiSortRow(
+                        label = field.label,
+                        selected = field.contains(sort),
+                        ascending = sort.ascending,
+                        tag = "sort_option_${field.name.lowercase()}",
+                    ) { onSortField(field) }
+                }
+                "density" -> {
+                    MiuiChoiceRow("月视图（6 列）", tier == DensityTier.MONTH, "density_option_month") { onTier(DensityTier.MONTH) }
+                    MiuiChoiceRow("大图（3 列）", tier == DensityTier.DAY_3, "density_option_day3") { onTier(DensityTier.DAY_3) }
+                    MiuiChoiceRow("标准（4 列）", tier == DensityTier.DAY_4, "density_option_day4") { onTier(DensityTier.DAY_4) }
+                    MiuiChoiceRow("紧凑（5 列）", tier == DensityTier.DAY_5, "density_option_day5") { onTier(DensityTier.DAY_5) }
+                }
             }
-        }
-        MiuiSheetCard("网格密度") {
-            MiuiChoiceRow("月视图（6 列）", tier == DensityTier.MONTH, "density_option_month") { onTier(DensityTier.MONTH) }
-            MiuiChoiceRow("大图（3 列）", tier == DensityTier.DAY_3, "density_option_day3") { onTier(DensityTier.DAY_3) }
-            MiuiChoiceRow("标准（4 列）", tier == DensityTier.DAY_4, "density_option_day4") { onTier(DensityTier.DAY_4) }
-            MiuiChoiceRow("紧凑（5 列）", tier == DensityTier.DAY_5, "density_option_day5") { onTier(DensityTier.DAY_5) }
-        }
-        MiuiSheetCard("更多") {
-            MiuiSheetNavRow("设置", tag = "sheet_settings_row", onClick = onOpenSettings)
-        }
-    }
+        },
+    )
 }
 
 /** 无激活服务器时的引导态：文案 + 跳转服务器管理按钮。 */

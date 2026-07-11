@@ -7,7 +7,6 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
@@ -63,11 +62,13 @@ import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiLargeTitle
-import com.bluskysoftware.yandegallery.ui.common.MiuiOptionsSheet
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuDivider
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuGroupRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiMenuNavRow
+import com.bluskysoftware.yandegallery.ui.common.MiuiMoreMenu
 import com.bluskysoftware.yandegallery.ui.common.MiuiPinnedTopBar
-import com.bluskysoftware.yandegallery.ui.common.MiuiSheetCard
-import com.bluskysoftware.yandegallery.ui.common.MiuiSheetNavRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
+import com.bluskysoftware.yandegallery.ui.common.albumSortPreview
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 import com.bluskysoftware.yandegallery.ui.common.rememberMiuiHeaderState
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
@@ -79,7 +80,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 /**
  * 相册 tab：折叠大标题 + 三分区自适应卡片网格（v0.6 spec §4.1/§4.2：置顶/全部相册/其他相册）。
  * 点击卡片跳图集详情；卡片长按弹「置顶/移入其他相册/重命名/删除」菜单（组织项纯本机离线可用）；
- * 顶栏右上「+」新建图集、「⋯」排序面板（spec §4.4）。无图集时展示空态文案，但「+」仍在，
+ * 顶栏右上「+」新建图集、「⋯」多级排序菜单（spec §4.4，面板改版为右上角锚定弹出）。无图集时展示空态文案，但「+」仍在，
  * 可创建首个图集。写入口离线（connState.online=false）置灰。
  */
 @Composable
@@ -263,8 +264,28 @@ fun AlbumsScreen(
                             .semantics { if (!online) disabled() }
                             .testTag("albums_new"),
                     ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
-                    IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("albums_more")) {
-                        Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurface)
+                    Box {
+                        IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("albums_more")) {
+                            Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurface)
+                        }
+                        // 「⋯」多级菜单（面板改版）：锚定本按钮右上角弹出；排序分类进二级，选择即生效即收
+                        AlbumsMoreMenu(
+                            expanded = showOptions,
+                            sort = sort,
+                            onDismiss = { showOptions = false },
+                            onManual = { viewModel.setAlbumsSort(AlbumSort.MANUAL); showOptions = false },
+                            onSortField = { field -> viewModel.setAlbumsSort(field.next(sort)); showOptions = false },
+                            onReorder = {
+                                showOptions = false
+                                val s = sections
+                                if (s != null && !s.isEmpty) {
+                                    reorderState = AlbumReorderState(
+                                        pinned = s.pinned.map { it.gallery.id },
+                                        normal = s.normal.map { it.gallery.id },
+                                    )
+                                }
+                            },
+                        )
                     }
                 })
                 MiuiLargeTitle("相册", header)
@@ -375,29 +396,6 @@ fun AlbumsScreen(
         )
     }
 
-    // 「⋯」排序面板（v0.6 spec §4.4）：选择即生效即收
-    if (showOptions) {
-        AlbumsOptionsSheet(
-            sort = sort,
-            onDismiss = { showOptions = false },
-            onManual = { viewModel.setAlbumsSort(AlbumSort.MANUAL); showOptions = false },
-            onSortField = { field -> viewModel.setAlbumsSort(field.next(sort)); showOptions = false },
-            extraRows = {
-                MiuiSheetCard("整理") {
-                    MiuiSheetNavRow("拖拽排序", tag = "albums_reorder_enter") {
-                        showOptions = false
-                        val s = sections
-                        if (s != null && !s.isEmpty) {
-                            reorderState = AlbumReorderState(
-                                pinned = s.pinned.map { it.gallery.id },
-                                normal = s.normal.map { it.gallery.id },
-                            )
-                        }
-                    }
-                }
-            },
-        )
-    }
 }
 
 /** 分区头：span 整行的小节标题。 */
@@ -492,29 +490,41 @@ private fun ReorderCell(
     )
 }
 
-/** 相册页「⋯」面板（spec §4.4）：排序方式（手动/名称/张数/创建时间）。 */
+/**
+ * 相册页「⋯」多级菜单（面板改版）：一级「排序方式」分类（手动/名称/张数/创建时间进二级）
+ * + 「拖拽排序」直达。选择即生效即收菜单。
+ */
 @Composable
-internal fun AlbumsOptionsSheet(
+internal fun AlbumsMoreMenu(
+    expanded: Boolean,
     sort: AlbumSort,
     onDismiss: () -> Unit,
     onManual: () -> Unit,
     onSortField: (AlbumSortField) -> Unit,
-    extraRows: @Composable ColumnScope.() -> Unit = {},   // Task 9 挂「拖拽排序」导航行
+    onReorder: () -> Unit,
 ) {
-    MiuiOptionsSheet(onDismiss = onDismiss) {
-        MiuiSheetCard("排序方式") {
-            MiuiChoiceRow("手动", sort == AlbumSort.MANUAL, "album_sort_option_manual", onManual)
-            AlbumSortField.entries.forEach { field ->
-                MiuiSortRow(
-                    label = field.label,
-                    selected = field.contains(sort),
-                    ascending = sort.ascending,
-                    tag = "album_sort_option_${field.name.lowercase()}",
-                ) { onSortField(field) }
+    MiuiMoreMenu(
+        expanded = expanded,
+        onDismiss = onDismiss,
+        root = { openPage ->
+            MiuiMenuGroupRow("排序方式", albumSortPreview(sort), tag = "menu_group_sort") { openPage("sort", "排序方式") }
+            MiuiMenuDivider()
+            MiuiMenuNavRow("拖拽排序", tag = "albums_reorder_enter", onClick = onReorder)
+        },
+        page = { key ->
+            if (key == "sort") {
+                MiuiChoiceRow("手动", sort == AlbumSort.MANUAL, "album_sort_option_manual", onManual)
+                AlbumSortField.entries.forEach { field ->
+                    MiuiSortRow(
+                        label = field.label,
+                        selected = field.contains(sort),
+                        ascending = sort.ascending,
+                        tag = "album_sort_option_${field.name.lowercase()}",
+                    ) { onSortField(field) }
+                }
             }
-        }
-        extraRows()
-    }
+        },
+    )
 }
 
 /** 新建/重命名共用的名字输入对话框：单行输入，空名不可提交。 */
