@@ -133,4 +133,25 @@ class AlbumsOrganizeTest {
         compose.waitForIdle()
         assertEquals(AlbumSort.COUNT_DESC, graph.viewPrefs.albumsSort.value)
     }
+
+    /** 一级菜单含「设置」直达行（与照片页对齐），点击触发 onOpenSettings 回调。 */
+    @Test
+    fun `菜单含设置直达行_点击触发回调`() {
+        var settingsClicks = 0
+        compose.setContent {
+            AlbumsMoreMenu(
+                expanded = true,
+                sort = AlbumSort.MANUAL,
+                onDismiss = {},
+                onManual = {},
+                onSortField = {},
+                onReorder = {},
+                onOpenSettings = { settingsClicks++ },
+            )
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag("sheet_settings_row").assertIsDisplayed()
+        compose.onNodeWithTag("sheet_settings_row").performClick()
+        assertEquals(1, settingsClicks)
+    }
 }

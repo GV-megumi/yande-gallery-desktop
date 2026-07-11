@@ -285,6 +285,8 @@ fun AlbumsScreen(
                                     )
                                 }
                             },
+                            // 设置直达（照片页同款全局出口）：先收菜单再跳转，返回相册时菜单不残留
+                            onOpenSettings = { showOptions = false; navController.navigate(Routes.Settings) },
                         )
                     }
                 })
@@ -492,7 +494,7 @@ private fun ReorderCell(
 
 /**
  * 相册页「⋯」多级菜单（面板改版）：一级「排序方式」分类（手动/名称/张数/创建时间进二级）
- * + 「拖拽排序」直达。选择即生效即收菜单。
+ * + 「拖拽排序」「设置」直达（设置垫底，与照片页同款全局出口）。选择即生效即收菜单。
  */
 @Composable
 internal fun AlbumsMoreMenu(
@@ -502,6 +504,7 @@ internal fun AlbumsMoreMenu(
     onManual: () -> Unit,
     onSortField: (AlbumSortField) -> Unit,
     onReorder: () -> Unit,
+    onOpenSettings: () -> Unit,
 ) {
     MiuiMoreMenu(
         expanded = expanded,
@@ -510,6 +513,7 @@ internal fun AlbumsMoreMenu(
             MiuiMenuGroupRow("排序方式", albumSortPreview(sort), tag = "menu_group_sort") { openPage("sort", "排序方式") }
             MiuiMenuDivider()
             MiuiMenuNavRow("拖拽排序", tag = "albums_reorder_enter", onClick = onReorder)
+            MiuiMenuNavRow("设置", tag = "sheet_settings_row", onClick = onOpenSettings)
         },
         page = { key ->
             if (key == "sort") {
