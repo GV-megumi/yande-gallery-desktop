@@ -35,6 +35,18 @@ function isMissingSourceError(error?: string): boolean {
 }
 
 function emitThumbnailGenerated(imagePath: string, result: ThumbnailResult): void {
+  const missing = result.missing ?? isMissingSourceError(result.error);
+  // error 只发类别不发原文：该事件经 API 事件桥落 system 频道、手机面可订阅，而 fs/sharp
+  // 的原始错误串常含本地绝对路径（sanitizeApiEventPayload 只按键名剥离，不处理字符串值），
+  // 原文会破坏「本地路径不经 API 外泄」的不变量。诊断原文保留在本服务的 console 日志里；
+  // 渲染层仅消费 success/missing/thumbnailPath，不读 error 细节，此收窄无行为影响。
+  const safeError = result.success
+    ? undefined
+    : result.cancelled
+      ? '已取消'
+      : missing
+        ? '原图不存在'
+        : '生成失败';
   emitBuiltRendererAppEvent<RendererThumbnailGeneratedEvent>({
     type: 'thumbnail:generated',
     source: 'thumbnailService',
@@ -42,8 +54,8 @@ function emitThumbnailGenerated(imagePath: string, result: ThumbnailResult): voi
       imagePath,
       thumbnailPath: result.success ? result.data : undefined,
       success: result.success,
-      error: result.error,
-      missing: result.missing ?? isMissingSourceError(result.error),
+      error: safeError,
+      missing,
     },
   });
 }

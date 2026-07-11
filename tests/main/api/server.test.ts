@@ -753,3 +753,136 @@ describe('namespace gates（spec §4）', () => {
     await close(server);
   });
 });
+
+/**
+ * agent 面 mode=localhost 请求级环回兜底（spec §6）的接线契约。
+ * app.enabled 会把服务器强制绑到 0.0.0.0，绑定层的 127.0.0.1 隔离随之失效，
+ * 「仅本机」承诺全靠 server.ts 里这一处逐请求判 socket 地址——本块钉住：
+ *   1) 门真实存在且判的是 socket 来源（403 FORBIDDEN_IP）；
+ *   2) 只作用于 agent 面，不误伤手机面；
+ *   3) mode=lan 时不拦，照常走细化权限。
+ * 真实 listen 在 127.0.0.1 上收包、源地址恒为环回，无法构造 LAN 来源，
+ * 故直接向 request listener 注入带伪 socket.remoteAddress 的请求对象。
+ */
+describe('agent 面 mode=localhost 请求级环回门', () => {
+  const appRoute: ApiRoute = {
+    method: 'GET',
+    pattern: '/api/app/v1/sync/meta',
+    handler: () => ({ ok: 'app' }),
+  };
+  const agentRoute: ApiRoute = {
+    method: 'GET',
+    pattern: '/api/v1/galleries',
+    handler: () => ({ ok: 'agent' }),
+  };
+
+  /** 绕过 TCP、直接触发 request 监听器，伪造 socket 来源地址。 */
+  function dispatch(server: http.Server, options: {
+    path: string;
+    remoteAddress: string;
+    authorization?: string;
+  }): Promise<{ statusCode: number; json: unknown }> {
+    return new Promise((resolve, reject) => {
+      const req = {
+        method: 'GET',
+        url: options.path,
+        headers: options.authorization === undefined ? {} : { authorization: options.authorization },
+        socket: { remoteAddress: options.remoteAddress },
+      };
+      const res = {
+        statusCode: 200,
+        headersSent: false,
+        writableEnded: false,
+        destroyed: false,
+        setHeader() {},
+        end(body?: unknown) {
+          this.writableEnded = true;
+          try {
+            resolve({
+              statusCode: this.statusCode,
+              json: body ? JSON.parse(String(body)) : null,
+            });
+          } catch (error) {
+            reject(error);
+          }
+        },
+        destroy() {
+          this.destroyed = true;
+          reject(new Error('response destroyed'));
+        },
+      };
+      server.emit('request', req, res);
+    });
+  }
+
+  it('mode=localhost：LAN 来源打 agent 路由 → 403 FORBIDDEN_IP', async () => {
+    const server = createApiHttpServer({
+      config: config({ mode: 'localhost', app: { enabled: true } }),
+      routes: [agentRoute, appRoute],
+    });
+    const result = await dispatch(server, {
+      path: '/api/v1/galleries',
+      remoteAddress: '192.168.1.50',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(403);
+    expect((result.json as { error: { code: string } }).error.code).toBe('FORBIDDEN_IP');
+  });
+
+  it('mode=localhost：同一 LAN 来源打手机面路由不受 mode 约束 → 200', async () => {
+    const server = createApiHttpServer({
+      config: config({ mode: 'localhost', app: { enabled: true } }),
+      routes: [agentRoute, appRoute],
+    });
+    const result = await dispatch(server, {
+      path: '/api/app/v1/sync/meta',
+      remoteAddress: '192.168.1.50',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(result.statusCode).toBe(200);
+    expect((result.json as { data: { ok: string } }).data.ok).toBe('app');
+  });
+
+  it('mode=localhost：环回来源（含 v4-mapped 形式）打 agent 路由照常放行', async () => {
+    const server = createApiHttpServer({
+      config: config({ mode: 'localhost', app: { enabled: true } }),
+      routes: [agentRoute],
+    });
+    const plain = await dispatch(server, {
+      path: '/api/v1/galleries',
+      remoteAddress: '127.0.0.1',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(plain.statusCode).toBe(200);
+    const mapped = await dispatch(server, {
+      path: '/api/v1/galleries',
+      remoteAddress: '::ffff:127.0.0.1',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(mapped.statusCode).toBe(200);
+  });
+
+  it('mode=lan：LAN 来源打 agent 路由不走环回门、照常走细化权限', async () => {
+    const allowed = await dispatch(createApiHttpServer({
+      config: config({ mode: 'lan', app: { enabled: true } }),
+      routes: [agentRoute],
+    }), {
+      path: '/api/v1/galleries',
+      remoteAddress: '192.168.1.50',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(allowed.statusCode).toBe(200);
+
+    // 同请求在 galleryRead=false 时 403 PERMISSION_DENIED（证明走的是权限逻辑而非环回门）
+    const denied = await dispatch(createApiHttpServer({
+      config: config({ mode: 'lan', app: { enabled: true }, permissions: { ...defaultPermissions, galleryRead: false } }),
+      routes: [agentRoute],
+    }), {
+      path: '/api/v1/galleries',
+      remoteAddress: '192.168.1.50',
+      authorization: 'Bearer test-api-key',
+    });
+    expect(denied.statusCode).toBe(403);
+    expect((denied.json as { error: { code: string } }).error.code).toBe('PERMISSION_DENIED');
+  });
+});
