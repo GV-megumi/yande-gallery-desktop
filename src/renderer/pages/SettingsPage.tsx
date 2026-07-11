@@ -1144,14 +1144,48 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               }
             />
             <SettingsRow
+              label="监听模式"
+              description="仅约束 Agent 接口的访问来源，手机端连接不受影响"
+              extra={
+                <Segmented
+                  value={apiConfig.mode}
+                  onChange={(mode) => void saveApiServicePatch({ mode: mode as ApiServiceConfig['mode'] })}
+                  options={[
+                    { label: '仅本机', value: 'localhost' },
+                    { label: '局域网', value: 'lan' },
+                  ]}
+                  size="small"
+                />
+              }
+            />
+            <SettingsRow
               label="运行状态"
               description={apiStatus.running ? `运行中 ${apiStatus.baseUrl || ''}（绑定 ${apiStatus.bindAddress || '-'}）` : (apiStatus.lastError || '未运行')}
             />
             <SettingsRow
               label="API Key"
               description={apiKeyVisible ? (apiConfig.apiKey || '未生成') : (apiConfig.apiKey ? '已生成，当前隐藏' : '未生成')}
+              isLast
               extra={
                 <Space size={spacing.sm}>
+                  <Tooltip title="复制">
+                    <Button
+                      size="small"
+                      type="text"
+                      icon={<CopyOutlined />}
+                      disabled={!apiConfig.apiKey}
+                      onClick={async () => {
+                        if (!apiConfig.apiKey) return;
+                        try {
+                          await navigator.clipboard.writeText(apiConfig.apiKey);
+                          message.success('已复制');
+                        } catch (err) {
+                          console.error('[SettingsPage] 复制 API Key 失败:', err);
+                          message.error('复制失败');
+                        }
+                      }}
+                    />
+                  </Tooltip>
                   <Button size="small" onClick={() => setApiKeyVisible(v => !v)}>
                     {apiKeyVisible ? '隐藏' : '显示'}
                   </Button>
@@ -1168,31 +1202,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </Button>
                   </Popconfirm>
                 </Space>
-              }
-            />
-            <SettingsRow
-              label="当前值"
-              description={apiKeyVisible ? apiConfig.apiKey || '未生成' : '已隐藏'}
-              isLast
-              extra={
-                <Tooltip title="复制">
-                  <Button
-                    size="small"
-                    type="text"
-                    icon={<CopyOutlined />}
-                    disabled={!apiConfig.apiKey}
-                    onClick={async () => {
-                      if (!apiConfig.apiKey) return;
-                      try {
-                        await navigator.clipboard.writeText(apiConfig.apiKey);
-                        message.success('已复制');
-                      } catch (err) {
-                        console.error('[SettingsPage] 复制 API Key 失败:', err);
-                        message.error('复制失败');
-                      }
-                    }}
-                  />
-                </Tooltip>
               }
             />
           </SettingsGroup>
@@ -1221,25 +1230,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           </SettingsGroup>
 
           {/* Agent 面：细化权限（spec §3.2/§7） */}
-          <SettingsGroup title="Agent API" footer="面向 CLI 与智能体的接口；默认仅本机访问，局域网模式仍会拦截非私网来源。开启手机端连接后服务将绑定局域网地址，本开关与监听模式仅控制 Agent 面。">
+          <SettingsGroup title="Agent API" footer="面向 CLI 与智能体的接口；默认仅本机访问，局域网模式仍会拦截非私网来源。开启手机端连接后服务将绑定局域网地址，监听模式仅约束 Agent 面来源。">
             <SettingsRow
               label="启用 Agent API"
-              extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}
-            />
-            <SettingsRow
-              label="监听模式"
               isLast
-              extra={
-                <Segmented
-                  value={apiConfig.mode}
-                  onChange={(mode) => void saveApiServicePatch({ mode: mode as ApiServiceConfig['mode'] })}
-                  options={[
-                    { label: '仅本机', value: 'localhost' },
-                    { label: '局域网', value: 'lan' },
-                  ]}
-                  size="small"
-                />
-              }
+              extra={<Switch checked={apiConfig.enabled} onChange={enabled => void saveApiServicePatch({ enabled })} />}
             />
           </SettingsGroup>
 
