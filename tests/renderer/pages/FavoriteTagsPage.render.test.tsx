@@ -10,6 +10,7 @@ const getFavoriteTagsWithDownloadState = vi.fn();
 const getSites = vi.fn();
 const getGalleries = vi.fn();
 const getGalleryFolders = vi.fn();
+const bindFolder = vi.fn();
 const selectFolder = vi.fn();
 const upsertFavoriteTagDownloadBinding = vi.fn();
 const getConfig = vi.fn();
@@ -34,7 +35,9 @@ vi.mock('../../../src/renderer/locales', () => ({
 }));
 
 beforeEach(() => {
-  vi.clearAllMocks();
+  // resetAllMocks 而非 clearAllMocks：连 mockResolvedValueOnce 的待消费队列一起清掉，
+  // 否则某条用例中途失败后，残留的 once 值会泄漏进后续用例造成连锁误报
+  vi.resetAllMocks();
   consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
   Object.defineProperty(navigator, 'clipboard', {
     configurable: true,
@@ -80,6 +83,7 @@ beforeEach(() => {
     gallery: {
       getGalleries,
       getGalleryFolders,
+      bindFolder,
     },
     config: {
       get: getConfig,
@@ -316,10 +320,11 @@ describe('FavoriteTagsPage render behavior', () => {
     });
     expect(getGalleryFolders).toHaveBeenCalledTimes(1);
 
-    // 选择图集后，下载路径输入框应填入该图集首个绑定文件夹路径
-    const pathInput = within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
+    // 选择图集后，下载路径应渲染为绑定文件夹候选框并默认选中首个文件夹
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
     await waitFor(() => {
-      expect(pathInput.value).toBe('D:/gallery/a');
+      const selection = pathSelect.closest('.ant-select')?.querySelector('.ant-select-selection-item');
+      expect(selection?.textContent).toBe('D:/gallery/a');
     });
   });
 
@@ -378,6 +383,207 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
+  it('候选框底部添加文件夹：选目录后应绑定到图集、刷新候选并自动选中新路径', async () => {
+    const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
+    upsertFavoriteTagDownloadBinding.mockResolvedValueOnce({ success: true });
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    // 首次选中图集拉到 1 个绑定文件夹；添加成功后的刷新返回 2 个（新路径以后端归一化结果为准）
+    getGalleryFolders
+      .mockResolvedValueOnce({
+        success: true,
+        data: [{ folderPath: 'D:/gallery/a', recursive: true, extensions: ['.jpg'] }],
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        data: [
+          { folderPath: 'D:/gallery/a', recursive: true, extensions: ['.jpg'] },
+          { folderPath: 'E:/gallery/new', recursive: true, extensions: ['.jpg'] },
+        ],
+      });
+    selectFolder.mockResolvedValueOnce({ success: true, data: 'E:/gallery/new' });
+    bindFolder.mockResolvedValueOnce({ success: true, data: { imported: 3, skipped: 0 } });
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    // 单个绑定文件夹也应渲染候选框（候选框底部是添加文件夹的唯一入口）
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
+    await waitFor(() => {
+      expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+    });
+
+    // 打开候选下拉，底部应有「添加文件夹」入口（popup 渲染在 body portal，需用 screen 查询）
+    fireEvent.mouseDown(pathSelect);
+    const addButton = await screen.findByRole('button', { name: 'favoriteTags.addFolder' });
+    fireEvent.click(addButton);
+
+    await waitFor(() => {
+      expect(selectFolder).toHaveBeenCalledTimes(1);
+      expect(bindFolder).toHaveBeenCalledWith(1, 'E:/gallery/new');
+    });
+
+    // 绑定成功后刷新该图集的候选文件夹，并自动选中新路径
+    await waitFor(() => {
+      expect(getGalleryFolders).toHaveBeenCalledTimes(2);
+      expect(within(dialog).getByText('E:/gallery/new')).toBeTruthy();
+    });
+
+    fireEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));
+
+    await waitFor(() => {
+      expect(upsertFavoriteTagDownloadBinding).toHaveBeenCalledWith(expect.objectContaining({
+        favoriteTagId: 1,
+        galleryId: 1,
+        downloadPath: 'E:/gallery/new',
+      }));
+      expect(successSpy).toHaveBeenCalledWith('favoriteTags.saveConfigSuccess');
+    });
+  });
+
+  it('添加文件夹绑定失败时应提示后端原因且不刷新候选、不改选中路径', async () => {
+    const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    selectFolder.mockResolvedValueOnce({ success: true, data: 'E:/gallery/conflict' });
+    bindFolder.mockResolvedValueOnce({ success: false, error: '文件夹已被图集 2 绑定' });
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
+    fireEvent.mouseDown(pathSelect);
+    fireEvent.click(await screen.findByRole('button', { name: 'favoriteTags.addFolder' }));
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('common.failed: 文件夹已被图集 2 绑定');
+    });
+    // 失败后不刷新候选（仍是选中图集时的那一次拉取），选中路径保持原样
+    expect(getGalleryFolders).toHaveBeenCalledTimes(1);
+    expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+  });
+
+  it('添加文件夹选中的目录已是候选时应直接选中而不重复绑定', async () => {
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    getGalleryFolders.mockResolvedValue({
+      success: true,
+      data: [
+        { folderPath: 'D:/gallery/a', recursive: true, extensions: ['.jpg'] },
+        { folderPath: 'D:/gallery/b', recursive: true, extensions: ['.jpg'] },
+      ],
+    });
+    // 用户在系统目录对话框里选了已绑定的 b（带末尾分隔符，按同一路径处理）
+    selectFolder.mockResolvedValueOnce({ success: true, data: 'D:/gallery/b/' });
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
+    await waitFor(() => {
+      expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+    });
+
+    fireEvent.mouseDown(pathSelect);
+    fireEvent.click(await screen.findByRole('button', { name: 'favoriteTags.addFolder' }));
+
+    // 命中已有候选：直接改选中，不发起绑定、不刷新候选
+    await waitFor(() => {
+      expect(within(dialog).getByText('D:/gallery/b')).toBeTruthy();
+    });
+    expect(bindFolder).not.toHaveBeenCalled();
+    expect(getGalleryFolders).toHaveBeenCalledTimes(1);
+  });
+
+  it('bindFolder 扫描期间清空图集选择后，完成的绑定不应改写当前路径或刷新候选', async () => {
+    mockPageData([
+      {
+        ...baseTag,
+        downloadBinding: null,
+        resolvedDownloadPath: '',
+      },
+    ]);
+    selectFolder.mockResolvedValueOnce({ success: true, data: 'E:/gallery/new' });
+    let resolveBindFolder!: (value: { success: boolean; error?: string }) => void;
+    bindFolder.mockReturnValueOnce(new Promise(resolve => {
+      resolveBindFolder = resolve;
+    }));
+
+    render(<FavoriteTagsPage />);
+
+    const row = (await screen.findByText('tag a')).closest('tr');
+    expect(row).not.toBeNull();
+    fireEvent.click(within(row!).getByRole('button', { name: 'favoriteTags.configureDownload' }));
+
+    const dialog = await screen.findByRole('dialog');
+    fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
+    fireEvent.click(await screen.findByText('Gallery A'));
+
+    const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
+    await waitFor(() => {
+      expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
+    });
+
+    // 发起添加（bindFolder 挂起，模拟大目录扫描），随后清空图集选择回到手动选目录模式
+    fireEvent.mouseDown(pathSelect);
+    fireEvent.click(await screen.findByRole('button', { name: 'favoriteTags.addFolder' }));
+    await waitFor(() => {
+      expect(bindFolder).toHaveBeenCalledWith(1, 'E:/gallery/new');
+    });
+
+    const clearIcon = dialog.querySelector('.ant-select-clear');
+    expect(clearIcon).not.toBeNull();
+    fireEvent.mouseDown(clearIcon!);
+    const pathInput = await within(dialog).findByLabelText('favoriteTags.downloadPath') as HTMLInputElement;
+    expect(pathInput.value).toBe('D:/gallery/a');
+    const foldersCallsBeforeResolve = getGalleryFolders.mock.calls.length;
+
+    // 扫描完成：绑定已生效在图集侧，但弹窗当前已是手动模式，不应改写路径或再拉候选。
+    // 不用 act() 包裹：下拉开合的 rc-motion 动画在途时裸 act 会与其调度互锁直到超时，
+    // 改用短定时等 handler 的微任务与状态更新自然落地（act 警告已被 console.error spy 吸收）。
+    resolveBindFolder({ success: true });
+    await new Promise(resolve => setTimeout(resolve, 100));
+
+    expect(getGalleryFolders).toHaveBeenCalledTimes(foldersCallsBeforeResolve);
+    expect((within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement).value).toBe('D:/gallery/a');
+  });
+
   it('图集没有绑定文件夹时应提示原因并拦截保存，清空图集选择后恢复手动选目录', async () => {
     const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
     mockPageData([
@@ -400,10 +606,12 @@ describe('FavoriteTagsPage render behavior', () => {
     fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
     fireEvent.click(await screen.findByText('Gallery A'));
 
-    // 明确提示：该图集没有绑定文件夹，无法作为下载目标（不再是无解释的死锁）
+    // 明确提示:该图集没有绑定文件夹,无法作为下载目标(不再是无解释的死锁)
     expect(await within(dialog).findByText('favoriteTags.galleryHasNoFolders')).toBeTruthy();
-    // 不能开放任意目录（后端要求路径 ∈ 绑定文件夹），选择文件夹按钮保持禁用
-    expect((within(dialog).getByRole('button', { name: '选择文件夹' }) as HTMLButtonElement).disabled).toBe(true);
+    // 图集绑定态下路径由候选框接管(后端要求路径 ∈ 绑定文件夹),手动选目录按钮不再渲染,
+    // 扩充合法候选走候选框底部的「添加文件夹」
+    expect(within(dialog).queryByRole('button', { name: '选择文件夹' })).toBeNull();
+    expect(within(dialog).getByRole('combobox', { name: 'favoriteTags.downloadPath' })).toBeTruthy();
 
     // 保存被校验友好拦截，不会提交绑定
     fireEvent.click(within(dialog).getByRole('button', { name: 'common.save' }));

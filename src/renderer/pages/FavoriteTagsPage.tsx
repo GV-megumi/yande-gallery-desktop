@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List } from 'antd';
+import { Card, Table, Button, Input, Space, Tag, message, Popconfirm, Modal, Form, Select, Empty, Tooltip, Alert, Progress, Switch, InputNumber, List, Divider } from 'antd';
 import type { TableColumnsType } from 'antd';
 import { StarFilled, DeleteOutlined, PlusOutlined, EditOutlined, SearchOutlined, ExportOutlined, ImportOutlined, InboxOutlined, DownloadOutlined, SettingOutlined, DisconnectOutlined, FolderOpenOutlined, HistoryOutlined, RedoOutlined, ToolOutlined, SortAscendingOutlined, SortDescendingOutlined } from '@ant-design/icons';
 import type { FavoriteTag, FavoriteTagDownloadDisplayStatus, FavoriteTagWithDownloadState } from '../../shared/types';
@@ -56,6 +56,12 @@ const DEFAULT_DOWNLOAD_BINDING_FORM_VALUES: Omit<DownloadBindingFormValues, 'gal
   notifications: true,
 };
 const GLOBAL_SITE_SELECT_VALUE = '__global__';
+
+// 渲染层的路径宽松比较键：去末尾分隔符 + 统一斜杠 + 小写（Windows 不区分大小写）。
+// 仅用于「选中的目录是否已在候选里」的启发式判断——误判为不同也只是多走一次
+// bindFolder，由后端 UNIQUE 校验兜底报错；真正的归一化仍以主进程 normalizePath 为准。
+const folderCompareKey = (folderPath: string) =>
+  folderPath.replace(/[\\/]+$/, '').replace(/\\/g, '/').toLowerCase();
 type FavoriteTagsSortKey = 'tagName' | 'galleryName' | 'lastDownloadedAt';
 type FavoriteTagsSortOrder = 'asc' | 'desc';
 
@@ -86,6 +92,8 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const [configuringTag, setConfiguringTag] = useState<FavoriteTagWithDownloadState | null>(null);
   // 下载配置弹窗：当前选中图集的绑定文件夹列表（null=未选图集或尚未取到，[]=该图集没有绑定文件夹）
   const [selectedGalleryFolders, setSelectedGalleryFolders] = useState<string[] | null>(null);
+  // 候选框底部「添加文件夹」进行中（选目录 + bindFolder 扫描导入可达分钟级，期间禁用入口防重复绑定）
+  const [addingGalleryFolder, setAddingGalleryFolder] = useState(false);
   const [sites, setSites] = useState<SiteOption[]>([]);
   const [galleries, setGalleries] = useState<GalleryOption[]>([]);
   const [filterSiteId, setFilterSiteId] = useState<number | undefined>(undefined);
@@ -604,6 +612,63 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       return;
     }
     void loadSelectedGalleryFolders(galleryId);
+  };
+
+  // 候选框底部「添加文件夹」：选目录 → 绑定到当前图集（gallery.bindFolder，含扫描导入）→
+  // 刷新候选并自动选中新路径。图集绑定态下下载路径必须 ∈ 绑定文件夹（后端校验），
+  // 所以这里不能只改表单值，必须先真实绑定；这与图集信息弹窗里的「添加文件夹」是同一语义。
+  const handleAddGalleryFolder = async (galleryId: number) => {
+    setAddingGalleryFolder(true);
+    // 记录发起时的请求序号：目录选择/bindFolder 扫描可达分钟级，期间用户可能切换或
+    // 清空图集（都会推进序号）。完成后序号已变则跳过一切表单回写（绑定本身已生效，不回滚）。
+    const seqAtStart = galleryFolderRequestSeqRef.current;
+    try {
+      const picked = await window.electronAPI.system.selectFolder();
+      if (!picked?.success || !picked.data) {
+        if (picked?.error && picked.error !== 'No folder selected') {
+          message.error(`${t('common.failed')}: ${picked.error}`);
+        }
+        return;
+      }
+      const pickedPath = picked.data;
+
+      // 选中的目录已是候选（宽松比较，误判交给后端 UNIQUE 兜底）：直接改选中，不重复绑定。
+      // 序号未变时闭包里的 selectedGalleryFolders 必然仍是当前图集的候选（任何变更都会推进序号）。
+      const existing = (selectedGalleryFolders ?? [])
+        .find(folderPath => folderCompareKey(folderPath) === folderCompareKey(pickedPath));
+      if (existing) {
+        if (galleryFolderRequestSeqRef.current === seqAtStart) {
+          downloadForm.setFieldsValue({ downloadPath: existing });
+        }
+        return;
+      }
+
+      const result = await window.electronAPI.gallery.bindFolder(galleryId, pickedPath);
+      if (!result.success) {
+        message.error(`${t('common.failed')}: ${result.error}`);
+        return;
+      }
+      message.success(t('favoriteTags.folderAdded'));
+
+      if (galleryFolderRequestSeqRef.current !== seqAtStart) {
+        return; // 弹窗上下文已切换（换图集/清空选择），不再刷新候选或改写选中路径
+      }
+      const requestSeq = seqAtStart + 1;
+      galleryFolderRequestSeqRef.current = requestSeq;
+      const folders = await fetchGalleryFolderPaths(galleryId);
+      if (galleryFolderRequestSeqRef.current !== requestSeq || folders === null) {
+        return;
+      }
+      setSelectedGalleryFolders(folders);
+      // 自动选中刚添加的文件夹（以后端归一化后的路径为准；找不到时回退首个候选）
+      const bound = folders.find(folderPath => folderCompareKey(folderPath) === folderCompareKey(pickedPath));
+      downloadForm.setFieldsValue({ downloadPath: bound ?? folders[0] ?? '' });
+    } catch (error) {
+      console.error('[FavoriteTagsPage] 添加图集文件夹失败:', error);
+      message.error(t('common.failed'));
+    } finally {
+      setAddingGalleryFolder(false);
+    }
   };
 
   const handleSelectFavoriteTagDownloadPath = async () => {
@@ -1240,11 +1305,31 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
                 }];
                 return (
                   <>
-                    {Boolean(selectedGalleryId) && selectedGalleryFolders !== null && selectedGalleryFolders.length > 1 ? (
-                      // 图集绑定多个文件夹：下载路径渲染为该图集绑定文件夹的 Select（默认首个，可改选任一）
+                    {Boolean(selectedGalleryId) && selectedGalleryFolders !== null ? (
+                      // 图集绑定态：下载路径渲染为绑定文件夹候选框（默认首个，可改选任一）。
+                      // 单文件夹甚至零文件夹也渲染候选框——候选框底部的「添加文件夹」是
+                      // 图集绑定态下扩充合法下载目录的唯一入口（先真实 bindFolder 再入候选）。
                       <Form.Item name="downloadPath" noStyle rules={downloadPathRules}>
                         <Select
                           options={selectedGalleryFolders.map(folderPath => ({ label: folderPath, value: folderPath }))}
+                          popupRender={(menu) => (
+                            <>
+                              {menu}
+                              <Divider style={{ margin: '4px 0' }} />
+                              <Button
+                                type="text"
+                                block
+                                icon={<PlusOutlined />}
+                                aria-label={t('favoriteTags.addFolder')}
+                                loading={addingGalleryFolder}
+                                // 阻止默认 mousedown 抢焦点导致下拉先行关闭（antd 自定义下拉内容惯例）
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => handleAddGalleryFolder(selectedGalleryId)}
+                              >
+                                {t('favoriteTags.addFolder')}
+                              </Button>
+                            </>
+                          )}
                         />
                       </Form.Item>
                     ) : (
