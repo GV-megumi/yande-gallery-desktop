@@ -468,6 +468,40 @@ describe('SettingsPage general tab behavior', () => {
     });
   });
 
+  it('允许手机端连接开关应保存 app 嵌套 patch，不误动 Agent 面 enabled', async () => {
+    render(<App><SettingsPage /></App>);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+
+    const appLabel = await screen.findByText('允许手机端连接');
+    const appRow = appLabel.closest('div[style*="display: flex"]') as HTMLElement;
+    const appSwitch = appRow.querySelector('.ant-switch') as HTMLButtonElement;
+    await userEvent.click(appSwitch);
+
+    await waitFor(() => {
+      // 手机面是嵌套 patch：{ app: { enabled } }。误写成平铺 { enabled } 会开/关 Agent 面
+      expect(saveApiServiceConfig).toHaveBeenCalledWith({ app: { enabled: true } });
+    });
+    expect(saveApiServiceConfig).not.toHaveBeenCalledWith({ enabled: true });
+  });
+
+  it('保存成功但服务重启失败（syncError）时应提示 warning', async () => {
+    saveApiServiceConfig.mockResolvedValue({ success: true, syncError: '端口被占用' });
+    render(<App><SettingsPage /></App>);
+
+    const apiTab = await screen.findByText('API 服务');
+    await userEvent.click(apiTab);
+
+    const appLabel = await screen.findByText('允许手机端连接');
+    const appRow = appLabel.closest('div[style*="display: flex"]') as HTMLElement;
+    const appSwitch = appRow.querySelector('.ant-switch') as HTMLButtonElement;
+    await userEvent.click(appSwitch);
+
+    // app-only 场景配置已保存但服务没起来，用户必须能看到失败原因
+    await screen.findByText('API 服务重启失败：端口被占用');
+  });
+
   it('API 权限开关应只保存单个权限的 nested patch', async () => {
     render(<App><SettingsPage /></App>);
 
