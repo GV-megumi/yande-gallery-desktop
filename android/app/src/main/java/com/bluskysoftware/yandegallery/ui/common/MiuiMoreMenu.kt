@@ -243,15 +243,19 @@ fun MiuiChoiceRow(label: String, selected: Boolean, tag: String, onClick: () -> 
     }
 }
 
-/** 照片/详情「排序方式」分类行的当前值预览：字段名 + 方向箭头。 */
+/**
+ * 照片/详情「排序方式」分类行的当前值预览：字段名 + 方向箭头。
+ * firstOrNull 兜底：枚举新增档位而字段表漏同步时降级为空预览（顶栏每次重组都会执行，
+ * 不能让 first 的 NoSuchElementException 崩整页）；穷举映射由 MiuiMoreMenuPreviewTest 钉住。
+ */
 fun photoSortPreview(sort: PhotoSort): String {
-    val field = PhotoSortField.entries.first { it.contains(sort) }
+    val field = PhotoSortField.entries.firstOrNull { it.contains(sort) } ?: return ""
     return "${field.label} ${if (sort.ascending) "↑" else "↓"}"
 }
 
-/** 相册「排序方式」分类行的当前值预览：手动档无方向。 */
+/** 相册「排序方式」分类行的当前值预览：手动档无方向。兜底同 [photoSortPreview]。 */
 fun albumSortPreview(sort: AlbumSort): String {
     if (sort == AlbumSort.MANUAL) return "手动"
-    val field = AlbumSortField.entries.first { it.contains(sort) }
+    val field = AlbumSortField.entries.firstOrNull { it.contains(sort) } ?: return ""
     return "${field.label} ${if (sort.ascending) "↑" else "↓"}"
 }
