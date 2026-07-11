@@ -113,6 +113,39 @@ class SseClientTest {
     }
 
     @Test
+    fun `stop-start（退-进前台）清 403 降级并重试——覆盖桌面「允许手机端连接」off-on 恢复路径`() {
+        MockWebServer().use { server ->
+            // 首连 403（桌面开关关）→ 降级；用户开开关后进前台，start 应清降级重试并收到事件
+            server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"FORBIDDEN"}}"""))
+            server.enqueue(eventStream("event: gallery:images-changed\ndata: {}\n\n"))
+            server.start()
+
+            val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+            val latch = CountDownLatch(1)
+            val sse = SseClient(
+                client = OkHttpClient(),
+                urlProvider = { server.url("/api/app/v1/events/system").toString() },
+                onGalleryEvent = { latch.countDown() },
+                scope = scope,
+                debounceMs = 50,
+                reconnectDelayMs = 100,
+            )
+
+            sse.start()
+            assertNotNull("首个订阅请求应到达（403 降级前）", server.takeRequest(2, TimeUnit.SECONDS))
+            Thread.sleep(200)   // 让 403 降级落定
+
+            sse.stop()          // 退后台
+            sse.start()         // 进前台：应清 disabledUrl 并重连
+            assertTrue("进前台重试应重连并收到事件", latch.await(3, TimeUnit.SECONDS))
+            assertEquals("恰好两次订阅请求（403 一次 + 前台重试一次）", 2, server.requestCount)
+
+            sse.stop()
+            scope.cancel()
+        }
+    }
+
+    @Test
     fun `切换服务器 restart 清 403 降级并连新 baseUrl`() {
         MockWebServer().use { serverA ->
             MockWebServer().use { serverB ->

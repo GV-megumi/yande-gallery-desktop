@@ -9,6 +9,7 @@ import { createRouteMatcher } from './router.js';
 import {
   isAllowedApiSourceIp,
   isAuthorizedBearer,
+  isLoopbackAddress,
   normalizeRemoteAddress,
 } from './security.js';
 import { ApiHttpError, type ApiRoute } from './types.js';
@@ -87,6 +88,12 @@ export function createApiHttpServer(options: CreateApiHttpServerOptions): http.S
       } else {
         if (options.config.enabled !== true) {
           throw new ApiHttpError(403, 'PERMISSION_DENIED', 'Agent API is disabled');
+        }
+
+        // 仅本机模式的请求级兜底（spec §6）：app.enabled 会把服务器强制绑到 0.0.0.0，
+        // 绑定层的 127.0.0.1 隔离随之失效，agent 面「仅本机」承诺改在此逐请求兜住。
+        if (options.config.mode === 'localhost' && !isLoopbackAddress(req.socket.remoteAddress)) {
+          throw new ApiHttpError(403, 'FORBIDDEN_IP', 'Agent API is localhost-only');
         }
 
         const permissionKey = resolvePermissionForRequest(method, url.pathname);

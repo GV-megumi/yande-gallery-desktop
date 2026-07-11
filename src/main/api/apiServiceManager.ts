@@ -8,7 +8,7 @@ import { createBooruRoutes } from './routes/booruRoutes.js';
 import { createAppEventRoutes, createEventRoutes } from './routes/eventRoutes.js';
 import { createGalleryRoutes, createImageBinaryRoutes } from './routes/galleryRoutes.js';
 import { createGalleryWriteRoutes } from './routes/galleryWriteRoutes.js';
-import { createServiceRoutes } from './routes/serviceRoutes.js';
+import { createAppServiceRoutes, createServiceRoutes } from './routes/serviceRoutes.js';
 import { createSyncRoutes } from './routes/syncRoutes.js';
 import { remapToAppNamespace } from './appNamespace.js';
 import { generateApiKey } from './security.js';
@@ -60,19 +60,19 @@ export function assembleApiRoutes(
   statusProvider: { getStatus: () => ApiServiceStatus },
   eventHub: Pick<ApiEventHub, 'subscribe'>,
 ): ApiRoute[] {
-  const serviceRoutes = createServiceRoutes(statusProvider);
   const imageBinaryRoutes = createImageBinaryRoutes();
 
   return [
     // Agent 面 /api/v1/*：设计文档 11 键细化权限（spec §3.2）
-    ...serviceRoutes,
+    ...createServiceRoutes(statusProvider),
     ...createGalleryRoutes(),
     ...imageBinaryRoutes,
     ...createBooruRoutes(),
     ...createApiLogRoutes(),
     ...createEventRoutes(eventHub),
-    // 手机面 /api/app/v1/*：「允许手机端连接」一门制（spec §3.1）
-    ...remapToAppNamespace(serviceRoutes),
+    // 手机面 /api/app/v1/*：「允许手机端连接」一门制（spec §3.1）；
+    // service 路由用手机面专版（info 不透出 agent 专属 mode/permissions），不走 remap
+    ...createAppServiceRoutes(statusProvider),
     ...remapToAppNamespace(imageBinaryRoutes),
     ...createSyncRoutes(),
     ...createGalleryWriteRoutes(),
@@ -353,7 +353,26 @@ async function syncNow(): Promise<ApiServiceStatus> {
   }
 
   const bindAddress = getBindAddress(serverConfig);
-  const nextServer = createApiHttpServer({ config: serverConfig, routes: createRoutes() });
+  // 路由装配可能抛错（如 remapToAppNamespace 的命名空间护栏）：此时旧服务器已停，
+  // 必须把错误记进 status.lastError 而不是让 rejection 逃逸——否则设置页只见「未运行」无原因，
+  // 启动路径上还会变成 whenReady 里的未处理异常。
+  let nextServer: Server;
+  try {
+    nextServer = createApiHttpServer({ config: serverConfig, routes: createRoutes() });
+  } catch (error) {
+    setApiServiceStatus({
+      running: false,
+      enabled: serverConfig.enabled,
+      appEnabled: serverConfig.app.enabled,
+      mode: serverConfig.mode,
+      port: serverConfig.port,
+      bindAddress: null,
+      baseUrl: null,
+      startedAt: null,
+      lastError: error instanceof Error ? error.message : String(error),
+    });
+    return status;
+  }
   attachConnectionTracker(nextServer);
 
   try {

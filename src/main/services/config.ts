@@ -1101,10 +1101,14 @@ function normalizeApiServiceConfig(
   const currentMode = normalizeMode(current?.mode, defaults.mode);
   const currentPort = normalizePort(current?.port, defaults.port);
   const currentApiKey = normalizeString(current?.apiKey, defaults.apiKey);
-  // 迁移（spec §5）：旧配置无 app 块时，imageWrite/galleryWrite 曾开启是「手机在用」的最强信号；
+  // 迁移（spec §5）：旧配置无 app 块时，「手机曾真实在用」的信号 = 服务开启 + 局域网监听 + 写权限
+  // 曾开启（imageWrite/galleryWrite 本就是给手机加的键）。三者缺一不认——enabled:false 或 localhost
+  // 绑定下手机本就连不上，仅凭写权限推导会把用户明确关掉/仅本机的服务静默拉起并强制绑 0.0.0.0。
   // 旧键不再进入类型系统，经 Record 读取一次性消费，下次保存后自然从 yaml 消失。
   const legacyPermissions = (current?.permissions ?? {}) as Record<string, unknown>;
-  const legacyMobileSignal = legacyPermissions.imageWrite === true || legacyPermissions.galleryWrite === true;
+  const legacyMobileSignal = (legacyPermissions.imageWrite === true || legacyPermissions.galleryWrite === true)
+    && currentEnabled
+    && currentMode === 'lan';
   const currentAppEnabled = normalizeBoolean(current?.app?.enabled, legacyMobileSignal || defaults.app.enabled);
   const currentPermissions: Partial<ApiServicePermissions> = current?.permissions ?? {};
   const inputPermissions: Partial<ApiServicePermissions> = input?.permissions ?? {};

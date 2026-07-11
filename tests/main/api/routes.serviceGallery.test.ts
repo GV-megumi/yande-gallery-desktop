@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fingerprintApiKey } from '../../../src/main/api/security.js';
 import { ApiHttpError, type ApiRequestContext, type ApiRoute } from '../../../src/main/api/types.js';
 import { createGalleryRoutes, createImageBinaryRoutes } from '../../../src/main/api/routes/galleryRoutes.js';
-import { createServiceRoutes } from '../../../src/main/api/routes/serviceRoutes.js';
+import { createAppServiceRoutes, createServiceRoutes } from '../../../src/main/api/routes/serviceRoutes.js';
 import { getApiServiceConfig } from '../../../src/main/services/config.js';
 import { getGalleries, getGallery } from '../../../src/main/services/galleryService.js';
 import { getImageById, getImages, getImagesByGallery } from '../../../src/main/services/imageService.js';
@@ -157,6 +157,7 @@ describe('service API routes', () => {
     const status = {
       running: true,
       enabled: true,
+      appEnabled: false,
       mode: 'localhost',
       port: 3210,
       bindAddress: '127.0.0.1',
@@ -179,6 +180,7 @@ describe('service API routes', () => {
       status: {
         running: true,
         enabled: true,
+        appEnabled: false,
         mode: 'localhost',
         port: 3210,
         bindAddress: '127.0.0.1',
@@ -196,10 +198,50 @@ describe('service API routes', () => {
     expect(result).not.toHaveProperty('status.apiKey');
   });
 
+  it('手机面 service/info 不透出 agent 专属的 mode 与 permissions（防客户端误据其做门控）', async () => {
+    const status = {
+      running: true,
+      enabled: false,
+      appEnabled: true,
+      mode: 'localhost',
+      port: 3210,
+      bindAddress: '0.0.0.0',
+      baseUrl: 'http://127.0.0.1:3210',
+      startedAt: '2026-01-01T00:00:00.000Z',
+      lastError: null,
+    };
+    const route = findRoute(
+      createAppServiceRoutes({ getStatus: () => status as any }),
+      '/api/app/v1/service/info',
+    );
+
+    const result = await route.handler(context());
+
+    expect(result).toMatchObject({
+      appName: 'Yande Gallery Desktop',
+      apiVersion: 'v1',
+      status: { running: true, appEnabled: true },
+      apiKeyFingerprint: fingerprintApiKey('raw-secret-key'),
+    });
+    // agent 专属字段不进手机面响应：顶层 mode/permissions 均不存在
+    expect(result).not.toHaveProperty('mode');
+    expect(result).not.toHaveProperty('permissions');
+    expect(JSON.stringify(result)).not.toContain('raw-secret-key');
+  });
+
+  it('手机面 service/health 与 agent 面同 handler 行为', async () => {
+    const route = findRoute(createAppServiceRoutes({ getStatus: () => ({}) as any }), '/api/app/v1/service/health');
+
+    const result = await route.handler(context());
+
+    expect(result).toMatchObject({ ok: true });
+  });
+
   it('returns health with an ISO timestamp', async () => {
     const route = findRoute(createServiceRoutes({ getStatus: () => ({
       running: true,
       enabled: true,
+      appEnabled: false,
       mode: 'localhost',
       port: 3210,
       bindAddress: '127.0.0.1',

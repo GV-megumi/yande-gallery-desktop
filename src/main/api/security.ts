@@ -67,6 +67,22 @@ export function isAllowedApiSourceIp(remoteAddress: string | undefined | null): 
     || first === 127;
 }
 
+/**
+ * 环回来源判定：agent 面 mode=localhost 的请求级兜底。
+ * app.enabled 会把整台服务器强制绑到 0.0.0.0，绑定层的「仅本机」隔离随之消失，
+ * 「仅本机」承诺必须改由应用层对 agent 面逐请求兜住（手机面不受 mode 约束）。
+ */
+export function isLoopbackAddress(remoteAddress: string | undefined | null): boolean {
+  const address = normalizeRemoteAddress(remoteAddress);
+
+  if (address === '::1') {
+    return true;
+  }
+
+  const octets = parseIpv4(address);
+  return octets !== null && octets[0] === 127;
+}
+
 function parseIpv4(address: string): [number, number, number, number] | null {
   const parts = address.split('.');
   if (parts.length !== 4) {

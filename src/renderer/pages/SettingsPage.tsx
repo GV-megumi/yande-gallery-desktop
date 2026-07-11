@@ -367,6 +367,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         message.error(res?.error || '保存 API 服务配置失败');
       } else {
         saved = true;
+        // 配置已保存但服务重启失败（如端口被占用）：app-only 场景 running 可能仍显示旧状态，
+        // 不提示的话唯一线索只剩主进程 console.warn，用户完全看不到失败。
+        if (res.syncError) {
+          message.warning(`API 服务重启失败：${res.syncError}`);
+        }
       }
     } catch (err) {
       message.error('保存 API 服务配置失败');
@@ -401,6 +406,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       const result = await window.electronAPI.apiService.generateKey();
       if (!result?.success) {
         message.error(result?.error || '生成 API Key 失败');
+      } else if (result.syncError) {
+        message.warning(`API 服务重启失败：${result.syncError}`);
       }
     } catch (err) {
       message.error('生成 API Key 失败');

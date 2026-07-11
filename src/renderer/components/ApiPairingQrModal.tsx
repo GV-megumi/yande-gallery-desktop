@@ -48,7 +48,7 @@ export const ApiPairingQrModal: React.FC<Props> = ({ open, onClose }) => {
         <Alert type="warning" message="API 服务未运行（启动失败），请查看设置页错误信息" showIcon style={{ marginBottom: 12 }} />
       )}
       {info && !info.apiKey && (
-        <Alert type="warning" message="尚未生成 API Key，请先启用服务或生成 Key" showIcon style={{ marginBottom: 12 }} />
+        <Alert type="warning" message="尚未生成 API Key，请先开启「允许手机端连接」（自动生成）或在设置中生成 Key" showIcon style={{ marginBottom: 12 }} />
       )}
       {info && info.lanAddresses.length === 0 && (
         <Alert type="error" message="未发现局域网 IPv4 地址" showIcon style={{ marginBottom: 12 }} />

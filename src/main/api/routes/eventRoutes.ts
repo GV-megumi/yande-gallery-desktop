@@ -1,6 +1,7 @@
 import type { ApiEventChannel, ApiEventHub } from '../events/eventHub.js';
 import { ApiHttpError, type ApiRoute } from '../types.js';
 import { API_EVENT_CHANNELS } from '../../../shared/types.js';
+import { APP_API_PREFIX } from '../appNamespace.js';
 
 const ALLOWED_CHANNELS = new Set<ApiEventChannel>(API_EVENT_CHANNELS);
 
@@ -30,7 +31,7 @@ export function createAppEventRoutes(eventHub: Pick<ApiEventHub, 'subscribe'>): 
   return [
     {
       method: 'GET',
-      pattern: '/api/app/v1/events/system',
+      pattern: `${APP_API_PREFIX}/events/system`,
       handler: (context) => {
         eventHub.subscribe('system', context.req, context.res);
         return undefined;

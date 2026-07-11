@@ -221,11 +221,13 @@ describe('apiService config defaults', () => {
     expect(configModule.getApiServiceConfig()).toEqual(expected);
   });
 
-  it('迁移：旧配置 imageWrite/galleryWrite 开启时推导 app.enabled=true，且输出剔除旧键（spec §5）', async () => {
+  it('迁移：旧配置 enabled+lan+写权限齐备时推导 app.enabled=true，且输出剔除旧键（spec §5）', async () => {
     const configModule = await import('../../../src/main/services/config.js');
 
     mockedYaml.load.mockReturnValueOnce({
       apiService: {
+        enabled: true,
+        mode: 'lan',
         permissions: { imageWrite: true, galleryRead: true },
       },
     });
@@ -244,6 +246,8 @@ describe('apiService config defaults', () => {
 
     mockedYaml.load.mockReturnValueOnce({
       apiService: {
+        enabled: true,
+        mode: 'lan',
         permissions: { galleryWrite: true },
       },
     });
@@ -257,11 +261,47 @@ describe('apiService config defaults', () => {
     expect(apiService.permissions).not.toHaveProperty('galleryWrite');
   });
 
+  it('迁移：旧配置服务关闭（enabled=false）时写权限不推导 app.enabled——不得把用户关掉的服务静默拉起', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        enabled: false,
+        mode: 'lan',
+        permissions: { imageWrite: true, galleryWrite: true },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    expect(configModule.getConfig().apiService!.app).toEqual({ enabled: false });
+  });
+
+  it('迁移：旧配置仅本机监听（mode=localhost）时写权限不推导 app.enabled——手机本就连不上，不得强制局域网绑定', async () => {
+    const configModule = await import('../../../src/main/services/config.js');
+
+    mockedYaml.load.mockReturnValueOnce({
+      apiService: {
+        enabled: true,
+        mode: 'localhost',
+        permissions: { imageWrite: true, galleryWrite: true },
+      },
+    });
+
+    await configModule.initPaths();
+    await configModule.loadConfig('M:/test-config-root/config.yaml');
+
+    expect(configModule.getConfig().apiService!.app).toEqual({ enabled: false });
+  });
+
   it('迁移：旧配置未开写权限时 app.enabled 默认 false', async () => {
     const configModule = await import('../../../src/main/services/config.js');
 
     mockedYaml.load.mockReturnValueOnce({
       apiService: {
+        enabled: true,
+        mode: 'lan',
         permissions: { galleryRead: true, imageWrite: false },
       },
     });
@@ -277,6 +317,8 @@ describe('apiService config defaults', () => {
 
     mockedYaml.load.mockReturnValueOnce({
       apiService: {
+        enabled: true,
+        mode: 'lan',
         app: { enabled: false },
         permissions: { imageWrite: true, galleryWrite: true },
       },

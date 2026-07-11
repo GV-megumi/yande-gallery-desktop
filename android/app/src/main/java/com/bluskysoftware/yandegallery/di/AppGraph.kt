@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.di
 
 import android.content.Context
+import com.bluskysoftware.yandegallery.data.api.APP_API_PATH
 import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
@@ -215,7 +216,7 @@ class AppGraph(
             client = sseHttpClient,
             urlProvider = {
                 activeSnapshot?.baseUrl?.let { base ->
-                    "${base.trimEnd('/')}/api/app/v1/events/system"
+                    "${base.trimEnd('/')}/$APP_API_PATH/events/system"
                 }
             },
             onGalleryEvent = { syncScheduler.requestSync("sse") },

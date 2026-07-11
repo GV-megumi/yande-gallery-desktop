@@ -113,6 +113,7 @@ describe('appEventPublisher', () => {
     publisher.emitAppDataRestored({ mode: 'replace', restoredTables: [{ table: 'booru_posts', count: 2 }] });
     publisher.emitApiServiceStatusChanged({
       enabled: true,
+      appEnabled: false,
       running: true,
       mode: 'localhost',
       port: 37210,
@@ -137,6 +138,7 @@ describe('appEventPublisher', () => {
       source: 'apiService',
       payload: {
         enabled: true,
+        appEnabled: false,
         running: true,
         mode: 'localhost',
         port: 37210,

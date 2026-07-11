@@ -1,5 +1,6 @@
 import type { ApiRoute } from '../types.js';
 import { ApiHttpError } from '../types.js';
+import { APP_API_PREFIX } from '../appNamespace.js';
 import { sendSuccessMaybeGzip } from '../response.js';
 import { optionalNumberQuery } from '../router.js';
 import {
@@ -24,7 +25,7 @@ export function createSyncRoutes(): ApiRoute[] {
   return [
     {
       method: 'GET',
-      pattern: '/api/app/v1/sync/meta',
+      pattern: `${APP_API_PREFIX}/sync/meta`,
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, await getSyncMeta());
         return undefined;
@@ -32,7 +33,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/app/v1/sync/images',
+      pattern: `${APP_API_PREFIX}/sync/images`,
       handler: async (context) => {
         const rawCursor = context.query.get('cursor');
         let cursor = null;
@@ -52,7 +53,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/app/v1/sync/galleries',
+      pattern: `${APP_API_PREFIX}/sync/galleries`,
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncGalleries() });
         return undefined;
@@ -60,7 +61,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/app/v1/sync/tags',
+      pattern: `${APP_API_PREFIX}/sync/tags`,
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { items: await listSyncTags() });
         return undefined;
@@ -68,7 +69,7 @@ export function createSyncRoutes(): ApiRoute[] {
     },
     {
       method: 'GET',
-      pattern: '/api/app/v1/sync/image-ids',
+      pattern: `${APP_API_PREFIX}/sync/image-ids`,
       handler: async (context) => {
         await sendSuccessMaybeGzip(context.req, context.res, { ids: await listSyncImageIds() });
         return undefined;
