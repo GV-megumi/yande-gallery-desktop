@@ -4,7 +4,7 @@ import sqlite3 from 'sqlite3';
 /**
  * getGalleries/getGallery 有效封面（v0.6 封面能力包，安卓 spec §6.2/§8.3）：
  * 「/galleries 列表与 sync 口径一致」——显式 coverImageId ?? 最近加入（gallery_images.addedAt
- * DESC, imageId DESC），空图集为 null；只发生在读侧、不回写。
+ * DESC, imageId DESC），空相册为 null；只发生在读侧、不回写。
  * 补 T3 规格审指出的覆盖缺口：此前该 SQL（JOIN ON 内相关子查询）无任何直测。
  * 装置与 galleryService.setCover.test.ts 同款。
  */
@@ -57,7 +57,7 @@ async function seed(): Promise<void> {
     VALUES (10, 'a.jpg', 'a.jpg', 1, 1, 1, 'jpg', '2026-01-01', '2026-01-01'),
            (20, 'b.jpg', 'b.jpg', 1, 1, 1, 'jpg', '2026-01-01', '2026-01-01'),
            (30, 'c.jpg', 'c.jpg', 1, 1, 1, 'jpg', '2026-01-01', '2026-01-01')`);
-  // g1 显式封面 10；g2 无显式、成员 20(早)/30(晚) → 兜底 30；g3 空图集
+  // g1 显式封面 10；g2 无显式、成员 20(早)/30(晚) → 兜底 30；g3 空相册
   await run(h.db, `INSERT INTO galleries (id, name, coverImageId, imageCount, createdAt, updatedAt)
     VALUES (1, 'explicit', 10, 2, '2026-01-01', '2026-01-01'),
            (2, 'fallback', NULL, 2, '2026-01-02', '2026-01-02'),
@@ -75,7 +75,7 @@ describe('getGalleries/getGallery 有效封面（v0.6 spec §6.2）', () => {
   });
   afterEach(() => { h.db.close(); });
 
-  it('getGalleries：显式封面原样、无显式回落最近加入、空图集为空', async () => {
+  it('getGalleries：显式封面原样、无显式回落最近加入、空相册为空', async () => {
     const result = await getGalleries();
     expect(result.success).toBe(true);
     const byId = new Map(result.data!.map((g) => [g.id, g]));
@@ -83,7 +83,7 @@ describe('getGalleries/getGallery 有效封面（v0.6 spec §6.2）', () => {
     expect(byId.get(1)?.coverImage?.filename).toBe('a.jpg');
     expect(byId.get(2)?.coverImageId).toBe(30);          // 兜底取 addedAt 最晚
     expect(byId.get(2)?.coverImage?.filename).toBe('c.jpg');
-    expect(byId.get(3)?.coverImageId ?? null).toBeNull(); // 空图集无封面
+    expect(byId.get(3)?.coverImageId ?? null).toBeNull(); // 空相册无封面
     expect(byId.get(3)?.coverImage).toBeUndefined();
   });
 
@@ -103,8 +103,8 @@ describe('getGalleries/getGallery 有效封面（v0.6 spec §6.2）', () => {
     expect(row.coverImageId).toBeNull();
   });
 
-  it('显式封面被移出图集后回落兜底；全员移出后为空（审查 major 回归）', async () => {
-    // g1 显式封面 10 的成员行删除（images 行仍在，模拟「移出图集」）→ 回落最近加入的成员 20
+  it('显式封面被移出相册后回落兜底；全员移出后为空（审查 major 回归）', async () => {
+    // g1 显式封面 10 的成员行删除（images 行仍在，模拟「移出相册」）→ 回落最近加入的成员 20
     await run(h.db, 'DELETE FROM gallery_images WHERE galleryId = 1 AND imageId = 10');
     const stale = await getGallery(1);
     expect(stale.data?.coverImageId).toBe(20);

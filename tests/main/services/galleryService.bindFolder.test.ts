@@ -5,7 +5,7 @@ import path from 'path';
 /**
  * Phase 3 — bindFolder
  *
- * 给已存在图集加绑一个文件夹并扫描入成员：
+ * 给已存在相册加绑一个文件夹并扫描入成员：
  *   - 归一化 folderPath；
  *   - 若该 folderPath 已存在于 gallery_folders（全局 UNIQUE）→ 拒绝并给出清晰 error；
  *   - 短事务只插入 gallery_folders 绑定行；磁盘扫描（scanFolderIntoGallery：导入 +
@@ -160,7 +160,7 @@ async function addIgnoredFolder(folderPath: string): Promise<void> {
   await run(
     h.db,
     `INSERT INTO gallery_ignored_folders (folderPath, note, createdAt, updatedAt)
-     VALUES (?, '删除图集自动忽略', '2024-01-01', '2024-01-01')`,
+     VALUES (?, '删除相册自动忽略', '2024-01-01', '2024-01-01')`,
     [folderPath]
   );
 }
@@ -170,7 +170,7 @@ afterEach(async () => {
 });
 
 describe('bindFolder', () => {
-  it('为图集绑定新文件夹：写 gallery_folders 行 + 写成员 + 登记根 + emit updated', async () => {
+  it('为相册绑定新文件夹：写 gallery_folders 行 + 写成员 + 登记根 + emit updated', async () => {
     const baseFolder = normalizePath(path.join('M:', 'galA'));
     const galleryId = await addGallery(baseFolder, 1);
 
@@ -288,9 +288,9 @@ describe('bindFolder', () => {
   });
 
   /**
-   * 显式操作覆盖黑名单（修复轮 U05）：路径此前被「删除图集自动忽略」拉黑，用户又
-   * 显式把它绑回某图集 → 绑定成功后移除黑名单中该路径的**精确条目**（显式意图优先）。
-   * 若保留条目，其它父级图集重扫会把这棵子树整棵剪枝，与用户当前意图相悖。
+   * 显式操作覆盖黑名单（修复轮 U05）：路径此前被「删除相册自动忽略」拉黑，用户又
+   * 显式把它绑回某相册 → 绑定成功后移除黑名单中该路径的**精确条目**（显式意图优先）。
+   * 若保留条目，其它父级相册重扫会把这棵子树整棵剪枝，与用户当前意图相悖。
    * 其它条目（无关路径/后代路径）不动。
    */
   it('显式绑定被拉黑路径：绑定成功且黑名单精确条目被移除，其它条目不动', async () => {

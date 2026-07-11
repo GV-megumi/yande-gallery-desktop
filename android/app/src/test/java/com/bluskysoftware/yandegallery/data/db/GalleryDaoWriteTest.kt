@@ -11,7 +11,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * M3-T4: GalleryDao 写操作扩展（重命名/删除图集消费），以及 TagDao.byName / DownloadDao 反应式
+ * M3-T4: GalleryDao 写操作扩展（重命名/删除相册消费），以及 TagDao.byName / DownloadDao 反应式
  * Flow 查询。后两者未各自建 DAO 专属测试文件（brief 只列出本文件与 ImageDaoWriteTest.kt 两个测试
  * 文件），故与 GalleryDao 写操作一并放在这里。
  */

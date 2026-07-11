@@ -264,16 +264,16 @@ export async function getImageById(id: number): Promise<{ success: boolean; data
 }
 
 /**
- * 反查图片全部归属图集 ID（用于删除后的统计刷新与事件归属）。
+ * 反查图片全部归属相册 ID（用于删除后的统计刷新与事件归属）。
  *
- * Phase 2B：图集归属改用显式成员表 gallery_images，不再做 folderPath 前缀匹配。
- * 成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），归属语义更准确，
+ * Phase 2B：相册归属改用显式成员表 gallery_images，不再做 folderPath 前缀匹配。
+ * 成员表由所有写入路径维护（新建相册 / 扫描 / Booru 下载），归属语义更准确，
  * 也不受路径形态（兄弟目录、LIKE 元字符、大小写）影响。
  *
- * 一张图片可同属多个图集（成员主键为 galleryId+imageId）；删除 images 行会
- * FK CASCADE 清掉它在所有图集的成员行，故必须读出全部归属（不 LIMIT 1），
- * 删除后逐图集刷新 imageCount 与事件——与 848887a 对 reportInvalidImage 的
- * 多归属修复对齐，否则共同归属图集的计数与视图会陈旧。
+ * 一张图片可同属多个相册（成员主键为 galleryId+imageId）；删除 images 行会
+ * FK CASCADE 清掉它在所有相册的成员行，故必须读出全部归属（不 LIMIT 1），
+ * 删除后逐相册刷新 imageCount 与事件——与 848887a 对 reportInvalidImage 的
+ * 多归属修复对齐，否则共同归属相册的计数与视图会陈旧。
  */
 async function findGalleryIdsForImage(
   db: Awaited<ReturnType<typeof getDatabase>>,
@@ -284,7 +284,7 @@ async function findGalleryIdsForImage(
     'SELECT galleryId FROM gallery_images WHERE imageId = ?',
     [imageId]
   );
-  // 去重（成员复合主键下同一图集只可能一行，这里保险去重）
+  // 去重（成员复合主键下同一相册只可能一行，这里保险去重）
   return Array.from(new Set(rows.map((row) => row.galleryId)));
 }
 
@@ -301,7 +301,7 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     const row = await get<{ filepath: string }>(
       db, 'SELECT filepath FROM images WHERE id = ?', [id]
     );
-    // 图集归属：用 gallery_images 成员表反查全部归属图集（Phase 2B；多归属不 LIMIT 1）。
+    // 相册归属：用 gallery_images 成员表反查全部归属相册（Phase 2B；多归属不 LIMIT 1）。
     // 必须在 DELETE FROM images 之前查询——删 images 行会 CASCADE 清掉其成员行。
     const ownerGalleryIds = row ? await findGalleryIdsForImage(db, id) : [];
     // 事件单值 galleryId 保持原字段语义：取首个归属作代表，无归属为 null
@@ -324,8 +324,8 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
     await run(db, 'DELETE FROM image_tags WHERE imageId = ?', [id]);
     await run(db, 'DELETE FROM images WHERE id = ?', [id]);
 
-    // 删除后逐个归属图集以 COUNT(gallery_images) 回写 imageCount（共享 helper，
-    // 与 reportInvalidImage 同一逻辑）——否则图集卡片/信息对话框的计数无限期陈旧
+    // 删除后逐个归属相册以 COUNT(gallery_images) 回写 imageCount（共享 helper，
+    // 与 reportInvalidImage 同一逻辑）——否则相册卡片/信息对话框的计数无限期陈旧
     await recalcGalleriesImageCount(db, ownerGalleryIds);
 
     // 删除磁盘原图 + 缩略图（best-effort）
@@ -355,14 +355,14 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
         action: 'deleted',
         imageId: id,
         galleryId: representativeGalleryId,
-        // 覆盖全部归属图集（多归属时下游据此刷新每个图集视图）
+        // 覆盖全部归属相册（多归属时下游据此刷新每个相册视图）
         affectedGalleryIds: ownerGalleryIds.length > 0 ? ownerGalleryIds : undefined,
         affectedImageIds: [id],
         affectedCount: 1,
         reason: 'userDelete',
         filepath: row.filepath,
       });
-      // 逐个归属图集发 statsUpdated，通知图集列表重载以刷新 imageCount
+      // 逐个归属相册发 statsUpdated，通知相册列表重载以刷新 imageCount
       emitGalleriesStatsUpdated(ownerGalleryIds);
     }
 
@@ -675,13 +675,13 @@ export async function getRecentImagesAfter(
 }
 
 /**
- * 按图集成员表读取图片（Phase 2B）
+ * 按相册成员表读取图片（Phase 2B）
  *
  * 图片归属来源是显式 join gallery_images 成员表（不用 filepath 前缀匹配）。
- * 成员表由所有写入路径维护（新建图集 / 扫描 / Booru 下载），语义更准确
- * （图集与文件夹解耦后不依赖路径形态）。row→Image 映射与分页返回形状与其它图片读取一致。
+ * 成员表由所有写入路径维护（新建相册 / 扫描 / Booru 下载），语义更准确
+ * （相册与文件夹解耦后不依赖路径形态）。row→Image 映射与分页返回形状与其它图片读取一致。
  *
- * @param galleryId 图集 ID
+ * @param galleryId 相册 ID
  * @param page 页码
  * @param pageSize 每页数量
  */
@@ -699,7 +699,7 @@ export async function getImagesByGallery(
       tags?: string;
     }
 
-    // 查询该图集成员图片（显式成员表 join，不做 filepath 前缀匹配）
+    // 查询该相册成员图片（显式成员表 join，不做 filepath 前缀匹配）
     const images = await all<ImageQueryResult>(
       db,
       `
@@ -779,7 +779,7 @@ export async function getAllFolders(): Promise<{ success: boolean; data?: string
  *
  * @param excludeDirs 排除目录（黑名单整棵子树跳过，修复轮 U05）：递归遍历时命中
  *   其中任一目录（或其后代）即整棵剪枝，不深入、不导入。调用方（galleryService.
- *   scanFolderIntoGallery）传入忽略名单中位于扫描根内部的条目，防止「删除图集
+ *   scanFolderIntoGallery）传入忽略名单中位于扫描根内部的条目，防止「删除相册
  *   自动拉黑」的子树被父级重扫整棵复活。
  */
 export async function scanAndImportFolder(
@@ -872,7 +872,7 @@ export async function scanAndImportFolder(
         imported: imported.length,
         skipped,
         // 本次真正新导入的图片 id（修复轮 U08）：供 galleryService.scanFolderIntoGallery
-        // 在目标图集被并发删除（成员写入 FK 失败）时精确兜底回收，避免零归属僵尸行
+        // 在目标相册被并发删除（成员写入 FK 失败）时精确兜底回收，避免零归属僵尸行
         importedIds: imported.map((img) => img.id as number),
       }
     };

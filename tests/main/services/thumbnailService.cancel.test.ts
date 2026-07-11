@@ -5,7 +5,7 @@ import crypto from 'crypto';
  * 缩略图生成取消（真实模块，非等价实现）：
  * - cancelPending：等待队列中的任务被移除（sharp 不会为其启动），promise 以 cancelled 结果 resolve；
  * - 墓碑：正在生成中的任务被取消后，完成时删除刚生成的缩略图文件、不发 thumbnail:generated；
- * - 目的：堵住"删除图片/图集 → 清理缩略图 → 队列补生成"留下永久孤儿缩略图的竞态。
+ * - 目的：堵住"删除图片/相册 → 清理缩略图 → 队列补生成"留下永久孤儿缩略图的竞态。
  *
  * mock 边界：sharp（toFile 由测试控制何时完成）、fs/promises（源文件存在/缩略图不存在/unlink 记录）、
  * config（缩略图目录与参数）、rendererEventBus（通知断言）。

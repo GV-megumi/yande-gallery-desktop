@@ -32,8 +32,8 @@ const baseProps = {
   open: true,
   newFolders: [{ folderPath: 'D:/pics/new-a', name: 'new-a' }],
   collisions: [
-    { folderPath: 'D:/pics/dup-a', name: 'dup-a', existingGalleryId: 11, existingGalleryName: '已有图集A' },
-    { folderPath: 'D:/pics/dup-b', name: 'dup-b', existingGalleryId: 22, existingGalleryName: '已有图集B' },
+    { folderPath: 'D:/pics/dup-a', name: 'dup-a', existingGalleryId: 11, existingGalleryName: '已有相册A' },
+    { folderPath: 'D:/pics/dup-b', name: 'dup-b', existingGalleryId: 22, existingGalleryName: '已有相册B' },
   ],
   skipped: [{ folderPath: 'D:/pics/skip-a', name: 'skip-a', reason: 'alreadyBound' as const }],
   onCancel: () => {},
@@ -46,12 +46,12 @@ describe('ScanCollisionModal', () => {
     expect(container.querySelector('.ant-modal')).toBeNull();
   });
 
-  it('展示每个碰撞行的文件夹名、已有图集名，以及新增/跳过计数', () => {
+  it('展示每个碰撞行的文件夹名、已有相册名，以及新增/跳过计数', () => {
     render(<ScanCollisionModal {...baseProps} onConfirm={vi.fn()} />);
     expect(screen.getByText('dup-a')).toBeTruthy();
     expect(screen.getByText('dup-b')).toBeTruthy();
-    // 已有图集名出现在合并选项里
-    expect(screen.getAllByText(/已有图集A/).length).toBeGreaterThan(0);
+    // 已有相册名出现在合并选项里
+    expect(screen.getAllByText(/已有相册A/).length).toBeGreaterThan(0);
     // 新增 1 个、跳过 1 个的计数提示存在（可能出现在多处，断言至少一处）
     expect(screen.getAllByText(/新增/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/跳过/).length).toBeGreaterThan(0);
@@ -75,7 +75,7 @@ describe('ScanCollisionModal', () => {
     });
   });
 
-  it('「全部新建」后确认：碰撞改为以原名新建独立图集，merge 为空', async () => {
+  it('「全部新建」后确认：碰撞改为以原名新建独立相册，merge 为空', async () => {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     render(<ScanCollisionModal {...baseProps} onConfirm={onConfirm} />);
 
@@ -99,10 +99,10 @@ describe('ScanCollisionModal', () => {
     const onConfirm = vi.fn().mockResolvedValue(undefined);
     render(<ScanCollisionModal {...baseProps} onConfirm={onConfirm} />);
 
-    // 找到 dup-a 所在行，点击该行的「新建独立图集」选项
+    // 找到 dup-a 所在行，点击该行的「新建独立相册」选项
     const rowA = screen.getByText('dup-a').closest('[data-testid="collision-row"]') as HTMLElement;
     expect(rowA).toBeTruthy();
-    const createRadio = within(rowA).getByRole('radio', { name: /新建独立图集/ });
+    const createRadio = within(rowA).getByRole('radio', { name: /新建独立相册/ });
     await userEvent.click(createRadio);
 
     await userEvent.click(screen.getByRole('button', { name: /确\s*认/ }));

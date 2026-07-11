@@ -13,7 +13,7 @@ const getImagesByGallery = vi.fn();
 const getThumbnail = vi.fn();
 const deleteGallery = vi.fn();
 const getGallerySourceFavoriteTags = vi.fn();
-// Phase 7B：GalleryFolderManagerDialog 与进入图集自动扫描、卡片缺失标记所需的新 mock
+// Phase 7B：GalleryFolderManagerDialog 与进入相册自动扫描、卡片缺失标记所需的新 mock
 const getGalleryFolders = vi.fn();
 const getMissingGalleryFolders = vi.fn();
 // 丢失文件夹横幅「全部迁入无效项」的批量迁移接口
@@ -181,7 +181,7 @@ describe('GalleryPage gallery delete action', () => {
       data: [
         {
           id: 1,
-          name: '测试图集',
+          name: '测试相册',
           createdAt: '2026-04-14T00:00:00.000Z',
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 3,
@@ -204,7 +204,7 @@ describe('GalleryPage gallery delete action', () => {
       success: true,
       data: {
         id: 1,
-        name: '测试图集',
+        name: '测试相册',
         folderPath: 'D:/gallery/test',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
@@ -283,7 +283,7 @@ describe('GalleryPage gallery delete action', () => {
     };
   });
 
-  it('右键图集时应显示编辑和删除操作，并在删除确认后调用删除接口', async () => {
+  it('右键相册时应显示编辑和删除操作，并在删除确认后调用删除接口', async () => {
     const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
       destroy: vi.fn(),
       update: vi.fn(),
@@ -292,7 +292,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     await userEvent.pointer({
       keys: '[MouseRight]',
       target: galleryName,
@@ -306,7 +306,7 @@ describe('GalleryPage gallery delete action', () => {
 
     expect(confirmSpy).toHaveBeenCalledTimes(1);
     const confirmConfig = confirmSpy.mock.calls[0]?.[0];
-    // bug12：删除图集会级联清理数据库记录与缩略图，并将文件夹加入忽略名单，
+    // bug12：删除相册会级联清理数据库记录与缩略图，并将文件夹加入忽略名单，
     // 但磁盘原图保留。弹窗文案需同时覆盖这几条关键信息。
     expect(confirmConfig?.content).toContain('已忽略文件夹');
     expect(confirmConfig?.content).toContain('磁盘原图不会被删除');
@@ -316,7 +316,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(deleteGallery).toHaveBeenCalledWith(1);
   });
 
-  it('删除成功后应刷新图集列表并提示成功', async () => {
+  it('删除成功后应刷新相册列表并提示成功', async () => {
     const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
     const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
       destroy: vi.fn(),
@@ -326,7 +326,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     await userEvent.pointer({ keys: '[MouseRight]', target: galleryName });
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByText('删除'));
@@ -335,13 +335,13 @@ describe('GalleryPage gallery delete action', () => {
     await confirmConfig?.onOk?.();
 
     expect(deleteGallery).toHaveBeenCalledWith(1);
-    expect(successSpy).toHaveBeenCalledWith('图集已删除');
+    expect(successSpy).toHaveBeenCalledWith('相册已删除');
     await waitFor(() => {
       expect(getGalleries).toHaveBeenCalledTimes(2);
     });
   });
 
-  it('删除失败时应提示错误且不刷新图集列表', async () => {
+  it('删除失败时应提示错误且不刷新相册列表', async () => {
     const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
     const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
       destroy: vi.fn(),
@@ -352,7 +352,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     await userEvent.pointer({ keys: '[MouseRight]', target: galleryName });
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByText('删除'));
@@ -365,7 +365,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(getGalleries).toHaveBeenCalledTimes(1);
   });
 
-  it('删除接口抛出异常时应提示错误且不刷新图集列表', async () => {
+  it('删除接口抛出异常时应提示错误且不刷新相册列表', async () => {
     const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
     const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
       destroy: vi.fn(),
@@ -376,7 +376,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     await userEvent.pointer({ keys: '[MouseRight]', target: galleryName });
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByText('删除'));
@@ -385,29 +385,29 @@ describe('GalleryPage gallery delete action', () => {
     await confirmConfig?.onOk?.();
 
     expect(deleteGallery).toHaveBeenCalledWith(1);
-    expect(errorSpy).toHaveBeenCalledWith('删除图集失败');
+    expect(errorSpy).toHaveBeenCalledWith('删除相册失败');
     expect(getGalleries).toHaveBeenCalledTimes(1);
   });
 
-  it('编辑图集弹窗应保留系统关闭按钮', async () => {
+  it('编辑相册弹窗应保留系统关闭按钮', async () => {
     renderGalleriesPage();
 
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     await userEvent.pointer({ keys: '[MouseRight]', target: galleryName });
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByText('编辑'));
 
-    const dialog = await screen.findByRole('dialog', { name: '编辑图集' });
+    const dialog = await screen.findByRole('dialog', { name: '编辑相册' });
     const modal = dialog.closest('.ant-modal');
     expect(modal?.querySelector('.ant-modal-close')).toBeTruthy();
   });
 
-  it('图集信息模态框应与悬浮信息面一致展示来源收藏标签', async () => {
+  it('相册信息模态框应与悬浮信息面一致展示来源收藏标签', async () => {
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
 
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    expect(await screen.findByText('相册信息')).toBeTruthy();
     await waitFor(() => {
       expect(getGallerySourceFavoriteTags).toHaveBeenCalledWith(1);
     });
@@ -415,13 +415,13 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.getByText('source_tag')).toBeTruthy();
   });
 
-  it('打开另一个图集信息前应先清空旧的来源收藏标签，避免展示串页数据', async () => {
+  it('打开另一个相册信息前应先清空旧的来源收藏标签，避免展示串页数据', async () => {
     getGalleries.mockResolvedValueOnce({
       success: true,
       data: [
         {
           id: 1,
-          name: '测试图集',
+          name: '测试相册',
           createdAt: '2026-04-14T00:00:00.000Z',
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 3,
@@ -430,7 +430,7 @@ describe('GalleryPage gallery delete action', () => {
         },
         {
           id: 2,
-          name: '另一个图集',
+          name: '另一个相册',
           createdAt: '2026-04-14T00:00:00.000Z',
           updatedAt: '2026-04-14T00:00:00.000Z',
           imageCount: 1,
@@ -462,7 +462,7 @@ describe('GalleryPage gallery delete action', () => {
     await userEvent.click(coverButtons[1]);
 
     await waitFor(() => {
-      expect(screen.getByText('图集信息')).toBeTruthy();
+      expect(screen.getByText('相册信息')).toBeTruthy();
     });
     expect(screen.queryByText('source_tag')).toBeNull();
   });
@@ -480,14 +480,14 @@ describe('GalleryPage gallery delete action', () => {
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    expect(await screen.findByText('相册信息')).toBeTruthy();
 
     // 对话框只调一次来源标签接口（不再有详情视图的第二次调用）
     await waitFor(() => {
       expect(getGallerySourceFavoriteTags).toHaveBeenCalledTimes(1);
     });
 
-    const galleryNameEntries = await screen.findAllByText('测试图集');
+    const galleryNameEntries = await screen.findAllByText('测试相册');
     await userEvent.click(galleryNameEntries[0]);
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
@@ -507,14 +507,14 @@ describe('GalleryPage gallery delete action', () => {
     expect(getGallerySourceFavoriteTags).toHaveBeenCalledTimes(1);
   });
 
-  it('打开图集信息弹窗后切到 recent 时应清空旧 modal 标签且返回 galleries 后弹窗不应残留', async () => {
+  it('打开相册信息弹窗后切到 recent 时应清空旧 modal 标签且返回 galleries 后弹窗不应残留', async () => {
     const modalTags = createDeferred<{ success: true; data: any[] }>();
     getGallerySourceFavoriteTags.mockImplementationOnce(() => modalTags.promise);
 
     const view = renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    expect(await screen.findByText('相册信息')).toBeTruthy();
 
     modalTags.resolve({
       success: true,
@@ -536,7 +536,7 @@ describe('GalleryPage gallery delete action', () => {
     });
   });
 
-  it('删除当前图集后，晚到的信息请求结果不应回灌弹窗状态', async () => {
+  it('删除当前相册后，晚到的信息请求结果不应回灌弹窗状态', async () => {
     const confirmSpy = vi.spyOn(Modal, 'confirm').mockImplementation(() => ({
       destroy: vi.fn(),
       update: vi.fn(),
@@ -548,9 +548,9 @@ describe('GalleryPage gallery delete action', () => {
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    expect(await screen.findByText('相册信息')).toBeTruthy();
 
-    const galleryName = await screen.findAllByText('测试图集');
+    const galleryName = await screen.findAllByText('测试相册');
     await userEvent.pointer({ keys: '[MouseRight]', target: galleryName[0] });
     const menu = await screen.findByRole('menu');
     await userEvent.click(within(menu).getByText('删除'));
@@ -742,7 +742,7 @@ describe('GalleryPage gallery delete action', () => {
     );
   });
 
-  it('galleries 子页激活时应通过 pagePreferences.gallery 恢复选中图集并重新打开详情视图', async () => {
+  it('galleries 子页激活时应通过 pagePreferences.gallery 恢复选中相册并重新打开详情视图', async () => {
     getGalleryPagePreferences.mockResolvedValueOnce({
       success: true,
       data: {
@@ -765,7 +765,7 @@ describe('GalleryPage gallery delete action', () => {
     });
 
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
-    expect(screen.getByText('测试图集')).toBeTruthy();
+    expect(screen.getByText('测试相册')).toBeTruthy();
     expect(saveGalleryPagePreferences).not.toHaveBeenCalled();
     expect(getConfig).not.toHaveBeenCalled();
     expect(saveConfig).not.toHaveBeenCalled();
@@ -811,7 +811,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(payload.galleries.selectedGalleryId).toBeNull();
   });
 
-  it('滚动位置记忆：进入图集下拉后返回，列表恢复进入前的滚动位置', async () => {
+  it('滚动位置记忆：进入相册下拉后返回，列表恢复进入前的滚动位置', async () => {
     // 列表与详情共用同一个页级滚动容器（App 缓存页外壳），用带 overflowY:auto 的
     // 包装 div 模拟它；useViewScrollMemory 按视图分别记住 scrollTop
     render(
@@ -822,7 +822,7 @@ describe('GalleryPage gallery delete action', () => {
     const scroller = screen.getByTestId('page-scroller');
 
     // 列表就绪后滚到 300（模拟用户浏览列表到中部）
-    const galleryName = await screen.findByText('测试图集');
+    const galleryName = await screen.findByText('测试相册');
     scroller.scrollTop = 300;
     scroller.dispatchEvent(new Event('scroll'));
 
@@ -835,7 +835,7 @@ describe('GalleryPage gallery delete action', () => {
     scroller.scrollTop = 500;
     scroller.dispatchEvent(new Event('scroll'));
     await userEvent.click(backButton);
-    await screen.findByText('测试图集');
+    await screen.findByText('测试相册');
     expect(scroller.scrollTop).toBe(300);
   });
 
@@ -910,7 +910,7 @@ describe('GalleryPage gallery delete action', () => {
     renderGalleriesPage();
 
     await waitFor(() => {
-      expect((screen.getByPlaceholderText('搜索图集名称...') as HTMLInputElement).value).toBe('测试');
+      expect((screen.getByPlaceholderText('搜索相册名称...') as HTMLInputElement).value).toBe('测试');
     });
 
     expect(getGallery).not.toHaveBeenCalled();
@@ -936,18 +936,18 @@ describe('GalleryPage gallery delete action', () => {
     renderGalleriesPage();
 
     await waitFor(() => {
-      expect((screen.getByPlaceholderText('搜索图集名称...') as HTMLInputElement).value).toBe('测试');
+      expect((screen.getByPlaceholderText('搜索相册名称...') as HTMLInputElement).value).toBe('测试');
     });
 
     saveGalleryPagePreferences.mockClear();
 
-    await userEvent.clear(screen.getByPlaceholderText('搜索图集名称...'));
-    await userEvent.type(screen.getByPlaceholderText('搜索图集名称...'), '新图集');
+    await userEvent.clear(screen.getByPlaceholderText('搜索相册名称...'));
+    await userEvent.type(screen.getByPlaceholderText('搜索相册名称...'), '新相册');
 
     await waitFor(() => {
       expect(saveGalleryPagePreferences).toHaveBeenCalledWith({
         galleries: {
-          gallerySearchQuery: '新图集',
+          gallerySearchQuery: '新相册',
           gallerySortKey: 'name',
           gallerySortOrder: 'asc',
           selectedGalleryId: undefined,
@@ -1004,7 +1004,7 @@ describe('GalleryPage gallery delete action', () => {
     view.rerender(<GalleryPage subTab="galleries" />);
 
     await waitFor(() => {
-      expect((screen.getByPlaceholderText('搜索图集名称...') as HTMLInputElement).value).toBe('测试');
+      expect((screen.getByPlaceholderText('搜索相册名称...') as HTMLInputElement).value).toBe('测试');
     });
 
     expect(screen.queryByRole('button', { name: /返\s*回/ })).toBeNull();
@@ -1014,13 +1014,13 @@ describe('GalleryPage gallery delete action', () => {
     expect(saveConfig).not.toHaveBeenCalled();
   });
 
-  it('切换子页后再打开新图集时，旧详情请求晚到结果不应污染当前图集', async () => {
+  it('切换子页后再打开新相册时，旧详情请求晚到结果不应污染当前相册', async () => {
     getGalleries.mockResolvedValue({
       success: true,
       data: [
         {
           id: 1,
-          name: '测试图集',
+          name: '测试相册',
           folderPath: 'D:/gallery/test',
           createdAt: '2026-04-14T00:00:00.000Z',
           updatedAt: '2026-04-14T00:00:00.000Z',
@@ -1030,7 +1030,7 @@ describe('GalleryPage gallery delete action', () => {
         },
         {
           id: 2,
-          name: '另一个图集',
+          name: '另一个相册',
           folderPath: 'D:/gallery/another',
           createdAt: '2026-04-14T00:00:00.000Z',
           updatedAt: '2026-04-14T00:00:00.000Z',
@@ -1045,7 +1045,7 @@ describe('GalleryPage gallery delete action', () => {
       data: galleryId === 2
         ? {
             id: 2,
-            name: '另一个图集',
+            name: '另一个相册',
             folderPath: 'D:/gallery/another',
             createdAt: '2026-04-14T00:00:00.000Z',
             updatedAt: '2026-04-14T00:00:00.000Z',
@@ -1055,7 +1055,7 @@ describe('GalleryPage gallery delete action', () => {
           }
         : {
             id: 1,
-            name: '测试图集',
+            name: '测试相册',
             folderPath: 'D:/gallery/test',
             createdAt: '2026-04-14T00:00:00.000Z',
             updatedAt: '2026-04-14T00:00:00.000Z',
@@ -1079,26 +1079,26 @@ describe('GalleryPage gallery delete action', () => {
 
     const view = renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('测试图集'));
+    await userEvent.click(await screen.findByText('测试相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
     view.rerender(<GalleryPage subTab="recent" />);
     view.rerender(<GalleryPage subTab="galleries" />);
 
     await waitFor(() => {
-      expect(screen.getByText('另一个图集')).toBeTruthy();
+      expect(screen.getByText('另一个相册')).toBeTruthy();
     });
 
-    await userEvent.click(screen.getByText('另一个图集'));
-    expect(await screen.findByText('另一个图集')).toBeTruthy();
+    await userEvent.click(screen.getByText('另一个相册'));
+    expect(await screen.findByText('另一个相册')).toBeTruthy();
 
     freshTags.resolve({
       success: true,
       data: [{ id: 202, tagName: 'fresh_tag', downloadBinding: { lastStatus: 'completed' } }],
     });
 
-    // Phase 7B：详情加载不再先 await 来源收藏标签（对话框自取），因此进入第二个图集会直接
-    // 调 getImagesByGallery(2)；这里断言确实带 (2,1,1000) 取了第二个图集（不再耦合旧的「只调 1 次」时序）。
+    // Phase 7B：详情加载不再先 await 来源收藏标签（对话框自取），因此进入第二个相册会直接
+    // 调 getImagesByGallery(2)；这里断言确实带 (2,1,1000) 取了第二个相册（不再耦合旧的「只调 1 次」时序）。
     await waitFor(() => {
       expect(getImagesByGallery).toHaveBeenCalledWith(2, 1, 1000);
     });
@@ -1129,7 +1129,7 @@ describe('GalleryPage gallery delete action', () => {
     const coverButtons = await screen.findAllByRole('button', { name: '封面' });
     await userEvent.click(coverButtons[1]);
 
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    expect(await screen.findByText('相册信息')).toBeTruthy();
     expect(screen.getByText('fresh_tag')).toBeTruthy();
     expect(screen.queryByText('stale_tag')).toBeNull();
   });
@@ -1174,7 +1174,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(saveGalleryPagePreferences).not.toHaveBeenCalled();
   });
 
-  it('Bug5：图集详情加载多批图片后切换排序字段或顺序，应回到顶部并只渲染首批200张', async () => {
+  it('Bug5：相册详情加载多批图片后切换排序字段或顺序，应回到顶部并只渲染首批200张', async () => {
     getGalleryPagePreferences.mockResolvedValueOnce({
       success: true,
       data: {
@@ -1235,7 +1235,7 @@ describe('GalleryPage gallery delete action', () => {
     expect(scrollHost.scrollTop).toBe(0);
   });
 
-  it('Bug5：图集详情应恢复持久化的图片排序顺序', async () => {
+  it('Bug5：相册详情应恢复持久化的图片排序顺序', async () => {
     getGalleryPagePreferences.mockResolvedValueOnce({
       success: true,
       data: {
@@ -1305,7 +1305,7 @@ describe('GalleryPage gallery delete action', () => {
     closeSpy.mockRestore();
   });
 
-  it('打开图集详情后直接离开 galleries 时，旧详情请求晚到不应污染其他子页状态', async () => {
+  it('打开相册详情后直接离开 galleries 时，旧详情请求晚到不应污染其他子页状态', async () => {
     const staleTags = createDeferred<{ success: true; data: any[] }>();
     const staleImages = createDeferred<{ success: true; data: any[] }>();
     const recentImagesDeferred = createDeferred<{ success: true; data: any[] }>();
@@ -1315,7 +1315,7 @@ describe('GalleryPage gallery delete action', () => {
 
     const view = renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('测试图集'));
+    await userEvent.click(await screen.findByText('测试相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
     view.rerender(<GalleryPage subTab="recent" />);
@@ -1342,27 +1342,27 @@ describe('GalleryPage gallery delete action', () => {
     expect(screen.getByTestId('image-list-wrapper').getAttribute('data-loading')).toBe('true');
   });
 
-  // ===== Phase 7B：图集信息多文件夹管理对话框接入 + 进入图集自动扫描 + 卡片缺失标记 =====
+  // ===== Phase 7B：相册信息多文件夹管理对话框接入 + 进入相册自动扫描 + 卡片缺失标记 =====
 
   it('Phase 7B：点击卡片信息图标应打开多文件夹管理对话框并按 getGalleryFolders 列出文件夹', async () => {
     renderGalleriesPage();
 
     await userEvent.click(await screen.findByRole('button', { name: '封面' }));
 
-    // 新对话框标题「图集信息」，并通过 getGalleryFolders 拉取绑定文件夹
-    expect(await screen.findByText('图集信息')).toBeTruthy();
+    // 新对话框标题「相册信息」，并通过 getGalleryFolders 拉取绑定文件夹
+    expect(await screen.findByText('相册信息')).toBeTruthy();
     await waitFor(() => {
       expect(getGalleryFolders).toHaveBeenCalledWith(1);
     });
     expect(await screen.findByText('D:/gallery/test')).toBeTruthy();
   });
 
-  it('Phase 7B：进入 autoScan=true 的图集应自动扫描一次（syncGalleryFolder）', async () => {
+  it('Phase 7B：进入 autoScan=true 的相册应自动扫描一次（syncGalleryFolder）', async () => {
     getGalleries.mockResolvedValue({
       success: true,
       data: [{
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1374,7 +1374,7 @@ describe('GalleryPage gallery delete action', () => {
       success: true,
       data: {
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1385,7 +1385,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('自动扫描图集'));
+    await userEvent.click(await screen.findByText('自动扫描相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
     await waitFor(() => {
@@ -1393,12 +1393,12 @@ describe('GalleryPage gallery delete action', () => {
     });
   });
 
-  it('修复轮 U15：退出图集详情后再次进入同一图集应再次触发自动扫描（按次进入语义）', async () => {
+  it('修复轮 U15：退出相册详情后再次进入同一相册应再次触发自动扫描（按次进入语义）', async () => {
     getGalleries.mockResolvedValue({
       success: true,
       data: [{
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1410,7 +1410,7 @@ describe('GalleryPage gallery delete action', () => {
       success: true,
       data: {
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1422,7 +1422,7 @@ describe('GalleryPage gallery delete action', () => {
     renderGalleriesPage();
 
     // 第一次进入：触发一次自动扫描
-    await userEvent.click(await screen.findByText('自动扫描图集'));
+    await userEvent.click(await screen.findByText('自动扫描相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
     await waitFor(() => {
       expect(syncGalleryFolder).toHaveBeenCalledTimes(1);
@@ -1430,10 +1430,10 @@ describe('GalleryPage gallery delete action', () => {
 
     // 返回列表：离开详情会清空「本次进入」自动扫描记录
     await userEvent.click(screen.getByRole('button', { name: /返\s*回/ }));
-    expect(await screen.findByText('自动扫描图集')).toBeTruthy();
+    expect(await screen.findByText('自动扫描相册')).toBeTruthy();
 
-    // 再次进入同一图集：自动扫描按「每次进入」语义应再次触发
-    await userEvent.click(screen.getByText('自动扫描图集'));
+    // 再次进入同一相册：自动扫描按「每次进入」语义应再次触发
+    await userEvent.click(screen.getByText('自动扫描相册'));
     await waitFor(() => {
       expect(syncGalleryFolder).toHaveBeenCalledTimes(2);
     });
@@ -1444,7 +1444,7 @@ describe('GalleryPage gallery delete action', () => {
       success: true,
       data: [{
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1456,7 +1456,7 @@ describe('GalleryPage gallery delete action', () => {
       success: true,
       data: {
         id: 7,
-        name: '自动扫描图集',
+        name: '自动扫描相册',
         createdAt: '2026-04-14T00:00:00.000Z',
         updatedAt: '2026-04-14T00:00:00.000Z',
         imageCount: 1,
@@ -1473,7 +1473,7 @@ describe('GalleryPage gallery delete action', () => {
 
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('自动扫描图集'));
+    await userEvent.click(await screen.findByText('自动扫描相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
     await waitFor(() => {
@@ -1484,11 +1484,11 @@ describe('GalleryPage gallery delete action', () => {
     expect(syncGalleryFolder).toHaveBeenCalledTimes(1);
   });
 
-  it('Phase 7B：进入 autoScan=false 的图集不应自动扫描', async () => {
-    // 默认 getGalleries/getGallery 返回 autoScan:false 的「测试图集」(id=1)
+  it('Phase 7B：进入 autoScan=false 的相册不应自动扫描', async () => {
+    // 默认 getGalleries/getGallery 返回 autoScan:false 的「测试相册」(id=1)
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('测试图集'));
+    await userEvent.click(await screen.findByText('测试相册'));
     expect(await screen.findByRole('button', { name: /返\s*回/ })).toBeTruthy();
 
     // 给足够时间让任何潜在自动扫描触发；autoScan=false 时不应调用
@@ -1496,12 +1496,12 @@ describe('GalleryPage gallery delete action', () => {
     expect(syncGalleryFolder).not.toHaveBeenCalled();
   });
 
-  it('Phase 7B：getMissingGalleryFolders 命中的图集卡片应显示「文件夹丢失」标记', async () => {
+  it('Phase 7B：getMissingGalleryFolders 命中的相册卡片应显示「文件夹丢失」标记', async () => {
     getMissingGalleryFolders.mockResolvedValue([{ galleryId: 1, folderPath: 'D:/gallery/test' }]);
 
     renderGalleriesPage();
 
-    expect(await screen.findByText('测试图集')).toBeTruthy();
+    expect(await screen.findByText('测试相册')).toBeTruthy();
     await waitFor(() => {
       expect(getMissingGalleryFolders).toHaveBeenCalled();
     });
@@ -1512,7 +1512,7 @@ describe('GalleryPage gallery delete action', () => {
 
   const missingBannerGallery = {
     id: 9,
-    name: '丢失横幅图集',
+    name: '丢失横幅相册',
     createdAt: '2026-04-14T00:00:00.000Z',
     updatedAt: '2026-04-14T00:00:00.000Z',
     imageCount: 2,
@@ -1524,16 +1524,16 @@ describe('GalleryPage gallery delete action', () => {
     getGalleries.mockResolvedValue({ success: true, data: [missingBannerGallery] });
     getGallery.mockResolvedValue({ success: true, data: missingBannerGallery });
     getMissingGalleryFolders.mockResolvedValue(
-      missingPaths.map((folderPath) => ({ galleryId: 9, folderPath, galleryName: '丢失横幅图集' }))
+      missingPaths.map((folderPath) => ({ galleryId: 9, folderPath, galleryName: '丢失横幅相册' }))
     );
   }
 
-  it('丢失文件夹横幅：进入命中图集展示缺失路径，「去重定位」触发 onOpenRelocate', async () => {
+  it('丢失文件夹横幅：进入命中相册展示缺失路径，「去重定位」触发 onOpenRelocate', async () => {
     mockMissingBannerGallery(['D:/lost/a']);
     const onOpenRelocate = vi.fn();
     render(<GalleryPage subTab="galleries" onOpenRelocate={onOpenRelocate} />);
 
-    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    await userEvent.click(await screen.findByText('丢失横幅相册'));
 
     expect(await screen.findByText(/1 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
     expect(screen.getByText('D:/lost/a')).toBeTruthy();
@@ -1547,7 +1547,7 @@ describe('GalleryPage gallery delete action', () => {
     migrateMissingFolderImages.mockResolvedValue({ success: true, data: { migrated: 2, skipped: 0 } });
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    await userEvent.click(await screen.findByText('丢失横幅相册'));
     expect(await screen.findByText(/2 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
 
     await userEvent.click(screen.getByRole('button', { name: /全部迁入无效项/ }));
@@ -1565,10 +1565,10 @@ describe('GalleryPage gallery delete action', () => {
 
   it('丢失文件夹横幅：全部迁移失败时不关闭横幅（保留重试入口）', async () => {
     mockMissingBannerGallery(['D:/lost/a', 'D:/lost/b']);
-    migrateMissingFolderImages.mockResolvedValue({ success: false, error: '该文件夹不是此图集的绑定文件夹' });
+    migrateMissingFolderImages.mockResolvedValue({ success: false, error: '该文件夹不是此相册的绑定文件夹' });
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    await userEvent.click(await screen.findByText('丢失横幅相册'));
     expect(await screen.findByText(/2 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
 
     const galleriesCallsBefore = getGalleries.mock.calls.length;
@@ -1592,7 +1592,7 @@ describe('GalleryPage gallery delete action', () => {
     mockMissingBannerGallery(['D:/lost/a']);
     renderGalleriesPage();
 
-    await userEvent.click(await screen.findByText('丢失横幅图集'));
+    await userEvent.click(await screen.findByText('丢失横幅相册'));
     expect(await screen.findByText(/1 个绑定文件夹在磁盘上不存在/)).toBeTruthy();
     expect(screen.queryByRole('button', { name: /去重定位/ })).toBeNull();
 
@@ -1875,7 +1875,7 @@ describe('GalleryPage app event refresh', () => {
   // 修复轮 U11：重定位根目录（applyRelocateRoot）成功后主进程广播 gallery:paths-relocated。
   // 重定位只改路径字符串、不动 updatedAt，「最近」的增量游标与各按 id 补丁事件都感知不到，
   // 本页必须整体失效：挂起态（用户停在设置页应用重定位）作废水合标记、恢复激活时完整重新
-  // 初始化；激活态（如图集子窗口）立即重载。
+  // 初始化；激活态（如相册子窗口）立即重载。
   it('suspended 期间收到 gallery:paths-relocated → 恢复激活时完整重新初始化而非增量游标', async () => {
     // 该事件订阅不随 suspended 挂起，页面存在两个 onAppEvent 订阅（域事件 + 重定位失效），
     // 按真实 preload 多路分发语义收集全部回调并逐一派发
@@ -1926,7 +1926,7 @@ describe('GalleryPage app event refresh', () => {
     expect(getRecentImagesAfter).not.toHaveBeenCalled();
   });
 
-  it('激活态的 galleries 页收到 gallery:paths-relocated → 立即重载图集列表与缺失文件夹集合', async () => {
+  it('激活态的 galleries 页收到 gallery:paths-relocated → 立即重载相册列表与缺失文件夹集合', async () => {
     const appEventCallbacks: Array<(event: any) => void> = [];
     (window as any).electronAPI.system.onAppEvent = vi.fn((callback) => {
       appEventCallbacks.push(callback);
@@ -1957,7 +1957,7 @@ describe('GalleryPage app event refresh', () => {
       }));
     });
 
-    // 图集列表与「文件夹丢失」标记集合都按新路径重新拉取（丢失标记应随重定位消失）
+    // 相册列表与「文件夹丢失」标记集合都按新路径重新拉取（丢失标记应随重定位消失）
     await waitFor(() => {
       expect(getGalleries).toHaveBeenCalledTimes(2);
     });

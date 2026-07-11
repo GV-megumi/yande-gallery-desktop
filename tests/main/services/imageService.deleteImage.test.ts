@@ -71,11 +71,11 @@ describe('imageService.deleteImage', () => {
     expect(deleteThumbnailMock).not.toHaveBeenCalled();
   });
 
-  // —— 图集归属：改用 gallery_images 成员表反查（Phase 2B）——
+  // —— 相册归属：改用 gallery_images 成员表反查（Phase 2B）——
   // 不再用 folderPath 前缀匹配，而是 SELECT galleryId FROM gallery_images WHERE imageId = ?。
-  // 修复轮 U12：读出全部归属（不 LIMIT 1），删除后逐图集回写 imageCount 并发 statsUpdated
+  // 修复轮 U12：读出全部归属（不 LIMIT 1），删除后逐相册回写 imageCount 并发 statsUpdated
   //（与 848887a 对 invalidImageService.reportInvalidImage 的多归属修复对齐，共用 galleryStats helper）。
-  describe('图集归属匹配（gallery_images 反查）', () => {
+  describe('相册归属匹配（gallery_images 反查）', () => {
     /**
      * 按 SQL 分派 mock：
      *  - allMock：成员反查 SELECT 返回全部归属行；
@@ -155,7 +155,7 @@ describe('imageService.deleteImage', () => {
     });
 
     // —— 修复轮 U12：多归属删除后的统计刷新与事件覆盖 ——
-    it('多归属时 affectedGalleryIds 覆盖全部归属，逐图集回写 imageCount 并发 statsUpdated', async () => {
+    it('多归属时 affectedGalleryIds 覆盖全部归属，逐相册回写 imageCount 并发 statsUpdated', async () => {
       wireLookup('/pics/shared.jpg', [{ galleryId: 3 }, { galleryId: 9 }], 5);
       const { deleteImage } = await import('../../../src/main/services/imageService.js');
       const result = await deleteImage(1);
@@ -166,11 +166,11 @@ describe('imageService.deleteImage', () => {
       expect(payload.galleryId).toBe(3);
       expect(payload.affectedGalleryIds).toEqual([3, 9]);
 
-      // 删除后逐图集以 COUNT(gallery_images) 回写 imageCount
+      // 删除后逐相册以 COUNT(gallery_images) 回写 imageCount
       const updateCalls = runMock.mock.calls.filter(([, sql]) => /UPDATE\s+galleries\s+SET\s+imageCount/i.test(String(sql)));
       expect(updateCalls.map(call => call[2])).toEqual([[5, 3], [5, 9]]);
 
-      // 逐图集发 statsUpdated 统计变更事件
+      // 逐相册发 statsUpdated 统计变更事件
       expect(emitGalleryGalleriesChangedMock.mock.calls.map(([arg]) => arg)).toEqual([
         { action: 'statsUpdated', galleryId: 3, affectedCount: 1 },
         { action: 'statsUpdated', galleryId: 9, affectedCount: 1 },

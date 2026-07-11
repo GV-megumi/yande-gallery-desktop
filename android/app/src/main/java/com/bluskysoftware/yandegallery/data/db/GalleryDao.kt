@@ -5,8 +5,8 @@ import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
 /**
- * 相册卡片投影：图集字段 + 相关子查询一次性算出的兜底封面 id。
- * 用于替代 ViewModel 里“逐个 coverImageId==null 的图集单查 coverFallback”的 N+1（spec §7.2）。
+ * 相册卡片投影：相册字段 + 相关子查询一次性算出的兜底封面 id。
+ * 用于替代 ViewModel 里“逐个 coverImageId==null 的相册单查 coverFallback”的 N+1（spec §7.2）。
  */
 data class AlbumCardRow(
     val id: Long,
@@ -23,7 +23,7 @@ interface GalleryDao {
     fun observeAll(): Flow<List<GalleryEntity>>
 
     /**
-     * 相册卡片单查询：每个图集带一个相关子查询算出的兜底封面 id（图集内最新一张），
+     * 相册卡片单查询：每个相册带一个相关子查询算出的兜底封面 id（相册内最新一张），
      * 避免 ViewModel 逐项回查 coverFallback 形成 N+1。排序与 observeAll 一致（按 name）。
      */
     @Query(
@@ -55,11 +55,11 @@ interface GalleryDao {
     @Query("DELETE FROM galleries WHERE id = :id")
     suspend fun deleteById(id: Long)
 
-    /** galleries 无 FK 级联到 gallery_images，删图集须显式清成员行。 */
+    /** galleries 无 FK 级联到 gallery_images，删相册须显式清成员行。 */
     @Query("DELETE FROM gallery_images WHERE galleryId = :galleryId")
     suspend fun clearMembership(galleryId: Long)
 
-    /** 删图集前的成员链快照（回滚重建用——例行增量同步不重拉 changeSeq 未变的图，丢链不自愈）。 */
+    /** 删相册前的成员链快照（回滚重建用——例行增量同步不重拉 changeSeq 未变的图，丢链不自愈）。 */
     @Query("SELECT * FROM gallery_images WHERE galleryId = :galleryId")
     suspend fun membershipOf(galleryId: Long): List<GalleryImageEntity>
 
@@ -72,7 +72,7 @@ interface GalleryDao {
         insertAll(items)
     }
 
-    /** 图集成员分页（v0.6 spec §5.1 排序变体化）：查询由 buildGalleryImagesQuery 构造。 */
+    /** 相册成员分页（v0.6 spec §5.1 排序变体化）：查询由 buildGalleryImagesQuery 构造。 */
     @RawQuery(observedEntities = [ImageEntity::class, GalleryImageEntity::class])
     fun galleryImagesPagingSource(query: androidx.sqlite.db.SupportSQLiteQuery): PagingSource<Int, ImageEntity>
 }

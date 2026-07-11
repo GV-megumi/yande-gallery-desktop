@@ -107,7 +107,7 @@ if (typeof document !== 'undefined') {
 
 interface GalleryPageProps {
   subTab?: 'recent' | 'all' | 'galleries';
-  /** 子窗口直接进入指定图集详情时使用（Bug11） */
+  /** 子窗口直接进入指定相册详情时使用（Bug11） */
   initialGalleryId?: number;
   /** 子窗口模式下禁用 pagePreferences 回写，避免污染主窗口状态（Bug11） */
   disablePreferencesPersistence?: boolean;
@@ -138,7 +138,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [recentNewSegments, setRecentNewSegments] = useState<RecentNewSegment[]>([]);
   const [pendingRecentImages, setPendingRecentImages] = useState<any[]>([]);
   const [allImages, setAllImages] = useState<any[]>([]); // 所有图片分页数据（每次20张）
-  const [galleryImages, setGalleryImages] = useState<any[]>([]); // 图集图片数据（懒加载，一次1000张）
+  const [galleryImages, setGalleryImages] = useState<any[]>([]); // 相册图片数据（懒加载，一次1000张）
   const [galleries, setGalleries] = useState<any[]>([]);
   const [selectedGallery, setSelectedGallery] = useState<any | null>(null);
   // 最近图片懒加载：当前可见数量
@@ -152,15 +152,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [gallerySearchQuery, setGallerySearchQuery] = useState('');
   const [allGalleries, setAllGalleries] = useState<any[]>([]);
-  // Phase 7B：图集信息升级为多文件夹管理对话框。该状态非空即打开 GalleryFolderManagerDialog，
+  // Phase 7B：相册信息升级为多文件夹管理对话框。该状态非空即打开 GalleryFolderManagerDialog，
   // 对话框自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签（不再由本页维护 modal/detail 的只读快照）。
   const [selectedGalleryInfo, setSelectedGalleryInfo] = useState<any | null>(null);
-  // Phase 7B：磁盘上已缺失绑定文件夹的图集 id 集合，用于在图集卡片上打「文件夹丢失」标记
+  // Phase 7B：磁盘上已缺失绑定文件夹的相册 id 集合，用于在相册卡片上打「文件夹丢失」标记
   const [missingFolderGalleryIds, setMissingFolderGalleryIds] = useState<Set<number>>(new Set());
-  // 丢失文件夹横幅：图集 id → 缺失的绑定文件夹路径列表（详情页横幅展示与批量迁移入参）
+  // 丢失文件夹横幅：相册 id → 缺失的绑定文件夹路径列表（详情页横幅展示与批量迁移入参）
   const { t } = useLocale();
   const [missingFolderPathsByGallery, setMissingFolderPathsByGallery] = useState<Map<number, string[]>>(new Map());
-  // 横幅「忽略」：本会话内已忽略横幅的图集 id（重定位/迁移成功后 missing 集合刷新，横幅自然消失）
+  // 横幅「忽略」：本会话内已忽略横幅的相册 id（重定位/迁移成功后 missing 集合刷新，横幅自然消失）
   const [dismissedMissingBannerIds, setDismissedMissingBannerIds] = useState<Set<number>>(new Set());
   // 「全部迁入无效项」进行中（丢失文件夹可达万张级，迁移期间按钮呈 loading 防重复触发）
   const [migratingMissing, setMigratingMissing] = useState(false);
@@ -180,7 +180,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const [searchPage, setSearchPage] = useState(1);
   const [searchHasMore, setSearchHasMore] = useState(true);
   const [searchTotal, setSearchTotal] = useState(0);
-  // 图集排序相关状态
+  // 相册排序相关状态
   const [gallerySortKey, setGallerySortKey] = useState<'name' | 'createdAt' | 'updatedAt'>('updatedAt');
   const [gallerySortOrder, setGallerySortOrder] = useState<'asc' | 'desc'>('desc');
   const [preferencesHydrated, setPreferencesHydrated] = useState(false);
@@ -198,9 +198,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   const checkingRecentUpdatesRef = useRef(false);
   const galleryDetailRequestRunIdRef = useRef(0);
   const galleryInfoRequestRunIdRef = useRef(0);
-  // Phase 7B：进入图集时按 autoScan 自动扫描的「本次进入」守卫（修复轮 U15：语义为每次进入详情一次）。
-  // 记录当前这次进入对应的图集与是否已触发；离开详情（返回列表/图集被删除/水合重置）时置空，
-  // 退出后再进同一图集会重新扫描；同一次进入内的回灌重载与手动刷新不重复触发。
+  // Phase 7B：进入相册时按 autoScan 自动扫描的「本次进入」守卫（修复轮 U15：语义为每次进入详情一次）。
+  // 记录当前这次进入对应的相册与是否已触发；离开详情（返回列表/相册被删除/水合重置）时置空，
+  // 退出后再进同一相册会重新扫描；同一次进入内的回灌重载与手动刷新不重复触发。
   const autoScanEntryRef = useRef<{ galleryId: number; scanned: boolean } | null>(null);
   const visibleRecentImages = useMemo(
     () => recentImages.slice(0, recentVisibleCount),
@@ -214,12 +214,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
   // 同步文件夹状态
   const [syncing, setSyncing] = useState(false);
 
-  // 编辑图集模态框状态
+  // 编辑相册模态框状态
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingGallery, setEditingGallery] = useState<any>(null);
   const [editForm] = Form.useForm();
 
-  // 同步图集文件夹
+  // 同步相册文件夹
   const handleSyncGalleryFolder = async () => {
     if (!selectedGallery) return;
     setSyncing(true);
@@ -227,21 +227,21 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       const result = await window.electronAPI.gallery.syncGalleryFolder(selectedGallery.id);
       if (result.success && result.data) {
         message.success(`同步完成：导入 ${result.data.imported} 张，跳过 ${result.data.skipped} 张`);
-        // 重新加载图集图片和图集信息以反映最新统计
+        // 重新加载相册图片和相册信息以反映最新统计
         await loadGalleryImages(selectedGallery.id);
         await loadGalleries();
       } else {
         message.error(result.error || '同步失败');
       }
     } catch (error) {
-      console.error('[GalleryPage] 同步图集文件夹失败:', error);
+      console.error('[GalleryPage] 同步相册文件夹失败:', error);
       message.error('同步文件夹失败');
     } finally {
       setSyncing(false);
     }
   };
 
-  // 丢失文件夹横幅「全部迁入无效项」：把当前图集所有丢失绑定文件夹下的成员图片
+  // 丢失文件夹横幅「全部迁入无效项」：把当前相册所有丢失绑定文件夹下的成员图片
   // 显式批量迁入无效列表（主进程绕过自动上报的丢失文件夹防护，用户已明确选择放弃）
   const handleMigrateMissingFolders = async () => {
     if (!selectedGallery) return;
@@ -283,25 +283,25 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     await loadGalleries();
   };
 
-  // 打开编辑图集模态框
+  // 打开编辑相册模态框
   const handleOpenEditGallery = (gallery: any) => {
     setEditingGallery(gallery);
     editForm.setFieldsValue({ name: gallery.name });
     setEditModalOpen(true);
   };
 
-  // 保存图集编辑
+  // 保存相册编辑
   const handleSaveGalleryEdit = async () => {
     try {
       const values = await editForm.validateFields();
       if (!editingGallery) return;
       const result = await window.electronAPI.gallery.updateGallery(editingGallery.id, { name: values.name.trim() });
       if (result.success) {
-        message.success('图集已更新');
+        message.success('相册已更新');
         setEditModalOpen(false);
         setEditingGallery(null);
         await loadGalleries();
-        // 如果编辑的是当前选中的图集，更新其名称
+        // 如果编辑的是当前选中的相册，更新其名称
         if (selectedGallery && selectedGallery.id === editingGallery.id) {
           setSelectedGallery({ ...selectedGallery, name: values.name.trim() });
         }
@@ -309,16 +309,16 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         message.error(result.error || '更新失败');
       }
     } catch (error) {
-      console.error('[GalleryPage] 图集更新失败:', error);
+      console.error('[GalleryPage] 相册更新失败:', error);
     }
   };
 
   const handleDeleteGallery = (gallery: any) => {
     Modal.confirm({
-      title: '删除图集',
+      title: '删除相册',
       content:
-        `确定要删除图集“${gallery.name}”吗？\n` +
-        '会同时清理该图集下的图片记录和缩略图，并把该文件夹加入"已忽略文件夹"，下次扫描时不会自动重建。\n' +
+        `确定要删除相册“${gallery.name}”吗？\n` +
+        '会同时清理该相册下的图片记录和缩略图，并把该文件夹加入"已忽略文件夹"，下次扫描时不会自动重建。\n' +
         '磁盘原图不会被删除。',
       okText: '删除',
       okType: 'danger',
@@ -327,7 +327,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         try {
           const result = await window.electronAPI.gallery.deleteGallery(gallery.id);
           if (result.success) {
-            message.success('图集已删除');
+            message.success('相册已删除');
             if (selectedGallery?.id === gallery.id) {
               galleryDetailRequestRunIdRef.current += 1;
               autoScanEntryRef.current = null;
@@ -343,8 +343,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             message.error(result.error || '删除失败');
           }
         } catch (error) {
-          console.error('[GalleryPage] 图集删除失败:', error);
-          message.error('删除图集失败');
+          console.error('[GalleryPage] 相册删除失败:', error);
+          message.error('删除相册失败');
         }
       }
     });
@@ -540,12 +540,12 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
 
   // 修复轮 U11：重定位根目录（applyRelocateRoot）成功后主进程广播 gallery:paths-relocated。
   // 重定位改写整库路径字符串但不动 updatedAt——「最近」的增量游标（getRecentImagesAfter）
-  // 与各按 id 补丁的域事件都感知不到变化，本页所有缓存（图集列表 / 网格图片 / 增量游标 /
+  // 与各按 id 补丁的域事件都感知不到变化，本页所有缓存（相册列表 / 网格图片 / 增量游标 /
   // 「文件夹丢失」标记）必须整体失效。该订阅不随 suspended 挂起（active 缺省 true）：
   // 事件恰恰在用户停留在设置页（本页处于导航缓存挂起态）时发出，若随域事件一起挂起丢弃
   //（下方 replayDirtyOnActive: false），恢复激活时水合 effect 会命中缓存跳过重载，缺陷依旧。
   // 处理方式：作废水合标记 + 令牌 +1——挂起态只标记不拉取，切回时走完整重新初始化；
-  // 激活态（如图集子窗口与主窗口设置页并存）由令牌触发水合 effect 立即整页重载。
+  // 激活态（如相册子窗口与主窗口设置页并存）由令牌触发水合 effect 立即整页重载。
   useRendererAppEvent('gallery:paths-relocated', () => {
     console.log('[GalleryPage] 收到 gallery:paths-relocated，整页缓存失效，等待重新初始化');
     hydratedSubTabRef.current = null;
@@ -609,7 +609,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             galleryInfoRequestRunIdRef.current += 1;
             setSelectedGalleryInfo(null);
           } else {
-            // 图集元信息变化时刷新对话框使用的图集对象（对话框内部会按 gallery.id 重新拉取文件夹/标签）
+            // 相册元信息变化时刷新对话框使用的相册对象（对话框内部会按 gallery.id 重新拉取文件夹/标签）
             const result = await window.electronAPI.gallery.getGallery(changedGalleryId);
             if (result.success && result.data) {
               setSelectedGalleryInfo(result.data);
@@ -697,7 +697,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     }
   };
 
-  // 加载图集列表
+  // 加载相册列表
   const loadGalleries = async (options?: {
     query?: string;
     sortKey?: 'name' | 'createdAt' | 'updatedAt';
@@ -712,18 +712,18 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     const nextSortKey = options?.sortKey ?? gallerySortKey;
     const nextSortOrder = options?.sortOrder ?? gallerySortOrder;
 
-    console.log('[GalleryPage] 开始加载图集列表');
+    console.log('[GalleryPage] 开始加载相册列表');
     setLoading(true);
     try {
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success) {
         const galleryList = result.data || [];
-        console.log(`[GalleryPage] 图集列表加载成功，共 ${galleryList.length} 个图集`);
+        console.log(`[GalleryPage] 相册列表加载成功，共 ${galleryList.length} 个相册`);
         setAllGalleries(galleryList);
         setGalleries(filterAndSortGalleries(galleryList, nextQuery, nextSortKey, nextSortOrder));
 
-        // Phase 7B：加载磁盘缺失绑定文件夹集合，用于在图集卡片上打「文件夹丢失」标记
-        // 与详情页丢失文件夹横幅（按图集聚合缺失路径列表）。
+        // Phase 7B：加载磁盘缺失绑定文件夹集合，用于在相册卡片上打「文件夹丢失」标记
+        // 与详情页丢失文件夹横幅（按相册聚合缺失路径列表）。
         // getMissingGalleryFolders 直接返回裸数组（非 {success} 包裹），可能抛错 → try/catch 兜底。
         try {
           const missing = await window.electronAPI.gallery.getMissingGalleryFolders();
@@ -739,21 +739,21 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           console.warn('[GalleryPage] 加载缺失文件夹集合失败:', missingError);
         }
       } else {
-        console.error('[GalleryPage] 加载图集失败:', result.error);
-        message.error('加载图集失败: ' + result.error);
+        console.error('[GalleryPage] 加载相册失败:', result.error);
+        message.error('加载相册失败: ' + result.error);
       }
     } catch (error) {
       console.error('Failed to load galleries:', error);
-      message.error('加载图集失败');
+      message.error('加载相册失败');
     } finally {
       setLoading(false);
-      console.log('[GalleryPage] 图集列表加载完成');
+      console.log('[GalleryPage] 相册列表加载完成');
     }
   };
 
-  // 搜索图集名称
+  // 搜索相册名称
   const handleGallerySearch = (query: string) => {
-    console.log(`[GalleryPage] 搜索图集，查询条件: ${query}`);
+    console.log(`[GalleryPage] 搜索相册，查询条件: ${query}`);
     setGallerySearchQuery(query);
     setGalleries(filterAndSortGalleries(allGalleries, query, gallerySortKey, gallerySortOrder));
   };
@@ -805,8 +805,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     handleSearch(value, 1, 50);
   };
 
-  // Phase 7B：进入图集后的一次性自动扫描（在首屏渲染后异步执行，不阻塞首屏）。
-  // 扫描全部绑定文件夹；若确有新增（imported>0）且用户仍停留在该图集详情（detailRunId 未被新请求顶替），
+  // Phase 7B：进入相册后的一次性自动扫描（在首屏渲染后异步执行，不阻塞首屏）。
+  // 扫描全部绑定文件夹；若确有新增（imported>0）且用户仍停留在该相册详情（detailRunId 未被新请求顶替），
   // 则重新拉取图片回灌新图。detailRunId 由调用方（loadGalleryImages）在发起时捕获并透传，
   // 避免用闭包里的 selectedGallery（首次进入时可能尚未提交）误判归属。
   const autoScanGalleryOnEnter = async (galleryId: number, detailRunId: number) => {
@@ -814,20 +814,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       const result = await window.electronAPI.gallery.syncGalleryFolder(galleryId);
       if (result.success && result.data && result.data.imported > 0) {
         console.log(
-          `[GalleryPage] 进入图集自动扫描完成：导入 ${result.data.imported}，跳过 ${result.data.skipped}`
+          `[GalleryPage] 进入相册自动扫描完成：导入 ${result.data.imported}，跳过 ${result.data.skipped}`
         );
-        // 仅当用户仍停留在发起本次扫描的那次图集详情请求时刷新图片，避免污染已切走/已切换的视图
+        // 仅当用户仍停留在发起本次扫描的那次相册详情请求时刷新图片，避免污染已切走/已切换的视图
         if (galleryDetailRequestRunIdRef.current === detailRunId) {
           await loadGalleryImages(galleryId);
         }
         await loadGalleries();
       }
     } catch (error) {
-      console.warn('[GalleryPage] 进入图集自动扫描失败:', error);
+      console.warn('[GalleryPage] 进入相册自动扫描失败:', error);
     }
   };
 
-  // 加载图集图片
+  // 加载相册图片
   const loadGalleryImages = async (galleryId: number) => {
     if (!window.electronAPI) return;
 
@@ -835,10 +835,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     galleryDetailRequestRunIdRef.current = requestRunId;
     const isLatestRequest = () => galleryDetailRequestRunIdRef.current === requestRunId;
 
-    console.log(`[GalleryPage] 开始加载图集图片，图集ID: ${galleryId}`);
+    console.log(`[GalleryPage] 开始加载相册图片，相册ID: ${galleryId}`);
     setLoading(true);
     try {
-      // 每次加载新图集时重置可见数量
+      // 每次加载新相册时重置可见数量
       setGalleryVisibleCount(GALLERY_VISIBLE_BATCH_SIZE);
       const galleryResult = await window.electronAPI.gallery.getGallery(galleryId);
       if (!isLatestRequest()) {
@@ -846,19 +846,19 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       }
       if (galleryResult.success && galleryResult.data) {
         const gallery = galleryResult.data;
-        // 图集详情读取改用 gallery_images 成员表（Phase 2B）：按 galleryId 显式取成员，
+        // 相册详情读取改用 gallery_images 成员表（Phase 2B）：按 galleryId 显式取成员，
         // 不再依赖 folderPath 前缀匹配（Phase 7B 已移除渲染层对 gallery.folderPath 的读取）。
-        // 单个图集一次性加载较多图片（例如 1000 张），方便浏览。
+        // 单个相册一次性加载较多图片（例如 1000 张），方便浏览。
         const result = await window.electronAPI.gallery.getImagesByGallery(galleryId, 1, 1000);
         if (!isLatestRequest()) {
           return;
         }
         if (result.success) {
           const data = result.data || [];
-          console.log(`[GalleryPage] 图集图片加载成功，数量: ${data.length}`);
+          console.log(`[GalleryPage] 相册图片加载成功，数量: ${data.length}`);
           setGalleryImages(data); // 存储到galleryImages
 
-          // Phase 7B 进入图集自动扫描：若 gallery.autoScan（UI 称「自动扫描」）开启，
+          // Phase 7B 进入相册自动扫描：若 gallery.autoScan（UI 称「自动扫描」）开启，
           // 在首屏渲染后异步扫描全部绑定文件夹一次并回灌新图，不阻塞首屏渲染（不 await）。
           // 修复轮 U15：守卫按「每次进入详情一次」判定——进入记录在离开详情时清空，退出再进会重新扫描；
           // 同一次进入内的重载（autoScanGalleryOnEnter 回灌 / 手动刷新 / 对话框 onChanged）复用记录，不重复触发。
@@ -873,22 +873,22 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           }
 
           // 如果没有显式封面且有图片，自动设置第一张图为封面。
-          // 判显式而非有效封面：coverImageId 对非空图集恒有值（读侧兜底），据它判断此门永不触发
+          // 判显式而非有效封面：coverImageId 对非空相册恒有值（读侧兜底），据它判断此门永不触发
           if (!gallery.explicitCoverImageId && data.length > 0 && data[0].id) {
-            console.log('[GalleryPage] 图集无封面，自动设置第一张图片为封面');
+            console.log('[GalleryPage] 相册无封面，自动设置第一张图片为封面');
             try {
               await window.electronAPI.gallery.setGalleryCover(galleryId, data[0].id);
               if (!isLatestRequest()) {
                 return;
               }
-              // 更新选中的图集信息
+              // 更新选中的相册信息
               const updatedResult = await window.electronAPI.gallery.getGallery(galleryId);
               if (!isLatestRequest()) {
                 return;
               }
               if (updatedResult.success && updatedResult.data) {
                 setSelectedGallery(updatedResult.data);
-                // 刷新图集列表
+                // 刷新相册列表
                 loadGalleries();
               }
             } catch (error) {
@@ -896,30 +896,30 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             }
           }
         } else {
-          console.error('[GalleryPage] 加载图集图片失败:', result.error);
-          message.error('加载图集图片失败: ' + result.error);
+          console.error('[GalleryPage] 加载相册图片失败:', result.error);
+          message.error('加载相册图片失败: ' + result.error);
         }
       } else {
-        console.error('[GalleryPage] 获取图集信息失败:', galleryResult.error);
+        console.error('[GalleryPage] 获取相册信息失败:', galleryResult.error);
       }
     } catch (error) {
       if (isLatestRequest()) {
         console.error('Failed to load gallery images:', error);
-        message.error('加载图集图片失败');
+        message.error('加载相册图片失败');
       }
     } finally {
       if (isLatestRequest()) {
         setLoading(false);
-        console.log('[GalleryPage] 图集图片加载完成');
+        console.log('[GalleryPage] 相册图片加载完成');
       }
     }
   };
 
-  // 设置图集封面
+  // 设置相册封面
   const handleSetCover = async (imageId: number) => {
     if (!window.electronAPI || !selectedGallery) return;
 
-    console.log(`[GalleryPage] 开始设置图集封面，图集ID: ${selectedGallery.id}, 图片ID: ${imageId}`);
+    console.log(`[GalleryPage] 开始设置相册封面，相册ID: ${selectedGallery.id}, 图片ID: ${imageId}`);
     try {
       const targetGalleryId = selectedGallery.id;
       const result = await window.electronAPI.gallery.setGalleryCover(targetGalleryId, imageId);
@@ -930,10 +930,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         // 找到新设置的封面图片（从当前已加载的图片中找）
         const newCoverImage = galleryImages.find((img: any) => img.id === imageId);
 
-        // 更新当前选中的图集信息（直接使用已有数据，避免重新请求）
+        // 更新当前选中的相册信息（直接使用已有数据，避免重新请求）
         setSelectedGallery((prev: any) => {
           if (!prev) return prev;
-          console.log('[GalleryPage] 更新选中图集的封面信息');
+          console.log('[GalleryPage] 更新选中相册的封面信息');
           return {
             ...prev,
             coverImage: newCoverImage || prev.coverImage,
@@ -942,7 +942,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           };
         });
 
-        // 更新 allGalleries 中的封面信息（用于图集列表显示，不影响当前查看的图集）
+        // 更新 allGalleries 中的封面信息（用于相册列表显示，不影响当前查看的相册）
         setAllGalleries((prevAllGalleries) => {
           return prevAllGalleries.map((gallery: any) => {
             if (gallery.id === targetGalleryId) {
@@ -957,8 +957,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
           });
         });
 
-        // 只有在显示图集列表且没有选中图集时才更新 galleries（避免触发不必要的 useEffect）
-        // 这样当用户在查看图集内的图片时，不会触发 galleries 的 useEffect
+        // 只有在显示相册列表且没有选中相册时才更新 galleries（避免触发不必要的 useEffect）
+        // 这样当用户在查看相册内的图片时，不会触发 galleries 的 useEffect
         if (subTab === 'galleries' && !selectedGallery) {
           setGalleries((prevGalleries) => {
             return prevGalleries.map((gallery: any) => {
@@ -1004,7 +1004,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     }
   };
 
-  // 创建新图集
+  // 创建新相册
   const handleCreateGallery = async () => {
     if (!window.electronAPI) {
       message.error('系统功能不可用');
@@ -1017,7 +1017,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     }
 
     const folderPath = result.data;
-    const folderName = folderPath.split(/[/\\]/).pop() || '新图集';
+    const folderName = folderPath.split(/[/\\]/).pop() || '新相册';
 
     try {
       const createResult = await window.electronAPI.gallery.createGallery({
@@ -1027,14 +1027,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       });
 
       if (createResult.success) {
-        message.success('图集创建成功');
+        message.success('相册创建成功');
         loadGalleries();
       } else {
-        message.error('创建图集失败: ' + createResult.error);
+        message.error('创建相册失败: ' + createResult.error);
       }
     } catch (error) {
       console.error('Failed to create gallery:', error);
-      message.error('创建图集失败');
+      message.error('创建相册失败');
     }
   };
 
@@ -1047,13 +1047,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     }
   };
 
-  // 对图集列表进行排序
+  // 对相册列表进行排序
   const sortGalleries = (
     galleryList: any[],
     sortKey: 'name' | 'createdAt' | 'updatedAt' = gallerySortKey,
     sortOrder: 'asc' | 'desc' = gallerySortOrder,
   ): any[] => {
-    console.log(`[GalleryPage] 开始对图集进行排序，排序字段: ${sortKey}, 排序顺序: ${sortOrder}`);
+    console.log(`[GalleryPage] 开始对相册进行排序，排序字段: ${sortKey}, 排序顺序: ${sortOrder}`);
 
     const sorted = [...galleryList].sort((a, b) => {
       let aValue: any;
@@ -1081,7 +1081,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       return 0;
     });
 
-    console.log(`[GalleryPage] 图集排序完成，共 ${sorted.length} 个`);
+    console.log(`[GalleryPage] 相册排序完成，共 ${sorted.length} 个`);
     return sorted;
   };
 
@@ -1097,9 +1097,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
       : galleryList;
 
     if (normalizedQuery) {
-      console.log(`[GalleryPage] 图集搜索过滤后数量: ${filtered.length}`);
+      console.log(`[GalleryPage] 相册搜索过滤后数量: ${filtered.length}`);
     } else {
-      console.log('[GalleryPage] 显示全部图集');
+      console.log('[GalleryPage] 显示全部相册');
     }
 
     return sortGalleries(filtered, sortKey, sortOrder);
@@ -1186,7 +1186,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             loadImages(nextAllPage, 20);
           }
         } else if (subTab === 'galleries') {
-          console.log('[GalleryPage] 初始化"图集"模式');
+          console.log('[GalleryPage] 初始化"相册"模式');
           const nextGalleryImageSort = galleriesPreferences?.gallerySort ?? 'time';
           setGallerySearchQuery(galleriesPreferences?.gallerySearchQuery ?? '');
           setGallerySortKey(galleriesPreferences?.gallerySortKey ?? 'updatedAt');
@@ -1327,13 +1327,13 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     };
   }, [preferencesHydrated, preferencesHydrationVersion, subTab, searchQuery, isSearchMode, allPage, searchPage, gallerySearchQuery, gallerySortKey, gallerySortOrder, galleryDetailSortOrder, selectedGallery?.id, gallerySort, disablePreferencesPersistence, suspended]);
 
-  // 当图集查询或排序参数改变时，重新派生图集列表
+  // 当相册查询或排序参数改变时，重新派生相册列表
   useEffect(() => {
     if (subTab !== 'galleries') {
       return;
     }
 
-    console.log(`[GalleryPage] 图集派生条件变更: query=${gallerySearchQuery}, sortKey=${gallerySortKey}, sortOrder=${gallerySortOrder}`);
+    console.log(`[GalleryPage] 相册派生条件变更: query=${gallerySearchQuery}, sortKey=${gallerySortKey}, sortOrder=${gallerySortOrder}`);
     setGalleries(filterAndSortGalleries(allGalleries, gallerySearchQuery, gallerySortKey, gallerySortOrder));
   }, [gallerySearchQuery, gallerySortKey, gallerySortOrder, allGalleries, subTab]);
 
@@ -1372,7 +1372,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     // 注意：不依赖 recentImages 引用本身，只依赖 .length，避免每次 setState 都重新注册事件
   }, [subTab, recentImages.length]);
 
-  // 图集封面缩略图状态
+  // 相册封面缩略图状态
   const [coverThumbnails, setCoverThumbnails] = useState<Record<number, string | null>>({});
 
   function updateCoverThumbnailsByGalleryIds(galleryIds: Iterable<number>, thumbnailPath: string | null) {
@@ -1419,16 +1419,16 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     updateCoverThumbnailsByGalleryIds(matchedGalleryIds, thumbnailPath);
   }
 
-  // 加载图集封面缩略图（并发加载 + 取消支持）
+  // 加载相册封面缩略图（并发加载 + 取消支持）
   // 挂起时不加载；恢复时重跑以补偿挂起期间丢失的缩略图生成事件（已生成的会命中磁盘缓存立即回填）
   useEffect(() => {
     if (!window.electronAPI || galleries.length === 0 || suspended) return;
 
     let cancelled = false;
-    console.log(`[GalleryPage] 开始加载图集封面缩略图，图集数量: ${galleries.length}`);
+    console.log(`[GalleryPage] 开始加载相册封面缩略图，相册数量: ${galleries.length}`);
 
     const loadThumbnails = async () => {
-      // 筛选需要加载缩略图的图集
+      // 筛选需要加载缩略图的相册
       const galleriesWithCover = galleries.filter(g => g.coverImage?.filepath);
       const concurrency = 4;
 
@@ -1466,14 +1466,14 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         }
       }
 
-      console.log(`[GalleryPage] 图集封面缩略图加载完成`);
+      console.log(`[GalleryPage] 相册封面缩略图加载完成`);
     };
 
     loadThumbnails();
     return () => { cancelled = true; };
   }, [galleries, suspended]);
 
-  // 将本地文件路径转换为 app:// 协议 URL（用于图集封面）
+  // 将本地文件路径转换为 app:// 协议 URL（用于相册封面）
   const getImageUrl = (filePath: string): string => {
     if (!filePath) return '';
     if (filePath.startsWith('app://')) return filePath;
@@ -1685,20 +1685,20 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                 icon={<FolderOpenOutlined />}
                 onClick={handleCreateGallery}
               >
-                创建图集
+                创建相册
               </Button>
               <Space.Compact style={{ width: 260 }}>
                 <Input
-                  placeholder="搜索图集名称..."
+                  placeholder="搜索相册名称..."
                   allowClear
                   value={gallerySearchQuery}
                   onChange={(e) => setGallerySearchQuery(e.target.value)}
                   onPressEnter={(e) => handleGallerySearch(e.currentTarget.value)}
                 />
-                <Tooltip title="搜索图集">
+                <Tooltip title="搜索相册">
                   <Button
                     icon={<SearchOutlined />}
-                    aria-label="搜索图集"
+                    aria-label="搜索相册"
                     onClick={() => handleGallerySearch(gallerySearchQuery)}
                   />
                 </Tooltip>
@@ -1711,7 +1711,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   size="small"
                   value={gallerySortKey}
                   onChange={(val) => {
-                    console.log(`[GalleryPage] 图集排序字段变更: ${val}`);
+                    console.log(`[GalleryPage] 相册排序字段变更: ${val}`);
                     setGallerySortKey(val as 'name' | 'createdAt' | 'updatedAt');
                   }}
                   options={[
@@ -1724,7 +1724,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   size="small"
                   value={gallerySortOrder}
                   onChange={(val) => {
-                    console.log(`[GalleryPage] 图集排序顺序变更: ${val}`);
+                    console.log(`[GalleryPage] 相册排序顺序变更: ${val}`);
                     setGallerySortOrder(val as 'asc' | 'desc');
                   }}
                   options={[
@@ -1761,7 +1761,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         window.close();
                         return;
                       }
-                      console.log('[GalleryPage] 返回图集列表');
+                      console.log('[GalleryPage] 返回相册列表');
                       galleryDetailRequestRunIdRef.current += 1;
                       // 修复轮 U15：离开详情即结束「本次进入」，清空自动扫描记录，下次进入重新触发
                       autoScanEntryRef.current = null;
@@ -1769,7 +1769,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       setGalleryImages([]);
                       // 显式同步落盘 selectedGalleryId=null，绕过 useEffect 中 250ms 防抖：
                       // 用户返回后可能立刻切二级菜单，防抖会被 clearTimeout 取消，
-                      // 磁盘上旧的 selectedGalleryId 残留会导致下次进入"图集"时再次自动打开旧详情（Bug10）。
+                      // 磁盘上旧的 selectedGalleryId 残留会导致下次进入"相册"时再次自动打开旧详情（Bug10）。
                       try {
                         await persistPreferences({
                           galleries: {
@@ -1814,7 +1814,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                     </Space>
                   </div>
                   <Space>
-                    <Tooltip title="刷新当前图集">
+                    <Tooltip title="刷新当前相册">
                       <Button
                         type="text"
                         icon={<ReloadOutlined />}
@@ -1836,10 +1836,10 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         style={{ fontSize: 16 }}
                       />
                     </Tooltip>
-                    <Tooltip title="图集信息">
+                    <Tooltip title="相册信息">
                       <Button
                         type="text"
-                        aria-label="图集信息"
+                        aria-label="相册信息"
                         icon={<QuestionCircleOutlined />}
                         style={{ fontSize: 16 }}
                         onClick={() => setSelectedGalleryInfo(selectedGallery)}
@@ -1848,7 +1848,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                   </Space>
                 </div>
               {(() => {
-                // 丢失文件夹横幅：该图集有绑定文件夹在磁盘上不存在（未重定位/磁盘离线/已移走）时提示，
+                // 丢失文件夹横幅：该相册有绑定文件夹在磁盘上不存在（未重定位/磁盘离线/已移走）时提示，
                 // 提供三种处置：去重定位（无损，推荐）/ 全部迁入无效项（放弃记录）/ 忽略（本会话内关闭）
                 const missingPaths = missingFolderPathsByGallery.get(selectedGallery.id) ?? [];
                 if (missingPaths.length === 0 || dismissedMissingBannerIds.has(selectedGallery.id)) return null;
@@ -1896,7 +1896,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                 images={visibleGalleryImages}
                 loading={loading}
                 active={!suspended}
-                emptyDescription="该图集暂无图片"
+                emptyDescription="该相册暂无图片"
                 onReload={() => loadGalleryImages(selectedGallery.id)}
                 groupBy={gallerySort === 'time' ? 'day' : 'none'}
                 sortBy={gallerySort}
@@ -1921,11 +1921,11 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             <SkeletonGrid count={8} cardWidth={250} gap={16} />
           ) : galleries.length === 0 ? (
             <Empty
-              description={gallerySearchQuery ? '未找到匹配的图集' : '暂无图集'}
+              description={gallerySearchQuery ? '未找到匹配的相册' : '暂无相册'}
               style={{ marginTop: '100px' }}
             >
               <Button type="primary" onClick={handleCreateGallery}>
-                创建图集
+                创建相册
               </Button>
             </Empty>
           ) : (
@@ -1951,7 +1951,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                       ],
                       onClick: ({ key }) => {
                         if (key === 'open-window') {
-                          // Bug11：打开子窗口直接进入该图集详情，不污染主窗口持久化
+                          // Bug11：打开子窗口直接进入该相册详情，不污染主窗口持久化
                           window.electronAPI?.window.openSecondaryMenu(
                             'gallery',
                             'galleries',
@@ -1973,15 +1973,15 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         background: 'transparent'
                       }}
                       onClick={() => {
-                        console.log(`[GalleryPage] 点击图集: ${gallery.name} (ID: ${gallery.id})`);
+                        console.log(`[GalleryPage] 点击相册: ${gallery.name} (ID: ${gallery.id})`);
                         setSelectedGallery(gallery);
                         loadGalleryImages(gallery.id);
                       }}
                       onKeyDown={(e) => {
-                        // 键盘可达性：Enter/Space 等同点击进入图集
+                        // 键盘可达性：Enter/Space 等同点击进入相册
                         if (e.key === 'Enter' || e.key === ' ') {
                           e.preventDefault();
-                          console.log(`[GalleryPage] 键盘打开图集: ${gallery.name} (ID: ${gallery.id})`);
+                          console.log(`[GalleryPage] 键盘打开相册: ${gallery.name} (ID: ${gallery.id})`);
                           setSelectedGallery(gallery);
                           loadGalleryImages(gallery.id);
                         }
@@ -1995,7 +1995,7 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
                         onInfoClick={() => {
                           // Phase 7B：点击信息图标打开多文件夹管理对话框（GalleryFolderManagerDialog
                           // 内部自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签，无需本页预取）。
-                          console.log(`[GalleryPage] 查看图集详情: ${gallery.name}`);
+                          console.log(`[GalleryPage] 查看相册详情: ${gallery.name}`);
                           galleryInfoRequestRunIdRef.current += 1;
                           setSelectedGalleryInfo(gallery);
                         }}
@@ -2050,9 +2050,9 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
     <div ref={contentRef} style={{ padding: spacing.xl }}>
       {renderContent()}
       
-      {/* Phase 7B：图集信息多文件夹管理对话框（取代旧的只读 Modal 与详情头部 Popover）。
-          对话框自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签；onChanged 回调里刷新图集列表，
-          并在该图集正处于详情视图时重新加载其图片。 */}
+      {/* Phase 7B：相册信息多文件夹管理对话框（取代旧的只读 Modal 与详情头部 Popover）。
+          对话框自行拉取绑定文件夹 / 缺失集合 / 来源收藏标签；onChanged 回调里刷新相册列表，
+          并在该相册正处于详情视图时重新加载其图片。 */}
       {selectedGalleryInfo && (
         <GalleryFolderManagerDialog
           key={selectedGalleryInfo.id}
@@ -2066,17 +2066,17 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
             const changedId = selectedGalleryInfo.id;
             void loadGalleries();
             if (selectedGallery?.id === changedId) {
-              // 绑定/解绑/扫描可能改变图集成员，详情视图需重新拉取图片
+              // 绑定/解绑/扫描可能改变相册成员，详情视图需重新拉取图片
               void loadGalleryImages(changedId);
             }
           }}
         />
       )}
 
-      {/* 编辑图集模态框 */}
+      {/* 编辑相册模态框 */}
       <Modal
         open={editModalOpen}
-        title="编辑图集"
+        title="编辑相册"
         closable
         maskClosable
         keyboard
@@ -2086,8 +2086,8 @@ export const GalleryPage: React.FC<GalleryPageProps> = ({
         cancelText="取消"
       >
         <Form form={editForm} layout="vertical">
-          <Form.Item name="name" label="图集名称" rules={[{ required: true, message: '请输入图集名称' }]}>
-            <Input placeholder="请输入图集名称" />
+          <Form.Item name="name" label="相册名称" rules={[{ required: true, message: '请输入相册名称' }]}>
+            <Input placeholder="请输入相册名称" />
           </Form.Item>
         </Form>
       </Modal>

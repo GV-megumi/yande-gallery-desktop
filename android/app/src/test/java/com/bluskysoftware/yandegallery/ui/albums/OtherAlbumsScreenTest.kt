@@ -88,7 +88,7 @@ class OtherAlbumsScreenTest {
 
     @Test
     fun `列出其他相册_移出后清空自动返回`() {
-        // 种子：图集 1 置 inOther=true
+        // 种子：相册 1 置 inOther=true
         runBlocking {
             db.galleryDao().replaceAll(listOf(GalleryEntity(1, "album-1", null, 0)))
             db.albumPrefsDao().setInOther(1, inOther = true)

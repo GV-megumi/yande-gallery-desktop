@@ -70,7 +70,7 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_ALBUMS_SORT] = name }
     }
 
-    /** 相册详情排序（PhotoSort.name，全部图集共用）。 */
+    /** 相册详情排序（PhotoSort.name，全部相册共用）。 */
     val albumDetailSortName: Flow<String?> = safeData.map { it[KEY_DETAIL_SORT] }
 
     suspend fun setAlbumDetailSortName(name: String) {

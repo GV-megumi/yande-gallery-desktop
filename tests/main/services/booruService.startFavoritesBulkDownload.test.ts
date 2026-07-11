@@ -188,7 +188,7 @@ describe('booruService.startFavoritesBulkDownload', () => {
     expect(mkdirMock).toHaveBeenCalledWith(expectedDownloadPath, { recursive: true });
     expect(createGalleryMock).toHaveBeenCalledWith({
       folderPath: expectedDownloadPath,
-      name: 'Yande:/Unsafe 收藏图集',
+      name: 'Yande:/Unsafe 收藏相册',
       isWatching: true,
       recursive: true,
     });

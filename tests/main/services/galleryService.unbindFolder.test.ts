@@ -3,15 +3,15 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * Phase 3 — unbindFolder（解绑文件夹，保留图集，不拉黑）
+ * Phase 3 — unbindFolder（解绑文件夹，保留相册，不拉黑）
  *
  * - 归一化；移除 (galleryId, folderPath) 的 gallery_folders 行；
- * - 重算：该图集当前成员中，凡其 filepath 不再被任一"剩余绑定文件夹"覆盖的，
+ * - 重算：该相册当前成员中，凡其 filepath 不再被任一"剩余绑定文件夹"覆盖的，
  *   删除对应 gallery_images(galleryId,imageId) 行，并收集这些 imageId；
  *   覆盖判定与 ensureMembershipForFolder 的 recursive 感知前缀谓词一致；
  * - cleanupOrphanImages(收集到的 imageId)：其中已无任何成员的图片被回收；
  * - removeGalleryRoot(folderPath)；以 COUNT(gallery_images) 更新统计；emit updated；
- * - 图集行始终保留（不删 galleries、不写忽略名单）。
+ * - 相册行始终保留（不删 galleries、不写忽略名单）。
  *
  * 真实 :memory: sqlite + PRAGMA foreign_keys=ON；mock 掉 scanAndImportFolder 与 deleteThumbnail。
  */
@@ -185,7 +185,7 @@ afterEach(async () => {
 });
 
 describe('unbindFolder', () => {
-  it('单文件夹图集：解绑后移除全部成员并回收孤儿，图集行仍在（count=0）', async () => {
+  it('单文件夹相册：解绑后移除全部成员并回收孤儿，相册行仍在（count=0）', async () => {
     const folder = normalizePath(path.join('M:', 'galA'));
     const galleryId = await addGallery(folder, 1);
     await addFolderBinding(galleryId, folder, 1);
@@ -204,7 +204,7 @@ describe('unbindFolder', () => {
     expect(await all(h.db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [galleryId])).toHaveLength(0);
     // 图片被回收（孤儿）
     expect(await all(h.db, 'SELECT id FROM images')).toHaveLength(0);
-    // 图集行仍在，统计 count=0
+    // 相册行仍在，统计 count=0
     const g = await get<{ id: number; imageCount: number }>(h.db, 'SELECT id, imageCount FROM galleries WHERE id = ?', [galleryId]);
     expect(g?.id).toBe(galleryId);
     expect(g?.imageCount).toBe(0);
@@ -215,7 +215,7 @@ describe('unbindFolder', () => {
     expect(h.deleteThumbnailCalls.sort()).toEqual(
       [normalizePath(path.join('M:', 'galA', 'a.jpg')), normalizePath(path.join('M:', 'galA', 'sub', 'b.jpg'))].sort()
     );
-    // 不应写忽略名单 / 不应删图集
+    // 不应写忽略名单 / 不应删相册
     expect(await all(h.db, 'SELECT * FROM galleries')).toHaveLength(1);
   });
 
@@ -261,7 +261,7 @@ describe('unbindFolder', () => {
     expect(g?.imageCount).toBe(1);
   });
 
-  it('共享图同时归属另一图集时，解绑不删除该共享图片（多归属保护）', async () => {
+  it('共享图同时归属另一相册时，解绑不删除该共享图片（多归属保护）', async () => {
     // galleryA 绑定 folderA（递归）含 shared.jpg；galleryB 也把 shared.jpg 作为成员。
     // 解绑 galleryA 的 folderA → shared 从 A 移除成员，但仍是 B 的成员 → 图片不被删。
     const folderA = normalizePath(path.join('M:', 'A'));

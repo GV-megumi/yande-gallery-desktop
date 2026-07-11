@@ -114,7 +114,7 @@ fun OtherAlbumsScreen(
 
     renameId?.let { id ->
         AlbumNameDialog(
-            title = "重命名图集",
+            title = "重命名相册",
             name = renameName,
             onNameChange = { renameName = it },
             confirmLabel = "保存",
@@ -140,8 +140,8 @@ fun OtherAlbumsScreen(
                 deleteId = null
                 scope.launch {
                     when (val r = viewModel.deleteGallery(id)) {
-                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$name」")
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除图集失败", r))
+                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除相册「$name」")
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除相册失败", r))
                     }
                 }
             },

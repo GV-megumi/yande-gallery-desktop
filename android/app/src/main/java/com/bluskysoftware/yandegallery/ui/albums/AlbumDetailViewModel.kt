@@ -38,7 +38,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /**
- * 图集详情（M2 只读；T13 加多选批量动作）。
+ * 相册详情（M2 只读；T13 加多选批量动作）。
  */
 class AlbumDetailViewModel(
     private val graph: AppGraph,
@@ -54,13 +54,13 @@ class AlbumDetailViewModel(
         graph.serverRepository.observeActive()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
-    /** 图集标题：随 galleries 表变化更新，不额外加 DAO 方法，复用 observeAll。 */
+    /** 相册标题：随 galleries 表变化更新，不额外加 DAO 方法，复用 observeAll。 */
     val title: Flow<String> =
         graph.db.galleryDao().observeAll().map { galleries ->
             galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
         }
 
-    /** 详情排序/列数（v0.6 spec §5.1）：共享 ViewPrefs，全部图集共用一档。 */
+    /** 详情排序/列数（v0.6 spec §5.1）：共享 ViewPrefs，全部相册共用一档。 */
     val detailSort: StateFlow<PhotoSort> = graph.viewPrefs.detailSort
     val detailColumns: StateFlow<Int> = graph.viewPrefs.detailColumns
 
@@ -71,7 +71,7 @@ class AlbumDetailViewModel(
     /** 设为封面（spec §5.3）：委托 WriteRepository（先服务端后本地）。 */
     suspend fun setCover(imageId: Long): WriteResult = writeRepository.setGalleryCover(galleryId, imageId)
 
-    /** 图集内图片分页（v0.6 spec §5.1）：随 detailSort 重建；无日期分组。 */
+    /** 相册内图片分页（v0.6 spec §5.1）：随 detailSort 重建；无日期分组。 */
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class)
     val pagingFlow: Flow<PagingData<ImageEntity>> =
         graph.viewPrefs.detailSort.flatMapLatest { sort ->
@@ -82,7 +82,7 @@ class AlbumDetailViewModel(
 
     // ---- Task 13 多选：VM 持有选择状态 + 批量动作（Screen 不直接触 graph） ----
 
-    /** 本图集 id（GalleryPickerDialog 排除自身——图集详情不应把选中项「加入当前所在图集」，D12A）。 */
+    /** 本相册 id（GalleryPickerDialog 排除自身——相册详情不应把选中项「加入当前所在相册」，D12A）。 */
     val currentGalleryId: Long get() = galleryId
 
     /** 连接状态：多选底部栏写动作离线置灰。 */
@@ -91,7 +91,7 @@ class AlbumDetailViewModel(
     /** 多选状态：Screen 订阅 selectedFlow 驱动角标/选择栏。 */
     val selection = SelectionState()
 
-    /** 图集列表（「加入图集」picker——图集内也可把选中项加进其它图集），按名升序。 */
+    /** 相册列表（「加入相册」picker——相册内也可把选中项加进其它相册），按名升序。 */
     val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
 
     private val actions = SelectionActions(
@@ -138,11 +138,11 @@ class AlbumDetailViewModel(
         deleted to kept
     }
 
-    /** 批量加入图集。 */
+    /** 批量加入相册。 */
     suspend fun addSelectedToGallery(targetGalleryId: Long, ids: List<Long>): WriteResult =
         actions.addToGallery(targetGalleryId, ids)
 
-    /** 批量移出当前图集：成功即清空选择（brief 裁定）；失败保留选择供用户重试。 */
+    /** 批量移出当前相册：成功即清空选择（brief 裁定）；失败保留选择供用户重试。 */
     suspend fun removeSelectedFromGallery(ids: List<Long>): WriteResult {
         val result = actions.removeFromGallery(galleryId, ids)
         if (result == WriteResult.Success) selection.clear()

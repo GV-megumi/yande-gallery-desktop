@@ -101,11 +101,11 @@ class SelectionActions(
         return result
     }
 
-    /** 批量加入图集（GalleryPickerDialog 选定后）；死 id 先滤（M4-T14）。 */
+    /** 批量加入相册（GalleryPickerDialog 选定后）；死 id 先滤（M4-T14）。 */
     suspend fun addToGallery(galleryId: Long, ids: List<Long>): WriteResult =
         writeRepository.addToGallery(galleryId, filterExisting(ids))
 
-    /** 批量移出图集（仅图集详情多选）；死 id 先滤（M4-T14）。 */
+    /** 批量移出相册（仅相册详情多选）；死 id 先滤（M4-T14）。 */
     suspend fun removeFromGallery(galleryId: Long, ids: List<Long>): WriteResult =
         writeRepository.removeFromGallery(galleryId, filterExisting(ids))
 }

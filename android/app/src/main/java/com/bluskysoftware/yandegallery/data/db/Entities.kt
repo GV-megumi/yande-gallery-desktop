@@ -97,7 +97,7 @@ data class SearchHistoryEntity(
 
 /**
  * 相册组织本机态（v0.6 spec §2.1）：置顶/「其他相册」收纳/区内手动序。
- * 独立表、不建外键——图集同步是全量 replaceAll（清表重插），FK CASCADE 会把偏好一并误清；
+ * 独立表、不建外键——相册同步是全量 replaceAll（清表重插），FK CASCADE 会把偏好一并误清；
  * 孤儿行由 RoomMirrorStore.replaceGalleries 对账后清理。置顶与收纳互斥、跨区迁移清手动序，
  * 两条规则收敛在 AlbumPrefsDao 的事务方法里。
  */

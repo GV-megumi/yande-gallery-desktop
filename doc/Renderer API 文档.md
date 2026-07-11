@@ -33,7 +33,7 @@
 
 - `init()`：初始化数据库
 - `getImages(page, pageSize)`：分页获取图片
-- ~~`addImage(image)`~~：**已停用**（绕过 `gallery_images` 成员模型，会产生图集不可见的孤儿图；preload/channels 中仅以注释保留，零调用方）
+- ~~`addImage(image)`~~：**已停用**（绕过 `gallery_images` 成员模型，会产生相册不可见的孤儿图；preload/channels 中仅以注释保留，零调用方）
 - `searchImages(query, page?, pageSize?)`：按关键词搜索图片
 
 ## `gallery`
@@ -46,44 +46,44 @@
 - `getGallery(id)`：获取单个图库
 - `createGallery(galleryData)`：创建图库
 - `updateGallery(id, updates)`：更新图库
-- `deleteGallery(id)`：删除图库。基于 `gallery_images` 成员表删除该图集的全部成员图片（一个事务里级联删 `image_tags` / `images`、清缩略图、复位对应 `booru_posts` 的 `downloaded`/`localPath`、做孤儿回收），删除图集行及其全部 `gallery_folders` 绑定，并把每个被删文件夹写入 `gallery_ignored_folders` 防止下次扫描重建。原始图片文件不会被物理删除；多归属图片只在不再属于任何图集时才回收。
+- `deleteGallery(id)`：删除图库。基于 `gallery_images` 成员表删除该相册的全部成员图片（一个事务里级联删 `image_tags` / `images`、清缩略图、复位对应 `booru_posts` 的 `downloaded`/`localPath`、做孤儿回收），删除相册行及其全部 `gallery_folders` 绑定，并把每个被删文件夹写入 `gallery_ignored_folders` 防止下次扫描重建。原始图片文件不会被物理删除；多归属图片只在不再属于任何相册时才回收。
 - `setGalleryCover(id, coverImageId)`：设置图库封面
-- `getImagesByGallery(galleryId, page?, pageSize?)`：获取某图集的图片（按 `gallery_images` 成员表 JOIN；取代旧的 `getImagesByFolder`）
-- `syncGalleryFolder(id)`：同步该图集的**全部绑定文件夹**（遍历 `gallery_folders`），重扫并写入 `gallery_images` 成员，返回 `{ imported, skipped, imageCount, lastScannedAt }`
-- `planScanFolder(rootPath, extensions?)`：扫描规划（只读，不写库）。仅枚举 `rootPath` 的**一级子文件夹**（含 `rootPath` 自身），把有图片的目录分类为 `newFolders` / `collisions`（同名图集已存在；库内有多个同名图集时确定性取最早创建的那个作为碰撞目标）/ `skipped`（`alreadyBound` / `ignored` / `noImages`）
-- `applyScanPlan({ create, merge, extensions? })`：按用户决议落库。全程**非递归**：图集 = 文件夹的直接图片（不扫更深层；绑定持久化 `recursive=0`，后续「同步文件夹」也按非递归执行）。`create` 项新建图集（图集名与现有图集或同批已建项重名时按 `名称 (2)` / `名称 (3)` 规则自动加后缀）+ 绑定 + 扫描直接图片入成员；`merge` 项把文件夹以非递归绑定并入既有图集。返回 `{ created, merged, imported, failedFolders, skippedFiles }`——`failedFolders` 为整项失败的**文件夹**数（建集/绑定失败或异常），`skippedFiles` 为扫描时因已在库中被跳过的**文件**数（幂等重扫的正常现象）；两者单位不同，不再混入同一个 `skipped` 计数
+- `getImagesByGallery(galleryId, page?, pageSize?)`：获取某相册的图片（按 `gallery_images` 成员表 JOIN；取代旧的 `getImagesByFolder`）
+- `syncGalleryFolder(id)`：同步该相册的**全部绑定文件夹**（遍历 `gallery_folders`），重扫并写入 `gallery_images` 成员，返回 `{ imported, skipped, imageCount, lastScannedAt }`
+- `planScanFolder(rootPath, extensions?)`：扫描规划（只读，不写库）。仅枚举 `rootPath` 的**一级子文件夹**（含 `rootPath` 自身），把有图片的目录分类为 `newFolders` / `collisions`（同名相册已存在；库内有多个同名相册时确定性取最早创建的那个作为碰撞目标）/ `skipped`（`alreadyBound` / `ignored` / `noImages`）
+- `applyScanPlan({ create, merge, extensions? })`：按用户决议落库。全程**非递归**：相册 = 文件夹的直接图片（不扫更深层；绑定持久化 `recursive=0`，后续「同步文件夹」也按非递归执行）。`create` 项新建相册（相册名与现有相册或同批已建项重名时按 `名称 (2)` / `名称 (3)` 规则自动加后缀）+ 绑定 + 扫描直接图片入成员；`merge` 项把文件夹以非递归绑定并入既有相册。返回 `{ created, merged, imported, failedFolders, skippedFiles }`——`failedFolders` 为整项失败的**文件夹**数（建集/绑定失败或异常），`skippedFiles` 为扫描时因已在库中被跳过的**文件**数（幂等重扫的正常现象）；两者单位不同，不再混入同一个 `skipped` 计数
 
-> ⚠ 旧接口 `getImagesByFolder` / `scanAndImportFolder` / `scanSubfolders` 已移除或停用：图集与文件夹解耦后，图片归属改由 `gallery_images` 成员表表达，扫描入库改为 `planScanFolder` + `applyScanPlan` 两步。`scanAndImportFolder` 在 preload/channels 中仅以注释保留（零调用方）。
+> ⚠ 旧接口 `getImagesByFolder` / `scanAndImportFolder` / `scanSubfolders` 已移除或停用：相册与文件夹解耦后，图片归属改由 `gallery_images` 成员表表达，扫描入库改为 `planScanFolder` + `applyScanPlan` 两步。`scanAndImportFolder` 在 preload/channels 中仅以注释保留（零调用方）。
 - `reportInvalidImage(imageId)`：标记图片为无效
 - `getInvalidImages(page?, pageSize?)`：分页获取无效图片列表
 - `getInvalidImageCount()`：获取无效图片总数
 - `deleteInvalidImage(id)`：删除单个无效图片记录
 - `clearInvalidImages()`：清空所有无效图片记录
 
-### 图集↔文件夹绑定（多文件夹模型）
+### 相册↔文件夹绑定（多文件夹模型）
 
-图集与文件夹解耦后，一个图集可绑定多个文件夹（`gallery_folders` 表，`folderPath` 全局唯一），图片归属走 `gallery_images` 成员表。
+相册与文件夹解耦后，一个相册可绑定多个文件夹（`gallery_folders` 表，`folderPath` 全局唯一），图片归属走 `gallery_images` 成员表。
 
-- `getGalleryFolders(galleryId)`：读取某图集的全部绑定文件夹（每项含 `folderPath` / `recursive` / `extensions`）
-- `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给图集新增一个绑定文件夹并扫描入成员。绑定成功后会移除忽略名单中该路径的**精确条目**（显式绑定意图覆盖"删除图集自动忽略"的拉黑），并广播 `gallery:ignored-folders-changed{action:'deleted'}`
-- `unbindFolder(galleryId, folderPath)`：解除某文件夹绑定，删除其带来的成员并回收孤儿（保留图集记录、不写黑名单）。覆盖感知：仍被该图集其它绑定文件夹覆盖的图片不会被移除
+- `getGalleryFolders(galleryId)`：读取某相册的全部绑定文件夹（每项含 `folderPath` / `recursive` / `extensions`）
+- `bindFolder(galleryId, folderPath, recursive?, extensions?)`：给相册新增一个绑定文件夹并扫描入成员。绑定成功后会移除忽略名单中该路径的**精确条目**（显式绑定意图覆盖"删除相册自动忽略"的拉黑），并广播 `gallery:ignored-folders-changed{action:'deleted'}`
+- `unbindFolder(galleryId, folderPath)`：解除某文件夹绑定，删除其带来的成员并回收孤儿（保留相册记录、不写黑名单）。覆盖感知：仍被该相册其它绑定文件夹覆盖的图片不会被移除
 - `changeFolderPath(galleryId, oldPath, newPath, recursive?, extensions?)`：更改某绑定文件夹路径（先绑新、成功后再解旧；新路径失败则旧绑定与成员零损失）。`recursive` / `extensions` 未显式传入时**继承旧绑定行的配置**（改路径不改变绑定语义，非递归绑定不会被翻转为递归、自定义扩展名不被重置）；显式传入优先；旧绑定行不存在时回退默认（递归 + 默认扩展名）
 
 ### 跨机器重定位与丢失文件夹检测
 
 - `previewRelocateRoot(mappings)`：重定位预检（dry-run，不写库）。`mappings: { oldPrefix, newPrefix }[]`，返回 `{ affected: {table,column,count}[], collisions: {table,column,path}[], warnings: {table,column,newPrefix,existingPrefix,count}[] }`。`collisions` 非空则禁止 apply；`warnings` 为**非阻断**提示——某映射规范化后的 `newPrefix` 与库内既有路径前缀仅大小写不同（字节不同），应用后库内会出现同一物理目录的两种大小写形态（后续按字节精确比较的绑定/去重判定会把它们当成不同目录），建议把新前缀改成与库内一致的大小写
 - `applyRelocateRoot(mappings)`：应用重定位。单事务内按 `旧前缀→新前缀` 边界感知地无损改写库内全部路径列（`gallery_folders.folderPath` / `images.filepath` / `booru_posts.localPath` / `booru_favorite_tag_download_bindings.downloadPath` / `gallery_ignored_folders.folderPath`）；有 UNIQUE 冲突则整体中止、零写入。用于"文件随库一起搬到新机器"。**写入侧大小写归一（win32）**：preview 与 apply 都会先把 `oldPrefix`/`newPrefix` 走同一规范化（盘符统一大写；路径在磁盘上存在时用 `fs.realpathSync.native` 取真实目录项大小写形态，同时展开 8.3 短名、会解析符号链接；不存在则回退归一化输入），preview 展示的目标路径字节 == apply 实际写入的字节，避免手输小写前缀（如 `d:\art`）以非规范字节整库落盘后，与系统对话框返回的 `D:\art` 字节不等导致重复绑定、整目录重复导入。成功提交且改写行数 > 0 时，在刷新 `app://` 白名单后广播 `gallery:paths-relocated` 全量失效事件（见「事件订阅」），常驻缓存的图库页据此整页重载——重定位不动 `updatedAt`，否则增量游标感知不到任何变化
-- `getMissingGalleryFolders()`：返回绑定文件夹在磁盘上不存在的项 `{ galleryId, folderPath, galleryName }[]`（只读检测，供 UI 标记"文件夹丢失"与重定位弹窗按行标注归属图集）。**注意：直接返回数组，不是 `{ success }` 包裹**，调用方应 `try/catch`
-- `migrateMissingFolderImages(galleryId, folderPath)`：图集详情「文件夹丢失」横幅的「全部迁入无效项」入口——把该图集位于指定丢失绑定文件夹下的成员图片全部迁入无效列表（破坏性：删 images 行连带成员/本地标签、删缩略图、复位 booru 下载状态），返回 `{ success, data?: { migrated, skipped } }`。`folderPath` 必须是该图集的绑定文件夹；源文件仍存在的成员会被跳过（`skipped`）。万张级丢失文件夹按**分块事务**迁移（每块 200 张、块末对涉及图集聚合重算 `imageCount`，块间放行其它写事务）；某块失败整块回滚并返回错误，已完成块保留，重试幂等（已迁成员被跳过）。这是**用户显式**放弃记录的通道——自动失效上报（`reportInvalidImage`）对"绑定文件夹整个缺失"的图片有防护、拒绝迁移（避免搬库后未重定位就浏览时成员被逐张蚕食），只有本接口绕过该防护。不改动绑定行本身（文件夹仍绑定且缺失，用户可继续重定位或解绑）
+- `getMissingGalleryFolders()`：返回绑定文件夹在磁盘上不存在的项 `{ galleryId, folderPath, galleryName }[]`（只读检测，供 UI 标记"文件夹丢失"与重定位弹窗按行标注归属相册）。**注意：直接返回数组，不是 `{ success }` 包裹**，调用方应 `try/catch`
+- `migrateMissingFolderImages(galleryId, folderPath)`：相册详情「文件夹丢失」横幅的「全部迁入无效项」入口——把该相册位于指定丢失绑定文件夹下的成员图片全部迁入无效列表（破坏性：删 images 行连带成员/本地标签、删缩略图、复位 booru 下载状态），返回 `{ success, data?: { migrated, skipped } }`。`folderPath` 必须是该相册的绑定文件夹；源文件仍存在的成员会被跳过（`skipped`）。万张级丢失文件夹按**分块事务**迁移（每块 200 张、块末对涉及相册聚合重算 `imageCount`，块间放行其它写事务）；某块失败整块回滚并返回错误，已完成块保留，重试幂等（已迁成员被跳过）。这是**用户显式**放弃记录的通道——自动失效上报（`reportInvalidImage`）对"绑定文件夹整个缺失"的图片有防护、拒绝迁移（避免搬库后未重定位就浏览时成员被逐张蚕食），只有本接口绕过该防护。不改动绑定行本身（文件夹仍绑定且缺失，用户可继续重定位或解绑）
 
-### 图集忽略名单
+### 相册忽略名单
 
 - `listIgnoredFolders()`：列出所有被加入忽略名单的目录
-- `addIgnoredFolder(folderPath, note?)`：把目录加入忽略名单，下次扫描不会再创建图集
+- `addIgnoredFolder(folderPath, note?)`：把目录加入忽略名单，下次扫描不会再创建相册
 - `updateIgnoredFolder(id, patch)`：更新忽略记录（当前主要是修改 `note`）
 - `removeIgnoredFolder(id)`：从忽略名单中移除（允许下次扫描再次创建）
 
-忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删图集的全部绑定文件夹追加进来。消费语义：`planScanFolder` 对候选路径做精确匹配跳过（不重建图集）；扫描/同步链路（`scanFolderIntoGallery`）对严格位于扫描目标内部的条目整棵剪枝——磁盘扫描不深入、库中已有图片也不会被按前缀收编，父级文件夹重扫不会复活已拉黑子树；`bindFolder` 显式绑定成功后移除该路径的精确条目（显式意图优先）。
+忽略名单存储在 `gallery_ignored_folders` 表；`deleteGallery` 会自动把被删相册的全部绑定文件夹追加进来。消费语义：`planScanFolder` 对候选路径做精确匹配跳过（不重建相册）；扫描/同步链路（`scanFolderIntoGallery`）对严格位于扫描目标内部的条目整棵剪枝——磁盘扫描不深入、库中已有图片也不会被按前缀收编，父级文件夹重扫不会复活已拉黑子树；`bindFolder` 显式绑定成功后移除该路径的精确条目（显式意图优先）。
 
 ### 最近图片游标查询
 
@@ -157,7 +157,7 @@
 - `gallery.get()` / `gallery.save(preferences)`：存储形态为 `GalleryPagePreferencesBySubTab`，按子 Tab（recent / all / galleries / invalid-images）分别记忆
 - `appShell.get()` / `appShell.save(preferences)`：应用外壳偏好。字段：`menuOrder`（各级菜单排序）、`pinnedItems`（固定/保活页面，数量不限）、`quickAccessItems`（底部快捷访问入口）、`sidebarWidth`（侧边栏宽度）。`save` 为字段级合并，可只传变更字段
 
-`GalleryPagePreferencesBySubTab.galleries` 中的排序字段分两类：`gallerySortKey` / `gallerySortOrder` 只用于图集列表排序；`gallerySort` / `galleryDetailSortOrder` 只用于已打开图集内的图片排序。两者不能复用同一个状态，否则图集列表排序会污染图片预览排序。
+`GalleryPagePreferencesBySubTab.galleries` 中的排序字段分两类：`gallerySortKey` / `gallerySortOrder` 只用于相册列表排序；`gallerySort` / `galleryDetailSortOrder` 只用于已打开相册内的图片排序。两者不能复用同一个状态，否则相册列表排序会污染图片预览排序。
 
 使用这些偏好时须同时参考 `doc/注意事项/导航缓存与页面偏好持久化.md`，避免"用户返回后被自动还原"这类交互 bug。
 
@@ -169,7 +169,7 @@
 - `generateThumbnail(imagePath, force?)`：生成缩略图
 - `getThumbnail(imagePath)`：获取缩略图路径
 - `deleteThumbnail(imagePath)`：删除缩略图
-- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除前复位对应 booru 帖子的下载状态（`booru_posts.downloaded=0、localPath=NULL`，按 `localImageId` 或 `localPath` 命中，与孤儿清理/失效迁移语义一致；须在删 images 前执行——之后 FK 仅 SET NULL 清引用，残留的 `downloaded=1` 会让按路径去重的批量下载永远跳过该帖）。删除后按 `gallery_images` 成员表刷新该图**全部归属图集**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐图集发 `gallery:galleries-changed`（`statsUpdated`）
+- `deleteImage(imageId)`：删除图片（包括数据库记录、磁盘文件和缩略图）。删除前复位对应 booru 帖子的下载状态（`booru_posts.downloaded=0、localPath=NULL`，按 `localImageId` 或 `localPath` 命中，与孤儿清理/失效迁移语义一致；须在删 images 前执行——之后 FK 仅 SET NULL 清引用，残留的 `downloaded=1` 会让按路径去重的批量下载永远跳过该帖）。删除后按 `gallery_images` 成员表刷新该图**全部归属相册**的 `imageCount`，广播 `gallery:images-changed`（`affectedGalleryIds` 覆盖全部归属）并逐相册发 `gallery:galleries-changed`（`statsUpdated`）
 - `cleanupOrphanThumbnails()`：维护动作（设置页入口）——清理缩略图目录中与库内任何图片都不再对应的孤儿缩略图文件，返回 `{ success, data?: { scanned, deleted, freedBytes } }`。按文件名 hash 段（`md5(filepath)`）对账、不看扩展名；保护 `images` 在库图片与 `invalid_images.thumbnailPath` 引用（无效列表页仍展示）；非缩略图命名的文件一概不动。主进程删除路径已内置"先取消队列生成任务再删文件"（等待中的移除、生成中的打墓碑丢弃产物），本接口用于清理历史竞态遗留的存量孤儿
 
 ## `booru`
@@ -263,7 +263,7 @@
 - `upsertFavoriteTagDownloadBinding(input)`：创建或更新收藏标签的下载绑定
 - `removeFavoriteTagDownloadBinding(favoriteTagId)`：删除收藏标签的下载绑定
 - `startFavoriteTagBulkDownload(favoriteTagId)`：基于收藏标签启动批量下载，返回 `{ taskId, sessionId, deduplicated? }`；会话创建后即返回，扫描 / dryRun 在后台继续；当检测到重复任务且已有存活会话时 `deduplicated` 为 `true`
-- `startFavoritesBulkDownload(input)`：基于“我的收藏”当前过滤条件启动批量下载，`input` 包含 `{ siteId, groupId?, rating? }`；目标目录固定为当前下载目录下的站点收藏目录，主进程会跳过已下载 / 已存在文件，并确保目录对应本地图集存在
+- `startFavoritesBulkDownload(input)`：基于“我的收藏”当前过滤条件启动批量下载，`input` 包含 `{ siteId, groupId?, rating? }`；目标目录固定为当前下载目录下的站点收藏目录，主进程会跳过已下载 / 已存在文件，并确保目录对应本地相册存在
 - `getFavoriteTagLabels()`
 - `addFavoriteTagLabel(name, color?)`
 - `removeFavoriteTagLabel(id)`
@@ -379,7 +379,7 @@
   - `section`：顶层区域（`gallery` / `booru` / `google`）
   - `key`：页面标识
   - `tab`：可选的页内子导航初始 tab
-  - `extra`：可选的附加 query（`Record<string, string | number>`），用于把必要上下文显式带进子窗口（例如 `{ galleryId: 5 }` 让子窗口直接进入某个图集详情）
+  - `extra`：可选的附加 query（`Record<string, string | number>`），用于把必要上下文显式带进子窗口（例如 `{ galleryId: 5 }` 让子窗口直接进入某个相册详情）
   - 约束：`extra` 中保留键 `section` / `key` / `tab` 会被主进程屏蔽，不会传入子窗口；附加参数走 URL query 而非共享的 `pagePreferences`，避免子窗口写回污染主窗口记忆
 
 ## `system`
@@ -420,10 +420,10 @@
   - `booru:image-cache-cleared`：Booru 图片缓存清空
   - `gallery:images-imported`：图库扫描 / 同步导入新图片
   - `gallery:images-changed`：图库图片新增、删除、标签更新、无效化或批量导入
-  - `gallery:galleries-changed`：图集创建、更新、删除、统计或封面变化
+  - `gallery:galleries-changed`：相册创建、更新、删除、统计或封面变化
   - `gallery:invalid-images-changed`：无效图片上报、删除或清空
   - `gallery:ignored-folders-changed`：忽略文件夹新增、编辑或删除
-  - `gallery:paths-relocated`：重定位根目录（`applyRelocateRoot`）成功改写库内路径（改写行数 > 0 才发）。payload 只含统计（`affected` 各表列改写行数 + `totalCount`），不带本地路径。语义为**全量失效**（与 `app:data-restored` 同强度）：重定位不动 `updatedAt`，增量游标/按 id 补丁感知不到变化，常驻缓存的图库页据此整页重新初始化（图集列表、网格图片、「最近」游标、「文件夹丢失」标记）
+  - `gallery:paths-relocated`：重定位根目录（`applyRelocateRoot`）成功改写库内路径（改写行数 > 0 才发）。payload 只含统计（`affected` 各表列改写行数 + `totalCount`），不带本地路径。语义为**全量失效**（与 `app:data-restored` 同强度）：重定位不动 `updatedAt`，增量游标/按 id 补丁感知不到变化，常驻缓存的图库页据此整页重新初始化（相册列表、网格图片、「最近」游标、「文件夹丢失」标记）
   - `thumbnail:generated`：缩略图生成、缺失或失败状态变化
   - `config:changed`：配置 section 变更，旧 `config.onConfigChanged` 兼容通道仍保留
   - `app:data-restored`：备份导入恢复成功

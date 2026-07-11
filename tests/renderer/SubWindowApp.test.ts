@@ -29,14 +29,14 @@ const SECONDARY_MENU_TITLES: Record<string, Record<string, string>> = {
   gallery: {
     recent: '最近',
     all: '全部',
-    galleries: '图集',
+    galleries: '相册',
     'invalid-images': '无效图片',
     settings: '设置',
   },
   booru: {
     posts: '帖子',
     popular: '热门',
-    pools: '图集',
+    pools: '相册',
     forums: '论坛',
     'user-profile': '用户',
     favorites: '收藏',

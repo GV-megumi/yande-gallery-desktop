@@ -38,7 +38,7 @@ import org.robolectric.RobolectricTestRunner
 import java.io.File
 
 /**
- * M3-T13: AlbumDetailViewModel 多选批量动作——重点验「移出当前图集」成功清空选择/失败保留
+ * M3-T13: AlbumDetailViewModel 多选批量动作——重点验「移出当前相册」成功清空选择/失败保留
  * （批量动作本体已由 SelectionActionsTest 覆盖）。Robolectric + :memory: Room，
  * writeRepository 经构造缝注入（镜像 ViewerViewModel gateway 模式）。
  */
@@ -73,7 +73,7 @@ class AlbumDetailViewModelTest {
         Dispatchers.resetMain()
     }
 
-    /** 最小 fake：仅移出图集可配置失败，其余空实现。 */
+    /** 最小 fake：仅移出相册可配置失败，其余空实现。 */
     private class FakeWriteApi : WriteApi {
         var failRemoveFromGallery: ApiException? = null
 
@@ -111,7 +111,7 @@ class AlbumDetailViewModelTest {
     }
 
     @Test
-    fun `移出当前图集成功——成员链删除且选择清空`() = runTest {
+    fun `移出当前相册成功——成员链删除且选择清空`() = runTest {
         seedGallery(5, listOf(1, 2))
         val viewModel = vm(5, FakeWriteApi())
         viewModel.selection.selectAll(listOf(1, 2))
@@ -138,7 +138,7 @@ class AlbumDetailViewModelTest {
     }
 
     @Test
-    fun `移出当前图集失败——成员链回滚且选择保留供重试`() = runTest {
+    fun `移出当前相册失败——成员链回滚且选择保留供重试`() = runTest {
         seedGallery(5, listOf(1))
         val api = FakeWriteApi().apply {
             failRemoveFromGallery = ApiException("INTERNAL_ERROR", "boom", 500)

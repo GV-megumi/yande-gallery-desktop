@@ -40,7 +40,7 @@ const showItem = vi.fn();
 
 const baseGallery = {
   id: 1,
-  name: '测试图集',
+  name: '测试相册',
   imageCount: 12,
   lastScannedAt: '2026-06-01T00:00:00.000Z',
   createdAt: '2026-05-01T00:00:00.000Z',
@@ -296,7 +296,7 @@ describe('GalleryFolderManagerDialog', () => {
     const renameTrigger = screen.getByRole('button', { name: '改名' });
     await userEvent.click(renameTrigger);
 
-    const input = await screen.findByDisplayValue('测试图集');
+    const input = await screen.findByDisplayValue('测试相册');
     await userEvent.clear(input);
     await userEvent.type(input, '新名字');
     const saveBtn = screen.getByRole('button', { name: /保\s*存/ });

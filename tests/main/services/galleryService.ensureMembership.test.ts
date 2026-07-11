@@ -75,7 +75,7 @@ afterEach(async () => {
 });
 
 describe('ensureMembershipForFolder', () => {
-  it('recursive 图集应写入直接子文件与嵌套子文件', async () => {
+  it('recursive 相册应写入直接子文件与嵌套子文件', async () => {
     const folder = normalizePath(path.join('M:', 'galA'));
     const direct = await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
     const nested = await addImage(normalizePath(path.join('M:', 'galA', 'sub', 'b.jpg')));
@@ -86,7 +86,7 @@ describe('ensureMembershipForFolder', () => {
     expect(await memberIds(1)).toEqual([direct, nested].sort((x, y) => x - y));
   });
 
-  it('非递归图集只写直接子文件，不写嵌套子文件', async () => {
+  it('非递归相册只写直接子文件，不写嵌套子文件', async () => {
     const folder = normalizePath(path.join('M:', 'galB'));
     const direct = await addImage(normalizePath(path.join('M:', 'galB', 'c.jpg')));
     const nested = await addImage(normalizePath(path.join('M:', 'galB', 'sub', 'd.jpg')));

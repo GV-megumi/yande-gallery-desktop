@@ -17,10 +17,10 @@ import org.robolectric.annotation.Config
 
 /**
  * DetailPanel Robolectric 冒烟（Task 11 TDD Step 1）：
- * 字段文本渲染 / 标签 chip 存在可点 / online=false 时编辑入口禁用 / 图集 chip 回调 / 格式化函数边界。
+ * 字段文本渲染 / 标签 chip 存在可点 / online=false 时编辑入口禁用 / 相册 chip 回调 / 格式化函数边界。
  *
  * qualifiers 拉高窗口：Robolectric 默认 320x470 视口装不下整个面板，
- * 底部「所属图集」chips 会溢出可见区被 assertIsDisplayed 判为未显示。
+ * 底部「所属相册」chips 会溢出可见区被 assertIsDisplayed 判为未显示。
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(qualifiers = "w480dp-h1000dp")
@@ -77,7 +77,7 @@ class DetailPanelTest {
     }
 
     @Test
-    fun `所属图集 chip 显示图集名且点击回调 id`() {
+    fun `所属相册 chip 显示相册名且点击回调 id`() {
         var clicked: Long? = null
         compose.setContent {
             DetailPanel(

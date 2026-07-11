@@ -167,7 +167,7 @@ class PhotosViewModel(
         }
     }
 
-    /** 图集列表（「加入图集」picker），按名升序。 */
+    /** 相册列表（「加入相册」picker），按名升序。 */
     val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
 
     private val actions = SelectionActions(
@@ -214,7 +214,7 @@ class PhotosViewModel(
         deleted to kept
     }
 
-    /** 批量加入图集。 */
+    /** 批量加入相册。 */
     suspend fun addSelectedToGallery(galleryId: Long, ids: List<Long>): WriteResult =
         actions.addToGallery(galleryId, ids)
 

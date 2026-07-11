@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     init: () => ipcRenderer.invoke(IPC_CHANNELS.DB_INIT),
     getImages: (page: number, pageSize: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.DB_GET_IMAGES, page, pageSize),
-    // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+    // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
     // addImage: (image: any) =>
     //   ipcRenderer.invoke(IPC_CHANNELS.DB_ADD_IMAGE, image),
     searchImages: (query: string, page?: number, pageSize?: number) =>
@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SET_GALLERY_COVER, id, coverImageId),
     getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY, galleryId, page, pageSize),
-    // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+    // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
     // scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) =>
     //   ipcRenderer.invoke(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, folderPath, extensions, recursive),
     syncGalleryFolder: (id: number) =>
@@ -79,7 +79,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_UNBIND_FOLDER, galleryId, folderPath),
     changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH, galleryId, oldPath, newPath, recursive, extensions),
-    // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
+    // Phase 7B 相册多文件夹管理：读取某相册的全部绑定文件夹（含 recursive / extensions）
     getGalleryFolders: (galleryId: number) =>
       ipcRenderer.invoke(IPC_CHANNELS.GALLERY_GET_FOLDERS, galleryId),
     // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
@@ -162,7 +162,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 图片操作
   image: {
-    // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+    // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
     // scanFolder: (folderPath: string) =>
     //   ipcRenderer.invoke(IPC_CHANNELS.IMAGE_SCAN_FOLDER, folderPath),
     generateThumbnail: (imagePath: string, force?: boolean) =>
@@ -239,12 +239,12 @@ declare global {
       db: {
         init: () => Promise<{ success: boolean; error?: string }>;
         getImages: (page: number, pageSize: number) => Promise<{ success: boolean; data?: any[]; error?: string }>;
-        // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+        // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
         // addImage: (image: any) => Promise<{ success: boolean; data?: number; error?: string }>;
         searchImages: (query: string, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
       };
       image: {
-        // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+        // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
         // scanFolder: (folderPath: string) => Promise<{ success: boolean; data?: any[]; error?: string }>;
         generateThumbnail: (imagePath: string, force?: boolean) => Promise<{ success: boolean; data?: string; error?: string }>;
         getThumbnail: (imagePath: string) => Promise<{ success: boolean; data?: string | null; pending?: boolean; missing?: boolean; error?: string }>;
@@ -429,7 +429,7 @@ declare global {
         deleteGallery: (id: number) => Promise<{ success: boolean; error?: string }>;
         setGalleryCover: (id: number, coverImageId: number) => Promise<{ success: boolean; error?: string }>;
         getImagesByGallery: (galleryId: number, page?: number, pageSize?: number) => Promise<{ success: boolean; data?: any[]; total?: number; error?: string }>;
-        // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+        // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
         // scanAndImportFolder: (folderPath: string, extensions?: string[], recursive?: boolean) => Promise<{ success: boolean; data?: { imported: number; skipped: number }; error?: string }>;
         syncGalleryFolder: (id: number) => Promise<{ success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string }>;
         // Phase 6B 扫描入库 plan→apply：规划（只读分类）/ 应用决议
@@ -466,7 +466,7 @@ declare global {
         bindFolder: (galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
         unbindFolder: (galleryId: number, folderPath: string) => Promise<{ success: boolean; error?: string }>;
         changeFolderPath: (galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => Promise<{ success: boolean; error?: string }>;
-        // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
+        // Phase 7B 相册多文件夹管理：读取某相册的全部绑定文件夹（含 recursive / extensions）
         getGalleryFolders: (galleryId: number) => Promise<{ success: boolean; data?: Array<{ folderPath: string; recursive: boolean; extensions: string[] }>; error?: string }>;
         // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
         // warnings：newPrefix 与库内既有路径前缀仅大小写不同的非阻断提示（win32），不禁止 apply

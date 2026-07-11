@@ -83,7 +83,7 @@ class AlbumPrefsDaoTest {
     }
 
     @Test
-    fun `deleteOrphans 清掉图集已不存在的偏好行`() = runTest {
+    fun `deleteOrphans 清掉相册已不存在的偏好行`() = runTest {
         db.galleryDao().replaceAll(listOf(GalleryEntity(1, "a", null, 0)))
         db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 1, pinned = true, pinnedAt = 1L))
         db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 2, inOther = true))

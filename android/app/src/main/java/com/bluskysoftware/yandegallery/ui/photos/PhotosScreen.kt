@@ -508,7 +508,7 @@ fun PhotosScreen(
         )
     }
 
-    // 「加入图集」选择器（复用 T11 GalleryPickerDialog，已迁至 ui/common）
+    // 「加入相册」选择器（复用 T11 GalleryPickerDialog，已迁至 ui/common）
     if (showGalleryPicker) {
         GalleryPickerDialog(
             galleries = galleries,
@@ -518,10 +518,10 @@ fun PhotosScreen(
                 scope.launch {
                     when (val r = viewModel.addSelectedToGallery(galleryId, ids)) {
                         WriteResult.Success -> {
-                            snackbarHostState.showSnackbar("已加入图集（${ids.size} 张）")
+                            snackbarHostState.showSnackbar("已加入相册（${ids.size} 张）")
                             viewModel.selection.clear()
                         }
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入图集失败", r))
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入相册失败", r))
                     }
                 }
             },

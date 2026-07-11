@@ -14,9 +14,9 @@
 - Bug7：批量下载并发闸门与 `queued` 等待队列
 - Bug8：单条下载暂停误判失败与取消入口
 - Bug9：通知 / 桌面行为设置与 `notificationService`
-- Bug10：图集详情返回后被旧偏好恢复
-- Bug11：图集卡片右键用单独窗口打开
-- Bug12：图集删除级联清理与忽略名单
+- Bug10：相册详情返回后被旧偏好恢复
+- Bug11：相册卡片右键用单独窗口打开
+- Bug12：相册删除级联清理与忽略名单
 - Bug13：删除图片查询不存在的 `thumbnailPath`
 - Bug16：缓存大小输入框静默 clamp
 
@@ -34,9 +34,9 @@
 | Bug7 | 批量下载排队 | `bulkDownload.maxConcurrentSessions`、`queued`、`promoteNextQueued` 闭环 | `doc/注意事项/下载与批量会话状态机.md` |
 | Bug8 | 单条下载暂停/取消 | 用户主动中断标志优先，新增 `cancelDownload(queueId)` | `doc/注意事项/下载与批量会话状态机.md` |
 | Bug9 | 通知与桌面行为 | `notifications` / `desktop` 配置，抽 `notificationService`，通知点击导航 | `doc/注意事项/Electron桌面行为与通知.md` |
-| Bug10 | 图集返回偏好清空 | `selectedGalleryId` 支持 `null` 显式清空，返回动作同步落盘 | `doc/注意事项/导航缓存与页面偏好持久化.md` |
-| Bug11 | 图集子窗口打开 | `openSecondaryMenu(section, key, tab?, extra?)` 携带 `galleryId`，子窗口禁用偏好污染 | `doc/注意事项/导航缓存与页面偏好持久化.md` |
-| Bug12 | 图集删除与忽略名单 | 删除图集级联清 DB / 缩略图 / 偏好，写入 `gallery_ignored_folders` | `doc/注意事项/数据库与删除级联规范.md` |
+| Bug10 | 相册返回偏好清空 | `selectedGalleryId` 支持 `null` 显式清空，返回动作同步落盘 | `doc/注意事项/导航缓存与页面偏好持久化.md` |
+| Bug11 | 相册子窗口打开 | `openSecondaryMenu(section, key, tab?, extra?)` 携带 `galleryId`，子窗口禁用偏好污染 | `doc/注意事项/导航缓存与页面偏好持久化.md` |
+| Bug12 | 相册删除与忽略名单 | 删除相册级联清 DB / 缩略图 / 偏好，写入 `gallery_ignored_folders` | `doc/注意事项/数据库与删除级联规范.md` |
 | Bug13 | 删除图片 schema 错误 | `images` 表没有 `thumbnailPath`，缩略图清理走 `thumbnailService.deleteThumbnail` | `doc/注意事项/数据库与删除级联规范.md` |
 | Bug16 | InputNumber 静默 clamp | 不随手写硬 `max`，需要边界时用 `Form.Item rules` 显式校验 | `doc/注意事项/Antd 表单与弹窗约定.md` |
 
@@ -154,9 +154,9 @@
 
 保留规则：新增设置项必须 source of truth、service、IPC/preload、UI、验收五层闭环。
 
-### Bug10：图集详情“返回”后仍自动恢复到旧图集
+### Bug10：相册详情“返回”后仍自动恢复到旧相册
 
-问题：图集详情页返回只清了页面内存状态，`pagePreferences.gallery.galleries.selectedGalleryId` 的落盘清理可能被防抖 effect 取消；切走再回来时旧 id 又被水合回来。
+问题：相册详情页返回只清了页面内存状态，`pagePreferences.gallery.galleries.selectedGalleryId` 的落盘清理可能被防抖 effect 取消；切走再回来时旧 id 又被水合回来。
 
 修复：
 
@@ -166,9 +166,9 @@
 
 保留规则：用户主动“返回 / 关闭”这类明确动作要同步落盘清空偏好，不能依赖卸载时可能被取消的防抖。
 
-### Bug11：图集卡片右键新增“用单独窗口打开”
+### Bug11：相册卡片右键新增“用单独窗口打开”
 
-问题：图集详情只能在主窗口内部打开，缺少把某个图集直接放进子窗口查看的入口；若借页面偏好传 id，会污染主窗口记忆。
+问题：相册详情只能在主窗口内部打开，缺少把某个相册直接放进子窗口查看的入口；若借页面偏好传 id，会污染主窗口记忆。
 
 修复：
 
@@ -176,13 +176,13 @@
 - 主进程屏蔽 `extra` 中的保留键 `section` / `key` / `tab`。
 - `SubWindowApp` 解析 `galleryId` 并传给 `GalleryPage`。
 - `GalleryPage` 支持 `initialGalleryId` 和 `disablePreferencesPersistence`，子窗口模式不写回主窗口偏好。
-- 图集卡片右键菜单新增“用单独窗口打开”。
+- 相册卡片右键菜单新增“用单独窗口打开”。
 
 保留规则：子窗口上下文用 URL query / prop 显式传递，不借共享 `pagePreferences` 做临时通信。
 
-### Bug12：删除图集级联清理 + 已忽略文件夹机制
+### Bug12：删除相册级联清理 + 已忽略文件夹机制
 
-问题：删除图集若只删 `galleries` 一行，会留下 `images`、缩略图、Booru 本地关联、无效图片记录和页面偏好残留；扫描根目录时还可能把刚删的图集重新创建回来。
+问题：删除相册若只删 `galleries` 一行，会留下 `images`、缩略图、Booru 本地关联、无效图片记录和页面偏好残留；扫描根目录时还可能把刚删的相册重新创建回来。
 
 修复：
 

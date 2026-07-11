@@ -5,7 +5,7 @@ import path from 'path';
 /**
  * Phase 7B — getGalleryFolders
  *
- * 读取某图集的全部绑定文件夹（含 recursive / extensions），供「图集信息」多文件夹
+ * 读取某相册的全部绑定文件夹（含 recursive / extensions），供「相册信息」多文件夹
  * 管理对话框渲染。与 getGalleryFolderPaths（只返回 folderPath 字符串数组）不同，
  * 本函数返回 { folderPath, recursive(boolean), extensions(string[]) } 列表，按 folderPath 排序。
  *
@@ -99,7 +99,7 @@ afterEach(async () => {
 });
 
 describe('getGalleryFolders', () => {
-  it('返回该图集全部绑定文件夹，recursive 映射为 boolean、extensions JSON.parse，按 folderPath 排序', async () => {
+  it('返回该相册全部绑定文件夹，recursive 映射为 boolean、extensions JSON.parse，按 folderPath 排序', async () => {
     const baseA = normalizePath(path.join('M:', 'galA', 'z-last'));
     const baseB = normalizePath(path.join('M:', 'galA', 'a-first'));
     const galleryId = await addGallery(normalizePath(path.join('M:', 'galA')));
@@ -132,14 +132,14 @@ describe('getGalleryFolders', () => {
     ]);
   });
 
-  it('图集无绑定文件夹时返回空数组（不报错）', async () => {
+  it('相册无绑定文件夹时返回空数组（不报错）', async () => {
     const galleryId = await addGallery(normalizePath(path.join('M:', 'empty')));
     const result = await getGalleryFolders(galleryId);
     expect(result.success).toBe(true);
     expect(result.data).toEqual([]);
   });
 
-  it('只返回指定图集的绑定文件夹', async () => {
+  it('只返回指定相册的绑定文件夹', async () => {
     const galleryA = await addGallery(normalizePath(path.join('M:', 'A')));
     const galleryB = await addGallery(normalizePath(path.join('M:', 'B')));
     await addBinding(galleryA, normalizePath(path.join('M:', 'A', 'x')), 1, JSON.stringify(['.jpg']));

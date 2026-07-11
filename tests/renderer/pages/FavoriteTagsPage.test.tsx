@@ -104,14 +104,14 @@ describe('FavoriteTagsPage behavior rules', () => {
     })).toBe('15/20 (75%)');
   });
 
-  it('选择图集时应同步其 folderPath', () => {
+  it('选择相册时应同步其 folderPath', () => {
     expect(syncPathFromGallery([
       { id: 1, folderPath: 'D:/g1' },
       { id: 2, folderPath: 'D:/g2' },
     ], 2)).toBe('D:/g2');
   });
 
-  it('未命中图集时不应同步路径', () => {
+  it('未命中相册时不应同步路径', () => {
     expect(syncPathFromGallery([{ id: 1, folderPath: 'D:/g1' }], 99)).toBeUndefined();
   });
 

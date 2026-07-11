@@ -6,7 +6,7 @@ import path from 'path';
  * Phase 8A — 去重检查以 gallery_folders 为准（绑定表是「文件夹被占用」的唯一真相）
  *
  * createGallery 的重复检查查真实绑定 `SELECT galleryId FROM gallery_folders WHERE folderPath=?`：
- * 一个文件夹「被占用」当且仅当它已被某图集绑定（gallery_folders 有行）。Phase 8A 后 galleries
+ * 一个文件夹「被占用」当且仅当它已被某相册绑定（gallery_folders 有行）。Phase 8A 后 galleries
  * 不再有 folderPath 列，绑定表是唯一来源。
  *
  * 断言两点：
@@ -89,7 +89,7 @@ describe('createGallery 去重检查改查 gallery_folders', () => {
   it('文件夹已在 gallery_folders 绑定时拒绝创建', async () => {
     const folder = normalizePath(path.join('M:', 'boundFolder'));
 
-    // 预置一个图集 + 把 folder 绑定给它（gallery_folders 有行）
+    // 预置一个相册 + 把 folder 绑定给它（gallery_folders 有行）
     await run(
       h.db,
       `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)
@@ -109,7 +109,7 @@ describe('createGallery 去重检查改查 gallery_folders', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Gallery already exists for this folder');
 
-    // 没有为新图集写任何 gallery_folders 行（仍只有 owner 的那条）
+    // 没有为新相册写任何 gallery_folders 行（仍只有 owner 的那条）
     const rows = await all<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_folders WHERE folderPath = ?', [folder]);
     expect(rows.map((r) => r.galleryId)).toEqual([owner!.id]);
   });
@@ -117,7 +117,7 @@ describe('createGallery 去重检查改查 gallery_folders', () => {
   it('文件夹无任何 gallery_folders 绑定时放行创建，并新写一条绑定', async () => {
     const folder = normalizePath(path.join('M:', 'freshFolder'));
 
-    // 库内有一个不相关图集（其绑定文件夹不同），不应影响本 folder 的去重决策
+    // 库内有一个不相关相册（其绑定文件夹不同），不应影响本 folder 的去重决策
     await run(
       h.db,
       `INSERT INTO galleries (name, autoScan, createdAt, updatedAt)

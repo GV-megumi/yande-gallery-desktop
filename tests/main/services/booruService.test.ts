@@ -427,7 +427,7 @@ describe('booruService - 收藏标签下载规则', () => {
   });
 });
 
-describe('booruService - 自动图集绑定策略', () => {
+describe('booruService - 自动相册绑定策略', () => {
   function resolveGalleryStrategy(binding: { galleryId?: number | null; autoCreateGallery?: boolean | null }) {
     if (binding.galleryId) {
       return 'use-existing-gallery';
@@ -438,15 +438,15 @@ describe('booruService - 自动图集绑定策略', () => {
     return 'no-gallery-binding';
   }
 
-  it('已有 galleryId 时应直接使用现有图集', () => {
+  it('已有 galleryId 时应直接使用现有相册', () => {
     expect(resolveGalleryStrategy({ galleryId: 5, autoCreateGallery: true })).toBe('use-existing-gallery');
   });
 
-  it('无 galleryId 且 autoCreateGallery=true 时应自动创建图集', () => {
+  it('无 galleryId 且 autoCreateGallery=true 时应自动创建相册', () => {
     expect(resolveGalleryStrategy({ galleryId: null, autoCreateGallery: true })).toBe('auto-create-gallery');
   });
 
-  it('无 galleryId 且未启用 autoCreateGallery 时不自动绑定图集', () => {
+  it('无 galleryId 且未启用 autoCreateGallery 时不自动绑定相册', () => {
     expect(resolveGalleryStrategy({ galleryId: null, autoCreateGallery: false })).toBe('no-gallery-binding');
   });
 });

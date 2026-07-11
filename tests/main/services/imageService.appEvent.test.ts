@@ -82,7 +82,7 @@ describe('imageService.scanAndImportFolder app event', () => {
     const { scanAndImportFolder } = await import('../../../src/main/services/imageService.js');
     const result = await scanAndImportFolder(folderPath, ['.jpg'], false);
 
-    // importedIds：本次导入的图片 id（mock get 恒返 101），供调用方在图集被并发删除时兜底回收
+    // importedIds：本次导入的图片 id（mock get 恒返 101），供调用方在相册被并发删除时兜底回收
     expect(result).toEqual({ success: true, data: { imported: 1, skipped: 0, importedIds: [101] } });
     expect(all).toHaveBeenCalledWith(
       {},

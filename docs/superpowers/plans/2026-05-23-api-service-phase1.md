@@ -2575,7 +2575,7 @@ it('API 服务页应加载配置并保存启用状态和权限开关', async () 
   await userEvent.click(apiTab);
 
   await screen.findByText('监听模式');
-  await screen.findByText('图集读取');
+  await screen.findByText('相册读取');
 
   const enableLabel = screen.getByText('启用 API 服务');
   const enableRow = enableLabel.closest('div[style*="display: flex"]') as HTMLElement;
@@ -2704,7 +2704,7 @@ Add `activeTab === 'api'` content:
               <SettingsRow
                 key={key}
                 label={{
-                  galleryRead: '图集读取',
+                  galleryRead: '相册读取',
                   imageRead: '图片元数据读取',
                   imageBinary: '图片内容访问',
                   booruRead: 'Booru 只读',

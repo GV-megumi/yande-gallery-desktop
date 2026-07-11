@@ -19,7 +19,7 @@ import { RelocateRootModal } from '../components/RelocateRootModal';
 const { Option } = Select;
 
 const API_PERMISSION_LABELS: Record<ApiServicePermissionKey, string> = {
-  galleryRead: '图集读取',
+  galleryRead: '相册读取',
   imageRead: '图片元数据读取',
   imageBinary: '图片内容访问',
   booruRead: 'Booru 只读',
@@ -439,7 +439,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       if (result.success && result.data) {
         const config = result.data;
         console.log('[SettingsPage] 配置加载成功');
-        // Phase 7A：图集列表已迁至图库页，设置页不再在此拉取 gallery 列表。
+        // Phase 7A：相册列表已迁至图库页，设置页不再在此拉取 gallery 列表。
         const dp = config.downloads?.path || './downloads';
         const ts = config.thumbnails?.maxWidth || 800;
         const tq = config.thumbnails?.quality || 92;
@@ -714,15 +714,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       {/* ===== 通用配置 ===== */}
       {activeTab === 'general' && (
         <>
-          {/* 图库文件夹 — Phase 7A：移除逐条图集列表，改为扫描文件夹 + 重定位根目录维护动作。
-              图集列表（重命名 / 删除 / 停止监视等）已迁至图库页。 */}
+          {/* 图库文件夹 — Phase 7A：移除逐条相册列表，改为扫描文件夹 + 重定位根目录维护动作。
+              相册列表（重命名 / 删除 / 停止监视等）已迁至图库页。 */}
           <SettingsGroup
             title={t('settings.galleryFolders')}
-            footer="选择一个文件夹后：它本身和每个一级子文件夹中，含直接图片的各建一个图集，只导入各自的直接图片、不扫更深层；与已有图集同名时可选择合并或新建。重定位根目录用于跨机器迁移后整体改写路径前缀。"
+            footer="选择一个文件夹后：它本身和每个一级子文件夹中，含直接图片的各建一个相册，只导入各自的直接图片、不扫更深层；与已有相册同名时可选择合并或新建。重定位根目录用于跨机器迁移后整体改写路径前缀。"
           >
             <SettingsRow
               label="扫描文件夹"
-              description="按目录及其一级子文件夹的直接图片创建图集（不递归深层）"
+              description="按目录及其一级子文件夹的直接图片创建相册（不递归深层）"
               extra={
                 <Button
                   type="primary"

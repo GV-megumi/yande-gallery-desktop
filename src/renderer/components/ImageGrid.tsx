@@ -25,9 +25,9 @@ export interface ImageGridProps {
   showTimeline?: boolean;
   // 布局方式：'waterfall' 瀑布流（默认），'grid' 网格
   layout?: 'waterfall' | 'grid';
-  // 设置封面回调（用于图集）
+  // 设置封面回调（用于相册）
   onSetCover?: (imageId: number) => void;
-  // 当前图集信息（用于显示设置封面按钮）
+  // 当前相册信息（用于显示设置封面按钮）
   currentGallery?: any;
   // 批次大小：先按批次分组（每批多少张），再在每个批次内按时间分组（默认200）
   batchSize?: number;
@@ -127,7 +127,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
         }
       }},
     ];
-    // 图集模式下添加「设为封面」——按显式封面判定：coverImageId 是「有效封面」（无显式时
+    // 相册模式下添加「设为封面」——按显式封面判定：coverImageId 是「有效封面」（无显式时
     // 兜底最近加入），若据它置灰会让用户无法把兜底图固定为显式封面（封面随新图漂移）
     if (onSetCover && currentGallery) {
       const isCurrent = currentGallery.explicitCoverImageId === image.id;
@@ -156,7 +156,7 @@ const ImageCard: React.FC<ImageCardProps> = React.memo(({
       { key: 'deleteImage', label: '删除', icon: <DeleteOutlined />, danger: true, onClick: () => {
         Modal.confirm({
           title: '确认删除',
-          content: `确定要删除「${image.filename}」吗？图集记录和文件都将被删除。`,
+          content: `确定要删除「${image.filename}」吗？相册记录和文件都将被删除。`,
           okText: '删除',
           okType: 'danger',
           cancelText: '取消',

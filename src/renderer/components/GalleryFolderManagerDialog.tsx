@@ -22,9 +22,9 @@ import { colors } from '../styles/tokens';
 import { useLocale } from '../locales';
 
 /**
- * Phase 7B — 图集多文件夹管理对话框（取代旧的只读「图集信息」Modal + Popover）。
+ * Phase 7B — 相册多文件夹管理对话框（取代旧的只读「相册信息」Modal + Popover）。
  *
- * 把原先只读的图集信息升级为可操作的多文件夹管理器：
+ * 把原先只读的相册信息升级为可操作的多文件夹管理器：
  *   - 内联改名（gallery.updateGallery({name})）
  *   - 自动扫描开关（gallery.updateGallery({autoScan})，列名「自动扫描」，DB 列为 autoScan）
  *   - 立即扫描（gallery.syncGalleryFolder）
@@ -32,7 +32,7 @@ import { useLocale } from '../locales';
  *     行内可「更改路径」「解绑」；底部「+ 添加文件夹」
  *   - 只读元信息：图片数量 / 最后扫描 / 创建时间 / 更新时间 / 来源收藏标签
  *
- * 本对话框是页面级 controller，直接调用 window.electronAPI（与原 GalleryPage 的图集信息
+ * 本对话框是页面级 controller，直接调用 window.electronAPI（与原 GalleryPage 的相册信息
  * 弹窗一致）；它自行拉取绑定文件夹、缺失集合与来源收藏标签，不依赖父级注入数据。
  */
 
@@ -57,7 +57,7 @@ interface GalleryFolderManagerDialogProps {
   gallery: GalleryInfo;
   open: boolean;
   onClose: () => void;
-  /** 任何会改变图集/文件夹状态的操作成功后回调，供父级刷新列表/详情 */
+  /** 任何会改变相册/文件夹状态的操作成功后回调，供父级刷新列表/详情 */
   onChanged?: () => void;
 }
 
@@ -92,7 +92,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
     };
   }, []);
 
-  // 拉取该图集的绑定文件夹列表 + 缺失文件夹集合
+  // 拉取该相册的绑定文件夹列表 + 缺失文件夹集合
   const loadFolders = useCallback(async () => {
     if (!window.electronAPI?.gallery) return;
     setFoldersLoading(true);
@@ -127,7 +127,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
     }
   }, [gallery.id]);
 
-  // 拉取来源收藏标签（与旧「图集信息」弹窗一致）
+  // 拉取来源收藏标签（与旧「相册信息」弹窗一致）
   const loadSourceFavoriteTags = useCallback(async () => {
     if (!window.electronAPI?.booru) return;
     try {
@@ -144,7 +144,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
     }
   }, [gallery.id]);
 
-  // 打开时（或切换图集时）拉取数据并同步本地受控态
+  // 打开时（或切换相册时）拉取数据并同步本地受控态
   useEffect(() => {
     if (!open) return;
     setWatching(gallery.autoScan);
@@ -200,14 +200,14 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
   const handleSaveRename = async () => {
     const trimmed = renameValue.trim();
     if (!trimmed) {
-      message.error('图集名称不能为空');
+      message.error('相册名称不能为空');
       return;
     }
     setRenameSaving(true);
     try {
       const result = await window.electronAPI.gallery.updateGallery(gallery.id, { name: trimmed });
       if (result.success) {
-        message.success('图集已更新');
+        message.success('相册已更新');
         setRenaming(false);
         onChanged?.();
       } else {
@@ -273,7 +273,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
 
   // 更改路径：选新目录 → 二次确认 → doChangeFolderPath(old,new)。
   // 更改路径 = 解绑旧文件夹（孤儿回收：删图片记录/本地标签/封面 + 复位 booru 下载状态）+ 绑定新文件夹重扫，
-  // 破坏面与「解绑」等价，必须像解绑（Popconfirm）/删除图集（Modal.confirm）一样二次确认；
+  // 破坏面与「解绑」等价，必须像解绑（Popconfirm）/删除相册（Modal.confirm）一样二次确认；
   // 用 Modal.confirm 而非 Popconfirm 是为了完整展示旧→新路径与「重定位根目录」无损替代方案指引。
   const handleChangePath = async (oldPath: string) => {
     setRowBusyPath(oldPath);
@@ -337,7 +337,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
   return (
     <Modal
       open={open}
-      title="图集信息"
+      title="相册信息"
       closable
       maskClosable
       keyboard
@@ -346,7 +346,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
       width={640}
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-        {/* 图集名称 + 内联改名 + 自动扫描 + 立即扫描 */}
+        {/* 相册名称 + 内联改名 + 自动扫描 + 立即扫描 */}
         <Space style={{ width: '100%', justifyContent: 'space-between' }} align="center">
           <Space align="center">
             {renaming ? (
@@ -365,7 +365,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
             ) : (
               <>
                 <span style={{ fontWeight: 600, fontSize: 16 }}>{gallery.name}</span>
-                <Tooltip title="重命名图集">
+                <Tooltip title="重命名相册">
                   <Button
                     type="text"
                     size="small"
@@ -381,7 +381,7 @@ export const GalleryFolderManagerDialog: React.FC<GalleryFolderManagerDialogProp
             )}
           </Space>
           <Space align="center">
-            <Tooltip title="开启后，进入该图集时自动扫描其文件夹一次，补入新图">
+            <Tooltip title="开启后，进入该相册时自动扫描其文件夹一次，补入新图">
               <Space size={4} align="center">
                 <span style={{ fontSize: 13, color: colors.textTertiary }}>自动扫描</span>
                 <Switch

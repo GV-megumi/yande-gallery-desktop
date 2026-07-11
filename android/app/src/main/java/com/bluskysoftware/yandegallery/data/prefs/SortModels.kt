@@ -1,7 +1,7 @@
 package com.bluskysoftware.yandegallery.data.prefs
 
 /**
- * 照片排序（spec §2.4）：照片时间轴与图集详情共用；字段 × 方向平铺成枚举，DataStore 存 name。
+ * 照片排序（spec §2.4）：照片时间轴与相册详情共用；字段 × 方向平铺成枚举，DataStore 存 name。
  * [orderBy] 由白名单枚举拼 SQL（无用户输入，无注入面）；二级键恒为 id、方向随主键（分页稳定序）。
  */
 enum class PhotoSort(val column: String, val ascending: Boolean, val isTime: Boolean) {

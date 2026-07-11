@@ -201,7 +201,7 @@ package com.bluskysoftware.yandegallery.ui.theme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
-/** 跨页面共享的 MIUI 视觉常量（spec §1.3/§2.3/§3）——照片/图集详情/搜索三网格统一取此处，不许各写一份。 */
+/** 跨页面共享的 MIUI 视觉常量（spec §1.3/§2.3/§3）——照片/相册详情/搜索三网格统一取此处，不许各写一份。 */
 object MiuiTokens {
     /** 网格缝隙（水平+垂直 Arrangement.spacedBy）。 */
     val GridGap = 3.dp
@@ -407,7 +407,7 @@ class MiuiDialogTest {
         var confirmed = 0
         compose.setContent {
             MiuiDialog(
-                title = "新建图集",
+                title = "新建相册",
                 onDismiss = {},
                 confirmText = "创建",
                 confirmEnabled = false,
@@ -607,7 +607,7 @@ internal fun AlbumNameDialog(
             OutlinedTextField(
                 value = name,
                 onValueChange = onNameChange,
-                label = { Text("图集名") },
+                label = { Text("相册名") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth().testTag("album_name_field"),
             )
@@ -615,7 +615,7 @@ internal fun AlbumNameDialog(
     )
 }
 ```
-4. `AlbumsScreen.kt` 的 `DeleteAlbumConfirmDialog`：`MiuiDialog(title = "删除图集", text = "确定删除图集「$albumName」？只删除图集本身，不删除其中的图片文件。", confirmText = "删除", destructive = true, confirmTag = "album_delete_confirm", onConfirm = onConfirm, onDismiss = onDismiss)`。
+4. `AlbumsScreen.kt` 的 `DeleteAlbumConfirmDialog`：`MiuiDialog(title = "删除相册", text = "确定删除相册「$albumName」？只删除相册本身，不删除其中的图片文件。", confirmText = "删除", destructive = true, confirmTag = "album_delete_confirm", onConfirm = onConfirm, onDismiss = onDismiss)`。
 5. `ViewerScreen.kt` 删除确认（`confirmDeleteId?.let` 块）：`title = "删除图片"`、text 原两分支文案、`confirmText = "删除"`、`destructive = true`、`confirmTag = "viewer_delete_confirm"`、onConfirm = `{ confirmDeleteId = null; performDelete(imageId) }`。
 6. `DetailPanel.kt` 的 `TagEditDialog`：外壳换 `MiuiDialog(title = "编辑标签", onDismiss = onDismiss, dismissText = null, confirmText = "完成", onConfirm = onDismiss, content = { ……原 text 槽 Column 内容原样…… })`。
 7. `SettingsScreen.kt` 开源协议：`MiuiDialog(title = "开源协议", text = 原文案, onDismiss = { showLicenses = false }, dismissText = null, confirmText = "关闭", onConfirm = { showLicenses = false })`。
@@ -630,9 +630,9 @@ fun GalleryPickerDialog(
     excludeIds: Set<Long> = emptySet(),
 ) {
     val visible = galleries.filterNot { it.id in excludeIds }
-    MiuiDialog(title = "加入图集", onDismiss = onDismiss, confirmText = null, dismissText = "取消", content = {
+    MiuiDialog(title = "加入相册", onDismiss = onDismiss, confirmText = null, dismissText = "取消", content = {
         if (visible.isEmpty()) {
-            Text("暂无图集，可先在相册 tab 新建", style = MaterialTheme.typography.bodyMedium)
+            Text("暂无相册，可先在相册 tab 新建", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn(Modifier.heightIn(max = 320.dp)) {
                 items(visible, key = { it.id }) { gallery ->
@@ -1514,7 +1514,7 @@ class AppNavTest {
 
 - [x] **Step 5.9: Commit** `refactor(android): 壳顶栏下放页面自持——折叠大标题/无胶囊底栏/多选桥瘦身为底栏五字段`
 
-### Task 6: 相册页去 FAB + 顶栏「+」 + 封面卡片；图集详情居中顶栏
+### Task 6: 相册页去 FAB + 顶栏「+」 + 封面卡片；相册详情居中顶栏
 
 **Files:** Modify `ui/albums/AlbumsScreen.kt`、`ui/albums/AlbumDetailScreen.kt`；Test：涉及 `albums_new_fab` 的用例改 `albums_new`（grep `albums_new_fab` 全仓替换后跑测）
 
@@ -1537,12 +1537,12 @@ class AppNavTest {
                 IconButton(
                     onClick = {
                         if (online) { newName = ""; showNew = true }
-                        else scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                        else scope.launch { snackbarHostState.showSnackbar("离线状态无法新建相册") }
                     },
                     modifier = Modifier
                         .semantics { if (!online) disabled() }
                         .testTag("albums_new"),
-                ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
+                ) { Icon(Icons.Filled.Add, contentDescription = "新建相册", tint = tint) }
             })
             MiuiLargeTitle("相册", header)
             val cards = albums
@@ -1605,7 +1605,7 @@ Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
 
 ```kotlin
             } else {
-                // 居中标题 + 数量副标题（spec §4.2）；数量取镜像图集行的 imageCount（galleries 流已在收集）
+                // 居中标题 + 数量副标题（spec §4.2）；数量取镜像相册行的 imageCount（galleries 流已在收集）
                 val count = galleries.firstOrNull { it.id == viewModel.currentGalleryId }?.imageCount
                 MiuiSubPageTopBar(
                     title = title,
@@ -1614,9 +1614,9 @@ Column 去掉 `padding(8.dp)`（网格间距接管）；封面块改：
                 )
             }
 ```
-若 `AlbumDetailViewModel` 无 `currentGalleryId` 公开属性（图集详情已有 `viewModel.currentGalleryId` 用于 GalleryPicker excludeIds——已确认存在），直接用之。删 TopAppBar/ArrowBack/IconButton 相关 import（IconButton 若他处用保留）。
+若 `AlbumDetailViewModel` 无 `currentGalleryId` 公开属性（相册详情已有 `viewModel.currentGalleryId` 用于 GalleryPicker excludeIds——已确认存在），直接用之。删 TopAppBar/ArrowBack/IconButton 相关 import（IconButton 若他处用保留）。
 
-- [x] **Step 6.6: 全量测试跑绿 → Commit** `feat(android): 相册页 MIUI 化——顶栏加号替代 FAB/12dp 圆角封面卡片，图集详情居中双行顶栏`
+- [x] **Step 6.6: 全量测试跑绿 → Commit** `feat(android): 相册页 MIUI 化——顶栏加号替代 FAB/12dp 圆角封面卡片，相册详情居中双行顶栏`
 
 ### Task 7: 网格体系统一（3dp 缝+圆角）+ 多选视觉 + sticky 滚动显隐 + 快滚把手
 
@@ -2039,7 +2039,7 @@ SelectionBottomBar：`Surface(color = surface)` + Column{ 顶部 HorizontalDivid
 
 ## 计划自审记录（writing-plans self-review）
 
-1. **Spec 覆盖**：§1 配色/字号/形状→Task 1；§2.1 edge-to-edge→Task 1；§2.2-2.4 壳/顶栏/底栏→Task 5；§3 照片页（日期头→Task 2、网格/sticky/多选/快滚→Task 7、顶部→Task 5）；§4 相册/图集详情→Task 6；§5 大图页→Task 9；§6 多选栏/横幅→Task 9/Task 4；§7 搜索页→Task 8（格子部分 Task 7）；§8 设置族/表单/弹窗→Task 4/Task 3；§10 测试与版本→各 Task + Task 10；§11 排除项未入任务 ✓。
+1. **Spec 覆盖**：§1 配色/字号/形状→Task 1；§2.1 edge-to-edge→Task 1；§2.2-2.4 壳/顶栏/底栏→Task 5；§3 照片页（日期头→Task 2、网格/sticky/多选/快滚→Task 7、顶部→Task 5）；§4 相册/相册详情→Task 6；§5 大图页→Task 9；§6 多选栏/横幅→Task 9/Task 4；§7 搜索页→Task 8（格子部分 Task 7）；§8 设置族/表单/弹窗→Task 4/Task 3；§10 测试与版本→各 Task + Task 10；§11 排除项未入任务 ✓。
 2. **占位扫描**：Task 3.5 各调用点「原逻辑原样保留」是对既有代码的搬运指令（原文在仓库中，非 TBD）；Task 4.3 CacheTierSection「usage 文案（原拼接逻辑）」同理。无 TBD/TODO。
 3. **类型一致性**：`MiuiHeaderState(heightPx)/collapseFraction/scrolled/settle()/connection` 在 Task 5 定义、Task 6 复用同名；`PhotosSelectionBars.Model(online,onDownload,onShare,onDelete,onAddToGallery)` 5 参在 Task 5 定义、AppNavTest 同参调用；`MiuiTokens.GridGap/CellShape/CoverShape` Task 1 定义、Task 6/7 引用；`dayHeaderDisplayOf/monthHeaderDisplayOf/viewerDateLabel/viewerTimeLabel/weekdayCn` Task 2 定义、Task 9 引用 ✓。
 4. **已知风险与预案**：折叠头 nestedScroll 手感（Task 10.6 降级预案）；Robolectric 首跑 flake（重跑即绿）；`MiuiCapsuleButton` 代码块内联全名 import 已标注执行时规范化。

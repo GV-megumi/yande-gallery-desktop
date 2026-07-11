@@ -91,11 +91,11 @@ private const val HIGH_ZOOM_THRESHOLD = 2.5f
 
 /**
  * 全屏大图页（M3 Task 10/11）：装配层——收集 VM 流，把分页数据与三档模型选择喂给 [ViewerPager]，
- * 并装配底部操作栏（分享/查看原图/删除级联/详情/更多）与详情面板（标签编辑、跳图集）。
+ * 并装配底部操作栏（分享/查看原图/删除级联/详情/更多）与详情面板（标签编辑、跳相册）。
  * 进入/返回走 NavHost fade+scale 转场（M4 方案 B）；共享元素方案 A（hero 层）留联调后可选增强，
  * 见联调计划 J 节。
  *
- * @param onOpenGallery 详情面板「所属图集」点击 → 图集详情页（MainActivity 接 Routes.albumDetail）
+ * @param onOpenGallery 详情面板「所属相册」点击 → 相册详情页（MainActivity 接 Routes.albumDetail）
  * @param onOpenSearch 详情面板标签 chip 点击 → 搜索页并以该标签名预填触发搜索（MainActivity 接 Routes.search）
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -299,8 +299,8 @@ fun ViewerScreen(
                         {
                             scope.launch {
                                 when (val r = viewModel.removeFromGallery(galleryId, image.id)) {
-                                    WriteResult.Success -> snackbar.showSnackbar("已移出当前图集")
-                                    is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移出图集失败", r))
+                                    WriteResult.Success -> snackbar.showSnackbar("已移出当前相册")
+                                    is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移出相册失败", r))
                                 }
                             }
                         }
@@ -338,7 +338,7 @@ fun ViewerScreen(
         )
     }
 
-    // 「加入图集」选择器（更多菜单）
+    // 「加入相册」选择器（更多菜单）
     pickGalleryFor?.let { imageId ->
         GalleryPickerDialog(
             galleries = galleries,
@@ -346,8 +346,8 @@ fun ViewerScreen(
                 pickGalleryFor = null
                 scope.launch {
                     when (val r = viewModel.addToGallery(galleryId, imageId)) {
-                        WriteResult.Success -> snackbar.showSnackbar("已加入图集")
-                        is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("加入图集失败", r))
+                        WriteResult.Success -> snackbar.showSnackbar("已加入相册")
+                        is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("加入相册失败", r))
                     }
                 }
             },

@@ -1115,12 +1115,12 @@ export function setupBooruHandlers() {
   });
 
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_GALLERY_SOURCE_FAVORITE_TAGS, async (_event: IpcMainInvokeEvent, galleryId: number) => {
-    console.log('[IPC] 获取图集来源收藏标签:', galleryId);
+    console.log('[IPC] 获取相册来源收藏标签:', galleryId);
     try {
       const tags = await booruService.getGallerySourceFavoriteTags(galleryId);
       return { success: true, data: tags };
     } catch (error) {
-      console.error('[IPC] 获取图集来源收藏标签失败:', error);
+      console.error('[IPC] 获取相册来源收藏标签失败:', error);
       return { success: false, error: error instanceof Error ? error.message : String(error) };
     }
   });
@@ -2129,7 +2129,7 @@ export function setupBooruHandlers() {
     }
   });
 
-  // ===== Pool（图集） =====
+  // ===== Pool（相册） =====
 
   // 获取 Pool 列表
   ipcMain.handle(IPC_CHANNELS.BOORU_GET_POOLS, async (_event: IpcMainInvokeEvent, siteId: number, page: number = 1) => {

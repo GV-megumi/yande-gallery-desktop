@@ -88,7 +88,7 @@ class AlbumsOrganizeTest {
 
     @Test
     fun `长按菜单含组织项_置顶后出现置顶分区`() {
-        seedGalleries(1)   // 种子：图集 1
+        seedGalleries(1)   // 种子：相册 1
         setAlbumsScreen(waitCardId = 1)
         compose.onNodeWithTag("album_card_1").performTouchInput { longClick() }
         compose.waitForIdle()
@@ -108,7 +108,7 @@ class AlbumsOrganizeTest {
 
     @Test
     fun `移入其他相册后主列表折叠行出现`() {
-        seedGalleries(1, 2)   // 种子：图集 1、2
+        seedGalleries(1, 2)   // 种子：相册 1、2
         setAlbumsScreen(waitCardId = 1)
         compose.onNodeWithTag("album_card_1").performTouchInput { longClick() }
         compose.waitForIdle()

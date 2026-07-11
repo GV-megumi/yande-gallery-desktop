@@ -79,7 +79,7 @@ vi.mock('../../../src/renderer/locales', () => ({
         'settings.scanFolder': '扫描文件夹',
         'settings.deleteFolder': '删除文件夹',
         'settings.deleteFolderConfirm': '确认删除',
-        'settings.scanApplySummary': '新增 {created} 个图集，合并 {merged} 个，失败 {failedFolders} 个文件夹，{skippedFiles} 张图片已存在',
+        'settings.scanApplySummary': '新增 {created} 个相册，合并 {merged} 个，失败 {failedFolders} 个文件夹，{skippedFiles} 张图片已存在',
         'settings.cleanupOrphanThumbs': '清理孤儿缩略图',
         'settings.cleanupOrphanThumbsDesc': '删除与库内图片已无对应关系的缩略图缓存文件（只清无主项，安全）',
         'settings.cleanupOrphanThumbsSuccess': '已清理 {deleted} 个孤儿缩略图（释放 {freedMb} MB），共对账 {scanned} 个',
@@ -456,7 +456,7 @@ describe('SettingsPage general tab behavior', () => {
     await userEvent.click(apiTab);
 
     await screen.findByText('监听模式');
-    await screen.findByText('图集读取');
+    await screen.findByText('相册读取');
 
     const enableLabel = screen.getByText('启用 Agent API');
     const enableRow = enableLabel.closest('div[style*="display: flex"]') as HTMLElement;
@@ -629,11 +629,11 @@ describe('SettingsPage general tab behavior', () => {
     });
   });
 
-  it('不再展示按图库逐条列出的旧列表（图集列表已迁至图库页）', async () => {
+  it('不再展示按图库逐条列出的旧列表（相册列表已迁至图库页）', async () => {
     getGalleries.mockResolvedValue({
       success: true,
       data: [
-        { id: 1, folderPath: 'D:/pics/a', name: '图集A', recursive: true, extensions: ['.jpg'], imageCount: 3, isWatching: true },
+        { id: 1, folderPath: 'D:/pics/a', name: '相册A', recursive: true, extensions: ['.jpg'], imageCount: 3, isWatching: true },
       ],
     });
 
@@ -641,7 +641,7 @@ describe('SettingsPage general tab behavior', () => {
 
     await screen.findByText('图库文件夹');
     // 旧的逐条列表与其行内操作不再出现
-    expect(screen.queryByText('图集A')).toBeNull();
+    expect(screen.queryByText('相册A')).toBeNull();
     expect(screen.queryByText('停止监视')).toBeNull();
     expect(screen.queryByText('删除文件夹')).toBeNull();
   });
@@ -708,7 +708,7 @@ describe('SettingsPage general tab behavior', () => {
     });
 
     // 两种单位分开呈现：文件夹级失败数与文件级已存在数各自可读，且不出现「跳过 3201 个」这类混合值
-    await screen.findByText('新增 2 个图集，合并 0 个，失败 1 个文件夹，3200 张图片已存在');
+    await screen.findByText('新增 2 个相册，合并 0 个，失败 1 个文件夹，3200 张图片已存在');
   });
 
   it('扫描文件夹用户取消选择目录时不规划也不应用', async () => {
@@ -761,7 +761,7 @@ describe('SettingsPage general tab behavior', () => {
       </App>
     );
 
-    // 无需任何点击：弹窗自动打开（来自图集详情「去重定位」跳转）
+    // 无需任何点击：弹窗自动打开（来自相册详情「去重定位」跳转）
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText(/跨机器迁移/)).toBeTruthy();
     // 一次性信号被消费，避免下次正常打开设置页误弹

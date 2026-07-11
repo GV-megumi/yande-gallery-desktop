@@ -13,7 +13,7 @@ private const val BATCH_CHUNK = 900
  * 404 视为成功（目标已在桌面被删，spec §8），不回滚；每次写成功 requestSync() 作冗余对账 nudge。
  *
  * 回滚对称性（BUG-03/04/15）：apply 用 IGNORE 建链时，回滚只能删「本次真正新建」的链，
- * 无条件全删会把操作前就存在的链一并删掉；删除类回滚须重建被 CASCADE 级联删的图集/标签链——
+ * 无条件全删会把操作前就存在的链一并删掉；删除类回滚须重建被 CASCADE 级联删的相册/标签链——
  * 例行增量同步不会重拉 changeSeq 未变的图，丢掉的链不自愈（持续到全量重建）。
  */
 class WriteRepository(
@@ -23,7 +23,7 @@ class WriteRepository(
     private val requestSync: () -> Unit,
 ) {
     // IN (:ids) 类 DAO 调用一律经此分块（审查确认 major）：API 26–30 框架 SQLite 绑定变量
-    // 上限 999，千级全选「加入/移出图集」会在乐观路径抛 too many SQL variables 直接崩溃
+    // 上限 999，千级全选「加入/移出相册」会在乐观路径抛 too many SQL variables 直接崩溃
     //（Robolectric 自带 SQLite 上限 32766，单测拦不住，靠此约定守护）。
     private suspend fun existingGalleryLinksChunked(galleryId: Long, imageIds: List<Long>): List<Long> =
         imageIds.chunked(BATCH_CHUNK).flatMap { db.imageDao().existingGalleryLinkImageIds(galleryId, it) }
@@ -65,7 +65,7 @@ class WriteRepository(
     suspend fun deleteImage(imageId: Long): WriteResult {
         val snapshot = db.imageDao().byId(imageId)
         // 链快照（BUG-03）：deleteByIds 会 CASCADE 删掉 gallery_images/image_tags，回滚只 upsert
-        // 镜像行不会带回链——曾致「删除失败」后图从图集/标签搜索凭空消失
+        // 镜像行不会带回链——曾致「删除失败」后图从相册/标签搜索凭空消失
         val galleryLinks = db.imageDao().galleryLinksOfImages(listOf(imageId))
         val tagLinks = db.imageDao().tagLinksOfImages(listOf(imageId))
         return guarded(
@@ -111,7 +111,7 @@ class WriteRepository(
     suspend fun createGallery(name: String): WriteResult {
         return try {
             val id = writeApi.createGallery(name)
-            // 乐观行带本机时间戳（T2 质量审）：CREATED 排序下新建图集在同步回写前不垫底；
+            // 乐观行带本机时间戳（T2 质量审）：CREATED 排序下新建相册在同步回写前不垫底；
             // 下一轮同步以桌面 createdAt 覆盖，毫秒级偏差无感
             db.galleryDao().insertOne(GalleryEntity(id, name, null, 0, java.time.Instant.now().toString()))
             monitor.reportSuccess(); requestSync(); WriteResult.Success
@@ -120,7 +120,7 @@ class WriteRepository(
         } catch (e: CancellationException) {
             throw e   // 取消时结果未知，不回滚不上报，镜像靠下一轮同步对账收敛
         } catch (e: Exception) {
-            monitor.reportFailure(e); WriteResult.Failed(e.message ?: "新建图集失败")
+            monitor.reportFailure(e); WriteResult.Failed(e.message ?: "新建相册失败")
         }
     }
 
@@ -140,7 +140,7 @@ class WriteRepository(
             db.galleryDao().updateCover(galleryId, imageId)
             monitor.reportSuccess(); requestSync(); WriteResult.Success
         } catch (e: ApiException) {
-            // 服务器已应答的失败（404 图集已删/422 成员关系陈旧）说明镜像分歧：对账一次
+            // 服务器已应答的失败（404 相册已删/422 成员关系陈旧）说明镜像分歧：对账一次
             // 立即收敛幻影数据，与 guarded 的 BUG-02 约定对齐
             monitor.reportFailure(e); requestSync()
             WriteResult.Failed(e.message, e.code == "UNAUTHORIZED")
@@ -153,8 +153,8 @@ class WriteRepository(
 
     suspend fun deleteGallery(galleryId: Long): WriteResult {
         val old = db.galleryDao().byId(galleryId)
-        // 成员链快照（BUG-03 同族）：clearMembership 后回滚只恢复图集行，成员链例行同步不重建
-        //（成员图 changeSeq 未变）——曾致「删除失败」的图集回来时变空
+        // 成员链快照（BUG-03 同族）：clearMembership 后回滚只恢复相册行，成员链例行同步不重建
+        //（成员图 changeSeq 未变）——曾致「删除失败」的相册回来时变空
         val membership = db.galleryDao().membershipOf(galleryId)
         return guarded(
             optimisticApply = { db.galleryDao().deleteById(galleryId); db.galleryDao().clearMembership(galleryId) },
@@ -171,7 +171,7 @@ class WriteRepository(
     suspend fun addToGallery(galleryId: Long, imageIds: List<Long>): WriteResult {
         // 空集直接成功（BUG-14）：调用方滤重/滤死后可能为空，发给桌面会 422 → 虚假「失败」
         if (imageIds.isEmpty()) return WriteResult.Success
-        // 只回滚真正新增的链（BUG-04）：选中项含已在图集的 X 时，失败回滚曾把 X 一并静默移出
+        // 只回滚真正新增的链（BUG-04）：选中项含已在相册的 X 时，失败回滚曾把 X 一并静默移出
         val existing = existingGalleryLinksChunked(galleryId, imageIds).toSet()
         val newIds = imageIds.filter { it !in existing }
         return guarded(

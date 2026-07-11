@@ -12,7 +12,7 @@ interface GalleryCoverImageProps {
 }
 
 /**
- * 图集封面图片组件
+ * 相册封面图片组件
  * 独立组件，不会影响图片列表的样式
  */
 export const GalleryCoverImage: React.FC<GalleryCoverImageProps> = ({
@@ -91,12 +91,12 @@ export const GalleryCoverImage: React.FC<GalleryCoverImageProps> = ({
         </div>
       )}
       {onInfoClick && (
-        <Tooltip title="图集信息">
+        <Tooltip title="相册信息">
           <Button
             type="text"
             size="small"
             icon={<InfoCircleOutlined />}
-            aria-label="图集信息"
+            aria-label="相册信息"
             onClick={(e) => {
               e.stopPropagation();
               onInfoClick();

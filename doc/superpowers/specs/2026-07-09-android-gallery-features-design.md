@@ -18,11 +18,11 @@ v0.5.0 完成 MIUI 风格换皮后，功能面仍然很薄：照片/相册无排
 
 **现状锚点**（两端盘点结论，实施前以代码为准）：
 
-- 照片排序写死在 3 处 DAO SQL（`ImageDao.timelinePagingSource`、`buildSearchQuery` 两分支、`GalleryDao` 图集成员分页），全部 `ORDER BY createdAt DESC, id DESC`；API 无排序参数（排序发生在本地 Room 镜像上）。
+- 照片排序写死在 3 处 DAO SQL（`ImageDao.timelinePagingSource`、`buildSearchQuery` 两分支、`GalleryDao` 相册成员分页），全部 `ORDER BY createdAt DESC, id DESC`；API 无排序参数（排序发生在本地 Room 镜像上）。
 - 密度四档（`DensityTier`：MONTH 6 列/DAY_5/DAY_4/DAY_3）+ 捏合手势（`PinchDensityState`）+ DataStore 记忆（`timeline_density`）机制完整，仅缺可见入口；只作用照片页。
 - `GalleryEntity` 只有 id/name/coverImageId/imageCount；`SyncGalleryDto` 同四字段；两端都无置顶/排序/分组字段。
-- 图集元数据变更**不在 changeSeq 增量协议内**（协议只覆盖 images，经 image_tags/gallery_images 触发器 bump）；`/sync/galleries` 是无游标全量快照。
-- 桌面从不自动写图集封面（仅桌面 UI 打开图集时机会性补写），安卓端「取第一张」兜底造成 N+1 查询（M2 审查 Issue 5）。
+- 相册元数据变更**不在 changeSeq 增量协议内**（协议只覆盖 images，经 image_tags/gallery_images 触发器 bump）；`/sync/galleries` 是无游标全量快照。
+- 桌面从不自动写相册封面（仅桌面 UI 打开相册时机会性补写），安卓端「取第一张」兜底造成 N+1 查询（M2 审查 Issue 5）。
 - `PATCH /api/v1/galleries/:id` 已存在（仅接受 name），权限已在 `galleryWrite` 域；`setGalleryCover` 服务函数已存在但无 HTTP 入口。
 
 ## 1. 范围
@@ -46,7 +46,7 @@ v0.5.0 完成 MIUI 风格换皮后，功能面仍然很薄：照片/相册无排
 - 多自定义分组、相册真嵌套（桌面库无层级概念）。
 - 组织状态跨设备同步（本机偏好定位，MIUI 同款取舍）。
 - 搜索结果页排序（维持固定时间新→旧）。
-- 按「加入图集时间」排序（`gallery_images.addedAt` 未镜像到安卓，不为此动同步协议）。
+- 按「加入相册时间」排序（`gallery_images.addedAt` 未镜像到安卓，不为此动同步协议）。
 - 回收站、收藏、幻灯片、照片编辑。
 - 其他相册二级页内拖拽重排（v1 只在主页两区）。
 - 「其他相册」内相册的置顶入口（置顶与收纳互斥，先移出再置顶）。
@@ -65,7 +65,7 @@ album_prefs(
 )
 ```
 
-- **独立表、不建外键**：图集同步是全量对账（可能整表重写），外键 CASCADE 会误清偏好。孤儿行在每轮图集同步对账完成后清理：`DELETE FROM album_prefs WHERE galleryId NOT IN (SELECT id FROM galleries)`。
+- **独立表、不建外键**：相册同步是全量对账（可能整表重写），外键 CASCADE 会误清偏好。孤儿行在每轮相册同步对账完成后清理：`DELETE FROM album_prefs WHERE galleryId NOT IN (SELECT id FROM galleries)`。
 - **置顶与收纳互斥**：`setPinned(true)` 同时置 `inOther=0`；`moveToOther(true)` 同时置 `pinned=0, pinnedAt=NULL`。
 - 无记录 = 默认值（未置顶、不在其他相册、无手动序）。
 - `manualOrder` 只在所属分区内比较；拖拽落点后对该分区重编号（0..n 连续整数）。新相册无手动序，手动模式下排区尾、按名称升序兜底。
@@ -82,7 +82,7 @@ album_prefs(
 |---|---|---|---|
 | `photos_sort` | String | `TIME_DESC` | 照片页排序（PhotoSort 枚举名） |
 | `albums_sort` | String | `NAME_ASC` | 相册页排序（AlbumSort 枚举名，对齐现状按名） |
-| `album_detail_sort` | String | `TIME_DESC` | 相册详情排序（PhotoSort 枚举名，全部图集共用） |
+| `album_detail_sort` | String | `TIME_DESC` | 相册详情排序（PhotoSort 枚举名，全部相册共用） |
 | `album_detail_columns` | Int | `4` | 相册详情列数档（3/4/5，对齐现状 4 列） |
 
 现有 `timeline_density` 不动。写入照 density 模式：内存态即时生效、异步落盘、冷启动回填一次。
@@ -123,7 +123,7 @@ enum class AlbumSort { MANUAL, NAME_ASC, NAME_DESC, COUNT_DESC, COUNT_ASC, CREAT
 
 - `ImageDao.timelinePagingSource` 改为 `@RawQuery(observedEntities=[ImageEntity::class])` 变体，SQL 由 PhotoSort 白名单枚举拼接（字段名/方向均出自枚举映射，无用户输入，不存在注入面）。
 - 现有固定序查询保留给搜索页（搜索排序不动）。
-- `GalleryDao` 图集成员分页同样加 RawQuery 变体（供 §5 详情页排序）。
+- `GalleryDao` 相册成员分页同样加 RawQuery 变体（供 §5 详情页排序）。
 - 排序切换 = Pager 依赖 key 变化重建 paging flow（照现有密度档切换的重建模式），列表回顶。
 
 ### 3.4 大图页顺序一致性
@@ -145,7 +145,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 2. **「全部相册」头 + 普通区**（未置顶且不在其他相册）：按 `albums_sort` 排序；MANUAL 时按 `manualOrder` 升序，无序值排尾按名称升序兜底。
 3. **「▸ 其他相册 (N)」折叠行**（span 整行，仅 N>0 时显示）：点击进二级页。
 
-- 排序组装在 ViewModel 内存中完成（图集数量级小，DAO 返回全量卡片 + album_prefs 全量后拼装），不追求 SQL 级 join 排序。
+- 排序组装在 ViewModel 内存中完成（相册数量级小，DAO 返回全量卡片 + album_prefs 全量后拼装），不追求 SQL 级 join 排序。
 - 空态：无任何相册时维持现状空态；其他相册为空时折叠行隐藏。
 
 ### 4.3 长按菜单（DropdownMenu 扩展）
@@ -181,7 +181,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 
 顶栏动作区加 [⋯]，面板卡片组：
 
-1. **排序方式**：时间 / 文件大小 / 文件名（交互同 §3.1），存 `album_detail_sort`，全部图集共用；
+1. **排序方式**：时间 / 文件大小 / 文件名（交互同 §3.1），存 `album_detail_sort`，全部相册共用；
 2. **列数**：3 列 / 4 列 / 5 列 三档单选行，存 `album_detail_columns`。
 
 详情页**无日期分组头**（现状如此），排序切换不涉及平铺模式概念，仅换 ORDER BY。
@@ -201,16 +201,16 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 ### 6.1 `PATCH /api/v1/galleries/:galleryId` 扩展
 
 - body 接受 `{ name?: string, coverImageId?: number | null }`，**至少一项**，否则 422（仓内 `validationError` 惯例，`VALIDATION_ERROR`；plan 阶段由 400 收敛）。
-- `coverImageId` 为数字时校验：图片存在**且**是该图集成员（查 `gallery_images`），否则 422（不静默忽略）；为 `null` 时清除显式封面（回落 §6.2 兜底）。
+- `coverImageId` 为数字时校验：图片存在**且**是该相册成员（查 `gallery_images`），否则 422（不静默忽略）；为 `null` 时清除显式封面（回落 §6.2 兜底）。
 - 实现复用/对齐既有 `setGalleryCover` 服务函数（实施时核实其校验行为，缺成员校验则补上）；`name` 分支行为不变。
 - 权限：路径已在 `galleryWrite` 映射内，**不新增权限规则**；`permissions` 相关测试补 coverImageId 用例即可。
 
 ### 6.2 有效封面兜底（根治安卓 N+1）
 
-- `/api/v1/sync/galleries` 与 `/api/v1/galleries`（列表及按 id 查询）返回的 `coverImageId` 统一为**有效封面**：`COALESCE(显式 coverImageId, 该图集最近加入的一张)`，「最近加入」按 `gallery_images.addedAt DESC, imageId DESC`；空图集为 `null`。
+- `/api/v1/sync/galleries` 与 `/api/v1/galleries`（列表及按 id 查询）返回的 `coverImageId` 统一为**有效封面**：`COALESCE(显式 coverImageId, 该相册最近加入的一张)`，「最近加入」按 `gallery_images.addedAt DESC, imageId DESC`；空相册为 `null`。
 - 两处共用同一 SQL 片段/查询函数，避免口径漂移；`/galleries` 的 `coverImage{...}` 联查对象随之对齐。
-- 显式 `coverImageId` 字段本身**不回写数据库**（兜底只发生在读侧），桌面 UI 既有「打开图集补写第一张」逻辑不动（继续无害）。
-- 安卓端现状修正（plan 阶段核实）：N+1 已在早前修复——`GalleryDao.observeAlbumCards` 用相关子查询一次性算出兜底封面。**保留该 SQL 兜底作双保险**（兼容旧桌面载荷），卡片语义不变；桌面兜底使同步下发值直接有效，仅空图集为 null（占位图标）。
+- 显式 `coverImageId` 字段本身**不回写数据库**（兜底只发生在读侧），桌面 UI 既有「打开相册补写第一张」逻辑不动（继续无害）。
+- 安卓端现状修正（plan 阶段核实）：N+1 已在早前修复——`GalleryDao.observeAlbumCards` 用相关子查询一次性算出兜底封面。**保留该 SQL 兜底作双保险**（兼容旧桌面载荷），卡片语义不变；桌面兜底使同步下发值直接有效，仅空相册为 null（占位图标）。
 
 ### 6.3 `/sync/galleries` 载荷补 `createdAt`
 
@@ -218,7 +218,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 
 ### 6.4 变更可见性口径
 
-- 图集元数据（名称/封面/createdAt）**不进 changeSeq 协议、不加触发器、不加 SSE**。
+- 相册元数据（名称/封面/createdAt）**不进 changeSeq 协议、不加触发器、不加 SSE**。
 - 依赖安卓**每轮前台同步无条件全量拉 `/sync/galleries`**（列表小、成本可忽略）。实施时核实安卓 SyncEngine 现状：若存在「latestCursor 未变则跳过 galleries 拉取」的短路，改为必拉；若本就每轮必拉，写测试锁定该行为。
 - 桌面侧改封面/改名对安卓的可见延迟 = 下一轮同步，接受。
 
@@ -265,7 +265,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 ### 8.3 桌面自动化（`tests/main/` gate，vitest）
 
 - PATCH：coverImageId 成员图 → 200 生效；非成员图 → 400；不存在图 → 400；null → 清除；与 name 同传 → 两者生效；body 空 → 400；权限映射仍在 galleryWrite。
-- sync/galleries：无显式封面 → 返回最近加入一张；有显式 → 原样；空图集 → null；载荷含 createdAt。
+- sync/galleries：无显式封面 → 返回最近加入一张；有显式 → 原样；空相册 → null；载荷含 createdAt。
 - /galleries 列表与 sync 口径一致（同一兜底）。
 
 ### 8.4 实机验证（沿用安全纪律）
@@ -290,7 +290,7 @@ Viewer 与照片页/详情页共用同一查询与同一排序参数：排序切
 - [ ] 其他相册二级页可查看/移出，清空自动返回
 - [ ] 详情页排序/列数（菜单+捏合）生效且记忆；恰选 1 张时出现「设为封面」
 - [ ] 桌面 PATCH coverImageId 全用例过 `tests/main/`；sync 载荷含 createdAt 与有效封面
-- [ ] 桌面有效封面兜底生效（sync 载荷仅空图集为 null）；安卓 SQL 兜底保留作双保险
+- [ ] 桌面有效封面兜底生效（sync 载荷仅空相册为 null）；安卓 SQL 兜底保留作双保险
 - [ ] 安卓全量测试真绿；两端文档/版本号更新
 
 ## 11. 实施时核实项（plan 阶段落定，不留到编码中途）

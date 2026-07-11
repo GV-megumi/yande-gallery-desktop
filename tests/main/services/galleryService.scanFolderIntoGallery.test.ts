@@ -106,7 +106,7 @@ async function addIgnoredFolder(folderPath: string): Promise<void> {
   await run(
     h.db,
     `INSERT INTO gallery_ignored_folders (folderPath, note, createdAt, updatedAt)
-     VALUES (?, '删除图集自动忽略', '2024-01-01', '2024-01-01')`,
+     VALUES (?, '删除相册自动忽略', '2024-01-01', '2024-01-01')`,
     [folderPath]
   );
 }
@@ -149,7 +149,7 @@ afterEach(async () => {
 });
 
 describe('scanFolderIntoGallery', () => {
-  it('扫描后为图集写入成员行并把 imageCount 写回 galleries 统计', async () => {
+  it('扫描后为相册写入成员行并把 imageCount 写回 galleries 统计', async () => {
     const folder = normalizePath(path.join('M:', 'galA'));
     const galleryId = await addGallery(folder, 1);
     const direct = await addImage(normalizePath(path.join('M:', 'galA', 'a.jpg')));
@@ -175,7 +175,7 @@ describe('scanFolderIntoGallery', () => {
     expect(g?.lastScannedAt).toBeTruthy();
   });
 
-  it('非递归图集只写直接子文件成员，imageCount 不含嵌套', async () => {
+  it('非递归相册只写直接子文件成员，imageCount 不含嵌套', async () => {
     const folder = normalizePath(path.join('M:', 'galB'));
     const galleryId = await addGallery(folder, 0);
     const direct = await addImage(normalizePath(path.join('M:', 'galB', 'c.jpg')));
@@ -208,7 +208,7 @@ describe('scanFolderIntoGallery', () => {
 
   /**
    * 黑名单整棵子树跳过（修复轮 U05）：忽略名单中严格位于目标文件夹内部的条目（后代），
-   * 扫描与成员收编都要整棵排除——否则「删除图集自动拉黑」的子树会在父级重扫时整棵复活。
+   * 扫描与成员收编都要整棵排除——否则「删除相册自动拉黑」的子树会在父级重扫时整棵复活。
    */
   it('忽略名单后代子树整棵排除：排除目录传给磁盘扫描，库中已有的子树图片不被收编', async () => {
     const folder = normalizePath(path.join('M:', 'top', 'R'));

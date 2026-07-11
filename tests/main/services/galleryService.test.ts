@@ -243,22 +243,22 @@ describe('galleryService - syncGalleryFolder 扩展名处理', () => {
       : defaults;
   }
 
-  it('图集有自定义扩展名时应使用自定义值', () => {
+  it('相册有自定义扩展名时应使用自定义值', () => {
     expect(resolveExtensions(['.png', '.webp'])).toEqual(['.png', '.webp']);
   });
 
-  it('图集扩展名为空数组时应使用默认值', () => {
+  it('相册扩展名为空数组时应使用默认值', () => {
     const result = resolveExtensions([]);
     expect(result).toHaveLength(6);
     expect(result).toContain('.jpg');
   });
 
-  it('图集扩展名为 undefined 时应使用默认值', () => {
+  it('相册扩展名为 undefined 时应使用默认值', () => {
     const result = resolveExtensions(undefined);
     expect(result).toHaveLength(6);
   });
 
-  it('图集扩展名为 null 时应使用默认值', () => {
+  it('相册扩展名为 null 时应使用默认值', () => {
     const result = resolveExtensions(null);
     expect(result).toHaveLength(6);
   });
@@ -315,9 +315,9 @@ describe('galleryService - syncGalleryFolder 错误分支', () => {
     importResult: ImportResult | null,
     imageCount?: number
   ): { success: boolean; data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string }; error?: string } {
-    // Step 1: 获取图集
+    // Step 1: 获取相册
     if (!getGalleryResult.success || !getGalleryResult.data) {
-      return { success: false, error: getGalleryResult.error || '图集不存在' };
+      return { success: false, error: getGalleryResult.error || '相册不存在' };
     }
 
     // Step 2: 扫描导入
@@ -338,23 +338,23 @@ describe('galleryService - syncGalleryFolder 错误分支', () => {
     };
   }
 
-  it('图集不存在时应返回错误', () => {
+  it('相册不存在时应返回错误', () => {
     const result = simulateSyncGalleryFolder(
-      { success: false, error: '图集不存在' },
+      { success: false, error: '相册不存在' },
       null
     );
     expect(result.success).toBe(false);
-    expect(result.error).toBe('图集不存在');
+    expect(result.error).toBe('相册不存在');
     expect(result.data).toBeUndefined();
   });
 
-  it('图集查询成功但 data 为空时应返回错误', () => {
+  it('相册查询成功但 data 为空时应返回错误', () => {
     const result = simulateSyncGalleryFolder(
       { success: true }, // data 为 undefined
       null
     );
     expect(result.success).toBe(false);
-    expect(result.error).toBe('图集不存在');
+    expect(result.error).toBe('相册不存在');
   });
 
   it('扫描导入失败时应返回错误', () => {
@@ -545,7 +545,7 @@ describe('galleryService 同步维护 galleryRootRegistry', () => {
 
   it('deleteGallery 因目标不存在而失败时不应移除登记表中的根', async () => {
     loadGalleryRoots([normalizedDel]);
-    // get 返回 null（图集不存在）→ 在 removeGalleryRoot 之前提前 return
+    // get 返回 null（相册不存在）→ 在 removeGalleryRoot 之前提前 return
     (dbModule.get as ReturnType<typeof vi.fn>).mockResolvedValueOnce(null);
 
     const { deleteGallery } = await import('../../../src/main/services/galleryService.js');

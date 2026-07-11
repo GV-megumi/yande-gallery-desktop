@@ -89,7 +89,7 @@ Bug5 的典型表现是：
 | `src/main/services/rendererEventBus.ts` | 继续负责广播窗口和桥接 API SSE |
 | `src/renderer/hooks/useRendererAppEvent.ts` | 统一封装 `system.onAppEvent`，支持常驻订阅、active gating、dirty replay |
 | `src/renderer/hooks/useBooruDomainEvents.ts` | Booru 事件按站点过滤和常见 patch 入口 |
-| `src/renderer/hooks/useGalleryDomainEvents.ts` | Gallery 图片、图集、无效图片、缩略图事件消费入口 |
+| `src/renderer/hooks/useGalleryDomainEvents.ts` | Gallery 图片、相册、无效图片、缩略图事件消费入口 |
 
 ### 5.2 数据流
 
@@ -147,7 +147,7 @@ flowchart LR
 |---|---|---|---|
 | `gallery:images-imported` | 扫描 / 同步导入新图片 | `galleryId`, `imported`, `reason` | Gallery recent |
 | `gallery:images-changed` | 图片新增、删除、标签更新、无效化 | `imageId`, `affectedImageIds`, `galleryId`, `action` | GalleryPage、ImageGrid |
-| `gallery:galleries-changed` | 图集创建、更新、删除、统计、封面变化 | `galleryId`, `action` | 图集列表、详情、封面 |
+| `gallery:galleries-changed` | 相册创建、更新、删除、统计、封面变化 | `galleryId`, `action` | 相册列表、详情、封面 |
 | `gallery:invalid-images-changed` | 无效图片上报、删除、清空 | `invalidImageId`, `originalImageId`, `galleryId` | InvalidImagesPage、GalleryPage |
 | `gallery:ignored-folders-changed` | 忽略文件夹新增、编辑、删除 | `ignoredFolderId`, `folderPath` | IgnoredFoldersModal |
 | `thumbnail:generated` | 缩略图生成成功 / 失败 | `imagePath`, `thumbnailPath`, `success` | ImageGrid、图库封面 |
@@ -299,7 +299,7 @@ flowchart LR
 已按规格补齐：
 
 - Booru：本地收藏、服务端喜欢、黑名单、站点、收藏分组、保存搜索、搜索历史、帖子下载状态、投票、图片缓存清理。
-- Gallery：图片变更、无效图、图集变更、忽略文件夹、缩略图生成。
+- Gallery：图片变更、无效图、相册变更、忽略文件夹、缩略图生成。
 - 下载：批量下载 session、task、record 事件；高频 progress raw channel 保留。
 - 系统：`config:changed`、`app:data-restored`、`api-service:status-changed`。
 - 消费端：Booru 页面、Gallery 页面、ImageGrid、InvalidImagesPage、IgnoredFoldersModal、BooruBulkDownloadPage、SettingsPage、App 已接入必要的事件消费。

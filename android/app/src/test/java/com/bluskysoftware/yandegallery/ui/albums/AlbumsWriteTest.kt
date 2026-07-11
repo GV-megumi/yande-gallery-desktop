@@ -38,7 +38,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * M3-T14: AlbumsViewModel 图集写操作——新建/重命名/删除对本地镜像的效果 + 失败上报。
+ * M3-T14: AlbumsViewModel 相册写操作——新建/重命名/删除对本地镜像的效果 + 失败上报。
  * Robolectric + :memory: Room，writeRepository 经构造缝注入（镜像 AlbumDetailViewModel gateway 模式）。
  * WriteRepository 的乐观镜像/回滚本体由 WriteRepositoryTest 覆盖，此处只验 VM 委托语义与镜像可见性。
  */
@@ -65,7 +65,7 @@ class AlbumsWriteTest {
         Dispatchers.resetMain()
     }
 
-    /** 最小 fake：图集三写方法可配置失败，createGallery 返回可配置服务端 id；其余空实现。 */
+    /** 最小 fake：相册三写方法可配置失败，createGallery 返回可配置服务端 id；其余空实现。 */
     private class FakeWriteApi : WriteApi {
         var nextGalleryId = 42L
         var failCreate: ApiException? = null
@@ -99,19 +99,19 @@ class AlbumsWriteTest {
     }
 
     @Test
-    fun `新建图集成功——镜像 galleries 出现新行`() = runTest {
+    fun `新建相册成功——镜像 galleries 出现新行`() = runTest {
         val viewModel = vm(FakeWriteApi().apply { nextGalleryId = 7 })
 
         val result = viewModel.createGallery("旅行")
 
         assertEquals(WriteResult.Success, result)
         val row = db.galleryDao().byId(7)
-        assertNotNull("新建后镜像应出现该图集行", row)
+        assertNotNull("新建后镜像应出现该相册行", row)
         assertEquals("旅行", row!!.name)
     }
 
     @Test
-    fun `重命名图集成功——镜像该行名字更新`() = runTest {
+    fun `重命名相册成功——镜像该行名字更新`() = runTest {
         db.galleryDao().insertOne(GalleryEntity(3, "旧名", null, 0))
         val viewModel = vm(FakeWriteApi())
 
@@ -122,18 +122,18 @@ class AlbumsWriteTest {
     }
 
     @Test
-    fun `删除图集成功——镜像该行消失`() = runTest {
+    fun `删除相册成功——镜像该行消失`() = runTest {
         db.galleryDao().insertOne(GalleryEntity(3, "待删", null, 0))
         val viewModel = vm(FakeWriteApi())
 
         val result = viewModel.deleteGallery(3)
 
         assertEquals(WriteResult.Success, result)
-        assertNull("删除后镜像应无该图集行", db.galleryDao().byId(3))
+        assertNull("删除后镜像应无该相册行", db.galleryDao().byId(3))
     }
 
     @Test
-    fun `新建图集失败——返回 Failed 且镜像不新增行`() = runTest {
+    fun `新建相册失败——返回 Failed 且镜像不新增行`() = runTest {
         val viewModel = vm(FakeWriteApi().apply {
             nextGalleryId = 7
             failCreate = ApiException("INTERNAL_ERROR", "boom", 500)
@@ -179,7 +179,7 @@ class AlbumsWriteTest {
     fun `重命名对话框预填当前名`() {
         compose.setContent {
             AlbumNameDialog(
-                title = "重命名图集",
+                title = "重命名相册",
                 name = "旧名",
                 onNameChange = {},
                 confirmLabel = "保存",
@@ -195,7 +195,7 @@ class AlbumsWriteTest {
     fun `名字对话框空名时确认禁用`() {
         compose.setContent {
             AlbumNameDialog(
-                title = "新建图集",
+                title = "新建相册",
                 name = "   ",
                 onNameChange = {},
                 confirmLabel = "创建",
@@ -212,7 +212,7 @@ class AlbumsWriteTest {
         compose.setContent {
             DeleteAlbumConfirmDialog(albumName = "旅行", onConfirm = {}, onDismiss = {})
         }
-        // brief 契约：二次确认须明示只删图集、不删图片文件
+        // brief 契约：二次确认须明示只删相册、不删图片文件
         compose.onNodeWithText("不删除其中的图片文件", substring = true).assertIsDisplayed()
     }
 
@@ -230,7 +230,7 @@ class AlbumsWriteTest {
         compose.waitForIdle()
 
         // D12A：离线点击给明确原因，不进入新建对话框（替换静默空转）
-        compose.onNodeWithText("离线状态无法新建图集").assertIsDisplayed()
+        compose.onNodeWithText("离线状态无法新建相册").assertIsDisplayed()
         compose.onNodeWithTag("album_new_confirm").assertDoesNotExist()
     }
 }

@@ -10,7 +10,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * M3-T4: ImageDao 单行 CRUD 扩展（详情页/多选移出图集消费）。
+ * M3-T4: ImageDao 单行 CRUD 扩展（详情页/多选移出相册消费）。
  */
 @RunWith(RobolectricTestRunner::class)
 class ImageDaoWriteTest {
@@ -53,7 +53,7 @@ class ImageDaoWriteTest {
     }
 
     @Test
-    fun `galleryIdsOf 返回该图所在的全部图集 id`() = runTest {
+    fun `galleryIdsOf 返回该图所在的全部相册 id`() = runTest {
         db.imageDao().upsertAll(listOf(image(1)))
         db.galleryDao().replaceAll(listOf(gallery(1, "g1"), gallery(2, "g2")))
         db.imageDao().replaceGalleryLinks(1, listOf(1, 2))
@@ -81,14 +81,14 @@ class ImageDaoWriteTest {
     }
 
     @Test
-    fun `deleteGalleryLinks 只删该图集该批 imageId 且不影响其他图集关联`() = runTest {
+    fun `deleteGalleryLinks 只删该相册该批 imageId 且不影响其他相册关联`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
         db.galleryDao().replaceAll(listOf(gallery(1, "g1"), gallery(2, "g2")))
         // 注意 GalleryImageEntity 构造顺序是 (galleryId, imageId)——replaceGalleryLinks 内部已按此顺序正确构造。
-        db.imageDao().replaceGalleryLinks(1, listOf(1, 2)) // image1 属于图集 1、2
-        db.imageDao().replaceGalleryLinks(2, listOf(1))    // image2 只属于图集 1
-        db.imageDao().deleteGalleryLinks(1, listOf(1, 2))  // 从图集 1 移出 image1、image2
-        assertEquals(listOf(2L), db.imageDao().galleryIdsOf(1)) // image1 仍属于图集2
+        db.imageDao().replaceGalleryLinks(1, listOf(1, 2)) // image1 属于相册 1、2
+        db.imageDao().replaceGalleryLinks(2, listOf(1))    // image2 只属于相册 1
+        db.imageDao().deleteGalleryLinks(1, listOf(1, 2))  // 从相册 1 移出 image1、image2
+        assertEquals(listOf(2L), db.imageDao().galleryIdsOf(1)) // image1 仍属于相册2
         assertEquals(emptyList<Long>(), db.imageDao().galleryIdsOf(2)) // image2 完全移出
     }
 }

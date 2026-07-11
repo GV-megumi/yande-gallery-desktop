@@ -2322,10 +2322,10 @@ s_123456_artist_name.jpg ✅
 ### ✅ 已完成的核心功能
 
 #### 本地图库管理
-- ✅ 图片浏览（最近图片、全部图片、图集）
+- ✅ 图片浏览（最近图片、全部图片、相册）
 - ✅ 缩略图系统（WebP格式，自动生成）
 - ✅ 标签系统
-- ✅ 图库/图集管理
+- ✅ 图库/相册管理
 
 #### Booru功能
 - ✅ 多站点支持（Moebooru类型）
@@ -2387,7 +2387,7 @@ s_123456_artist_name.jpg ✅
 - BulkDownloadSessionCard.tsx - 批量下载会话卡片
 - BulkDownloadSessionDetail.tsx - 批量下载会话详情
 - BulkDownloadTaskForm.tsx - 批量下载任务表单
-- GalleryCoverImage.tsx - 图集封面
+- GalleryCoverImage.tsx - 相册封面
 - ImageGrid.tsx - 图片网格/瀑布流
 - ImageListWrapper.tsx - 图片列表包装器
 - ImageSearchBar.tsx - 搜索栏

@@ -69,7 +69,7 @@ import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 图集详情：4 列网格 + 居中双行顶栏（标题+数量副标题，spec §4.2）；T13 加多选（长按进入，批量下载/分享/删除/加入/移出图集）。 */
+/** 相册详情：4 列网格 + 居中双行顶栏（标题+数量副标题，spec §4.2）；T13 加多选（长按进入，批量下载/分享/删除/加入/移出相册）。 */
 @Composable
 fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel,
@@ -87,7 +87,7 @@ fun AlbumDetailScreen(
     val loader = viewModel.thumbnailLoader
     val selectionActive = selected.isNotEmpty()
 
-    // v0.6 排序/列数（spec §5.1）：共享 ViewPrefs 一档全图集通用；捏合放大 = 列数减（格子变大）
+    // v0.6 排序/列数（spec §5.1）：共享 ViewPrefs 一档全相册通用；捏合放大 = 列数减（格子变大）
     val detailSort by viewModel.detailSort.collectAsStateWithLifecycle()
     val columns by viewModel.detailColumns.collectAsStateWithLifecycle()
     var showOptions by rememberSaveable { mutableStateOf(false) }
@@ -194,7 +194,7 @@ fun AlbumDetailScreen(
                     insetStatusBar = true,
                 )
             } else {
-                // 居中标题 + 数量副标题（spec §4.2）；数量取镜像图集行的 imageCount（galleries 流已在收集）
+                // 居中标题 + 数量副标题（spec §4.2）；数量取镜像相册行的 imageCount（galleries 流已在收集）
                 val count = galleries.firstOrNull { it.id == viewModel.currentGalleryId }?.imageCount
                 MiuiSubPageTopBar(
                     title = title,
@@ -267,8 +267,8 @@ fun AlbumDetailScreen(
                         scope.launch {
                             // 成功时 VM 已清空选择（brief 裁定）；失败保留选择供重试
                             when (val r = viewModel.removeSelectedFromGallery(ids)) {
-                                WriteResult.Success -> snackbarHostState.showSnackbar("已移出当前图集（${ids.size} 张）")
-                                is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("移出图集失败", r))
+                                WriteResult.Success -> snackbarHostState.showSnackbar("已移出当前相册（${ids.size} 张）")
+                                is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("移出相册失败", r))
                             }
                         }
                     },
@@ -363,21 +363,21 @@ fun AlbumDetailScreen(
         )
     }
 
-    // 「加入图集」选择器（复用 T11 GalleryPickerDialog，已迁至 ui/common）：图集内也可加入其它图集
+    // 「加入相册」选择器（复用 T11 GalleryPickerDialog，已迁至 ui/common）：相册内也可加入其它相册
     if (showGalleryPicker) {
         GalleryPickerDialog(
             galleries = galleries,
-            excludeIds = setOf(viewModel.currentGalleryId),   // 排除当前所在图集，避免「加入自身」自指（D12A）
+            excludeIds = setOf(viewModel.currentGalleryId),   // 排除当前所在相册，避免「加入自身」自指（D12A）
             onPick = { galleryId ->
                 showGalleryPicker = false
                 val ids = viewModel.selection.selected.toList()
                 scope.launch {
                     when (val r = viewModel.addSelectedToGallery(galleryId, ids)) {
                         WriteResult.Success -> {
-                            snackbarHostState.showSnackbar("已加入图集（${ids.size} 张）")
+                            snackbarHostState.showSnackbar("已加入相册（${ids.size} 张）")
                             viewModel.selection.clear()
                         }
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入图集失败", r))
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入相册失败", r))
                     }
                 }
             },
@@ -425,8 +425,8 @@ internal fun AlbumDetailMoreMenu(
 }
 
 /**
- * 图集详情网格骨架（无状态，便于测试注入 imageCell）：[columns] 列固定网格（v0.6 3/4/5 档），
- * items 直接是 ImageEntity，无日期分组（分组头是照片时间轴的特性，图集详情按 spec 不需要）。
+ * 相册详情网格骨架（无状态，便于测试注入 imageCell）：[columns] 列固定网格（v0.6 3/4/5 档），
+ * items 直接是 ImageEntity，无日期分组（分组头是照片时间轴的特性，相册详情按 spec 不需要）。
  */
 @Composable
 fun AlbumDetailGrid(

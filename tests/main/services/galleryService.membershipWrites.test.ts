@@ -3,7 +3,7 @@ import sqlite3 from 'sqlite3';
 
 /**
  * galleryService.createEmptyGallery / addImagesToGallery / removeImagesFromGallery
- * （M1-T11，移动端图集写接口 spec §5.4）
+ * （M1-T11，移动端相册写接口 spec §5.4）
  *
  * 真实 :memory: sqlite（保留真实 run/get/all/runInTransaction，只覆写 getDatabase），
  * setup 里调用真实 ensureSyncTouchTriggers(db) 以便断言 gallery_images 触发器触碰
@@ -137,7 +137,7 @@ afterEach(async () => {
 });
 
 describe('galleryService.createEmptyGallery', () => {
-  it('createEmptyGallery 建无文件夹图集并发 created 事件', async () => {
+  it('createEmptyGallery 建无文件夹相册并发 created 事件', async () => {
     const result = await createEmptyGallery('  手机新建  ');
     expect(result.success).toBe(true);
 
@@ -205,7 +205,7 @@ describe('galleryService.addImagesToGallery', () => {
     expect(emitGalleriesStatsUpdated).not.toHaveBeenCalled();
   });
 
-  it('addImagesToGallery 图集不存在 → Gallery not found', async () => {
+  it('addImagesToGallery 相册不存在 → Gallery not found', async () => {
     const result = await addImagesToGallery(999, [1, 2]);
     expect(result).toEqual({ success: false, error: 'Gallery not found' });
     expect(emitGalleryImagesChanged).not.toHaveBeenCalled();
@@ -249,7 +249,7 @@ describe('galleryService.removeImagesFromGallery', () => {
     expect(emitGalleriesStatsUpdated).toHaveBeenCalledWith([g]);
   });
 
-  it('removeImagesFromGallery 图集不存在 → Gallery not found', async () => {
+  it('removeImagesFromGallery 相册不存在 → Gallery not found', async () => {
     const result = await removeImagesFromGallery(999, [1]);
     expect(result).toEqual({ success: false, error: 'Gallery not found' });
     expect(emitGalleryImagesChanged).not.toHaveBeenCalled();

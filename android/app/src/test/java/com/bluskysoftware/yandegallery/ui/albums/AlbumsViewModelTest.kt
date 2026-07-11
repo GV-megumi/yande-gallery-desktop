@@ -61,7 +61,7 @@ class AlbumsViewModelTest {
     }
 
     @Test
-    fun `sections 首发射两卡片入普通分区，null 封面取图集内最新图`() = runTest {
+    fun `sections 首发射两卡片入普通分区，null 封面取相册内最新图`() = runTest {
         db.galleryDao().replaceAll(
             listOf(
                 GalleryEntity(id = 1, name = "a-has-cover", coverImageId = 10, imageCount = 1),
@@ -95,7 +95,7 @@ class AlbumsViewModelTest {
             assertEquals(10L, cardWithCover.coverImageId)
 
             val cardWithFallback = cards.first { it.gallery.id == 2L }
-            // 图集 2 的成员图里 21 的 createdAt 最新——observeAlbumCards 的相关子查询兜底应取它。
+            // 相册 2 的成员图里 21 的 createdAt 最新——observeAlbumCards 的相关子查询兜底应取它。
             assertEquals(21L, cardWithFallback.coverImageId)
         }
     }

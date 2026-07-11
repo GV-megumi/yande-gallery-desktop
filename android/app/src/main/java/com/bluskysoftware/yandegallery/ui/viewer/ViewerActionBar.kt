@@ -36,12 +36,12 @@ import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 
 /**
- * 大图页底部操作栏（Task 11，spec §7.3）：分享 / 查看原图 / 删除 / 详情 / 更多（加入图集、移出当前图集）。
+ * 大图页底部操作栏（Task 11，spec §7.3）：分享 / 查看原图 / 删除 / 详情 / 更多（加入相册、移出当前相册）。
  *
  * - 查看原图三态：未下载「查看原图」可点入队；下载中「下载中」置灰；已下载「已保存」置灰（已直读本地）。
  * - online=false 时写动作（删除/更多）置灰——离线写操作不排队（spec §8）；分享/详情读本地仍可用。
  * - [highZoom]（装配层判定：scale>2.5x 且未下载）时显「1600 档像素不足，可查看原图」轻提示。
- * - [onRemoveFromGallery] 为 null 表示无图集上下文（时间轴进入），菜单项置灰。
+ * - [onRemoveFromGallery] 为 null 表示无相册上下文（时间轴进入），菜单项置灰。
  */
 @Composable
 fun ViewerActionBar(
@@ -91,7 +91,7 @@ fun ViewerActionBar(
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("加入图集") },
+                        text = { Text("加入相册") },
                         onClick = {
                             menuOpen = false
                             onAddToGallery()
@@ -99,7 +99,7 @@ fun ViewerActionBar(
                         modifier = Modifier.testTag("viewer_menu_add_to_gallery"),
                     )
                     DropdownMenuItem(
-                        text = { Text("移出当前图集") },
+                        text = { Text("移出当前相册") },
                         enabled = onRemoveFromGallery != null,
                         onClick = {
                             menuOpen = false

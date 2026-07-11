@@ -90,7 +90,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const [addModalVisible, setAddModalVisible] = useState(false);
   const [editingTag, setEditingTag] = useState<FavoriteTag | null>(null);
   const [configuringTag, setConfiguringTag] = useState<FavoriteTagWithDownloadState | null>(null);
-  // 下载配置弹窗：当前选中图集的绑定文件夹列表（null=未选图集或尚未取到，[]=该图集没有绑定文件夹）
+  // 下载配置弹窗：当前选中相册的绑定文件夹列表（null=未选相册或尚未取到，[]=该相册没有绑定文件夹）
   const [selectedGalleryFolders, setSelectedGalleryFolders] = useState<string[] | null>(null);
   // 候选框底部「添加文件夹」进行中（选目录 + bindFolder 扫描导入可达分钟级，期间禁用入口防重复绑定）
   const [addingGalleryFolder, setAddingGalleryFolder] = useState(false);
@@ -127,7 +127,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
   const favoriteTagsRequestSeqRef = useRef(0);
   const latestFavoriteTagsQueryKeyRef = useRef('');
   const refreshTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // 下载配置弹窗内按需拉取图集绑定文件夹的请求序号，用于丢弃过期结果（快速切换图集时）
+  // 下载配置弹窗内按需拉取相册绑定文件夹的请求序号，用于丢弃过期结果（快速切换相册时）
   const galleryFolderRequestSeqRef = useRef(0);
 
   const buildFavoriteTagsQueryKey = useCallback((
@@ -228,15 +228,15 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       const result = await window.electronAPI.gallery.getGalleries();
       if (result.success && result.data) {
         // Phase 8B：gallery DTO 不再带 folderPath（folderPath/recursive/extensions 已归 gallery_folders）。
-        // 绑定文件夹只在用户选中具体图集时按需拉取（handleGalleryChange / handleFixGalleryBinding），
-        // 列表期不做逐图集预取——大库下那是每次进页 N 次并发 IPC 的 N+1 反模式。
+        // 绑定文件夹只在用户选中具体相册时按需拉取（handleGalleryChange / handleFixGalleryBinding），
+        // 列表期不做逐相册预取——大库下那是每次进页 N 次并发 IPC 的 N+1 反模式。
         setGalleries(result.data.map((gallery: any) => ({
           id: gallery.id,
           name: gallery.name,
         })));
       }
     } catch (error) {
-      console.error('[FavoriteTagsPage] 加载图集列表失败:', error);
+      console.error('[FavoriteTagsPage] 加载相册列表失败:', error);
     }
   }, []);
 
@@ -547,7 +547,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     downloadForm.setFieldsValue(buildDownloadBindingFormValues(record));
     const boundGalleryId = record.downloadBinding?.galleryId;
     if (boundGalleryId) {
-      // 已绑定图集：按需拉取其文件夹列表，让多文件夹 Select / 零文件夹提示在重开弹窗时同样生效
+      // 已绑定相册：按需拉取其文件夹列表，让多文件夹 Select / 零文件夹提示在重开弹窗时同样生效
       void loadSelectedGalleryFolders(boundGalleryId, { preserveExistingPath: true });
     } else {
       galleryFolderRequestSeqRef.current += 1; // 作废在途查询，避免上次弹窗的结果串台
@@ -555,22 +555,22 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     }
   };
 
-  // 按需拉取指定图集的绑定文件夹路径列表（选中图集 / 修复绑定时各调一次）；返回 null 表示查询失败
+  // 按需拉取指定相册的绑定文件夹路径列表（选中相册 / 修复绑定时各调一次）；返回 null 表示查询失败
   const fetchGalleryFolderPaths = useCallback(async (galleryId: number): Promise<string[] | null> => {
     try {
       const result = await window.electronAPI.gallery.getGalleryFolders(galleryId);
       if (result.success && result.data) {
         return result.data.map(folder => folder.folderPath);
       }
-      console.warn('[FavoriteTagsPage] 读取图集绑定文件夹失败:', galleryId, result.error);
+      console.warn('[FavoriteTagsPage] 读取相册绑定文件夹失败:', galleryId, result.error);
       return null;
     } catch (error) {
-      console.error('[FavoriteTagsPage] 读取图集绑定文件夹失败:', galleryId, error);
+      console.error('[FavoriteTagsPage] 读取相册绑定文件夹失败:', galleryId, error);
       return null;
     }
   }, []);
 
-  // 加载选中图集的绑定文件夹并联动下载路径：
+  // 加载选中相册的绑定文件夹并联动下载路径：
   // - 多个文件夹：下载路径渲染为可选 Select（默认首个；后端集合校验本就允许任一绑定文件夹）
   // - 零文件夹：清空路径并由界面提示引导（后端要求 galleryId 存在时路径 ∈ 绑定文件夹，不能开放任意目录）
   // - preserveExistingPath：重开弹窗回填已保存绑定时保留原路径，不悄悄改值
@@ -582,7 +582,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       return; // 选择已变更，丢弃过期结果
     }
     if (folders === null) {
-      // 查询失败：提示并回退为未选图集，避免误报「无绑定文件夹」或把用户锁死在只读输入框
+      // 查询失败：提示并回退为未选相册，避免误报「无绑定文件夹」或把用户锁死在只读输入框
       message.error(t('common.failed'));
       if (!options?.preserveExistingPath) {
         downloadForm.setFieldsValue({ galleryId: undefined });
@@ -606,7 +606,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
 
   const handleGalleryChange = (galleryId?: number) => {
     if (!galleryId) {
-      // 清空图集选择：保留当前路径并恢复手动选目录（既有行为），同时作废在途的文件夹查询
+      // 清空相册选择：保留当前路径并恢复手动选目录（既有行为），同时作废在途的文件夹查询
       galleryFolderRequestSeqRef.current += 1;
       setSelectedGalleryFolders(null);
       return;
@@ -614,13 +614,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
     void loadSelectedGalleryFolders(galleryId);
   };
 
-  // 候选框底部「添加文件夹」：选目录 → 绑定到当前图集（gallery.bindFolder，含扫描导入）→
-  // 刷新候选并自动选中新路径。图集绑定态下下载路径必须 ∈ 绑定文件夹（后端校验），
-  // 所以这里不能只改表单值，必须先真实绑定；这与图集信息弹窗里的「添加文件夹」是同一语义。
+  // 候选框底部「添加文件夹」：选目录 → 绑定到当前相册（gallery.bindFolder，含扫描导入）→
+  // 刷新候选并自动选中新路径。相册绑定态下下载路径必须 ∈ 绑定文件夹（后端校验），
+  // 所以这里不能只改表单值，必须先真实绑定；这与相册信息弹窗里的「添加文件夹」是同一语义。
   const handleAddGalleryFolder = async (galleryId: number) => {
     setAddingGalleryFolder(true);
     // 记录发起时的请求序号：目录选择/bindFolder 扫描可达分钟级，期间用户可能切换或
-    // 清空图集（都会推进序号）。完成后序号已变则跳过一切表单回写（绑定本身已生效，不回滚）。
+    // 清空相册（都会推进序号）。完成后序号已变则跳过一切表单回写（绑定本身已生效，不回滚）。
     const seqAtStart = galleryFolderRequestSeqRef.current;
     try {
       const picked = await window.electronAPI.system.selectFolder();
@@ -633,7 +633,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       const pickedPath = picked.data;
 
       // 选中的目录已是候选（宽松比较，误判交给后端 UNIQUE 兜底）：直接改选中，不重复绑定。
-      // 序号未变时闭包里的 selectedGalleryFolders 必然仍是当前图集的候选（任何变更都会推进序号）。
+      // 序号未变时闭包里的 selectedGalleryFolders 必然仍是当前相册的候选（任何变更都会推进序号）。
       const existing = (selectedGalleryFolders ?? [])
         .find(folderPath => folderCompareKey(folderPath) === folderCompareKey(pickedPath));
       if (existing) {
@@ -651,7 +651,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       message.success(t('favoriteTags.folderAdded'));
 
       if (galleryFolderRequestSeqRef.current !== seqAtStart) {
-        return; // 弹窗上下文已切换（换图集/清空选择），不再刷新候选或改写选中路径
+        return; // 弹窗上下文已切换（换相册/清空选择），不再刷新候选或改写选中路径
       }
       const requestSeq = seqAtStart + 1;
       galleryFolderRequestSeqRef.current = requestSeq;
@@ -664,7 +664,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       const bound = folders.find(folderPath => folderCompareKey(folderPath) === folderCompareKey(pickedPath));
       downloadForm.setFieldsValue({ downloadPath: bound ?? folders[0] ?? '' });
     } catch (error) {
-      console.error('[FavoriteTagsPage] 添加图集文件夹失败:', error);
+      console.error('[FavoriteTagsPage] 添加相册文件夹失败:', error);
       message.error(t('common.failed'));
     } finally {
       setAddingGalleryFolder(false);
@@ -769,14 +769,14 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
       message.error(t('favoriteTags.galleryNotFoundForFix'));
       return;
     }
-    // 修复 = 把下载路径重置为该图集首个绑定文件夹，此处按需拉取一次（列表期不再预取）
+    // 修复 = 把下载路径重置为该相册首个绑定文件夹，此处按需拉取一次（列表期不再预取）
     const folders = await fetchGalleryFolderPaths(gallery.id);
     if (folders === null) {
       message.error(t('common.failed'));
       return;
     }
     if (folders.length === 0) {
-      // 图集已无任何绑定文件夹：不存在合法下载路径可修复，引导先到图集信息添加文件夹
+      // 相册已无任何绑定文件夹：不存在合法下载路径可修复，引导先到相册信息添加文件夹
       message.error(t('favoriteTags.galleryHasNoFolders'));
       return;
     }
@@ -802,7 +802,7 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
         message.error(`${t('common.failed')}: ${result.error}`);
       }
     } catch (error) {
-      console.error('[FavoriteTagsPage] 修复图集绑定失败:', error);
+      console.error('[FavoriteTagsPage] 修复相册绑定失败:', error);
       message.error(t('common.failed'));
     }
   };
@@ -1288,13 +1288,13 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
             <Form.Item shouldUpdate={(prev, curr) => prev.galleryId !== curr.galleryId} noStyle>
               {({ getFieldValue }) => {
                 const selectedGalleryId = getFieldValue('galleryId');
-                // 选中图集但该图集没有任何绑定文件夹：无合法下载路径可选（后端要求路径 ∈ 绑定文件夹）
+                // 选中相册但该相册没有任何绑定文件夹：无合法下载路径可选（后端要求路径 ∈ 绑定文件夹）
                 const galleryHasNoFolders = Boolean(selectedGalleryId)
                   && selectedGalleryFolders !== null
                   && selectedGalleryFolders.length === 0;
                 const downloadPathRules = [{
                   validator: async (_rule: unknown, value: string) => {
-                    // 保存校验与界面提示给出同一原因，引导先到图集信息添加文件夹
+                    // 保存校验与界面提示给出同一原因，引导先到相册信息添加文件夹
                     if (getFieldValue('galleryId') && selectedGalleryFolders !== null && selectedGalleryFolders.length === 0) {
                       throw new Error(t('favoriteTags.galleryHasNoFolders'));
                     }
@@ -1306,9 +1306,9 @@ export const FavoriteTagsPage: React.FC<FavoriteTagsPageInnerProps> = ({ onTagCl
                 return (
                   <>
                     {Boolean(selectedGalleryId) && selectedGalleryFolders !== null ? (
-                      // 图集绑定态：下载路径渲染为绑定文件夹候选框（默认首个，可改选任一）。
+                      // 相册绑定态：下载路径渲染为绑定文件夹候选框（默认首个，可改选任一）。
                       // 单文件夹甚至零文件夹也渲染候选框——候选框底部的「添加文件夹」是
-                      // 图集绑定态下扩充合法下载目录的唯一入口（先真实 bindFolder 再入候选）。
+                      // 相册绑定态下扩充合法下载目录的唯一入口（先真实 bindFolder 再入候选）。
                       <Form.Item name="downloadPath" noStyle rules={downloadPathRules}>
                         <Select
                           options={selectedGalleryFolders.map(folderPath => ({ label: folderPath, value: folderPath }))}

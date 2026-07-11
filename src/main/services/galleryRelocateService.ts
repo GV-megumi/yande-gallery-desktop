@@ -28,7 +28,7 @@
  *
  * 本期"有意不在范围内"的其它绝对路径列（避免误以为遗漏）：
  *   - invalid_images.filepath / invalid_images.thumbnailPath：失效图片记录，本就是"已不存在"的快照，
- *     不属于核心图集/Booru 完整性面；搬库后重扫即可自然刷新，无需改写。
+ *     不属于核心相册/Booru 完整性面；搬库后重扫即可自然刷新，无需改写。
  *   - yande_images.localPath：旧版 Yande 表（已被 booru_posts 取代），遗留死数据，不维护。
  *   - bulk_download_tasks.path / booru_download_queue.targetPath：下载目录配置，属于用户可随时
  *     重新配置的"去向"设置，而非已落盘资产的身份；不改写，由用户在新机自行设定。
@@ -477,10 +477,10 @@ export async function applyRelocateRoot(
  * 列出磁盘上不存在的绑定文件夹（只读，不改库）。
  *
  * 逐条检查 gallery_folders.folderPath 是否可 fs.access；不存在的行返回出来，
- * 供 UI 在搬库/迁移后高亮"需要重定位"的图集。一次 access 失败（含 ENOENT、
+ * 供 UI 在搬库/迁移后高亮"需要重定位"的相册。一次 access 失败（含 ENOENT、
  * 权限等任何错误）都视为缺失——目标只是给用户一个需要关注的清单。
- * 附带图集名（galleryName）供重定位弹窗按行标注归属；LEFT JOIN 防御悬挂绑定行，
- * 图集缺失时回退空串。
+ * 附带相册名（galleryName）供重定位弹窗按行标注归属；LEFT JOIN 防御悬挂绑定行，
+ * 相册缺失时回退空串。
  */
 export async function getMissingGalleryFolders(): Promise<
   Array<{ galleryId: number; folderPath: string; galleryName: string }>

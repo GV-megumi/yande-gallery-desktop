@@ -9,8 +9,8 @@
 
 后来安卓 App 的远程调用被塞进了同一套权限系统，造成混用：
 
-1. 权限键膨胀到 13 个——`imageWrite`、`galleryWrite` 是给手机加的，违背 agent 面原始设计意图（agent 面注册了删除图集/图片等高危端点）。
-2. 手机接口全部寄生在 agent 权限上：`sync/*` 借 `galleryRead`，删图/改标签借 `imageWrite`，图集增删改借 `galleryWrite`，缩略图/原图借 `imageBinary`，SSE 借 `eventsSubscribe`。手机要正常工作需在设置里开 5 个 agent 权限开关。
+1. 权限键膨胀到 13 个——`imageWrite`、`galleryWrite` 是给手机加的，违背 agent 面原始设计意图（agent 面注册了删除相册/图片等高危端点）。
+2. 手机接口全部寄生在 agent 权限上：`sync/*` 借 `galleryRead`，删图/改标签借 `imageWrite`，相册增删改借 `galleryWrite`，缩略图/原图借 `imageBinary`，SSE 借 `eventsSubscribe`。手机要正常工作需在设置里开 5 个 agent 权限开关。
 3. 设置页的「权限」区语义混乱：用户无法区分哪些开关服务于手机、哪些服务于 agent。
 
 ## 2. 已拍板的决策
@@ -87,7 +87,7 @@ apiService:
 | API 服务 | 端口、监听模式（仅约束 Agent 面来源）、当前绑定地址+运行状态、API Key 管理（显示/复制/重新生成，单行合并）——共享基础 |
 | 手机端连接 | 「允许手机端连接」单开关 + 移动端配对二维码入口（从基础区搬来） |
 | Agent API | 「启用 Agent API」（原「启用 API 服务」改名） |
-| Agent 权限 | 11 个细化开关（删掉「图片写操作」「图集写操作」两行） |
+| Agent 权限 | 11 个细化开关（删掉「图片写操作」「相册写操作」两行） |
 | 日志 | 不变 |
 
 ## 8. 安卓端改动

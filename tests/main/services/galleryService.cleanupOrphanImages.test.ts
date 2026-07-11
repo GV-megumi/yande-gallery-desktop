@@ -5,7 +5,7 @@ import path from 'path';
 /**
  * Phase 3 — cleanupOrphanImages
  *
- * 给定一批候选 imageId（刚被从某图集移除成员），删除其中"已成孤儿"的图片
+ * 给定一批候选 imageId（刚被从某相册移除成员），删除其中"已成孤儿"的图片
  * = 在 gallery_images 中已无任何成员行的图片。复用 deleteGallery 的清理动作，
  * 但作用域是孤儿 imageId 集合（而非 folderPath 前缀）：
  *   - SELECT id, filepath FROM images WHERE id IN(...) AND id NOT IN (SELECT imageId FROM gallery_images)
@@ -182,21 +182,21 @@ describe('cleanupOrphanImages', () => {
     expect(rows).toHaveLength(1);
   });
 
-  it('仍归属另一图集的图片不应被删除（多归属保护）', async () => {
-    // img 同时在图集 1 与图集 2；从图集 1 移除成员后调用 cleanupOrphanImages([img])
+  it('仍归属另一相册的图片不应被删除（多归属保护）', async () => {
+    // img 同时在相册 1 与相册 2；从相册 1 移除成员后调用 cleanupOrphanImages([img])
     const img = await addImage(normalizePath(path.join('M:', 'shared', 'x.jpg')));
     await addMembership(1, img);
     await addMembership(2, img);
-    // 模拟"刚从图集 1 移除成员"
+    // 模拟"刚从相册 1 移除成员"
     await run(h.db, 'DELETE FROM gallery_images WHERE galleryId = 1 AND imageId = ?', [img]);
 
     const count = await cleanupOrphanImages(h.db, [img]);
 
     expect(count).toBe(0);
-    // 图片仍在（图集 2 还引用它）
+    // 图片仍在（相册 2 还引用它）
     const rows = await all<{ id: number }>(h.db, 'SELECT id FROM images');
     expect(rows.map((r) => r.id)).toEqual([img]);
-    // 仍保留图集 2 的成员行
+    // 仍保留相册 2 的成员行
     const member = await all(h.db, 'SELECT * FROM gallery_images WHERE imageId = ?', [img]);
     expect(member).toHaveLength(1);
     // 未尝试清缩略图
@@ -258,7 +258,7 @@ describe('cleanupOrphanImages', () => {
   it('混合输入：仅删孤儿，保留仍有成员的图片', async () => {
     const orphan = await addImage(normalizePath(path.join('M:', 'mix', 'orphan.jpg')));
     const kept = await addImage(normalizePath(path.join('M:', 'mix', 'kept.jpg')));
-    await addMembership(5, kept); // kept 仍在图集 5
+    await addMembership(5, kept); // kept 仍在相册 5
 
     const count = await cleanupOrphanImages(h.db, [orphan, kept]);
 
@@ -268,7 +268,7 @@ describe('cleanupOrphanImages', () => {
   });
 
   /**
-   * 大图集回收：候选 id 数量跨多个 500 分批边界。
+   * 大相册回收：候选 id 数量跨多个 500 分批边界。
    *
    * 旧实现把每个 id 拼成一个占位符放进单条 IN(...)，在变量上限为 999 的环境会抛
    * "too many SQL variables"。本测试不依赖环境的硬上限（现代 SQLite 可达 32766），
@@ -281,7 +281,7 @@ describe('cleanupOrphanImages', () => {
     for (let i = 0; i < ORPHAN_COUNT; i++) {
       orphanIds.push(await addImage(normalizePath(path.join('M:', 'big', `o${i}.jpg`))));
     }
-    // 一张非孤儿：仍是图集 7 的成员
+    // 一张非孤儿：仍是相册 7 的成员
     const kept = await addImage(normalizePath(path.join('M:', 'big', 'kept.jpg')));
     await addMembership(7, kept);
 
@@ -307,7 +307,7 @@ describe('cleanupOrphanImages', () => {
   });
 
   /**
-   * 大图集 booru 重置：超过 500 个孤儿对应的 booru_posts 也应分批重置。
+   * 大相册 booru 重置：超过 500 个孤儿对应的 booru_posts 也应分批重置。
    * UPDATE booru_posts 一条语句同时带 localImageId 与 localPath 两组占位符（2×批大小），
    * 故每条参数数应 ≤ 1000（2 × 500）。
    */

@@ -48,7 +48,7 @@ class RoomMirrorStore(
         // 必须一并清空，否则跨服同号 id 会命中错误的本地原图；系统相册中的文件本身保留。
         db.downloadDao().clearAll()
         // album_prefs 同理（对齐 D10）：偏好按 galleryId 键，跨服低位 id 几乎必然撞号，
-        // 残留行会附身新服务器的同号图集（凭空置顶/从相册主区消失）；deleteOrphans 只管
+        // 残留行会附身新服务器的同号相册（凭空置顶/从相册主区消失）；deleteOrphans 只管
         // 「id 已不存在」的孤儿，撞号行它删不掉，必须随全量重建整表清空。
         db.albumPrefsDao().clearAll()
         db.syncStateDao().clear()
@@ -99,8 +99,8 @@ class RoomMirrorStore(
         db.galleryDao().replaceAll(
             items.map { GalleryEntity(it.id, it.name, it.coverImageId, it.imageCount, it.createdAt) },
         )
-        // 对账清孤儿偏好（spec §2.1）：图集已消失的置顶/分组/手动序行一并清掉，
-        // 与 replaceAll 同事务——不留「图集没了偏好还在」的中间态窗口
+        // 对账清孤儿偏好（spec §2.1）：相册已消失的置顶/分组/手动序行一并清掉，
+        // 与 replaceAll 同事务——不留「相册没了偏好还在」的中间态窗口
         db.albumPrefsDao().deleteOrphans()
     }
 

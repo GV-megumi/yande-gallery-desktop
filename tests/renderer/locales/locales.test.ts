@@ -142,7 +142,7 @@ describe('t() 参数替换', () => {
   });
 
   it('应替换多个参数', () => {
-    // settings.scanComplete = '扫描完成：创建图集 {created} 个，跳过 {skipped} 个，导入图片 {imported} 张'
+    // settings.scanComplete = '扫描完成：创建相册 {created} 个，跳过 {skipped} 个，导入图片 {imported} 张'
     const result = t(zhCN, 'settings.scanComplete', { created: 5, skipped: 2, imported: 100 });
     expect(result).toContain('5');
     expect(result).toContain('2');
