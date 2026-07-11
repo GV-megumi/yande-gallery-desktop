@@ -64,7 +64,7 @@ interface DesktopApi {
     @PATCH("$APP_API_PATH/galleries/{galleryId}")
     suspend fun renameGallery(@Path("galleryId") galleryId: Long, @Body body: GalleryNameDto): ApiEnvelope<UpdatedDto>
 
-    // v0.6：设图集封面（桌面 PATCH 已扩展接受 coverImageId，spec §6.1）
+    // v0.6：设相册封面（桌面 PATCH 已扩展接受 coverImageId，spec §6.1）
     @PATCH("$APP_API_PATH/galleries/{galleryId}")
     suspend fun setGalleryCover(@Path("galleryId") galleryId: Long, @Body body: GalleryCoverDto): ApiEnvelope<UpdatedDto>
 

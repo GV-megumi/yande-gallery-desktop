@@ -109,7 +109,7 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
     `);
 
     // 创建图库表（懒加载设计）
-    // Phase 8A contract：图集与文件夹解耦后，galleries 不再存 folderPath/recursive/extensions
+    // Phase 8A contract：相册与文件夹解耦后，galleries 不再存 folderPath/recursive/extensions
     // （这些归 gallery_folders），isWatching 改名为语义更准确的 autoScan（是否随启动/进入自动扫描）。
     // 新库直接建新结构；旧库由下方 contractGalleriesTable 在解耦回填之后重建升级。
     await run(database, `
@@ -126,7 +126,7 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       )
     `);
 
-    // 创建图库忽略名单表（bug12：删除图集后写入，扫描时跳过）
+    // 创建图库忽略名单表（bug12：删除相册后写入，扫描时跳过）
     // 存归一化后的 folderPath；note 记录忽略原因；createdAt/updatedAt 便于排序与审计。
     await run(database, `
       CREATE TABLE IF NOT EXISTS gallery_ignored_folders (
@@ -722,10 +722,10 @@ export async function initDatabase(): Promise<{ success: boolean; error?: string
       console.warn('[database] booru_favorites 迁移跳过（可能数据库为空）:', migErr);
     }
 
-    // === 图集与文件夹解耦迁移（Expand：建关联表 + 回填，不动旧列） ===
-    console.log('[database] 开始图集与文件夹解耦迁移...');
+    // === 相册与文件夹解耦迁移（Expand：建关联表 + 回填，不动旧列） ===
+    console.log('[database] 开始相册与文件夹解耦迁移...');
     await migrateGalleryFolderDecoupling(database);
-    console.log('[database] 图集与文件夹解耦迁移完成');
+    console.log('[database] 相册与文件夹解耦迁移完成');
 
     // === Phase 8A contract：重建 galleries 删旧列（folderPath/isWatching/recursive/extensions），
     //     isWatching→autoScan。必须在 migrateGalleryFolderDecoupling 之后——回填读 galleries.folderPath，
@@ -983,11 +983,11 @@ export async function isDatabaseInitialized(): Promise<boolean> {
 }
 
 // ===========================================================================
-// 图集与文件夹解耦迁移（Expand 阶段）
+// 相册与文件夹解耦迁移（Expand 阶段）
 //
 // 引入两张关联表，把"图片归属"从 filepath 前缀隐式匹配升级为显式成员表：
-//   - gallery_folders：图集 ↔ 文件夹（1:N），folderPath 全局唯一
-//   - gallery_images ：图集 ↔ 图片成员（主键 galleryId+imageId）
+//   - gallery_folders：相册 ↔ 文件夹（1:N），folderPath 全局唯一
+//   - gallery_images ：相册 ↔ 图片成员（主键 galleryId+imageId）
 //
 // 本迁移只"扩张"（建表 + 回填），不动 galleries 旧列（folderPath/isWatching/
 // recursive/extensions），保证迁移期间旧代码仍可运行。旧列清理（galleries 重建、
@@ -1002,7 +1002,7 @@ export async function ensureDecouplingTables(database: sqlite3.Database): Promis
     CREATE TABLE IF NOT EXISTS gallery_folders (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       galleryId INTEGER NOT NULL,
-      folderPath TEXT NOT NULL UNIQUE,   -- 全局唯一：一个文件夹只属于一个图集
+      folderPath TEXT NOT NULL UNIQUE,   -- 全局唯一：一个文件夹只属于一个相册
       recursive INTEGER NOT NULL DEFAULT 1,
       extensions TEXT,                   -- JSON 数组；为空时由调用方用默认扩展名
       createdAt TEXT NOT NULL,
@@ -1027,7 +1027,7 @@ export async function ensureDecouplingTables(database: sqlite3.Database): Promis
 }
 
 /**
- * 从旧 galleries.folderPath 回填 gallery_folders（每个图集一条绑定）。
+ * 从旧 galleries.folderPath 回填 gallery_folders（每个相册一条绑定）。
  * 幂等：folderPath 全局唯一 + INSERT OR IGNORE。
  * 仅在 galleries 仍含 folderPath 列时由编排函数调用。
  */
@@ -1041,7 +1041,7 @@ export async function backfillGalleryFolders(database: sqlite3.Database): Promis
 }
 
 /**
- * 回填 gallery_images：对每个图集，按与 deleteGallery 一致的 recursive 感知前缀匹配
+ * 回填 gallery_images：对每个相册，按与 deleteGallery 一致的 recursive 感知前缀匹配
  * 选出其图片写入成员表。幂等（成员主键 + INSERT OR IGNORE）。
  *
  * 匹配规则（与 galleryService 的成员/覆盖谓词字面一致，保持图片归属与现状相同）：
@@ -1051,8 +1051,8 @@ export async function backfillGalleryFolders(database: sqlite3.Database): Promis
  * 字面前缀 F{sep} 经 escapeLike 转义（_/% 不再当通配符），故兄弟目录（如 F=...gal_1
  * 误匹配 ...galA1）不会被错误塞进成员表；末尾 % 与 {sep}% 段保留为通配符。
  *
- * 性能：每个图集用单条集合式 INSERT OR IGNORE ... SELECT 完成（与
- * galleryService.ensureMembershipForFolder 同形态），语句数只随图集数增长、不随
+ * 性能：每个相册用单条集合式 INSERT OR IGNORE ... SELECT 完成（与
+ * galleryService.ensureMembershipForFolder 同形态），语句数只随相册数增长、不随
  * 图片数增长——避免大库升级首启时"命中行拉回 JS 再逐行 INSERT"的数十万次语句往返。
  */
 export async function backfillGalleryImages(database: sqlite3.Database): Promise<void> {
@@ -1107,16 +1107,16 @@ export async function migrateGalleryFolderDecoupling(database: sqlite3.Database)
       await backfillGalleryFolders(database);
       await backfillGalleryImages(database);
     });
-    console.log('[database] 图集解耦迁移：gallery_folders / gallery_images 回填完成');
+    console.log('[database] 相册解耦迁移：gallery_folders / gallery_images 回填完成');
   }
 }
 
 // ===========================================================================
-// 图集与文件夹解耦迁移（Contract 阶段）
+// 相册与文件夹解耦迁移（Contract 阶段）
 //
 // 删除 galleries 的旧列（folderPath/isWatching/recursive/extensions）并把 isWatching
 // 改名为 autoScan。folderPath/recursive/extensions 现在归 gallery_folders（解耦回填后
-// 已是 source of truth），galleries 只保留图集自身元数据 + autoScan 自动扫描开关。
+// 已是 source of truth），galleries 只保留相册自身元数据 + autoScan 自动扫描开关。
 //
 // 必须在 migrateGalleryFolderDecoupling 之后运行：回填读 galleries.folderPath，删列后
 // 回填判断（columnExists 'folderPath'）自动短路。
@@ -1274,11 +1274,11 @@ export async function nextChangeSeq(db: sqlite3.Database): Promise<number> {
 
 /**
  * 同步触碰触发器（安卓相册 M1，spec §5.3；M4-T16 起同时维护 changeSeq）：
- * 标签/图集归属变化时触碰 images.updatedAt 并写入新 bump 的 changeSeq，
+ * 标签/相册归属变化时触碰 images.updatedAt 并写入新 bump 的 changeSeq，
  * 供移动端 changeSeq 游标增量同步感知（updatedAt 保留服务 DTO 展示与排序）。
  * strftime('%Y-%m-%dT%H:%M:%fZ','now') 与 JS new Date().toISOString() 字节一致，
  * 保证与既有 JS 写入的时间戳字典序可比；INSERT OR IGNORE 命中重复不触发，
- * DELETE FROM galleries 的 FK CASCADE 会触发（幂等重扫不churn、删图集可感知）。
+ * DELETE FROM galleries 的 FK CASCADE 会触发（幂等重扫不churn、删相册可感知）。
  *
  * 先 DROP 再 CREATE：CREATE TRIGGER IF NOT EXISTS 不更新既有触发器体，
  * 升级库若不 DROP 会继续跑旧触发器（只碰 updatedAt 不碰 changeSeq），静默漏同步。

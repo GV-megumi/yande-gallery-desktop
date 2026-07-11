@@ -3,12 +3,12 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * Phase 4 — syncGalleryFolder 扫描图集全部绑定文件夹（gallery_folders）
+ * Phase 4 — syncGalleryFolder 扫描相册全部绑定文件夹（gallery_folders）
  *
  * 扫描源从 galleries 旧列 folderPath 切到 gallery_folders 的全部绑定行：
- *   - 多文件夹图集：同步从所有绑定文件夹导入，成员/imageCount 反映并集；
- *   - 单文件夹图集：行为不变；
- *   - 无文件夹图集：no-op，返回零导入 + 当前 imageCount，不报错。
+ *   - 多文件夹相册：同步从所有绑定文件夹导入，成员/imageCount 反映并集；
+ *   - 单文件夹相册：行为不变；
+ *   - 无文件夹相册：no-op，返回零导入 + 当前 imageCount，不报错。
  * 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }。
  *
  * 真实 :memory: sqlite 验证成员写入；scanAndImportFolder（磁盘扫描）按 folderPath 提供每次结果。
@@ -131,7 +131,7 @@ async function addGallery(folderPath: string, recursive: number): Promise<number
   return row!.id;
 }
 
-/** 给图集追加一条 gallery_folders 绑定行 */
+/** 给相册追加一条 gallery_folders 绑定行 */
 async function addBinding(galleryId: number, folderPath: string, recursive: number): Promise<void> {
   await run(
     h.db,
@@ -156,8 +156,8 @@ afterEach(async () => {
   await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
 });
 
-describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
-  it('单文件夹递归图集：写入直接+嵌套成员，返回形状保留 lastScannedAt', async () => {
+describe('syncGalleryFolder 扫描相册全部绑定文件夹', () => {
+  it('单文件夹递归相册：写入直接+嵌套成员，返回形状保留 lastScannedAt', async () => {
     const folder = normalizePath(path.join('M:', 'galA'));
     const galleryId = await addGallery(folder, 1);
     await addBinding(galleryId, folder, 1);
@@ -177,7 +177,7 @@ describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
     expect(members).toEqual([direct, nested].sort((x, y) => x - y));
   });
 
-  it('单文件夹非递归图集：只写直接子文件成员', async () => {
+  it('单文件夹非递归相册：只写直接子文件成员', async () => {
     const folder = normalizePath(path.join('M:', 'galB'));
     const galleryId = await addGallery(folder, 0);
     await addBinding(galleryId, folder, 0);
@@ -196,7 +196,7 @@ describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
     expect(members).not.toContain(nested);
   });
 
-  it('多文件夹图集：从所有绑定文件夹导入，成员/imageCount 反映并集，imported/skipped 累加', async () => {
+  it('多文件夹相册：从所有绑定文件夹导入，成员/imageCount 反映并集，imported/skipped 累加', async () => {
     const galleryFolder = normalizePath(path.join('M:', 'multi'));
     const galleryId = await addGallery(galleryFolder, 1);
     // 两个不同的绑定文件夹（含原始文件夹 + 追加文件夹）
@@ -227,7 +227,7 @@ describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
     expect(members).toEqual([i1, i2, i3].sort((x, y) => x - y));
   });
 
-  it('无文件夹图集：no-op，返回零导入 + 当前 imageCount，不报错', async () => {
+  it('无文件夹相册：no-op，返回零导入 + 当前 imageCount，不报错', async () => {
     const folder = normalizePath(path.join('M:', 'folderless'));
     const galleryId = await addGallery(folder, 1);
     // 不写任何 gallery_folders 绑定行；但预置一个成员，验证 imageCount 取当前值
@@ -243,7 +243,7 @@ describe('syncGalleryFolder 扫描图集全部绑定文件夹', () => {
     expect(result.data?.lastScannedAt).toBeTruthy();
   });
 
-  it('图集不存在时返回错误', async () => {
+  it('相册不存在时返回错误', async () => {
     const result = await syncGalleryFolder(9999);
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();

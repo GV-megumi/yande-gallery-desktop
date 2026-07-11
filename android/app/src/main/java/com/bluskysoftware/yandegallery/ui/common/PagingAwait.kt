@@ -7,7 +7,7 @@ import kotlinx.coroutines.flow.dropWhile
 import kotlinx.coroutines.flow.first
 
 /**
- * 排序切换回顶的「第二针」（审查 minor，照片页/图集详情共用）：
+ * 排序切换回顶的「第二针」（审查 minor，照片页/相册详情共用）：
  *
  * 切排序后立即 scrollToItem(0) 作用的是旧世代快照，LazyGrid 会记下此刻首可见项的 key；
  * 新世代落地时「按 key 维持滚动位置」机制若在新快照首载窗口内找到同 key（小库、日头键族、

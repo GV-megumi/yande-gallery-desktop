@@ -19,10 +19,10 @@ import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 
 /**
- * 图集选择对话框（「加入图集」）：列出 Room 镜像图集，点选回调 galleryId；空库显提示。
+ * 相册选择对话框（「加入相册」）：列出 Room 镜像相册，点选回调 galleryId；空库显提示。
  * T11 建于 ui/viewer，T13 起大图页与两处多选共用，迁至 ui/common；MIUI 重塑换 MiuiDialog 壳（spec §8.3）。
  *
- * [excludeIds] 过滤掉不该出现的图集（D12A：图集详情传本图集 id，避免「加入当前所在图集」自指）；
+ * [excludeIds] 过滤掉不该出现的相册（D12A：相册详情传本相册 id，避免「加入当前所在相册」自指）；
  * 过滤后为空复用既有空态文案。Photos/大图页不传（默认空集）。
  */
 @Composable
@@ -33,9 +33,9 @@ fun GalleryPickerDialog(
     excludeIds: Set<Long> = emptySet(),
 ) {
     val visible = galleries.filterNot { it.id in excludeIds }
-    MiuiDialog(title = "加入图集", onDismiss = onDismiss, confirmText = null, dismissText = "取消", content = {
+    MiuiDialog(title = "加入相册", onDismiss = onDismiss, confirmText = null, dismissText = "取消", content = {
         if (visible.isEmpty()) {
-            Text("暂无图集，可先在相册 tab 新建", style = MaterialTheme.typography.bodyMedium)
+            Text("暂无相册，可先在相册 tab 新建", style = MaterialTheme.typography.bodyMedium)
         } else {
             LazyColumn(Modifier.heightIn(max = 320.dp)) {
                 items(visible, key = { it.id }) { gallery ->

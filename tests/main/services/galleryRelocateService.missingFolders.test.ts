@@ -110,14 +110,14 @@ describe('getMissingGalleryFolders', () => {
     expect(result).toHaveLength(2);
     const paths = result.map((r) => r.folderPath).sort();
     expect(paths).toEqual([missing1, missing2].sort());
-    // 每行带 galleryId 与图集名（供重定位 UI 小字标注归属）
+    // 每行带 galleryId 与相册名（供重定位 UI 小字标注归属）
     expect(result.every((r) => r.galleryId === g)).toBe(true);
     expect(result.every((r) => r.galleryName === 'g')).toBe(true);
     // 存在的那个没被返回
     expect(paths).not.toContain(present);
   });
 
-  it('多图集缺失时各行带各自的图集名', async () => {
+  it('多相册缺失时各行带各自的相册名', async () => {
     const ga = await addGallery('Alpha');
     const gb = await addGallery('Beta');
     await addFolderBinding(ga, normalizePath(path.join('N:', 'lost-a')));

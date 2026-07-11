@@ -41,10 +41,10 @@ import java.util.Locale
 /**
  * 详情面板内容（Task 11，无 VM 依赖，Robolectric 可直测）：
  * 文件名/分辨率/大小/格式/入库时间 + 标签 chips（可点击——跳搜索由 T12 接线）+
- * 所属图集 chips（可点击跳图集详情）+「编辑」标签入口。
+ * 所属相册 chips（可点击跳相册详情）+「编辑」标签入口。
  * online=false 时编辑入口禁用（离线写操作置灰不排队，spec §8）。
  *
- * @param galleryNames 图集 id→名称（装配层从 VM 的图集列表解析）；缺失时兜底显示「图集 #id」。
+ * @param galleryNames 相册 id→名称（装配层从 VM 的相册列表解析）；缺失时兜底显示「相册 #id」。
  */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
@@ -97,13 +97,13 @@ fun DetailPanel(
 
         if (detail.galleryIds.isNotEmpty()) {
             Spacer(Modifier.height(8.dp))
-            Text("所属图集", style = MaterialTheme.typography.titleSmall)
+            Text("所属相册", style = MaterialTheme.typography.titleSmall)
             Spacer(Modifier.height(4.dp))
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 detail.galleryIds.forEach { id ->
                     AssistChip(
                         onClick = { onGalleryClick(id) },
-                        label = { Text(galleryNames[id] ?: "图集 #$id") },
+                        label = { Text(galleryNames[id] ?: "相册 #$id") },
                         modifier = Modifier.testTag("detail_gallery_$id"),
                     )
                 }

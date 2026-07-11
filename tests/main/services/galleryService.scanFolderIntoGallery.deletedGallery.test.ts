@@ -3,18 +3,18 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * 修复轮 U08 — scanFolderIntoGallery 对「扫描期间图集被并发删除」的兜底回收。
+ * 修复轮 U08 — scanFolderIntoGallery 对「扫描期间相册被并发删除」的兜底回收。
  *
  * 场景：autoScan 大文件夹导入可达分钟级（逐文件 INSERT 即时提交，成员在导入循环
- * 结束后才由 ensureMembershipForFolder 统一写入）；期间用户删除该图集 →
+ * 结束后才由 ensureMembershipForFolder 统一写入）；期间用户删除该相册 →
  * ensureMembershipForFolder 的 INSERT OR IGNORE 触发 FK 约束错误（OR IGNORE 不豁免
  * 外键违例，foreign_keys=ON）。旧实现直接抛错：本次刚导入的图片永久滞留为零归属
- * 僵尸行——不出现在任何图集、文件夹又已被拉黑不会重扫收编，无任何 GC 路径。
+ * 僵尸行——不出现在任何相册、文件夹又已被拉黑不会重扫收编，无任何 GC 路径。
  *
  * 新契约：
- *   - 捕获成员写入错误后确认图集已不存在 → 对「本次导入且零归属」的图片
+ *   - 捕获成员写入错误后确认相册已不存在 → 对「本次导入且零归属」的图片
  *     cleanupOrphanImages 兜底回收（多归属图片保留），返回 success:false + 明确错误；
- *   - 图集仍存在的其它异常维持原抛出行为（调用方各自兜底），不触发回收。
+ *   - 相册仍存在的其它异常维持原抛出行为（调用方各自兜底），不触发回收。
  *
  * 用真实 :memory: sqlite（带 FK 约束）验证；磁盘扫描（scanAndImportFolder）与
  * 缩略图 IO（deleteThumbnail）mock 掉。
@@ -96,7 +96,7 @@ async function setupSchema(): Promise<void> {
       updatedAt TEXT NOT NULL
     )
   `);
-  // 与真实 schema 一致：galleryId 带 FK——图集被删后成员 INSERT 会触发外键违例
+  // 与真实 schema 一致：galleryId 带 FK——相册被删后成员 INSERT 会触发外键违例
   await run(h.db, `
     CREATE TABLE gallery_images (
       galleryId INTEGER NOT NULL,
@@ -179,7 +179,7 @@ afterEach(async () => {
   await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
 });
 
-describe('scanFolderIntoGallery — 目标图集在扫描期间被并发删除', () => {
+describe('scanFolderIntoGallery — 目标相册在扫描期间被并发删除', () => {
   it('对已删 galleryId 扫描：返回明确错误，本次导入的零归属图片被兜底回收', async () => {
     const folder = normalizePath(path.join('M:', 'gone'));
     const galleryId = await addGallery(folder, 1);
@@ -195,20 +195,20 @@ describe('scanFolderIntoGallery — 目标图集在扫描期间被并发删除',
     const unrelated = await addImage(normalizePath(path.join('M:', 'other', 'z.jpg')));
     h.scanResult = { success: true, data: { imported: 2, skipped: 0, importedIds: [i1, i2] } };
 
-    // 成员写入（ensureMembershipForFolder）之前，图集被并发删除
+    // 成员写入（ensureMembershipForFolder）之前，相册被并发删除
     await run(h.db, 'DELETE FROM galleries WHERE id = ?', [galleryId]);
 
     const result = await scanFolderIntoGallery(galleryId, folder, true, ['.jpg']);
 
-    // 干净报错：明确指出图集已不存在，而非裸 FK 约束错误
+    // 干净报错：明确指出相册已不存在，而非裸 FK 约束错误
     expect(result.success).toBe(false);
-    expect(result.error).toContain('图集已不存在');
+    expect(result.error).toContain('相册已不存在');
 
     // 本次导入的两张零归属图片被回收；范围外图片保留
     const ids = (await all<{ id: number }>(h.db, 'SELECT id FROM images ORDER BY id')).map((r) => r.id);
     expect(ids).toEqual([preexisting, unrelated].sort((x, y) => x - y));
 
-    // 成员表无泄漏（不存在指向已删图集的行）
+    // 成员表无泄漏（不存在指向已删相册的行）
     expect(await all(h.db, 'SELECT * FROM gallery_images')).toHaveLength(0);
 
     // 回收路径清了本次导入图片的缩略图
@@ -218,7 +218,7 @@ describe('scanFolderIntoGallery — 目标图集在扫描期间被并发删除',
     expect(h.emitted.filter((e) => e.type === 'gallery:images-imported')).toHaveLength(0);
   });
 
-  it('本次导入图片若同时已是其他图集成员则保留（多归属保护）', async () => {
+  it('本次导入图片若同时已是其他相册成员则保留（多归属保护）', async () => {
     const folderA = normalizePath(path.join('M:', 'dead'));
     const folderB = normalizePath(path.join('M:', 'keep'));
     const galleryA = await addGallery(folderA, 1);
@@ -226,7 +226,7 @@ describe('scanFolderIntoGallery — 目标图集在扫描期间被并发删除',
 
     const shared = await addImage(normalizePath(path.join('M:', 'dead', 'shared.jpg')));
     const only = await addImage(normalizePath(path.join('M:', 'dead', 'only.jpg')));
-    // shared 已被另一图集 B 收编（多归属）
+    // shared 已被另一相册 B 收编（多归属）
     await addMembership(galleryB, shared);
     h.scanResult = { success: true, data: { imported: 2, skipped: 0, importedIds: [shared, only] } };
 
@@ -245,13 +245,13 @@ describe('scanFolderIntoGallery — 目标图集在扫描期间被并发删除',
     expect(h.deleteThumbnailCalls).toEqual([normalizePath(path.join('M:', 'dead', 'only.jpg'))]);
   });
 
-  it('成员写入报错但图集仍存在时维持原抛出行为，不触发兜底回收', async () => {
+  it('成员写入报错但相册仍存在时维持原抛出行为，不触发兜底回收', async () => {
     const folder = normalizePath(path.join('M:', 'alive'));
     const galleryId = await addGallery(folder, 1);
     const img = await addImage(normalizePath(path.join('M:', 'alive', 'a.jpg')));
     h.scanResult = { success: true, data: { imported: 1, skipped: 0, importedIds: [img] } };
 
-    // 让成员写入炸出与「并发删除」无关的错误（图集行仍在）
+    // 让成员写入炸出与「并发删除」无关的错误（相册行仍在）
     await run(h.db, 'DROP TABLE gallery_images');
 
     await expect(scanFolderIntoGallery(galleryId, folder, true, ['.jpg'])).rejects.toThrow();

@@ -16,7 +16,7 @@ import { recalcGalleriesImageCount, emitGalleriesStatsUpdated } from './galleryS
 // 默认图片扩展名（绑定/扫描未显式指定 extensions 时的回退值）
 const DEFAULT_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
-// 孤儿回收批大小：IN(...) 占位符按此分批，避免大图集超过 SQLite 变量上限
+// 孤儿回收批大小：IN(...) 占位符按此分批，避免大相册超过 SQLite 变量上限
 // （部分构建为 999；UPDATE booru_posts 一条语句带两组占位符，故每条 ≤ 2×500=1000，仍安全）。
 const ORPHAN_GC_BATCH = 500;
 
@@ -30,8 +30,8 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
 }
 
 // 图库类型
-// Phase 8A：图集与文件夹解耦后，folderPath/recursive/extensions 归 gallery_folders（按文件夹），
-// 不再是图集级属性；isWatching 改名为 autoScan（是否自动扫描）。
+// Phase 8A：相册与文件夹解耦后，folderPath/recursive/extensions 归 gallery_folders（按文件夹），
+// 不再是相册级属性；isWatching 改名为 autoScan（是否自动扫描）。
 export interface Gallery {
   id: number;
   name: string;
@@ -64,8 +64,8 @@ export async function getGalleries(): Promise<{ success: boolean; data?: Gallery
 
     // 有效封面（v0.6 spec §6.2）：显式 coverImageId ?? 最近加入的一张（gallery_images.addedAt 倒序）。
     // 只发生在读侧，不回写 galleries.coverImageId；与 /sync/galleries 口径一致。
-    // 显式封面须仍是成员（成员化子查询）：封面图被移出图集后 galleries.coverImageId 残留
-    // 非成员值，直接 COALESCE 会持续下发跨图集封面（审查确认 major），成员化后自动回落兜底。
+    // 显式封面须仍是成员（成员化子查询）：封面图被移出相册后 galleries.coverImageId 残留
+    // 非成员值，直接 COALESCE 会持续下发跨相册封面（审查确认 major），成员化后自动回落兜底。
     const query = `
       SELECT
         g.*,
@@ -183,10 +183,10 @@ export async function getGallery(id: number): Promise<{ success: boolean; data?:
 }
 
 /**
- * 读取全部图集绑定文件夹（去重、非空）——Phase 4 的 app:// 白名单装载来源。
+ * 读取全部相册绑定文件夹（去重、非空）——Phase 4 的 app:// 白名单装载来源。
  *
  * 取代旧的 `getGalleries().data.map(g => g.folderPath)`：后者只反映 galleries 旧列
- * （= 图集创建时的原始文件夹），不含 bindFolder 追加或 changeFolderPath 重定位后的
+ * （= 相册创建时的原始文件夹），不含 bindFolder 追加或 changeFolderPath 重定位后的
  * 文件夹。gallery_folders 才是当前绑定集合的 source of truth，故白名单必须从它装载，
  * 否则绑定/重定位的文件夹在重启后会从 app:// 白名单丢失，导致其图片无法加载。
  */
@@ -200,7 +200,7 @@ export async function getAllGalleryFolderPaths(): Promise<string[]> {
 }
 
 /**
- * 读取某图集的全部绑定文件夹（Phase 4）——供 booru 下载路径校验与多文件夹扫描使用。
+ * 读取某相册的全部绑定文件夹（Phase 4）——供 booru 下载路径校验与多文件夹扫描使用。
  * 返回 gallery_folders 中该 galleryId 的 folderPath 列表（绑定表存的是归一化路径）。
  */
 export async function getGalleryFolderPaths(galleryId: number): Promise<string[]> {
@@ -214,7 +214,7 @@ export async function getGalleryFolderPaths(galleryId: number): Promise<string[]
 }
 
 /**
- * 读取某图集的全部绑定文件夹（含 recursive / extensions）——Phase 7B 的「图集信息」
+ * 读取某相册的全部绑定文件夹（含 recursive / extensions）——Phase 7B 的「相册信息」
  * 多文件夹管理对话框渲染来源。
  *
  * 与 getGalleryFolderPaths（只返回 folderPath 字符串数组）不同，本函数返回结构化行：
@@ -255,7 +255,7 @@ export async function getGalleryFolders(
     return { success: true, data };
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('[galleryService] 读取图集绑定文件夹失败:', errorMessage);
+    console.error('[galleryService] 读取相册绑定文件夹失败:', errorMessage);
     return { success: false, error: errorMessage };
   }
 }
@@ -270,9 +270,9 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
     // 规范化路径
     const folderPath = normalizePath(galleryData.folderPath);
 
-    // 检查是否已存在：以真实绑定（gallery_folders）为准——一个文件夹「被占用」当且仅当它已被某图集绑定。
+    // 检查是否已存在：以真实绑定（gallery_folders）为准——一个文件夹「被占用」当且仅当它已被某相册绑定。
     // 旧实现查 galleries.folderPath 旧列，会被「陈旧旧列 / 重定位后残留」误判；gallery_folders 才是真相。
-    // 注：契约期已彻底移除 galleries.folderPath 列，下方事务只写图集元数据，folderPath 落在 gallery_folders 绑定行。
+    // 注：契约期已彻底移除 galleries.folderPath 列，下方事务只写相册元数据，folderPath 落在 gallery_folders 绑定行。
     const existing = await get<{ galleryId: number }>(
       db,
       'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',
@@ -294,7 +294,7 @@ export async function createGallery(galleryData: CreateGalleryDto): Promise<{ su
     // 设置扩展名默认值
     const extensions = galleryData.extensions || ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.bmp'];
 
-    // Phase 8A：galleries 只存图集元数据 + autoScan；folderPath/recursive/extensions 归 gallery_folders。
+    // Phase 8A：galleries 只存相册元数据 + autoScan；folderPath/recursive/extensions 归 gallery_folders。
     const sql = `
       INSERT INTO galleries
       (name, autoScan, createdAt, updatedAt)
@@ -357,7 +357,7 @@ export async function updateGallery(
       values.push(updates.name);
     }
 
-    // Phase 8A：isWatching→autoScan；recursive 不再是图集级属性（归 gallery_folders），故移除。
+    // Phase 8A：isWatching→autoScan；recursive 不再是相册级属性（归 gallery_folders），故移除。
     if (updates.autoScan !== undefined) {
       setClauses.push('autoScan = ?');
       values.push(updates.autoScan ? 1 : 0);
@@ -385,12 +385,12 @@ export async function updateGallery(
 }
 
 /**
- * 回收"孤儿图片"：给定一批候选 imageId（其在某图集的成员关系刚被移除），
+ * 回收"孤儿图片"：给定一批候选 imageId（其在某相册的成员关系刚被移除），
  * 删除其中已无任何 gallery_images 成员行的图片。
  *
  * Phase 3：这是 deleteGallery / unbindFolder 等"移除成员"后统一的回收入口。
  * 复用 deleteGallery 的逐图清理动作，但作用域是孤儿 imageId 集合（而非
- * folderPath 前缀）——关键区别：仍被其他图集引用的图片不会被删，
+ * folderPath 前缀）——关键区别：仍被其他相册引用的图片不会被删，
  * 修复了多归属误删。
  *
  * 清理顺序（与 deleteGallery 一致）：
@@ -413,7 +413,7 @@ export async function cleanupOrphanImages(
   const candidateIds = Array.from(new Set(imageIds));
 
   // 1. 判定孤儿：候选集中、当前在 gallery_images 已无任何成员行的图片。
-  //    候选可能很多（大图集），按批查询避免单条 IN(...) 超过 SQLite 变量上限。
+  //    候选可能很多（大相册），按批查询避免单条 IN(...) 超过 SQLite 变量上限。
   const orphans: Array<{ id: number; filepath: string }> = [];
   for (const batch of chunkArray(candidateIds, ORPHAN_GC_BATCH)) {
     const placeholders = batch.map(() => '?').join(',');
@@ -487,9 +487,9 @@ export async function cleanupOrphanImages(
 /**
  * 删除图库（Phase 3：按成员删除 + 孤儿回收，取代旧的 folderPath 前缀级联）。
  *
- * 公开契约保持不变：返回 { success, error? }；图集不存在返回 success:false；
+ * 公开契约保持不变：返回 { success, error? }；相册不存在返回 success:false；
  * 发出 gallery:galleries-changed{action:'deleted'} 与 gallery:ignored-folders-changed{action:'created'}；
- * 每个绑定文件夹写入 gallery_ignored_folders（拉黑：planScanFolder 不再重建图集，
+ * 每个绑定文件夹写入 gallery_ignored_folders（拉黑：planScanFolder 不再重建相册，
  * 父级文件夹重扫时该子树也被整棵剪枝，见 scanFolderIntoGallery）；原图文件不删。
  *
  * 清理顺序：
@@ -503,18 +503,18 @@ export async function cleanupOrphanImages(
  *    c. DELETE galleries 本行（FK CASCADE 连带删 gallery_folders / gallery_images）；
  *    d. 每个绑定文件夹 INSERT OR REPLACE 写入 gallery_ignored_folders；
  *    任一条失败 → ROLLBACK；
- * 4. cleanupOrphanImages(成员 imageId)：此时本图集成员行已被 CASCADE 删除，
- *    仅本图集独占的图片成为孤儿被删（清缩略图 + 重置 booru.downloaded/localPath）；
- *    仍被其他图集引用的图片保留——修复旧前缀级联的多归属误删；
+ * 4. cleanupOrphanImages(成员 imageId)：此时本相册成员行已被 CASCADE 删除，
+ *    仅本相册独占的图片成为孤儿被删（清缩略图 + 重置 booru.downloaded/localPath）；
+ *    仍被其他相册引用的图片保留——修复旧前缀级联的多归属误删；
  * 5. 逐个绑定文件夹 removeGalleryRoot + 发事件。
  *
- * 注意：cleanupOrphanImages 自带事务，故置于删图集事务之后，避免同库嵌套 runInTransaction。
+ * 注意：cleanupOrphanImages 自带事务，故置于删相册事务之后，避免同库嵌套 runInTransaction。
  */
 export async function deleteGallery(id: number): Promise<{ success: boolean; error?: string }> {
   try {
     const db = await getDatabase();
 
-    // 1. 校验图集存在。Phase 8A：galleries 不再有 folderPath 列；deleted 事件的 folderPath
+    // 1. 校验相册存在。Phase 8A：galleries 不再有 folderPath 列；deleted 事件的 folderPath
     //    载荷改用首个绑定文件夹（下方 boundFolders[0]）。
     const existing = await get<{ id: number }>(
       db,
@@ -536,10 +536,10 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
     // 绑定表存的是 normalized 路径；再过一遍 normalizePath 兜底，保证拉黑/登记键一致。
     const boundFolders = folderRows.map(r => normalizePath(r.folderPath));
 
-    // deleted 事件 folderPath 字段：用首个绑定文件夹（图集可能无绑定文件夹，回退空串）。
+    // deleted 事件 folderPath 字段：用首个绑定文件夹（相册可能无绑定文件夹，回退空串）。
     const eventFolderPath = boundFolders[0] ?? '';
 
-    // 3. 事务内：读成员快照 + 删图集行（FK CASCADE 连带删 gallery_folders / gallery_images）
+    // 3. 事务内：读成员快照 + 删相册行（FK CASCADE 连带删 gallery_folders / gallery_images）
     //    + 清 invalid_images（表定义 ON DELETE SET NULL，这里显式删更干净，避免孤儿行）
     //    + 每个绑定文件夹写入忽略名单（INSERT OR REPLACE 保留 createdAt）。
     //    任一写失败整体 ROLLBACK，外层 catch 返回 success:false。
@@ -560,7 +560,7 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
       // 3b. invalid_images 按 galleryId 显式清（须在删 galleries 前，否则 FK SET NULL 后无法按 galleryId 定位）
       await run(db, `DELETE FROM invalid_images WHERE galleryId = ?`, [id]);
 
-      // 3c. 删图集行：FK CASCADE 连带清掉本图集的 gallery_folders / gallery_images 成员行
+      // 3c. 删相册行：FK CASCADE 连带清掉本相册的 gallery_folders / gallery_images 成员行
       await run(db, 'DELETE FROM galleries WHERE id = ?', [id]);
 
       // 3d. 逐个绑定文件夹拉黑（下次扫描不重建）
@@ -577,14 +577,14 @@ export async function deleteGallery(id: number): Promise<{ success: boolean; err
              ),
              ?
            )`,
-          [folder, '删除图集自动忽略', folder, now, now]
+          [folder, '删除相册自动忽略', folder, now, now]
         );
       }
     });
 
-    // 4. 回收孤儿（自带事务，置于删图集事务之后）：
-    //    此时本图集的 gallery_images 已被 CASCADE 删除，成员图片中仅被本图集独占的
-    //    成为孤儿被删（清缩略图 + 重置 booru）；仍被其他图集引用的图片保留——
+    // 4. 回收孤儿（自带事务，置于删相册事务之后）：
+    //    此时本相册的 gallery_images 已被 CASCADE 删除，成员图片中仅被本相册独占的
+    //    成为孤儿被删（清缩略图 + 重置 booru）；仍被其他相册引用的图片保留——
     //    这修复了旧前缀级联的多归属误删。
     await cleanupOrphanImages(db, memberImageIds);
 
@@ -698,7 +698,7 @@ export async function ensureMembershipForFolder(
 }
 
 /**
- * 扫描某文件夹并把结果落到指定图集：导入图片 + 写成员 + 更新统计。
+ * 扫描某文件夹并把结果落到指定相册：导入图片 + 写成员 + 更新统计。
  *
  * Phase 2A 统一写入口：
  *   0. 加载 gallery_ignored_folders 中严格位于目标文件夹内部的条目（后代）作为排除目录组；
@@ -710,7 +710,7 @@ export async function ensureMembershipForFolder(
  *   4. updateGalleryStats —— 写回 galleries.imageCount / lastScannedAt；
  *   5. imported>0 时发出 gallery:images-imported（与 syncGalleryFolder 行为一致）。
  *
- * 黑名单整棵子树跳过（修复轮 U05）：deleteGallery 会把被删图集的绑定文件夹写入
+ * 黑名单整棵子树跳过（修复轮 U05）：deleteGallery 会把被删相册的绑定文件夹写入
  * gallery_ignored_folders；若父级文件夹随后 recursive 重扫，没有第 0/1/2 步的排除，
  * 已删除并拉黑的子树会被整棵重新导入并收编——用户明确清除的数据复活。
  * 注意只排除**严格后代**：目标自身在黑名单时不拦截（显式扫描/绑定该路径的意图优先，
@@ -720,7 +720,7 @@ export async function ensureMembershipForFolder(
  * 与旧 folderPath 前缀 COUNT 在数据正确时等价（成员由同一前缀规则写入）。
  *
  * @returns { imported, skipped, imageCount }，扫描失败时 success:false 且不写成员/不更新统计；
- *          目标图集在扫描期间被并发删除时 success:false（错误注明图集已不存在），
+ *          目标相册在扫描期间被并发删除时 success:false（错误注明相册已不存在），
  *          并对本次导入且零归属的图片做 cleanupOrphanImages 兜底回收（修复轮 U08）。
  */
 export async function scanFolderIntoGallery(
@@ -758,7 +758,7 @@ export async function scanFolderIntoGallery(
   }
 
   // 2. 写 gallery_images 成员（按 recursive 前缀，幂等），黑名单子树中已有图片不收编。
-  //    修复轮 U08：目标图集可能在步骤 1 的磁盘导入（大目录可达分钟级、逐文件即时提交）
+  //    修复轮 U08：目标相册可能在步骤 1 的磁盘导入（大目录可达分钟级、逐文件即时提交）
   //    期间被并发删除——galleryId 外键失效，INSERT OR IGNORE 仍抛 FK 约束错误（OR IGNORE
   //    不豁免外键违例）。若直接抛出，本次刚导入的图片将永久滞留为零归属僵尸行：该文件夹
   //    随删除已被拉黑、不会被重扫收编，且 cleanupOrphanImages 只按显式候选触发，无 GC 路径。
@@ -771,17 +771,17 @@ export async function scanFolderIntoGallery(
       [galleryId]
     );
     if (!stillExists) {
-      // 图集确已不存在：对「本次导入且零归属」的图片做孤儿回收兜底（多归属图片由
+      // 相册确已不存在：对「本次导入且零归属」的图片做孤儿回收兜底（多归属图片由
       // cleanupOrphanImages 内部保护不删），并返回明确错误而非裸 FK 报错。
       // 回收自带事务、置于此处（事务外），与既有「GC 不进长事务」原则一致。
       const importedIds = importResult.data.importedIds ?? [];
       const removed = await cleanupOrphanImages(db, importedIds);
       console.warn(
-        `[galleryService] scanFolderIntoGallery 目标图集 ${galleryId} 在扫描期间被删除，已回收本次导入的零归属图片 ${removed}/${importedIds.length} 张: ${folderPath}`
+        `[galleryService] scanFolderIntoGallery 目标相册 ${galleryId} 在扫描期间被删除，已回收本次导入的零归属图片 ${removed}/${importedIds.length} 张: ${folderPath}`
       );
-      return { success: false, error: '图集已不存在（可能在扫描期间被删除），本次导入的零归属图片已回收' };
+      return { success: false, error: '相册已不存在（可能在扫描期间被删除），本次导入的零归属图片已回收' };
     }
-    // 图集仍在：非并发删除所致的异常，维持原有抛出行为交由调用方兜底
+    // 相册仍在：非并发删除所致的异常，维持原有抛出行为交由调用方兜底
     throw membershipError;
   }
 
@@ -794,7 +794,7 @@ export async function scanFolderIntoGallery(
   const imageCount = countRow?.cnt ?? 0;
   const now = new Date().toISOString();
 
-  // 4. 写回图集统计
+  // 4. 写回相册统计
   await updateGalleryStats(galleryId, imageCount, now);
 
   // 5. 与 syncGalleryFolder 一致：仅在确有新增时发事件，载荷形状保持不变
@@ -826,11 +826,11 @@ export async function scanFolderIntoGallery(
 }
 
 /**
- * 给已存在的图集加绑一个文件夹并扫描入成员（Phase 3：「+添加文件夹」/同名合并）。
+ * 给已存在的相册加绑一个文件夹并扫描入成员（Phase 3：「+添加文件夹」/同名合并）。
  *
  * - 归一化 folderPath；
  * - 若该 folderPath 已存在于 gallery_folders（全局 UNIQUE）→ 拒绝，给出清晰 error
- *   （一个文件夹只能属于一个图集）；
+ *   （一个文件夹只能属于一个相册）；
  * - 短事务只插入 gallery_folders 绑定行（经 runInTransaction 排队，避免这条 INSERT
  *   落进其它并发事务的开放窗口、随对方 ROLLBACK 一并丢失）；
  * - 事务外执行 scanFolderIntoGallery（全量磁盘扫描 + 逐文件导入 + 写成员 + 更新统计）。
@@ -842,7 +842,7 @@ export async function scanFolderIntoGallery(
  *   重叠感知移除成员 + 孤儿 GC），保证失败后无残留绑定。changeFolderPath 的
  *   "先绑新后解旧"安全性因此不变（新侧失败 → 补偿删新绑定 → 旧绑定原样）；
  * - 绑定成功后移除 gallery_ignored_folders 中该路径的**精确条目**（修复轮 U05：
- *   显式操作覆盖黑名单——用户显式绑定即当前意图，保留条目会让其它父级图集重扫时
+ *   显式操作覆盖黑名单——用户显式绑定即当前意图，保留条目会让其它父级相册重扫时
  *   把这棵子树整棵剪枝）；失败路径不移除（意图未达成）；
  * - addGalleryRoot(folderPath)（app:// 白名单增量维护）；
  * - emit gallery:galleries-changed{action:'updated'}。
@@ -861,7 +861,7 @@ export async function bindFolder(
     const normalized = normalizePath(folderPath);
     const effectiveExtensions = extensions ?? DEFAULT_IMAGE_EXTENSIONS;
 
-    // 全局唯一校验：一个文件夹只能绑定到一个图集
+    // 全局唯一校验：一个文件夹只能绑定到一个相册
     const existing = await get<{ galleryId: number }>(
       db,
       'SELECT galleryId FROM gallery_folders WHERE folderPath = ?',
@@ -870,7 +870,7 @@ export async function bindFolder(
     if (existing) {
       return {
         success: false,
-        error: `文件夹已被图集 ${existing.galleryId} 绑定，无法重复绑定: ${normalized}`,
+        error: `文件夹已被相册 ${existing.galleryId} 绑定，无法重复绑定: ${normalized}`,
       };
     }
 
@@ -900,7 +900,7 @@ export async function bindFolder(
 
     if (!scanResult.success) {
       // 补偿回滚：复用 unbindFolder（删绑定行 + 重叠感知移除成员 + 孤儿 GC）。
-      // 扫描中途已导入的 images 行（无成员、图集不可见）不在此清理，
+      // 扫描中途已导入的 images 行（无成员、相册不可见）不在此清理，
       // 留待下次重试被 scanAndImportFolder 幂等吸收——与 applyScanPlan create 路径失败行为一致。
       console.warn(
         `[galleryService] bindFolder 扫描失败，补偿解绑该绑定: ${normalized}, error=${scanResult.error}`
@@ -914,10 +914,10 @@ export async function bindFolder(
       return { success: false, error: scanResult.error || '扫描文件夹失败' };
     }
 
-    // 显式操作覆盖黑名单（修复轮 U05）：该路径此前可能被「删除图集自动忽略」拉黑，
-    // 用户如今显式把它绑回图集——显式意图优先，移除黑名单中该路径的**精确条目**
+    // 显式操作覆盖黑名单（修复轮 U05）：该路径此前可能被「删除相册自动忽略」拉黑，
+    // 用户如今显式把它绑回相册——显式意图优先，移除黑名单中该路径的**精确条目**
     // （只删精确命中，不动祖先/后代条目：后代条目的整棵剪枝语义继续生效）。
-    // 若保留该条目，其它父级图集重扫会把这棵子树整棵剪掉，与用户当前意图相悖。
+    // 若保留该条目，其它父级相册重扫会把这棵子树整棵剪掉，与用户当前意图相悖。
     // 绑定本身已成功，清理失败只告警不改变返回结果。
     try {
       const ignoredRow = await get<{ id: number }>(
@@ -988,10 +988,10 @@ async function selectImageIdsCoveredByFolder(
 }
 
 /**
- * 解绑图集的一个文件夹（Phase 3）。保留图集记录，不写忽略名单（与 deleteGallery 区分）。
+ * 解绑相册的一个文件夹（Phase 3）。保留相册记录，不写忽略名单（与 deleteGallery 区分）。
  *
  * - 归一化；移除 (galleryId, folderPath) 的 gallery_folders 行；
- * - 重算成员归属：该图集当前成员中，凡其 filepath 不再被任一"剩余绑定文件夹"覆盖的，
+ * - 重算成员归属：该相册当前成员中，凡其 filepath 不再被任一"剩余绑定文件夹"覆盖的，
  *   删除对应 gallery_images(galleryId,imageId) 行，并收集这些 imageId；
  *   覆盖判定用 selectImageIdsCoveredByFolder（与 ensureMembershipForFolder 同一前缀谓词）；
  * - cleanupOrphanImages(收集到的 imageId)：其中已无任何成员的图片被回收（多归属图片保留）；
@@ -1052,7 +1052,7 @@ export async function unbindFolder(
       }
     });
 
-    // 2. 回收孤儿（自带事务，置于解绑事务外）；仍归属其他图集的图片会被保留
+    // 2. 回收孤儿（自带事务，置于解绑事务外）；仍归属其他相册的图片会被保留
     await cleanupOrphanImages(db, removedMemberIds);
 
     // 3. app:// 白名单移除该根 + 以成员表 COUNT 更新统计
@@ -1075,7 +1075,7 @@ export async function unbindFolder(
 }
 
 /**
- * 改图集某绑定文件夹的路径（Phase 3）= bindFolder(new) 成功后再 unbindFolder(old)。
+ * 改相册某绑定文件夹的路径（Phase 3）= bindFolder(new) 成功后再 unbindFolder(old)。
  *
  * 关键顺序：先绑新、再解旧。旧实现是先解旧再绑新，若绑新失败（新路径已被别处
  * 绑定 / 不可读 / 扫描失败），旧绑定与成员已被删除（图片可能已被孤儿回收），
@@ -1085,12 +1085,12 @@ export async function unbindFolder(
  *   - bindFolder(new) 成功后再 unbindFolder(old)：移除旧绑定 + 其成员 + 回收孤儿。
  *     若解旧失败，返回错误并说明此刻新旧两者都已绑定（可人工恢复，无数据丢失），
  *     不尝试回滚已成功的新绑定。
- * 图集记录与 id 始终不变。
+ * 相册记录与 id 始终不变。
  *
  * recursive/extensions 语义（修复轮 U06）：调用方未显式传入时，继承旧绑定行
  * （gallery_folders WHERE galleryId+oldPath）的 recursive/extensions——"改路径"
  * 不应改变绑定语义，否则非递归绑定（如旧版"扫描子文件夹"回填的 recursive=0 行）
- * 会被服务端默认 recursive=true 静默翻转为递归导入、全部嵌套子目录图片涌入本图集，
+ * 会被服务端默认 recursive=true 静默翻转为递归导入、全部嵌套子目录图片涌入本相册，
  * 自定义扩展名也被重置。显式传入仍优先；旧绑定行不存在时回退修复前默认
  * （recursive=true + 默认扩展名），不新增"旧绑定不存在"错误路径。
  */
@@ -1167,8 +1167,8 @@ export async function changeFolderPath(
 }
 
 /**
- * 设置图库封面（v0.6 扩展：接受 null 清除显式封面；补成员校验——封面必须是该图集成员，
- * 杜绝跨图集串封面；安卓 spec §6.1）。桌面 UI 既有调用只传成员图 id，行为兼容。
+ * 设置图库封面（v0.6 扩展：接受 null 清除显式封面；补成员校验——封面必须是该相册成员，
+ * 杜绝跨相册串封面；安卓 spec §6.1）。桌面 UI 既有调用只传成员图 id，行为兼容。
  */
 export async function setGalleryCover(
   id: number,
@@ -1195,7 +1195,7 @@ export async function setGalleryCover(
           AND EXISTS (SELECT 1 FROM gallery_images WHERE galleryId = galleries.id AND imageId = ?)
       `, [coverImageId, new Date().toISOString(), id, coverImageId]);
       if (changes === 0) {
-        // 图集缺失维持既有「静默成功」语义（404 由路由预检提供），其余即成员校验失败
+        // 相册缺失维持既有「静默成功」语义（404 由路由预检提供），其余即成员校验失败
         const gallery = await get<{ id: number }>(db, 'SELECT id FROM galleries WHERE id = ?', [id]);
         if (gallery) {
           return { success: false, error: 'Cover image not in gallery' };
@@ -1242,20 +1242,20 @@ export interface PlanScanResult {
 }
 
 /**
- * 规划「扫描入库」：只读分析 rootPath 的一级子文件夹（+ rootPath 自身），不建图集、不写库（Phase 6B）。
+ * 规划「扫描入库」：只读分析 rootPath 的一级子文件夹（+ rootPath 自身），不建相册、不写库（Phase 6B）。
  *
  * 这是两步式 plan→apply API 的第一步：UI 拿到本结果后展示同名碰撞对话框，再带用户的逐项选择
  * 调 applyScanPlan。修正了旧 scanSubfoldersAndCreateGalleries 的两个问题：
- *   - 扫描深度：候选只取**一级**子目录（不深递归创建图集；applyScanPlan 导入同样非递归，
+ *   - 扫描深度：候选只取**一级**子目录（不深递归创建相册；applyScanPlan 导入同样非递归，
  *     只收各文件夹的直接图片）；
- *   - 同名碰撞：发现已有同名图集时不再自动改名，而是列入 collisions 交给用户决定（合并/新建）。
+ *   - 同名碰撞：发现已有同名相册时不再自动改名，而是列入 collisions 交给用户决定（合并/新建）。
  *
  * 候选集合 = fs.readdir(rootPath, {withFileTypes}) 中的目录（仅一级）+ rootPath 本身。
  * 对每个候选 F（folderPath 归一化，name = basename）：
- *   1. checkFolderHasImages(F, extensions) 为 false（无直接图片）→ skipped: noImages（不建图集）；
+ *   1. checkFolderHasImages(F, extensions) 为 false（无直接图片）→ skipped: noImages（不建相册）；
  *   2. normalize(F) 已在 gallery_folders.folderPath → skipped: alreadyBound；
  *   3. 否则 normalize(F) 在 gallery_ignored_folders.folderPath → skipped: ignored；
- *   4. 否则存在 name == basename(F) 的图集 → collisions（带其 id+name）；
+ *   4. 否则存在 name == basename(F) 的相册 → collisions（带其 id+name）；
  *   5. 否则 → newFolders。
  *
  * @returns 分类结果（newFolders / collisions / skipped）。根文件夹不存在时 success:false。
@@ -1290,7 +1290,7 @@ export async function planScanFolder(
       return { success: false, error: `读取根文件夹失败: ${msg}` };
     }
 
-    // 预加载分类所需的库状态（只读）：绑定文件夹集合 / 忽略名单 / 图集名→id 映射
+    // 预加载分类所需的库状态（只读）：绑定文件夹集合 / 忽略名单 / 相册名→id 映射
     const db = await getDatabase();
     const boundRows = await all<{ folderPath: string }>(db, 'SELECT folderPath FROM gallery_folders');
     const boundPaths = new Set(boundRows.map(r => r.folderPath));
@@ -1304,14 +1304,14 @@ export async function planScanFolder(
     for (const folderPath of candidates) {
       const name = path.basename(folderPath);
 
-      // 1. 无直接图片 → noImages（不建图集）
+      // 1. 无直接图片 → noImages（不建相册）
       const hasImages = await checkFolderHasImages(folderPath, extensions);
       if (!hasImages) {
         skipped.push({ folderPath, name, reason: 'noImages' });
         continue;
       }
 
-      // 2. 已被某图集绑定 → alreadyBound
+      // 2. 已被某相册绑定 → alreadyBound
       if (boundPaths.has(folderPath)) {
         skipped.push({ folderPath, name, reason: 'alreadyBound' });
         continue;
@@ -1323,9 +1323,9 @@ export async function planScanFolder(
         continue;
       }
 
-      // 4. 存在同名图集 → collisions（带现有图集 id+name）。
-      //    修复轮 U07：库内可能已存在多个同名图集（历史数据/去重规则引入前产生），
-      //    无 ORDER BY 的 LIMIT 1 取行不确定，合并目标会在同名图集间漂移——
+      // 4. 存在同名相册 → collisions（带现有相册 id+name）。
+      //    修复轮 U07：库内可能已存在多个同名相册（历史数据/去重规则引入前产生），
+      //    无 ORDER BY 的 LIMIT 1 取行不确定，合并目标会在同名相册间漂移——
       //    确定性取 id 最小（最早创建）的那个。
       const sameName = await get<{ id: number; name: string }>(
         db,
@@ -1356,9 +1356,9 @@ export async function planScanFolder(
 
 // applyScanPlan 的入参决议类型（Phase 6B）
 export interface ApplyScanResolution {
-  // 新建图集：每项新建一个 recursive=false 的图集并扫描该文件夹的直接图片入成员
+  // 新建相册：每项新建一个 recursive=false 的相册并扫描该文件夹的直接图片入成员
   create: Array<{ folderPath: string; name: string }>;
-  // 合并到现有图集：每项把文件夹以非递归绑定加到指定图集并扫描其直接图片入成员
+  // 合并到现有相册：每项把文件夹以非递归绑定加到指定相册并扫描其直接图片入成员
   merge: Array<{ folderPath: string; galleryId: number }>;
   extensions?: string[];
 }
@@ -1366,17 +1366,17 @@ export interface ApplyScanResolution {
 /**
  * 应用「扫描入库」决议（Phase 6B plan→apply 的第二步）。
  *
- * 扫描入库语义：图集 = 文件夹的**直接图片**，全程不递归。planScanFolder 只把
+ * 扫描入库语义：相册 = 文件夹的**直接图片**，全程不递归。planScanFolder 只把
  * 「root 自身 + 一级子文件夹」列为候选，本函数落库时同样只导入各候选的直接图片
  * （recursive=false 持久化到 gallery_folders.recursive=0，后续「同步文件夹」也按
- * 非递归执行）。若用 recursive=true 会把深层嵌套图片整棵吞进图集，且 root 图集与
- * 其一级子文件夹图集成员重叠。
+ * 非递归执行）。若用 recursive=true 会把深层嵌套图片整棵吞进相册，且 root 相册与
+ * 其一级子文件夹相册成员重叠。
  *
  * 按 planScanFolder 给出、并经用户在碰撞对话框确认的决议逐项执行：
  *   - create：createGallery({folderPath,name,isWatching:true,recursive:false,extensions})
  *     → scanFolderIntoGallery(newId, folderPath, false, extensions)。累加 created + imported/skippedFiles。
- *     图集名同名去重（修复轮 U07）：与现有图集或同批已建项重名时按 "名称 (2)" / "名称 (3)"
- *     规则追加后缀（galleries.name 无 UNIQUE，靠此处保证图库页不出现不可区分的重名图集）；
+ *     相册名同名去重（修复轮 U07）：与现有相册或同批已建项重名时按 "名称 (2)" / "名称 (3)"
+ *     规则追加后缀（galleries.name 无 UNIQUE，靠此处保证图库页不出现不可区分的重名相册）；
  *   - merge：bindFolder(galleryId, folderPath, false, extensions)（非递归加绑文件夹 +
  *     扫描其直接图片入成员，bindFolder 透传扫描计数）。累加 merged + imported/skippedFiles。
  *
@@ -1405,13 +1405,13 @@ export async function applyScanPlan(
     let failedFolders = 0; // 文件夹级：整项失败的 create/merge 项数
     let skippedFiles = 0;  // 文件级：扫描时已存在被跳过的文件数
 
-    // create：逐项新建图集（recursive=false，只收直接图片）+ 扫描入成员；单项失败收集并继续
+    // create：逐项新建相册（recursive=false，只收直接图片）+ 扫描入成员；单项失败收集并继续
     const createItems = resolution.create ?? [];
 
-    // 同名去重（修复轮 U07）：galleries.name 无 UNIQUE 约束，碰撞决议选「新建独立图集」
-    // 会携带与现有图集相同的原名进来（ScanCollisionModal 原样透传），直接插入会产生
-    // 图库页不可区分的重名图集。按设计 §6.2 现有规则追加 " (2)" / " (3)" 后缀；
-    // usedNames 预载全部现有图集名，成功建集后回填，同一批 plan 内的重名
+    // 同名去重（修复轮 U07）：galleries.name 无 UNIQUE 约束，碰撞决议选「新建独立相册」
+    // 会携带与现有相册相同的原名进来（ScanCollisionModal 原样透传），直接插入会产生
+    // 图库页不可区分的重名相册。按设计 §6.2 现有规则追加 " (2)" / " (3)" 后缀；
+    // usedNames 预载全部现有相册名，成功建集后回填，同一批 plan 内的重名
     // （如 root 自身与其一级子目录同名）也一并去重，先到者保留原名。
     let usedNames = new Set<string>();
     if (createItems.length > 0) {
@@ -1422,7 +1422,7 @@ export async function applyScanPlan(
 
     for (const item of createItems) {
       try {
-        // 生成唯一图集名：原名未被占用则保留，否则依次尝试 "原名 (2)"、"原名 (3)"…
+        // 生成唯一相册名：原名未被占用则保留，否则依次尝试 "原名 (2)"、"原名 (3)"…
         let galleryName = item.name;
         let suffix = 2;
         while (usedNames.has(galleryName)) {
@@ -1438,7 +1438,7 @@ export async function applyScanPlan(
           extensions,
         });
         if (!createResult.success || !createResult.data) {
-          console.warn(`[galleryService] applyScanPlan 新建图集失败: ${item.folderPath}, error=${createResult.error}`);
+          console.warn(`[galleryService] applyScanPlan 新建相册失败: ${item.folderPath}, error=${createResult.error}`);
           failedFolders++;
           continue;
         }
@@ -1448,8 +1448,8 @@ export async function applyScanPlan(
         const newId = createResult.data;
         const scanResult = await scanFolderIntoGallery(newId, item.folderPath, false, extensions);
         if (!scanResult.success || !scanResult.data) {
-          // 图集已建但扫描失败：仍计 created，导入计 0，并告警
-          console.warn(`[galleryService] applyScanPlan 新图集扫描失败: ${item.folderPath}, error=${scanResult.error}`);
+          // 相册已建但扫描失败：仍计 created，导入计 0，并告警
+          console.warn(`[galleryService] applyScanPlan 新相册扫描失败: ${item.folderPath}, error=${scanResult.error}`);
           created++;
           continue;
         }
@@ -1464,7 +1464,7 @@ export async function applyScanPlan(
       }
     }
 
-    // merge：逐项以非递归绑定加到现有图集 + 扫描直接图片入成员；单项失败收集并继续
+    // merge：逐项以非递归绑定加到现有相册 + 扫描直接图片入成员；单项失败收集并继续
     for (const item of resolution.merge ?? []) {
       try {
         const bindResult = await bindFolder(item.galleryId, item.folderPath, false, extensions);
@@ -1519,22 +1519,22 @@ async function checkFolderHasImages(folderPath: string, extensions: string[]): P
 }
 
 /**
- * 同步图集文件夹：重新扫描指定图集**全部绑定文件夹**，导入新增图片并更新统计信息。
+ * 同步相册文件夹：重新扫描指定相册**全部绑定文件夹**，导入新增图片并更新统计信息。
  *
- * Phase 4：扫描源从 galleries 旧列 folderPath（= 图集原始单文件夹）切到 gallery_folders 的
+ * Phase 4：扫描源从 galleries 旧列 folderPath（= 相册原始单文件夹）切到 gallery_folders 的
  * 全部绑定行——否则 bindFolder 追加 / changeFolderPath 重定位的文件夹永远不会被同步进来。
  *
  * 行为：
- *   1. 校验图集存在（保留"图集不存在"错误契约）；
- *   2. 读 gallery_folders 该图集的全部绑定行（folderPath / recursive / extensions）；
+ *   1. 校验相册存在（保留"相册不存在"错误契约）；
+ *   2. 读 gallery_folders 该相册的全部绑定行（folderPath / recursive / extensions）；
  *   3. 逐个 scanFolderIntoGallery（各自的 recursive / extensions），累加 imported / skipped；
  *      每个文件夹由 scanFolderIntoGallery 各自发一条 gallery:images-imported 事件（不再额外补发）；
  *   4. 以成员表 COUNT(gallery_images) 为准统计 imageCount（多文件夹取并集）；
- *   5. 无任何绑定文件夹（无文件夹图集）→ 返回零导入 + 当前 imageCount，不报错。
+ *   5. 无任何绑定文件夹（无文件夹相册）→ 返回零导入 + 当前 imageCount，不报错。
  *
  * 公开返回形状保持不变：{ imported, skipped, imageCount, lastScannedAt }。
  *
- * @param id 图集ID
+ * @param id 相册ID
  * @returns 同步结果（新导入数、跳过数、当前图片总数、扫描时间）
  */
 export async function syncGalleryFolder(id: number): Promise<{
@@ -1542,25 +1542,25 @@ export async function syncGalleryFolder(id: number): Promise<{
   data?: { imported: number; skipped: number; imageCount: number; lastScannedAt: string };
   error?: string;
 }> {
-  console.log('[galleryService] 同步图集文件夹:', id);
+  console.log('[galleryService] 同步相册文件夹:', id);
 
-  // 1. 校验图集存在（保留原"图集不存在"错误契约）
+  // 1. 校验相册存在（保留原"相册不存在"错误契约）
   const galleryResult = await getGallery(id);
   if (!galleryResult.success || !galleryResult.data) {
-    return { success: false, error: galleryResult.error || '图集不存在' };
+    return { success: false, error: galleryResult.error || '相册不存在' };
   }
 
   const db = await getDatabase();
   const lastScannedAt = new Date().toISOString();
 
-  // 2. 读该图集全部绑定文件夹（绑定表是当前文件夹集合的 source of truth）
+  // 2. 读该相册全部绑定文件夹（绑定表是当前文件夹集合的 source of truth）
   const folderRows = await all<{ folderPath: string; recursive: number; extensions: string | null }>(
     db,
     'SELECT folderPath, recursive, extensions FROM gallery_folders WHERE galleryId = ?',
     [id]
   );
 
-  // 5. 无文件夹图集：不扫描、不报错，仅以当前成员表 COUNT 回报
+  // 5. 无文件夹相册：不扫描、不报错，仅以当前成员表 COUNT 回报
   if (folderRows.length === 0) {
     const countRow = await get<{ cnt: number }>(
       db,
@@ -1580,7 +1580,7 @@ export async function syncGalleryFolder(id: number): Promise<{
   for (const folder of folderRows) {
     // 丢失文件夹防护：绑定文件夹不在磁盘上（未重定位/磁盘离线/搬库中）时跳过扫描，
     // 避免把"丢失"当成"空文件夹"扫出 ENOENT 噪音；其余绑定文件夹照常同步。
-    // 图集卡片/详情横幅已有「文件夹丢失」提示，这里不改公开返回契约。
+    // 相册卡片/详情横幅已有「文件夹丢失」提示，这里不改公开返回契约。
     try {
       await fs.access(folder.folderPath);
     } catch {
@@ -1637,8 +1637,8 @@ export async function syncGalleryFolder(id: number): Promise<{
 
 // ---------------------------------------------------------------------------
 // gallery_ignored_folders CRUD（bug12）
-// 记录被用户标记为"不再扫描"的文件夹路径。删除图集时会自动写入。消费方：
-//   - planScanFolder：候选路径精确命中 → skipped: ignored（不重建图集）；
+// 记录被用户标记为"不再扫描"的文件夹路径。删除相册时会自动写入。消费方：
+//   - planScanFolder：候选路径精确命中 → skipped: ignored（不重建相册）；
 //   - scanFolderIntoGallery：严格位于扫描目标内部的条目 → 磁盘扫描与成员收编
 //     整棵剪枝（父级重扫不会整棵复活已拉黑子树，修复轮 U05）；
 //   - bindFolder：显式绑定成功后移除该路径的精确条目（显式意图覆盖黑名单）。
@@ -1777,7 +1777,7 @@ export async function removeIgnoredFolder(
 }
 
 /**
- * 新建空图集（移动端写接口用，spec §5.4）。不绑定任何文件夹——零文件夹图集是受支持状态。
+ * 新建空相册（移动端写接口用，spec §5.4）。不绑定任何文件夹——零文件夹相册是受支持状态。
  * 与 createGallery 一致：不做重名检查（galleries.name 无 UNIQUE）。
  */
 export async function createEmptyGallery(name: string): Promise<{ success: boolean; data?: number; error?: string }> {
@@ -1802,7 +1802,7 @@ export async function createEmptyGallery(name: string): Promise<{ success: boole
 }
 
 /**
- * 按 imageId 批量移入图集（spec §5.4）。缺失的 imageId 被过滤并回报
+ * 按 imageId 批量移入相册（spec §5.4）。缺失的 imageId 被过滤并回报
  * （FK 违反不受 INSERT OR IGNORE 保护，必须预过滤）；重复成员幂等跳过；
  * images.updatedAt 由 gallery_images 触发器触碰。
  */
@@ -1868,9 +1868,9 @@ export async function addImagesToGallery(
 }
 
 /**
- * 按 imageId 批量移出图集（spec §5.4）。仅解除归属，不删图片行/文件、不做孤儿 GC
- * （与 unbindFolder 的 GC 语义有意不同——移动端"移出图集"不等于删除）。
- * 注意：若图片文件仍位于本图集绑定文件夹内，下次扫描会按文件夹前缀重新加入。
+ * 按 imageId 批量移出相册（spec §5.4）。仅解除归属，不删图片行/文件、不做孤儿 GC
+ * （与 unbindFolder 的 GC 语义有意不同——移动端"移出相册"不等于删除）。
+ * 注意：若图片文件仍位于本相册绑定文件夹内，下次扫描会按文件夹前缀重新加入。
  */
 export async function removeImagesFromGallery(
   galleryId: number,

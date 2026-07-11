@@ -50,7 +50,7 @@ class GalleryDaoTest {
     }
 
     @Test
-    fun `observeAlbumCards 单查询带回图集与兜底封面 id`() = runTest {
+    fun `observeAlbumCards 单查询带回相册与兜底封面 id`() = runTest {
         db.galleryDao().replaceAll(listOf(
             GalleryEntity(id = 1, name = "a-has-cover", coverImageId = 10, imageCount = 1),
             GalleryEntity(id = 2, name = "b-null-cover", coverImageId = null, imageCount = 2),
@@ -70,11 +70,11 @@ class GalleryDaoTest {
             assertEquals(listOf(1L, 2L, 3L), rows.map { it.id }) // 按 name 升序
             // 有封面：coverImageId 保留，兜底子查询照常算出但 ViewModel 用不到
             assertEquals(10L, rows.first { it.id == 1L }.coverImageId)
-            // null 封面：兜底取图集内 createdAt 最新（21）
+            // null 封面：兜底取相册内 createdAt 最新（21）
             val nullCover = rows.first { it.id == 2L }
             assertNull(nullCover.coverImageId)
             assertEquals(21L, nullCover.fallbackCoverId)
-            // 空图集：coverImageId 与兜底均为 null
+            // 空相册：coverImageId 与兜底均为 null
             val empty = rows.first { it.id == 3L }
             assertNull(empty.coverImageId)
             assertNull(empty.fallbackCoverId)

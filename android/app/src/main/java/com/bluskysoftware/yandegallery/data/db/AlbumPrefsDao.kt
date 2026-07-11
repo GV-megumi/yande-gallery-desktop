@@ -60,13 +60,13 @@ interface AlbumPrefsDao {
         }
     }
 
-    /** 图集同步对账后清孤儿（spec §2.1）。 */
+    /** 相册同步对账后清孤儿（spec §2.1）。 */
     @Query("DELETE FROM album_prefs WHERE galleryId NOT IN (SELECT id FROM galleries)")
     suspend fun deleteOrphans()
 
     /**
      * clearMirror 用：偏好按 galleryId 键，镜像身份失效（换服务器/dataVersion 变更）后跨服
-     * 同号 id 几乎必然撞号，残留行会附身新服务器的同号图集——全清是最小正确实现（对齐 D10）。
+     * 同号 id 几乎必然撞号，残留行会附身新服务器的同号相册——全清是最小正确实现（对齐 D10）。
      */
     @Query("DELETE FROM album_prefs")
     suspend fun clearAll()

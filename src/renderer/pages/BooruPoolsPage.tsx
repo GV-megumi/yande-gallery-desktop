@@ -21,7 +21,7 @@ interface BooruPoolsPageProps {
 }
 
 /**
- * Booru Pool（图集）浏览页面
+ * Booru Pool（相册）浏览页面
  * 支持搜索和浏览 Pool 列表，点击查看 Pool 详情
  */
 export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onArtistClick, suspended = false }) => {
@@ -355,7 +355,7 @@ export const BooruPoolsPage: React.FC<BooruPoolsPageProps> = ({ onTagClick, onAr
         <Space>
           <DatabaseOutlined style={{ color: iconColors.pools, fontSize: 18 }} />
           <span style={{ fontSize: fontSize.lg, fontWeight: 600, color: colors.textPrimary }}>
-            Pool 图集
+            Pool 相册
           </span>
         </Space>
 

@@ -168,8 +168,8 @@ class RoomMirrorStoreTest {
             SyncGalleryDto(id = 1, name = "keep", coverImageId = null, imageCount = 0, createdAt = "2026-01-01T00:00:00.000Z"),
         ))
         assertEquals("2026-01-01T00:00:00.000Z", db.galleryDao().byId(1)?.createdAt)
-        assertNotNull(db.albumPrefsDao().byId(1))   // 图集仍在 → 偏好保留
-        assertNull(db.albumPrefsDao().byId(2))      // 图集消失 → 孤儿清理（spec §2.1）
+        assertNotNull(db.albumPrefsDao().byId(1))   // 相册仍在 → 偏好保留
+        assertNull(db.albumPrefsDao().byId(2))      // 相册消失 → 孤儿清理（spec §2.1）
     }
 
     @Test

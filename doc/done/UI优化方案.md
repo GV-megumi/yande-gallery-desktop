@@ -267,7 +267,7 @@ interface BooruGridLayoutProps {
 │  │ 📷 图库       │  │  │ 工具栏 (Affix)     │  │
 │  │   最近图片    │  │  │ 搜索 + 筛选控制    │  │
 │  │   全部图片    │  │  │ 高度: 56px         │  │
-│  │   图集        │  │  ├───────────────────┤  │
+│  │   相册        │  │  ├───────────────────┤  │
 │  ├───────────────┤  │  │                   │  │
 │  │ 🌐 Booru     │  │  │  内容区域          │  │
 │  │   浏览        │  │  │  padding: 24px     │  │
@@ -374,7 +374,7 @@ function useBooruAppearance() {
 为以下高频渲染组件添加 `React.memo`：
 - `BooruImageCard` — 列表项，父级重渲染时不应重复渲染
 - `BooruGridLayout` — 大量子元素的容器
-- `GalleryCoverImage` — 图集列表项
+- `GalleryCoverImage` — 相册列表项
 - `StatusTag` — 纯展示组件
 
 ---

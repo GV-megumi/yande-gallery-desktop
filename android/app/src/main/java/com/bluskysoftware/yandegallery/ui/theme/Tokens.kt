@@ -3,7 +3,7 @@ package com.bluskysoftware.yandegallery.ui.theme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
 
-/** 跨页面共享的 MIUI 视觉常量（spec §1.3/§2.3/§3）——照片/图集详情/搜索三网格统一取此处，不许各写一份。 */
+/** 跨页面共享的 MIUI 视觉常量（spec §1.3/§2.3/§3）——照片/相册详情/搜索三网格统一取此处，不许各写一份。 */
 object MiuiTokens {
     /** 网格缝隙（水平+垂直 Arrangement.spacedBy）。 */
     val GridGap = 3.dp

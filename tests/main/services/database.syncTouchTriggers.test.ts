@@ -88,7 +88,7 @@ afterEach(async () => {
 });
 
 describe('ensureSyncTouchTriggers', () => {
-  it('图集成员 INSERT 触碰 images.updatedAt，格式与 toISOString 一致', async () => {
+  it('相册成员 INSERT 触碰 images.updatedAt，格式与 toISOString 一致', async () => {
     const imageId = await addImage('/a/1.jpg');
     const galleryId = await addGallery('g1');
     await run(db, `INSERT INTO gallery_images (galleryId, imageId, addedAt) VALUES (?, ?, ?)`, [galleryId, imageId, OLD]);

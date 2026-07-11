@@ -239,7 +239,7 @@ export interface RendererAppEventBase<TType extends string, TPayload> {
 - `createGallery`
 - `updateGallery`
 - `deleteGallery`
-- `scanSubfoldersAndCreateGalleries` 创建新图集
+- `scanSubfoldersAndCreateGalleries` 创建新相册
 - `syncGalleryFolder` 更新统计
 - `updateGalleryStats`
 
@@ -261,7 +261,7 @@ export interface RendererAppEventBase<TType extends string, TPayload> {
 
 **消费者：**
 
-- `GalleryPage` galleries 子页：active 时刷新图集列表或当前详情。
+- `GalleryPage` galleries 子页：active 时刷新相册列表或当前详情。
 - 本轮以定义和关键 emit 为主，如实现范围要收敛，消费端可作为二阶段。
 
 ## 4. 不新增事件的场景
@@ -535,8 +535,8 @@ Review 必须检查：
 2. 收藏标签点击下载后快速出现“任务创建成功”。预期：不等待 dryRun 扫描完成。
 3. 下载中心 bulk tab 已打开时，从收藏标签启动下载。预期：下载中心自动出现新 session。
 4. 下载中心页面 mounted 但不在当前 tab 时，切回后看到最新 session，且后台没有高频刷新。
-5. 图集同步新增图片，最近图片页在顶部。预期：新增图片进入顶部增量块。
-6. 图集同步新增图片，最近图片页不在顶部。预期：出现“新增 N 张，点击查看”。
+5. 相册同步新增图片，最近图片页在顶部。预期：新增图片进入顶部增量块。
+6. 相册同步新增图片，最近图片页不在顶部。预期：出现“新增 N 张，点击查看”。
 7. 最近图片页右侧不再出现日期节点列表，正文日期分组标题仍在。
 8. 标签管理页无拖拽把手、无排序 Select、无升降序按钮。
 9. 标签管理页分页位于底部居中。

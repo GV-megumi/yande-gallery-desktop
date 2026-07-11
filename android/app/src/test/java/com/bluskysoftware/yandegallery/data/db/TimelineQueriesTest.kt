@@ -64,7 +64,7 @@ class TimelineQueriesTest {
     }
 
     @Test
-    fun `图集成员分页只含成员且按变体排序`() = runTest {
+    fun `相册成员分页只含成员且按变体排序`() = runTest {
         seed()
         db.galleryDao().replaceAll(listOf(GalleryEntity(9, "g", null, 2)))
         db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(9, 1), GalleryImageEntity(9, 2)))

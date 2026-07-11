@@ -49,7 +49,7 @@ import androidx.compose.ui.unit.dp
  * 多选顶部选择栏（M3-T13）：取消 × / 「已选 N 项」 / 全选。
  *
  * 系统栏 inset 由 [insetStatusBar] 门控（D12A）：
- * - 照片 tab 嵌在 AppScaffold 内容区、图集详情放 Scaffold topBar 槽——都需状态栏 inset，传 `insetStatusBar = true`，
+ * - 照片 tab 嵌在 AppScaffold 内容区、相册详情放 Scaffold topBar 槽——都需状态栏 inset，传 `insetStatusBar = true`，
  *   padding 施加在 Surface **内**的 Row 上，Surface 背景连带着色状态栏区（避免顶部留一条未着色带）；
  * - 缺省 false 时不施加 inset（无系统栏遮挡的宿主）。
  */
@@ -90,12 +90,12 @@ fun SelectionTopBar(
 }
 
 /**
- * 多选底部动作栏（M3-T13）：下载 / 分享 / 删除 / 加入图集（图集内多一项移出当前图集）。
+ * 多选底部动作栏（M3-T13）：下载 / 分享 / 删除 / 加入相册（相册内多一项移出当前相册）。
  *
  * - online=false 置灰写动作（删除/加入/设封面/移出）——离线写操作不排队（spec §8）；
  *   下载（WorkManager 网络约束自会等待）与分享（读本地副本）保持可用，对齐大图页操作栏语义。
- * - [inGallery] 为 true（图集详情）才呈现「移出图集」项，并回调 [onRemoveFromGallery]。
- * - [onSetCover] 非空才呈现「设为封面」项（v0.6 spec §5.3：图集详情恰选 1 张时传入）。
+ * - [inGallery] 为 true（相册详情）才呈现「移出相册」项，并回调 [onRemoveFromGallery]。
+ * - [onSetCover] 非空才呈现「设为封面」项（v0.6 spec §5.3：相册详情恰选 1 张时传入）。
  */
 @Composable
 fun SelectionBottomBar(
@@ -124,7 +124,7 @@ fun SelectionBottomBar(
                 SelectionAction(Icons.Filled.Share, "分享", enabled = true, tag = "selection_action_share", onClick = onShare)
                 SelectionAction(Icons.Filled.Delete, "删除", enabled = online, tag = "selection_action_delete", onClick = onDelete)
                 SelectionAction(
-                    Icons.Filled.AddToPhotos, "加入图集",
+                    Icons.Filled.AddToPhotos, "加入相册",
                     enabled = online,
                     tag = "selection_action_add_to_gallery",
                     onClick = onAddToGallery,
@@ -139,7 +139,7 @@ fun SelectionBottomBar(
                 }
                 if (inGallery) {
                     SelectionAction(
-                        Icons.Filled.RemoveCircleOutline, "移出图集",
+                        Icons.Filled.RemoveCircleOutline, "移出相册",
                         enabled = online,
                         tag = "selection_action_remove_from_gallery",
                         onClick = { onRemoveFromGallery?.invoke() },

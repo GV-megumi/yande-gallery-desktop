@@ -59,7 +59,7 @@ function pageQuery(context: ApiRequestContext): { page: number; pageSize: number
   };
 }
 
-/** 图集/图片元数据只读五端点：仅挂 agent 面 /api/v1（galleryRead/imageRead 细化权限，spec §3.2）。 */
+/** 相册/图片元数据只读五端点：仅挂 agent 面 /api/v1（galleryRead/imageRead 细化权限，spec §3.2）。 */
 export function createGalleryRoutes(): ApiRoute[] {
   return [
     {

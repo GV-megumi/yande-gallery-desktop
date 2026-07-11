@@ -60,7 +60,7 @@ object Routes {
 
     fun editServer(serverId: Long) = "servers/$serverId/edit"
 
-    /** 大图页：galleryId 非 null → 图集上下文翻页；null → 时间轴上下文。 */
+    /** 大图页：galleryId 非 null → 相册上下文翻页；null → 时间轴上下文。 */
     fun viewer(imageId: Long, galleryId: Long? = null) =
         if (galleryId != null) "viewer/$imageId?galleryId=$galleryId" else "viewer/$imageId"
 
@@ -253,7 +253,7 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
             addServerContent = { Text("添加服务器占位") },
             editServerContent = { Text("编辑服务器占位") },
             scanContent = { Text("扫码占位") },
-            albumDetailContent = { Text("图集详情占位") },
+            albumDetailContent = { Text("相册详情占位") },
             viewerContent = { _, _ -> Text("大图页占位") },
             searchContent = { Text("搜索页占位") },
         )

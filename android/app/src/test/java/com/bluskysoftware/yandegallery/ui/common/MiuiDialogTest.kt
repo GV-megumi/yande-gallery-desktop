@@ -47,7 +47,7 @@ class MiuiDialogTest {
         var confirmed = 0
         compose.setContent {
             MiuiDialog(
-                title = "新建图集",
+                title = "新建相册",
                 onDismiss = {},
                 confirmText = "创建",
                 confirmEnabled = false,

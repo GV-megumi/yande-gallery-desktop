@@ -452,7 +452,7 @@ export interface BooruComment {
 
 // ========= Pool 相关类型定义 =========
 
-// Booru Pool（图集）
+// Booru Pool（相册）
 export interface BooruPool {
   id: number;
   name: string;

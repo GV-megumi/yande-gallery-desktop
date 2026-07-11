@@ -8,7 +8,7 @@ import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 fun buildTimelineQuery(sort: PhotoSort): SupportSQLiteQuery =
     SimpleSQLiteQuery("SELECT * FROM images ORDER BY ${sort.orderBy()}")
 
-/** 图集成员分页查询（spec §5.1）：同款排序白名单；galleryId 走绑定参数。 */
+/** 相册成员分页查询（spec §5.1）：同款排序白名单；galleryId 走绑定参数。 */
 fun buildGalleryImagesQuery(galleryId: Long, sort: PhotoSort): SupportSQLiteQuery =
     SimpleSQLiteQuery(
         """SELECT i.* FROM images i

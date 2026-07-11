@@ -10,8 +10,8 @@ const emitBuiltRendererAppEvent = vi.fn();
 // Phase 4：syncGalleryFolder 扫描 gallery_folders 的全部绑定文件夹。统一入口内部：
 //   scanAndImportFolder → ensureMembershipForFolder(runWithChanges) →
 //   COUNT(*) gallery_images → updateGalleryStats(run) → emit；syncGalleryFolder 再 COUNT 一次聚合。
-// 故 db mock：all 返回该图集的 gallery_folders 绑定行；get 对任意 gallery_images COUNT 返回固定 cnt，
-// 首个非 COUNT 的 get 返回图集行。事件 reason 为 'scanFolderIntoGallery'。
+// 故 db mock：all 返回该相册的 gallery_folders 绑定行；get 对任意 gallery_images COUNT 返回固定 cnt，
+// 首个非 COUNT 的 get 返回相册行。事件 reason 为 'scanFolderIntoGallery'。
 // 行为契约不变：type=gallery:images-imported、imported/skipped/imageCount/recursive 正确，
 // 且 imported=0 时不广播。
 vi.mock('../../../src/main/services/database.js', () => ({
@@ -56,10 +56,10 @@ describe('galleryService.syncGalleryFolder app event', () => {
     allMock.mockResolvedValue([]);
   });
 
-  it('同步图集导入新图片后应广播 gallery:images-imported', async () => {
+  it('同步相册导入新图片后应广播 gallery:images-imported', async () => {
     const folderPath = 'D:\\gallery';
     // get：COUNT(*) gallery_images 一律返回 cnt:3（scanFolderIntoGallery 内 + 聚合各一次）；
-    // 其余（getGallery）返回图集行。
+    // 其余（getGallery）返回相册行。
     getMock.mockImplementation(async (_db: any, sql: string) => {
       if (typeof sql === 'string' && sql.includes('COUNT(*) as cnt FROM gallery_images')) {
         return { cnt: 3 };
@@ -76,7 +76,7 @@ describe('galleryService.syncGalleryFolder app event', () => {
         updatedAt: '2026-04-01T00:00:00.000Z',
       };
     });
-    // all：返回该图集的 gallery_folders 绑定行（递归、扩展名 .jpg）
+    // all：返回该相册的 gallery_folders 绑定行（递归、扩展名 .jpg）
     allMock.mockImplementation(async (_db: any, sql: string) => {
       if (typeof sql === 'string' && sql.includes('FROM gallery_folders')) {
         return [{ folderPath, recursive: 1, extensions: JSON.stringify(['.jpg']) }];
@@ -120,7 +120,7 @@ describe('galleryService.syncGalleryFolder app event', () => {
     }));
   });
 
-  it('同步图集没有导入新图片时不应广播 gallery:images-imported', async () => {
+  it('同步相册没有导入新图片时不应广播 gallery:images-imported', async () => {
     const folderPath = 'D:\\gallery';
     getMock.mockImplementation(async (_db: any, sql: string) => {
       if (typeof sql === 'string' && sql.includes('COUNT(*) as cnt FROM gallery_images')) {

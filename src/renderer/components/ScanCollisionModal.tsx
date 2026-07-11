@@ -7,8 +7,8 @@ import { colors, spacing, fontSize, radius } from '../styles/tokens';
  *
  * Phase 7A 扫描入库的同名碰撞解决弹窗。
  *
- * 当 gallery.planScanFolder 返回 collisions（待入库文件夹与已有图集重名）时，
- * 让用户逐行选择：把该文件夹「合并到已有图集」还是「新建独立图集」。
+ * 当 gallery.planScanFolder 返回 collisions（待入库文件夹与已有相册重名）时，
+ * 让用户逐行选择：把该文件夹「合并到已有相册」还是「新建独立相册」。
  * 顶部提供「全部合并 / 全部新建」快捷动作；同时只读展示本次将新增的
  * newFolders 数量与因 alreadyBound/ignored/noImages 被跳过的 skipped 数量。
  *
@@ -40,13 +40,13 @@ export interface ScanResolution {
   merge: Array<{ folderPath: string; galleryId: number }>;
 }
 
-/** 每个碰撞行的用户选择：合并到已有图集 / 新建独立图集 */
+/** 每个碰撞行的用户选择：合并到已有相册 / 新建独立相册 */
 type CollisionChoice = 'merge' | 'create';
 
 /**
  * 纯函数：根据 newFolders 与每个碰撞行的选择，拼出 applyScanPlan 的 create/merge。
  * - newFolders 始终进入 create；
- * - 选择 create 的碰撞以原文件夹名进入 create（新建独立图集）；
+ * - 选择 create 的碰撞以原文件夹名进入 create（新建独立相册）；
  * - 选择 merge 的碰撞按 existingGalleryId 进入 merge。
  * 抽成可复用、可单测的纯逻辑，组件只负责把 UI 状态喂进来。
  */
@@ -93,7 +93,7 @@ export const ScanCollisionModal: React.FC<Props> = ({
   onConfirm,
   confirming = false,
 }) => {
-  // 每个碰撞行的选择，默认全部「合并到已有图集」（保守，不产生重复图集）
+  // 每个碰撞行的选择，默认全部「合并到已有相册」（保守，不产生重复相册）
   const [choices, setChoices] = useState<Record<string, CollisionChoice>>({});
 
   // 打开或碰撞集合变化时，重置为默认全合并
@@ -132,7 +132,7 @@ export const ScanCollisionModal: React.FC<Props> = ({
       cancelText="取消"
       okButtonProps={{ loading: confirming }}
       confirmLoading={confirming}
-      title="同名图集冲突"
+      title="同名相册冲突"
       width={680}
       destroyOnHidden
     >
@@ -140,7 +140,7 @@ export const ScanCollisionModal: React.FC<Props> = ({
         type="info"
         showIcon
         style={{ marginBottom: spacing.md }}
-        message={`本次将新增 ${newFolders.length} 个图集，跳过 ${skipped.length} 个；以下 ${collisions.length} 个文件夹与已有图集同名，请逐一选择处理方式。`}
+        message={`本次将新增 ${newFolders.length} 个相册，跳过 ${skipped.length} 个；以下 ${collisions.length} 个文件夹与已有相册同名，请逐一选择处理方式。`}
       />
 
       {/* 顶部快捷动作 */}
@@ -173,7 +173,7 @@ export const ScanCollisionModal: React.FC<Props> = ({
             >
               <Space direction="vertical" size={2}>
                 <Radio value="merge">{`合并到「${c.existingGalleryName}」`}</Radio>
-                <Radio value="create">新建独立图集</Radio>
+                <Radio value="create">新建独立相册</Radio>
               </Space>
             </Radio.Group>
           </div>

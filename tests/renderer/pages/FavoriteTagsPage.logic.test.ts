@@ -107,15 +107,15 @@ describe('FavoriteTagsPage logic - gallery selection', () => {
     { id: 2, folderPath: 'D:/gallery/b' },
   ];
 
-  it('选择图集后应回填对应 folderPath', () => {
+  it('选择相册后应回填对应 folderPath', () => {
     expect(resolvePathFromGallerySelection(galleries, 2)).toBe('D:/gallery/b');
   });
 
-  it('未选择图集时不应返回路径', () => {
+  it('未选择相册时不应返回路径', () => {
     expect(resolvePathFromGallerySelection(galleries, undefined)).toBeUndefined();
   });
 
-  it('图集不存在时不应返回路径', () => {
+  it('相册不存在时不应返回路径', () => {
     expect(resolvePathFromGallerySelection(galleries, 999)).toBeUndefined();
   });
 });

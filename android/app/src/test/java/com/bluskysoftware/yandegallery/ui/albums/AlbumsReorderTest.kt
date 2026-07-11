@@ -36,7 +36,7 @@ import org.robolectric.RobolectricTestRunner
  * v0.6 T9：相册拖拽重排模式 compose 契约——面板进重排 / 完成落盘手动序并切 MANUAL / 取消不落盘
  * / 真实长按拖动换位落盘（评审补测：手势接线→控制器命中→move→commit 整条管线，防静默断链）。
  * 装置沿用 AlbumsOrganizeTest（真 VM + in-memory graph + rememberNavController 包 AlbumsScreen）；
- * 种子图集 1/2/3 无组织态。完成落盘走 Room 真实执行器（waitForIdle 不追踪）→ waitUntil 轮询
+ * 种子相册 1/2/3 无组织态。完成落盘走 Room 真实执行器（waitForIdle 不追踪）→ waitUntil 轮询
  * 主网格回归——reorderState=null 在落盘完成后才置，主网格回归即代表 commit 已完成。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -72,7 +72,7 @@ class AlbumsReorderTest {
         Dispatchers.resetMain()
     }
 
-    /** 种子图集 1/2/3（无组织态）→ 挂真 AlbumsScreen → 「⋯」面板点「拖拽排序」进重排模式。 */
+    /** 种子相册 1/2/3（无组织态）→ 挂真 AlbumsScreen → 「⋯」面板点「拖拽排序」进重排模式。 */
     private fun enterReorderMode() {
         runBlocking {
             db.galleryDao().replaceAll((1L..3L).map { GalleryEntity(it, "album-$it", null, 0) })

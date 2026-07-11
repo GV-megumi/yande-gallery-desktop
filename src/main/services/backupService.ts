@@ -29,8 +29,8 @@ export const BACKUP_TABLES = [
   'booru_blacklisted_tags',
   'booru_saved_searches',
   'galleries',
-  // 图集解耦（gallery_folders + gallery_images）后，文件夹绑定与图片成员是图集数据的一部分，
-  // 必须随备份导出/恢复，否则异机恢复只剩无文件夹、无成员的空壳图集且无法重扫重建。
+  // 相册解耦（gallery_folders + gallery_images）后，文件夹绑定与图片成员是相册数据的一部分，
+  // 必须随备份导出/恢复，否则异机恢复只剩无文件夹、无成员的空壳相册且无法重扫重建。
   // 排在 galleries 之后：恢复正序先父后子、replace/回滚删除逆序先子后父，天然满足 FK 依赖；
   // 同时 replace 模式显式清这两张表，消除 FK OFF 下 DELETE galleries 不触发 CASCADE 留下的
   // 幽灵绑定（悬挂行会永久占用 folderPath 全局 UNIQUE、阻塞孤儿 GC、污染 app:// 白名单）。
@@ -38,7 +38,7 @@ export const BACKUP_TABLES = [
   'gallery_images',
 ] as const;
 
-// 旧版本（图集解耦前）导出的备份文件不含这两张表：格式校验时按可选处理（缺失视为空表），
+// 旧版本（相册解耦前）导出的备份文件不含这两张表：格式校验时按可选处理（缺失视为空表），
 // 避免历史备份被一刀切判为格式无效；恢复循环里对缺失表按空数组处理。
 const OPTIONAL_BACKUP_TABLES: ReadonlySet<string> = new Set(['gallery_folders', 'gallery_images']);
 
@@ -165,7 +165,7 @@ export function isValidBackupData(value: unknown): value is AppBackupData {
 
   return BACKUP_TABLES.every((table) => {
     const rows = candidate.tables?.[table];
-    // 旧版备份（图集解耦前导出）没有 gallery_folders / gallery_images：缺失时放行；
+    // 旧版备份（相册解耦前导出）没有 gallery_folders / gallery_images：缺失时放行；
     // 若存在则仍必须是数组，防止畸形数据混进恢复流程。
     if (rows === undefined && OPTIONAL_BACKUP_TABLES.has(table)) {
       return true;
@@ -197,7 +197,7 @@ function pickKnownColumns(row: Record<string, unknown>, columns: Set<string>): R
   return picked;
 }
 
-/** 旧版 galleries 行转写出的 gallery_folders 绑定（图集解耦前 folderPath 直接存在 galleries 上） */
+/** 旧版 galleries 行转写出的 gallery_folders 绑定（相册解耦前 folderPath 直接存在 galleries 上） */
 interface LegacyGalleryFolderBinding {
   galleryId: number;
   folderPath: string;
@@ -208,7 +208,7 @@ interface LegacyGalleryFolderBinding {
 }
 
 /**
- * 旧版（图集解耦前）备份的 galleries 行语义映射：
+ * 旧版（相册解耦前）备份的 galleries 行语义映射：
  * - isWatching → autoScan（列改名；NULL 回退 1，与 contractGalleriesTable 的 COALESCE(isWatching, 1) 一致）；
  * - folderPath(+recursive/extensions) 已不再是 galleries 的列，转写为一条 gallery_folders 绑定行
  *   （路径 normalizePath、INSERT OR IGNORE，与启动迁移 backfillGalleryFolders 的回填语义一致）。
@@ -247,7 +247,7 @@ function mapLegacyGalleryRow(row: Record<string, unknown>): {
         updatedAt: typeof row.updatedAt === 'string' ? row.updatedAt : nowIso,
       };
     } else {
-      // SELECT * 导出的行必带 id；缺失/非数字说明备份被人工改动，无法定位归属图集，只放弃绑定转写
+      // SELECT * 导出的行必带 id；缺失/非数字说明备份被人工改动，无法定位归属相册，只放弃绑定转写
       console.warn('[backupService] 旧版 galleries 行缺有效 id，folderPath 绑定未转写:', String(folderPath));
     }
   }
@@ -417,7 +417,7 @@ export async function restoreAppBackupData(
             // 恢复阶段也不应把它们写回数据库；只有用户后续主动重新登录时才能重建。
             let sanitized = sanitizeBackupRow(table, row);
 
-            // 旧版（图集解耦前）备份的 galleries 行：isWatching→autoScan 语义映射，
+            // 旧版（相册解耦前）备份的 galleries 行：isWatching→autoScan 语义映射，
             // folderPath/recursive/extensions 转写为 gallery_folders 绑定（见 mapLegacyGalleryRow）。
             let legacyBinding: LegacyGalleryFolderBinding | null = null;
             if (table === 'galleries') {
@@ -438,7 +438,7 @@ export async function restoreAppBackupData(
             await run(db, sql, values as any[]);
 
             if (legacyBinding) {
-              // INSERT OR IGNORE：folderPath 全局唯一，若该路径已被现有图集绑定则保留现状，
+              // INSERT OR IGNORE：folderPath 全局唯一，若该路径已被现有相册绑定则保留现状，
               // 与启动迁移 backfillGalleryFolders 的幂等回填语义一致。
               await run(
                 db,

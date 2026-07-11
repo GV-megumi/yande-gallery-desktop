@@ -115,7 +115,7 @@ async function seedOldData(): Promise<void> {
   await run(h.db, `INSERT INTO images (id, filename, filepath, fileSize, width, height, format, createdAt, updatedAt)
                    VALUES (2, 'b.jpg', 'M:\\g2\\b.jpg', 0, 0, 0, 'jpg', 't', 't')`);
 
-  // 旧图集：g1 isWatching=1，g2 isWatching=0，g3 isWatching=NULL（验证 COALESCE → 1）
+  // 旧相册：g1 isWatching=1，g2 isWatching=0，g3 isWatching=NULL（验证 COALESCE → 1）
   await run(h.db, `INSERT INTO galleries (id, folderPath, name, coverImageId, imageCount, lastScannedAt, isWatching, recursive, extensions, createdAt, updatedAt)
                    VALUES (1, 'M:\\g1', 'G1', 1, 5, 'ls1', 1, 1, '[".jpg"]', 'c1', 'u1')`);
   await run(h.db, `INSERT INTO galleries (id, folderPath, name, coverImageId, imageCount, lastScannedAt, isWatching, recursive, extensions, createdAt, updatedAt)

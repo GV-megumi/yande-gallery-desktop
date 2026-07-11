@@ -99,7 +99,7 @@ describe('ensureDecouplingTables', () => {
 });
 
 describe('backfillGalleryFolders', () => {
-  it('每个图集回填一条绑定，含 folderPath/recursive/extensions', async () => {
+  it('每个相册回填一条绑定，含 folderPath/recursive/extensions', async () => {
     const galA = normalizePath(path.join('M:', 'galA'));
     const galB = normalizePath(path.join('M:', 'galB'));
     const aId = await addGallery(galA, 'galA', 1);
@@ -130,7 +130,7 @@ describe('backfillGalleryFolders', () => {
 });
 
 describe('backfillGalleryImages', () => {
-  it('递归图集含嵌套图片，非递归图集仅含直接图片', async () => {
+  it('递归相册含嵌套图片，非递归相册仅含直接图片', async () => {
     const galA = normalizePath(path.join('M:', 'galA')); // recursive=1
     const galB = normalizePath(path.join('M:', 'galB')); // recursive=0
     const aId = await addGallery(galA, 'galA', 1);
@@ -153,7 +153,7 @@ describe('backfillGalleryImages', () => {
 
     expect(aMembers).toEqual([aDirect, aNested].sort((x, y) => x - y)); // 递归：直接 + 嵌套
     expect(bMembers).toEqual([bDirect]);                                // 非递归：仅直接
-    // 反向确认：嵌套图片没有被错误塞进非递归图集
+    // 反向确认：嵌套图片没有被错误塞进非递归相册
     expect(bMembers).not.toContain(bNested);
   });
 
@@ -168,7 +168,7 @@ describe('backfillGalleryImages', () => {
     expect(members).toHaveLength(1);
   });
 
-  it('集合式回填：每个图集只执行一条 INSERT 语句（语句数不随图片数增长）', async () => {
+  it('集合式回填：每个相册只执行一条 INSERT 语句（语句数不随图片数增长）', async () => {
     // 大库升级首启性能约束：回填必须用 INSERT OR IGNORE ... SELECT 集合式写入
     //（与 ensureMembershipForFolder 同形态），而不是把命中行拉回 JS 逐行 INSERT——
     // 否则 20 万张图片的旧库要做 20 万+ 次语句往返，首启阻塞数十秒。
@@ -184,7 +184,7 @@ describe('backfillGalleryImages', () => {
     await ensureDecouplingTables(db);
 
     // 用 sqlite3 trace 统计实际执行的 gallery_images INSERT 语句数：
-    // 集合式实现 = 每图集 1 条（此例 2 条）；旧逐行实现 = 每张命中图片 1 条（此例 10 条）。
+    // 集合式实现 = 每相册 1 条（此例 2 条）；旧逐行实现 = 每张命中图片 1 条（此例 10 条）。
     const insertStatements: string[] = [];
     const onTrace = (sql: string) => {
       if (/INSERT OR IGNORE INTO gallery_images/i.test(sql)) insertStatements.push(sql);
@@ -269,7 +269,7 @@ describe('migrateGalleryFolderDecoupling', () => {
     expect(await all(db, 'SELECT * FROM gallery_images')).toEqual([]);
   });
 
-  it('嵌套图集：一张图片可同时归属父图集与子图集（复合主键允许多归属）', async () => {
+  it('嵌套相册：一张图片可同时归属父相册与子相册（复合主键允许多归属）', async () => {
     const galA = normalizePath(path.join('M:', 'galA'));            // 父，recursive=1
     const galSub = normalizePath(path.join('M:', 'galA', 'sub'));   // 子，recursive=1
     const aId = await addGallery(galA, 'galA', 1);
@@ -279,8 +279,8 @@ describe('migrateGalleryFolderDecoupling', () => {
 
     await migrateGalleryFolderDecoupling(db);
 
-    // 同一张图片在父图集和子图集下各有一条成员行：
-    // 复合主键 (galleryId, imageId) 允许跨图集多归属，INSERT OR IGNORE 仅在单个图集内去重。
+    // 同一张图片在父相册和子相册下各有一条成员行：
+    // 复合主键 (galleryId, imageId) 允许跨相册多归属，INSERT OR IGNORE 仅在单个相册内去重。
     const aMembers = (
       await all<{ imageId: number }>(db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [aId])
     ).map((r) => r.imageId);
@@ -292,7 +292,7 @@ describe('migrateGalleryFolderDecoupling', () => {
     expect(subMembers).toContain(imgId);
   });
 
-  it('空库：无图集无图片时迁移为 no-op（建表但成员/绑定均为空）', async () => {
+  it('空库：无相册无图片时迁移为 no-op（建表但成员/绑定均为空）', async () => {
     await expect(migrateGalleryFolderDecoupling(db)).resolves.toBeUndefined();
     expect(await all(db, 'SELECT * FROM gallery_folders')).toEqual([]);
     expect(await all(db, 'SELECT * FROM gallery_images')).toEqual([]);

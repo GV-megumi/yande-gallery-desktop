@@ -119,7 +119,7 @@ describe('createGallery 写 galleries 元数据 + gallery_folders 绑定', () =>
     expect(JSON.parse(binding!.extensions)).toEqual(['.png', '.webp']);
   });
 
-  it('非递归图集双写时 gallery_folders.recursive=0', async () => {
+  it('非递归相册双写时 gallery_folders.recursive=0', async () => {
     const folder = normalizePath(path.join('M:', 'galY'));
     const result = await createGallery({ folderPath: folder, name: 'galY', recursive: false });
     expect(result.success).toBe(true);

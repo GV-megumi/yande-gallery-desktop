@@ -54,7 +54,7 @@ fun MiuiSubPageTopBar(
         }
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            // 左右各让位 56dp（返回键/动作区宽），长标题（如用户自定义图集名）单行省略不压图标（终审 Minor#3）
+            // 左右各让位 56dp（返回键/动作区宽），长标题（如用户自定义相册名）单行省略不压图标（终审 Minor#3）
             modifier = Modifier.align(Alignment.Center).padding(horizontal = 56.dp),
         ) {
             Text(title, style = MaterialTheme.typography.titleLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)

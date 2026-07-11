@@ -5,10 +5,10 @@ import path from 'path';
 /**
  * deleteImage 多归属统计刷新（对齐 848887a 对 reportInvalidImage 的同类修复）
  *
- * 删除 images 行会 FK CASCADE 清掉该图在所有图集的 gallery_images 成员行，因此：
- *   - 删除前必须读出全部归属图集（不 LIMIT 1）；
- *   - 删除后逐个归属图集以 COUNT(gallery_images) 回写 galleries.imageCount；
- *   - 逐图集发 galleries-changed(statsUpdated)，images-changed 的 affectedGalleryIds 覆盖全部归属。
+ * 删除 images 行会 FK CASCADE 清掉该图在所有相册的 gallery_images 成员行，因此：
+ *   - 删除前必须读出全部归属相册（不 LIMIT 1）；
+ *   - 删除后逐个归属相册以 COUNT(gallery_images) 回写 galleries.imageCount；
+ *   - 逐相册发 galleries-changed(statsUpdated)，images-changed 的 affectedGalleryIds 覆盖全部归属。
  *
  * 真实 :memory: sqlite + PRAGMA foreign_keys=ON（验证 FK CASCADE 清成员行）；
  * mock 掉 thumbnailService / fs（磁盘副作用）与事件发布器。
@@ -143,8 +143,8 @@ afterEach(async () => {
   await new Promise<void>((resolve, reject) => h.db.close((err) => (err ? reject(err) : resolve())));
 });
 
-describe('deleteImage 归属图集统计刷新（gallery_images 成员表）', () => {
-  it('多归属图片删除后刷新全部归属图集的 imageCount，statsUpdated 与 affectedGalleryIds 覆盖全部归属', async () => {
+describe('deleteImage 归属相册统计刷新（gallery_images 成员表）', () => {
+  it('多归属图片删除后刷新全部归属相册的 imageCount，statsUpdated 与 affectedGalleryIds 覆盖全部归属', async () => {
     const galleryA = await addGallery('M:/AA');
     const galleryB = await addGallery('M:/BB');
     // 各放一张独占图（撑起初始计数）+ 一张共享图（即将删除）
@@ -155,7 +155,7 @@ describe('deleteImage 归属图集统计刷新（gallery_images 成员表）', (
     await addMember(galleryA, shared);
     await addMember(galleryB, bOwn);
     await addMember(galleryB, shared);
-    // 预置过期 imageCount，验证两个图集都会被刷新
+    // 预置过期 imageCount，验证两个相册都会被刷新
     await run(h.db, 'UPDATE galleries SET imageCount = 99 WHERE id IN (?, ?)', [galleryA, galleryB]);
 
     const result = await deleteImage(shared);
@@ -167,13 +167,13 @@ describe('deleteImage 归属图集统计刷新（gallery_images 成员表）', (
     const remaining = await all<{ galleryId: number }>(h.db, 'SELECT galleryId FROM gallery_images WHERE imageId = ?', [shared]);
     expect(remaining).toHaveLength(0);
 
-    // 两个图集的 imageCount 都应刷新为各自剩余成员数（各 1）
+    // 两个相册的 imageCount 都应刷新为各自剩余成员数（各 1）
     const gA = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [galleryA]);
     const gB = await get<{ imageCount: number }>(h.db, 'SELECT imageCount FROM galleries WHERE id = ?', [galleryB]);
     expect(gA?.imageCount).toBe(1);
     expect(gB?.imageCount).toBe(1);
 
-    // 两个图集都应收到 statsUpdated 统计变更事件
+    // 两个相册都应收到 statsUpdated 统计变更事件
     const statsIds = statsUpdatedGalleryIds();
     expect(statsIds).toContain(galleryA);
     expect(statsIds).toContain(galleryB);
@@ -189,7 +189,7 @@ describe('deleteImage 归属图集统计刷新（gallery_images 成员表）', (
     expect(payload.affectedGalleryIds ?? []).toContain(galleryB);
   });
 
-  it('单归属图片删除后刷新该图集的 imageCount 并发 statsUpdated', async () => {
+  it('单归属图片删除后刷新该相册的 imageCount 并发 statsUpdated', async () => {
     const galleryId = await addGallery('M:/gal');
     const keep = await addImage('M:/gal/keep.jpg');
     const doomed = await addImage('M:/gal/doomed.jpg');

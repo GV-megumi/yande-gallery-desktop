@@ -72,7 +72,7 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // 添加图片
   // ipcMain.handle(IPC_CHANNELS.DB_ADD_IMAGE, async (_event: IpcMainInvokeEvent, image: any) => {
   //   try {
@@ -91,7 +91,7 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // 扫描文件夹（简化版，不处理图片内容）
   // ipcMain.handle(IPC_CHANNELS.IMAGE_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string) => {
   //   try {
@@ -188,7 +188,7 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // 图集成员读取（Phase 2B）：按 gallery_images 成员表读取图集图片
+  // 相册成员读取（Phase 2B）：按 gallery_images 成员表读取相册图片
   ipcMain.handle(IPC_CHANNELS.GALLERY_GET_IMAGES_BY_GALLERY, async (_event: IpcMainInvokeEvent, galleryId: number, page: number = 1, pageSize: number = 50) => {
     try {
       return await getImagesByGallery(galleryId, page, pageSize);
@@ -205,7 +205,7 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // ipcMain.handle(IPC_CHANNELS.GALLERY_SCAN_AND_IMPORT_FOLDER, async (_event: IpcMainInvokeEvent, folderPath: string, extensions: string[], recursive: boolean) => {
   //   try {
   //     return await scanAndImportFolder(folderPath, extensions, recursive);
@@ -363,7 +363,7 @@ export function setupGalleryHandlers() {
   );
 
   // ===== 扫描入库 plan→apply（Phase 6B） =====
-  // 规划：只读分析 rootPath 一级子文件夹（+ 自身），分类 new/collision/skipped，不建图集
+  // 规划：只读分析 rootPath 一级子文件夹（+ 自身），分类 new/collision/skipped，不建相册
   ipcMain.handle(IPC_CHANNELS.GALLERY_PLAN_SCAN_FOLDER, async (_event: IpcMainInvokeEvent, rootPath: string, extensions?: string[]) => {
     try {
       return await planScanFolder(rootPath, extensions);
@@ -372,7 +372,7 @@ export function setupGalleryHandlers() {
     }
   });
 
-  // 应用：按用户决议逐项新建图集 / 合并到现有图集（单项失败收集并继续）
+  // 应用：按用户决议逐项新建相册 / 合并到现有相册（单项失败收集并继续）
   ipcMain.handle(IPC_CHANNELS.GALLERY_APPLY_SCAN_PLAN, async (_event: IpcMainInvokeEvent, resolution: ApplyScanResolution) => {
     try {
       return await applyScanPlan(resolution);
@@ -382,7 +382,7 @@ export function setupGalleryHandlers() {
   });
 
   // ===== 图库↔文件夹解耦：文件夹绑定原语（Phase 6A） =====
-  // 将文件夹绑定到图集（全局唯一：一个文件夹只能绑定到一个图集）
+  // 将文件夹绑定到相册（全局唯一：一个文件夹只能绑定到一个相册）
   ipcMain.handle(
     IPC_CHANNELS.GALLERY_BIND_FOLDER,
     async (_event: IpcMainInvokeEvent, galleryId: number, folderPath: string, recursive?: boolean, extensions?: string[]) => {
@@ -394,7 +394,7 @@ export function setupGalleryHandlers() {
     }
   );
 
-  // 解除文件夹与图集的绑定
+  // 解除文件夹与相册的绑定
   ipcMain.handle(
     IPC_CHANNELS.GALLERY_UNBIND_FOLDER,
     async (_event: IpcMainInvokeEvent, galleryId: number, folderPath: string) => {
@@ -406,7 +406,7 @@ export function setupGalleryHandlers() {
     }
   );
 
-  // 修改图集绑定的文件夹路径（解绑旧路径 + 绑定新路径）
+  // 修改相册绑定的文件夹路径（解绑旧路径 + 绑定新路径）
   ipcMain.handle(
     IPC_CHANNELS.GALLERY_CHANGE_FOLDER_PATH,
     async (_event: IpcMainInvokeEvent, galleryId: number, oldPath: string, newPath: string, recursive?: boolean, extensions?: string[]) => {
@@ -418,7 +418,7 @@ export function setupGalleryHandlers() {
     }
   );
 
-  // 读取某图集的全部绑定文件夹（含 recursive / extensions）——Phase 7B 多文件夹管理对话框
+  // 读取某相册的全部绑定文件夹（含 recursive / extensions）——Phase 7B 多文件夹管理对话框
   ipcMain.handle(
     IPC_CHANNELS.GALLERY_GET_FOLDERS,
     async (_event: IpcMainInvokeEvent, galleryId: number) => {

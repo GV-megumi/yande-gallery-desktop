@@ -51,7 +51,7 @@ import kotlinx.coroutines.withContext
  * `SharingStarted.Eagerly`——不能依赖 Task 10 一定订阅它们才生效（否则永远读到初始空值）。
  *
  * @param imageId  被点开的图片 id（首屏定位用，见 [initialImageId]）
- * @param galleryId 非 null → 来源为该图集分页；null → 来源为时间轴全量分页（与被点网格同序）
+ * @param galleryId 非 null → 来源为该相册分页；null → 来源为时间轴全量分页（与被点网格同序）
  */
 class ViewerViewModel(
     private val graph: AppGraph,
@@ -76,7 +76,7 @@ class ViewerViewModel(
      */
     val initialImageId: Long = imageId
 
-    /** 大图页所处图集上下文：非 null → 从图集进入（「移出当前图集」可用）；null → 时间轴进入（该项置灰）。 */
+    /** 大图页所处相册上下文：非 null → 从相册进入（「移出当前相册」可用）；null → 时间轴进入（该项置灰）。 */
     val contextGalleryId: Long? = galleryId
 
     /** 当前激活服务器：提供 baseUrl，其 id 供 [modelFor] 拼 preview 缓存键命名空间。 */
@@ -95,7 +95,7 @@ class ViewerViewModel(
     private val detailSort = graph.viewPrefs.detailSort.value
 
     /**
-     * 分页流：galleryId != null → 图集分页（GalleryDao，按构造期快照的详情排序与网格同序）；
+     * 分页流：galleryId != null → 相册分页（GalleryDao，按构造期快照的详情排序与网格同序）；
      * 否则 → 时间轴分页（ImageDao，按构造期快照的照片排序）。只出 ImageEntity（不插日期分组头，
      * 那是网格的视觉层）。搜索进入沿用时间轴上下文（既有口径）。
      */
@@ -191,7 +191,7 @@ class ViewerViewModel(
 
     // ---- Task 11 委托：Screen 不直接触 graph，写操作/下载/级联删副本均经 VM 单点 ----
 
-    /** 图集列表（「加入图集」picker + 详情面板图集名解析），按名升序。 */
+    /** 相册列表（「加入相册」picker + 详情面板相册名解析），按名升序。 */
     val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
 
     /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）。 */
@@ -205,11 +205,11 @@ class ViewerViewModel(
     suspend fun removeTags(imageId: Long, names: List<String>): WriteResult =
         graph.writeRepository.removeTags(imageId, names)
 
-    /** 加入图集（更多菜单）。 */
+    /** 加入相册（更多菜单）。 */
     suspend fun addToGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.addToGallery(galleryId, listOf(imageId))
 
-    /** 移出图集（更多菜单，仅图集上下文可用）。 */
+    /** 移出相册（更多菜单，仅相册上下文可用）。 */
     suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
 
@@ -258,7 +258,7 @@ class ViewerViewModel(
     }
 }
 
-/** 详情面板模型：图片实体 + 标签名（按名升序）+ 所属图集 id。 */
+/** 详情面板模型：图片实体 + 标签名（按名升序）+ 所属相册 id。 */
 data class ImageDetail(
     val entity: ImageEntity,
     val tagNames: List<String>,

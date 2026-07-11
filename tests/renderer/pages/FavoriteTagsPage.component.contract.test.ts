@@ -6,7 +6,7 @@ describe('FavoriteTagsPage component contract', () => {
   const pagePath = path.resolve(process.cwd(), 'src/renderer/pages/FavoriteTagsPage.tsx');
   const source = readFileSync(pagePath, 'utf-8');
 
-  it('应在真实页面中展示下载状态/进度/上次下载时间/绑定图集列', () => {
+  it('应在真实页面中展示下载状态/进度/上次下载时间/绑定相册列', () => {
     expect(source).toContain("title: t('favoriteTags.boundGallery')");
     expect(source).toContain("title: t('favoriteTags.downloadStatus')");
     expect(source).toContain("title: t('favoriteTags.downloadProgress')");
@@ -40,12 +40,12 @@ describe('FavoriteTagsPage component contract', () => {
     expect(source).toContain("event.type === 'favorite-tags:changed'");
   });
 
-  it('应在真实页面中支持图集绑定不一致提示', () => {
+  it('应在真实页面中支持相册绑定不一致提示', () => {
     expect(source).toContain('galleryBindingConsistent === false');
     expect(source).toContain("t('favoriteTags.galleryBindingMismatchAlert')");
   });
 
-  it('图集绑定选择器应支持搜索，避免大图集列表无法检索', () => {
+  it('相册绑定选择器应支持搜索，避免大相册列表无法检索', () => {
     expect(source).toContain('showSearch');
     expect(source).toContain('optionFilterProp="children"');
   });

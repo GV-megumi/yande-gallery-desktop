@@ -166,14 +166,14 @@ describe('RelocateRootModal', () => {
       { galleryId: 3, folderPath: 'E:/solo', galleryName: 'Gamma' },
     ];
 
-    it('打开时自动列出丢失文件夹：旧路径只读展示 + 小字标注归属图集', async () => {
+    it('打开时自动列出丢失文件夹：旧路径只读展示 + 小字标注归属相册', async () => {
       const onLoadMissingFolders = vi.fn().mockResolvedValue(missing);
       render(<RelocateRootModal {...makeProps({ onLoadMissingFolders })} />);
 
       expect(await screen.findByText(/检测到 3 个丢失的绑定文件夹/)).toBeTruthy();
       expect(screen.getByText('D:/pics/a')).toBeTruthy();
-      expect(screen.getByText(/图集：Alpha/)).toBeTruthy();
-      expect(screen.getByText(/图集：Gamma/)).toBeTruthy();
+      expect(screen.getByText(/相册：Alpha/)).toBeTruthy();
+      expect(screen.getByText(/相册：Gamma/)).toBeTruthy();
       // 每项右侧一个"未选择新位置"输入
       expect(screen.getAllByPlaceholderText(/未选择新位置/)).toHaveLength(3);
     });

@@ -13,7 +13,7 @@ import path from 'path';
  * 跑这些查询路径，断言：
  *   1. getGallerySnapshotById：按 id 取存在性快照，不触碰 folderPath；
  *   2. findGalleryByFolderPath：改用 gallery_folders 解析 id（输入路径先归一化）；
- *   3. getFavoriteTagsWithDownloadState：内联取图集名时不再 SELECT folderPath。
+ *   3. getFavoriteTagsWithDownloadState：内联取相册名时不再 SELECT folderPath。
  * 任何一处残留 folderPath 读取都会让对应用例因 `no such column` 失败——
  * 这正是之前 mock 掉 DB 的 booru 测试漏掉的回归。
  */
@@ -170,11 +170,11 @@ describe('booruService galleries 查询兼容 contract 新结构（无 folderPat
     expect(found).toBeNull();
   });
 
-  it('getFavoriteTagsWithDownloadState 取绑定图集名时不读 folderPath', async () => {
+  it('getFavoriteTagsWithDownloadState 取绑定相册名时不读 folderPath', async () => {
     const folder = normalizePath(path.join('M:', 'tagGal'));
     const galleryId = await addGallery('TagGal', folder);
 
-    // 一个有下载绑定（绑到上面图集）的收藏标签
+    // 一个有下载绑定（绑到上面相册）的收藏标签
     await run(
       h.db,
       `INSERT INTO booru_favorite_tags (id, siteId, tagName, createdAt) VALUES (1, 1, 'scenery', 't')`

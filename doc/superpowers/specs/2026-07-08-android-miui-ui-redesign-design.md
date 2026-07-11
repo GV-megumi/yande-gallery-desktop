@@ -58,7 +58,7 @@
 
 ### 2.2 顶栏归属重构（壳→页面）
 
-- AppScaffold **不再渲染 topBar 槽**；照片/相册两 tab 的顶部区域下放进各自页面（与设置/图集详情等其余页面既有模式一致）。
+- AppScaffold **不再渲染 topBar 槽**；照片/相册两 tab 的顶部区域下放进各自页面（与设置/相册详情等其余页面既有模式一致）。
 - 壳保留：底部导航、以及多选激活时的底栏 swap。`PhotosSelectionBars` 桥瘦身为**只管底部**：`Model(online, onDownload, onShare, onDelete, onAddToGallery)`；`count/onSelectAll/onCancel` 移回 PhotosScreen 内部（顶部选择栏随页面渲染）。
 
 ### 2.3 tab 页顶部模式（新共享组件 `MiuiTopBars.kt`）
@@ -88,7 +88,7 @@
 - 快滚滑块（`FastScrollbar`）：把手细条化（宽约 5dp 胶囊），拖动态日期气泡改胶囊样式；行为逻辑不动。
 - 引导态/空态：文案不变，按钮为 primary 胶囊（M3 Button 默认即胶囊，配色随主题）。
 
-## 4. 相册页 + 图集详情
+## 4. 相册页 + 相册详情
 
 ### 4.1 相册页（`AlbumsScreen.kt`）
 
@@ -97,9 +97,9 @@
 - 空态文案改为「点右上『+』新建…」。
 - 长按菜单（重命名/删除）保留，DropdownMenu 圆角随 shapes 变 12dp。
 
-### 4.2 图集详情（`AlbumDetailScreen.kt`）
+### 4.2 相册详情（`AlbumDetailScreen.kt`）
 
-- 顶栏改**居中标题**（图集名，titleLarge）+ 副标题（`N 张`，labelMedium 灰字）双行居中；返回居左。
+- 顶栏改**居中标题**（相册名，titleLarge）+ 副标题（`N 张`，labelMedium 灰字）双行居中；返回居左。
 - 网格格子、缝隙、多选样式与照片页统一（复用同一套常量）。
 - 多选顶/底栏换皮同 §2.3/§6。
 
@@ -142,7 +142,7 @@
 ### 8.3 统一弹窗 `MiuiDialog`（新建 `ui/common/MiuiDialog.kt`）
 
 - 结构：20dp 圆角、`surfaceContainerHigh` 底；标题居中 titleLarge；正文居左 bodyMedium（或 content 槽放输入框等）；底部**等宽双胶囊按钮**（高 44dp、间距 12dp）：取消 = `surfaceVariant` 底 + onSurface 字；确认 = primary 底白字；**危险确认 = error 底白字**。单按钮弹窗（如开源协议「关闭」）为单个全宽胶囊。
-- 替换现有全部 AlertDialog 调用点（计划期逐一清点，已知：照片页批量删除√危险、相册页命名/重命名、删除图集√危险、大图页删除√危险、设置页开源协议、缓存页清理确认、服务器删除确认等）；`confirmTag` 参数保留各处既有 testTag（`batch_delete_confirm`、`album_new_confirm` 等）。
+- 替换现有全部 AlertDialog 调用点（计划期逐一清点，已知：照片页批量删除√危险、相册页命名/重命名、删除相册√危险、大图页删除√危险、设置页开源协议、缓存页清理确认、服务器删除确认等）；`confirmTag` 参数保留各处既有 testTag（`batch_delete_confirm`、`album_new_confirm` 等）。
 - `GalleryPickerDialog` 同步换皮：20dp 圆角、列表行 48dp、标题居中。
 
 ## 9. 实现结构（新增/改动文件清单）

@@ -200,7 +200,7 @@ export async function getGallerySnapshotById(id: number): Promise<{ id: number; 
 }
 
 // Phase 8A：folderPath 已从 galleries 移到 gallery_folders（绑定文件夹的 source of truth）。
-// 按文件夹反查所属图集 → 查 gallery_folders（folderPath 全局 UNIQUE）；输入先归一化，
+// 按文件夹反查所属相册 → 查 gallery_folders（folderPath 全局 UNIQUE）；输入先归一化，
 // 与 createGallery 去重检查（galleryService.createGallery）一致。调用方只用 id，返回 { id }。
 // 导出供契约回归测试直接对真实 contracted schema 验证。
 export async function findGalleryByFolderPath(folderPath: string): Promise<{ id: number } | null> {
@@ -237,19 +237,19 @@ async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: Fa
   });
 
   if (!created.success || !created.data) {
-    throw new Error(created.error || '自动创建图集失败');
+    throw new Error(created.error || '自动创建相册失败');
   }
 
   return created.data;
 }
 
 /**
- * booru 下载完成后同步对应图集。
+ * booru 下载完成后同步对应相册。
  *
  * Phase 8A：galleries 不再存 recursive/extensions（已归 gallery_folders）。本函数改为：
- *   1. getGallery 仅校验图集存在（保留"图集不存在"错误契约）；
+ *   1. getGallery 仅校验相册存在（保留"相册不存在"错误契约）；
  *   2. 与下载启动侧（startFavoriteTagBulkDownload）/ 绑定保存侧（upsertFavoriteTagDownloadBinding）
- *      一致：downloadPath 必须命中该图集的某个 gallery_folders 绑定行。未命中（用户已解绑
+ *      一致：downloadPath 必须命中该相册的某个 gallery_folders 绑定行。未命中（用户已解绑
  *      或绑定漂移）时跳过同步——不能回退默认扫描，否则会把刚被解绑回收的成员重新扫入
  *      gallery_images，且该目录不在 app:// 白名单（galleryRootRegistry 按 gallery_folders
  *      装载），新成员在网格中会显示为坏图；读取侧 galleryBindingConsistent 会给出 pathMismatch；
@@ -261,7 +261,7 @@ async function ensureGalleryForFavoriteTag(favoriteTag: FavoriteTag, binding: Fa
 export async function syncGalleryAfterDownload(galleryId: number, downloadPath: string): Promise<void> {
   const galleryResult = await getGallery(galleryId);
   if (!galleryResult.success || !galleryResult.data) {
-    throw new Error(galleryResult.error || '图集不存在');
+    throw new Error(galleryResult.error || '相册不存在');
   }
 
   // recursive/extensions 按文件夹存（gallery_folders）。下载路径未命中任何绑定行时跳过同步，
@@ -274,7 +274,7 @@ export async function syncGalleryAfterDownload(galleryId: number, downloadPath: 
 
   if (!matchedFolder) {
     console.warn(
-      `[booruService] 跳过下载后图集同步：下载目录不在图集绑定文件夹中（galleryId=${galleryId}, downloadPath=${downloadPath}），收藏标签页将按 pathMismatch 提示绑定不一致`
+      `[booruService] 跳过下载后相册同步：下载目录不在相册绑定文件夹中（galleryId=${galleryId}, downloadPath=${downloadPath}），收藏标签页将按 pathMismatch 提示绑定不一致`
     );
     return;
   }
@@ -292,7 +292,7 @@ export async function syncGalleryAfterDownload(galleryId: number, downloadPath: 
     extensions
   );
   if (!scanResult.success) {
-    throw new Error(scanResult.error || '图集同步扫描失败');
+    throw new Error(scanResult.error || '相册同步扫描失败');
   }
 }
 
@@ -2141,7 +2141,7 @@ export async function getFavoriteTags(params: ListQueryParams = {}): Promise<Pag
 }
 
 /**
- * 按绑定图集名称或上次下载时间排序查询收藏标签（需要 LEFT JOIN 绑定表和图集表）
+ * 按绑定相册名称或上次下载时间排序查询收藏标签（需要 LEFT JOIN 绑定表和相册表）
  */
 async function getFavoriteTagsSortedByJoin(params: ListQueryParams): Promise<PaginatedResult<FavoriteTag>> {
   const { siteId, keyword, offset = 0, limit = 50, sortKey, sortOrder = 'asc' } = params;
@@ -2432,13 +2432,13 @@ export async function upsertFavoriteTagDownloadBinding(
     if (input.galleryId !== undefined && input.galleryId !== null) {
       const gallery = await getGallerySnapshotById(input.galleryId);
       if (!gallery) {
-        throw new Error('绑定的图集不存在');
+        throw new Error('绑定的相册不存在');
       }
-      // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），而非仅等于 galleries 旧列 folderPath。
+      // Phase 4：下载目录需落在相册的某个绑定文件夹内（gallery_folders），而非仅等于 galleries 旧列 folderPath。
       // 否则 bindFolder 追加 / changeFolderPath 重定位后的合法目录会被误判为不一致。两侧均归一化后比较。
       const galleryFolders = (await getGalleryFolderPaths(input.galleryId)).map(p => normalizePath(p));
       if (!galleryFolders.includes(normalizePath(resolvedDownloadPath))) {
-        throw new Error('下载目录必须与绑定图集的文件夹路径一致');
+        throw new Error('下载目录必须与绑定相册的文件夹路径一致');
       }
     }
 
@@ -2535,7 +2535,7 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
   console.log('[booruService] 获取收藏标签及下载状态:', params);
   try {
     const { sortKey, sortOrder = 'asc' } = params;
-    // galleryName / lastDownloadedAt 排序需要 JOIN 绑定表和图集表，在 SQL 层完成排序和分页
+    // galleryName / lastDownloadedAt 排序需要 JOIN 绑定表和相册表，在 SQL 层完成排序和分页
     const needsJoinSort = sortKey === 'galleryName' || sortKey === 'lastDownloadedAt';
     const paginated = needsJoinSort
       ? await getFavoriteTagsSortedByJoin(params)
@@ -2576,8 +2576,8 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
       }
     }
 
-    // Phase 4：一致性判定改用"下载目录 ∈ 图集 gallery_folders"，而非仅等于 galleries 旧列 folderPath。
-    // 预取这些图集的全部绑定文件夹（归一化），按 galleryId 归组成 Set，供下方同步映射 O(1) 命中判断。
+    // Phase 4：一致性判定改用"下载目录 ∈ 相册 gallery_folders"，而非仅等于 galleries 旧列 folderPath。
+    // 预取这些相册的全部绑定文件夹（归一化），按 galleryId 归组成 Set，供下方同步映射 O(1) 命中判断。
     const galleryFolderPathsById = new Map<number, Set<string>>();
     if (galleryIds.length > 0) {
       const folderPlaceholders = galleryIds.map(() => '?').join(',');
@@ -2647,10 +2647,10 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
           lastCompletedAt: snapshot.completedAt ?? null,
         });
 
-        // 如果完成且需要自动同步图集，异步触发
+        // 如果完成且需要自动同步相册，异步触发
         if (snapshot.status === 'completed' && row.galleryId && row.autoSyncGalleryAfterDownload) {
           syncGalleryAfterDownload(row.galleryId, row.downloadPath).catch(err => {
-            console.error('[booruService] 自动同步图集失败:', err);
+            console.error('[booruService] 自动同步相册失败:', err);
           });
         }
       }
@@ -2677,7 +2677,7 @@ export async function getFavoriteTagsWithDownloadState(params: ListQueryParams =
           galleryBindingConsistent = false;
           galleryBindingMismatchReason = 'galleryNotFound';
         } else {
-          // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），两侧归一化后判断。
+          // Phase 4：下载目录需落在相册的某个绑定文件夹内（gallery_folders），两侧归一化后判断。
           const folderSet = galleryFolderPathsById.get(binding.galleryId);
           if (folderSet && folderSet.has(normalizePath(binding.downloadPath))) {
             galleryBindingConsistent = true;
@@ -2745,7 +2745,7 @@ function buildFavoritesBulkDownloadFolderName(siteName: string): string {
 
 function buildFavoritesGalleryName(siteName: string): string {
   const trimmed = siteName.trim();
-  return trimmed ? `${trimmed} 收藏图集` : '收藏图集';
+  return trimmed ? `${trimmed} 收藏相册` : '收藏相册';
 }
 
 async function ensureFavoritesGallery(downloadPath: string, siteName: string): Promise<number | null> {
@@ -2762,7 +2762,7 @@ async function ensureFavoritesGallery(downloadPath: string, siteName: string): P
   });
 
   if (!created.success || !created.data) {
-    throw new Error(created.error || '创建收藏图集失败');
+    throw new Error(created.error || '创建收藏相册失败');
   }
 
   return created.data;
@@ -2957,13 +2957,13 @@ export async function startFavoriteTagBulkDownload(favoriteTagId: number): Promi
     const gallery = await getGallerySnapshotById(resolvedGalleryId);
     if (!gallery) {
       await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
-      throw new Error('绑定的图集不存在');
+      throw new Error('绑定的相册不存在');
     }
-    // Phase 4：下载目录需落在图集的某个绑定文件夹内（gallery_folders），两侧归一化后比较。
+    // Phase 4：下载目录需落在相册的某个绑定文件夹内（gallery_folders），两侧归一化后比较。
     const galleryFolders = (await getGalleryFolderPaths(resolvedGalleryId)).map(p => normalizePath(p));
     if (!galleryFolders.includes(normalizePath(binding.downloadPath))) {
       await updateFavoriteTagDownloadBindingSnapshot(favoriteTagId, { lastStatus: 'validationError' });
-      throw new Error('下载目录必须与绑定图集的文件夹路径一致');
+      throw new Error('下载目录必须与绑定相册的文件夹路径一致');
     }
   }
 

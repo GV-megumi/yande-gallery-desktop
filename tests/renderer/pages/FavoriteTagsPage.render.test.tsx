@@ -132,7 +132,7 @@ describe('FavoriteTagsPage render behavior', () => {
 
   function mockPageData(items: any[]) {
     getSites.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Yande' }] });
-    // Phase 8B：gallery DTO 不再带 folderPath；绑定文件夹只在选中具体图集时按需经 getGalleryFolders 拉取
+    // Phase 8B：gallery DTO 不再带 folderPath；绑定文件夹只在选中具体相册时按需经 getGalleryFolders 拉取
     getGalleries.mockResolvedValue({ success: true, data: [{ id: 1, name: 'Gallery A' }] });
     getGalleryFolders.mockResolvedValue({
       success: true,
@@ -206,7 +206,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(onTagClick).toHaveBeenCalledWith('tag_a', 1);
   });
 
-  it('图集绑定不一致时应显示 warning 提示', async () => {
+  it('相册绑定不一致时应显示 warning 提示', async () => {
     mockPageData([
       {
         ...baseTag,
@@ -284,7 +284,7 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
-  it('绑定文件夹应在选中图集时才按需拉取一次，列表加载期不再逐图集全量预取', async () => {
+  it('绑定文件夹应在选中相册时才按需拉取一次，列表加载期不再逐相册全量预取', async () => {
     mockPageData([
       {
         ...baseTag,
@@ -298,7 +298,7 @@ describe('FavoriteTagsPage render behavior', () => {
     const row = (await screen.findByText('tag a')).closest('tr');
     expect(row).not.toBeNull();
 
-    // 回归守卫：进入页面（loadGalleries 已跑完）不应对任何图集预取绑定文件夹（曾经的 N+1）
+    // 回归守卫：进入页面（loadGalleries 已跑完）不应对任何相册预取绑定文件夹（曾经的 N+1）
     await waitFor(() => {
       expect(getGalleries).toHaveBeenCalled();
     });
@@ -310,7 +310,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(within(dialog).getByText('favoriteTags.configTitle:tag_a')).toBeTruthy();
     expect(getGalleryFolders).not.toHaveBeenCalled();
 
-    // 打开图集下拉并选择「Gallery A」——此时才按需拉取该图集的绑定文件夹
+    // 打开相册下拉并选择「Gallery A」——此时才按需拉取该相册的绑定文件夹
     const gallerySelect = within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' });
     fireEvent.mouseDown(gallerySelect);
     fireEvent.click(await screen.findByText('Gallery A'));
@@ -320,7 +320,7 @@ describe('FavoriteTagsPage render behavior', () => {
     });
     expect(getGalleryFolders).toHaveBeenCalledTimes(1);
 
-    // 选择图集后，下载路径应渲染为绑定文件夹候选框并默认选中首个文件夹
+    // 选择相册后，下载路径应渲染为绑定文件夹候选框并默认选中首个文件夹
     const pathSelect = await within(dialog).findByRole('combobox', { name: 'favoriteTags.downloadPath' });
     await waitFor(() => {
       const selection = pathSelect.closest('.ant-select')?.querySelector('.ant-select-selection-item');
@@ -328,7 +328,7 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
-  it('图集绑定多个文件夹时下载路径应渲染为 Select，可改选任一绑定文件夹并提交', async () => {
+  it('相册绑定多个文件夹时下载路径应渲染为 Select，可改选任一绑定文件夹并提交', async () => {
     const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
     upsertFavoriteTagDownloadBinding.mockResolvedValueOnce({ success: true });
     mockPageData([
@@ -338,7 +338,7 @@ describe('FavoriteTagsPage render behavior', () => {
         resolvedDownloadPath: '',
       },
     ]);
-    // 覆盖 mockPageData 的单文件夹默认：该图集绑定两个文件夹
+    // 覆盖 mockPageData 的单文件夹默认：该相册绑定两个文件夹
     getGalleryFolders.mockResolvedValue({
       success: true,
       data: [
@@ -383,7 +383,7 @@ describe('FavoriteTagsPage render behavior', () => {
     });
   });
 
-  it('候选框底部添加文件夹：选目录后应绑定到图集、刷新候选并自动选中新路径', async () => {
+  it('候选框底部添加文件夹：选目录后应绑定到相册、刷新候选并自动选中新路径', async () => {
     const successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as any);
     upsertFavoriteTagDownloadBinding.mockResolvedValueOnce({ success: true });
     mockPageData([
@@ -393,7 +393,7 @@ describe('FavoriteTagsPage render behavior', () => {
         resolvedDownloadPath: '',
       },
     ]);
-    // 首次选中图集拉到 1 个绑定文件夹；添加成功后的刷新返回 2 个（新路径以后端归一化结果为准）
+    // 首次选中相册拉到 1 个绑定文件夹；添加成功后的刷新返回 2 个（新路径以后端归一化结果为准）
     getGalleryFolders
       .mockResolvedValueOnce({
         success: true,
@@ -435,7 +435,7 @@ describe('FavoriteTagsPage render behavior', () => {
       expect(bindFolder).toHaveBeenCalledWith(1, 'E:/gallery/new');
     });
 
-    // 绑定成功后刷新该图集的候选文件夹，并自动选中新路径
+    // 绑定成功后刷新该相册的候选文件夹，并自动选中新路径
     await waitFor(() => {
       expect(getGalleryFolders).toHaveBeenCalledTimes(2);
       expect(within(dialog).getByText('E:/gallery/new')).toBeTruthy();
@@ -463,7 +463,7 @@ describe('FavoriteTagsPage render behavior', () => {
       },
     ]);
     selectFolder.mockResolvedValueOnce({ success: true, data: 'E:/gallery/conflict' });
-    bindFolder.mockResolvedValueOnce({ success: false, error: '文件夹已被图集 2 绑定' });
+    bindFolder.mockResolvedValueOnce({ success: false, error: '文件夹已被相册 2 绑定' });
 
     render(<FavoriteTagsPage />);
 
@@ -480,9 +480,9 @@ describe('FavoriteTagsPage render behavior', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'favoriteTags.addFolder' }));
 
     await waitFor(() => {
-      expect(errorSpy).toHaveBeenCalledWith('common.failed: 文件夹已被图集 2 绑定');
+      expect(errorSpy).toHaveBeenCalledWith('common.failed: 文件夹已被相册 2 绑定');
     });
-    // 失败后不刷新候选（仍是选中图集时的那一次拉取），选中路径保持原样
+    // 失败后不刷新候选（仍是选中相册时的那一次拉取），选中路径保持原样
     expect(getGalleryFolders).toHaveBeenCalledTimes(1);
     expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
   });
@@ -531,7 +531,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(getGalleryFolders).toHaveBeenCalledTimes(1);
   });
 
-  it('bindFolder 扫描期间清空图集选择后，完成的绑定不应改写当前路径或刷新候选', async () => {
+  it('bindFolder 扫描期间清空相册选择后，完成的绑定不应改写当前路径或刷新候选', async () => {
     mockPageData([
       {
         ...baseTag,
@@ -560,7 +560,7 @@ describe('FavoriteTagsPage render behavior', () => {
       expect(within(dialog).getByText('D:/gallery/a')).toBeTruthy();
     });
 
-    // 发起添加（bindFolder 挂起，模拟大目录扫描），随后清空图集选择回到手动选目录模式
+    // 发起添加（bindFolder 挂起，模拟大目录扫描），随后清空相册选择回到手动选目录模式
     fireEvent.mouseDown(pathSelect);
     fireEvent.click(await screen.findByRole('button', { name: 'favoriteTags.addFolder' }));
     await waitFor(() => {
@@ -574,7 +574,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect(pathInput.value).toBe('D:/gallery/a');
     const foldersCallsBeforeResolve = getGalleryFolders.mock.calls.length;
 
-    // 扫描完成：绑定已生效在图集侧，但弹窗当前已是手动模式，不应改写路径或再拉候选。
+    // 扫描完成：绑定已生效在相册侧，但弹窗当前已是手动模式，不应改写路径或再拉候选。
     // 不用 act() 包裹：下拉开合的 rc-motion 动画在途时裸 act 会与其调度互锁直到超时，
     // 改用短定时等 handler 的微任务与状态更新自然落地（act 警告已被 console.error spy 吸收）。
     resolveBindFolder({ success: true });
@@ -584,7 +584,7 @@ describe('FavoriteTagsPage render behavior', () => {
     expect((within(dialog).getByLabelText('favoriteTags.downloadPath') as HTMLInputElement).value).toBe('D:/gallery/a');
   });
 
-  it('图集没有绑定文件夹时应提示原因并拦截保存，清空图集选择后恢复手动选目录', async () => {
+  it('相册没有绑定文件夹时应提示原因并拦截保存，清空相册选择后恢复手动选目录', async () => {
     const errorSpy = vi.spyOn(message, 'error').mockImplementation(() => undefined as any);
     mockPageData([
       {
@@ -593,7 +593,7 @@ describe('FavoriteTagsPage render behavior', () => {
         resolvedDownloadPath: '',
       },
     ]);
-    // 覆盖 mockPageData 的单文件夹默认：该图集没有任何绑定文件夹
+    // 覆盖 mockPageData 的单文件夹默认：该相册没有任何绑定文件夹
     getGalleryFolders.mockResolvedValue({ success: true, data: [] });
 
     render(<FavoriteTagsPage />);
@@ -606,9 +606,9 @@ describe('FavoriteTagsPage render behavior', () => {
     fireEvent.mouseDown(within(dialog).getByRole('combobox', { name: 'favoriteTags.selectGallery' }));
     fireEvent.click(await screen.findByText('Gallery A'));
 
-    // 明确提示:该图集没有绑定文件夹,无法作为下载目标(不再是无解释的死锁)
+    // 明确提示:该相册没有绑定文件夹,无法作为下载目标(不再是无解释的死锁)
     expect(await within(dialog).findByText('favoriteTags.galleryHasNoFolders')).toBeTruthy();
-    // 图集绑定态下路径由候选框接管(后端要求路径 ∈ 绑定文件夹),手动选目录按钮不再渲染,
+    // 相册绑定态下路径由候选框接管(后端要求路径 ∈ 绑定文件夹),手动选目录按钮不再渲染,
     // 扩充合法候选走候选框底部的「添加文件夹」
     expect(within(dialog).queryByRole('button', { name: '选择文件夹' })).toBeNull();
     expect(within(dialog).getByRole('combobox', { name: 'favoriteTags.downloadPath' })).toBeTruthy();
@@ -622,7 +622,7 @@ describe('FavoriteTagsPage render behavior', () => {
     // 校验错误与界面提示给出同一原因
     expect(within(dialog).getAllByText('favoriteTags.galleryHasNoFolders').length).toBeGreaterThanOrEqual(1);
 
-    // 脱困路径：清空图集选择后，手动选目录按钮恢复可用
+    // 脱困路径：清空相册选择后，手动选目录按钮恢复可用
     const clearIcon = dialog.querySelector('.ant-select-clear');
     expect(clearIcon).not.toBeNull();
     fireEvent.mouseDown(clearIcon!);

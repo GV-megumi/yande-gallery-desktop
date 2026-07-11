@@ -5,9 +5,9 @@ import path from 'path';
 /**
  * Phase 4 — gallery_folders 读取辅助
  *
- * getAllGalleryFolderPaths()：返回全部图集绑定文件夹（去重、非空），
+ * getAllGalleryFolderPaths()：返回全部相册绑定文件夹（去重、非空），
  *   供 app:// 白名单装载。必须包含 bindFolder 追加的文件夹，而不仅是 galleries.folderPath。
- * getGalleryFolderPaths(galleryId)：返回某图集的全部绑定文件夹，供 booru 下载路径校验。
+ * getGalleryFolderPaths(galleryId)：返回某相册的全部绑定文件夹，供 booru 下载路径校验。
  *
  * 真实 :memory: sqlite 验证读取；只 mock 扫描磁盘与事件副作用，bindFolder 用真实逻辑写绑定行。
  */
@@ -124,7 +124,7 @@ afterEach(async () => {
 });
 
 describe('getAllGalleryFolderPaths', () => {
-  it('返回全部图集绑定文件夹，含 bindFolder 追加的文件夹（不止 galleries.folderPath）', async () => {
+  it('返回全部相册绑定文件夹，含 bindFolder 追加的文件夹（不止 galleries.folderPath）', async () => {
     const baseA = normalizePath(path.join('M:', 'galA'));
     const baseB = normalizePath(path.join('M:', 'galB'));
     const galleryA = await addGalleryWithBinding(baseA, 1);
@@ -150,7 +150,7 @@ describe('getAllGalleryFolderPaths', () => {
 });
 
 describe('getGalleryFolderPaths', () => {
-  it('只返回指定图集的绑定文件夹', async () => {
+  it('只返回指定相册的绑定文件夹', async () => {
     const baseA = normalizePath(path.join('M:', 'galA'));
     const baseB = normalizePath(path.join('M:', 'galB'));
     const galleryA = await addGalleryWithBinding(baseA, 1);
@@ -163,7 +163,7 @@ describe('getGalleryFolderPaths', () => {
     expect(await getGalleryFolderPaths(galleryB)).toEqual([baseB]);
   });
 
-  it('未知图集返回空数组', async () => {
+  it('未知相册返回空数组', async () => {
     expect(await getGalleryFolderPaths(9999)).toEqual([]);
   });
 });

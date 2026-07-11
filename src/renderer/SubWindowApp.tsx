@@ -87,14 +87,14 @@ const SECONDARY_MENU_TITLES: Record<string, Record<string, string>> = {
   gallery: {
     recent: '最近',
     all: '全部',
-    galleries: '图集',
+    galleries: '相册',
     'invalid-images': '无效图片',
     settings: '设置',
   },
   booru: {
     posts: '帖子',
     popular: '热门',
-    pools: '图集',
+    pools: '相册',
     forums: '论坛',
     'user-profile': '用户',
     favorites: '收藏',
@@ -120,7 +120,7 @@ const suspenseFallback = (
 );
 
 /** 渲染二级菜单页面
- *  extra: Bug11 支持 { galleryId } — 子窗口直接进入指定图集详情
+ *  extra: Bug11 支持 { galleryId } — 子窗口直接进入指定相册详情
  */
 const renderSecondaryMenuPage = (
   section: string,
@@ -258,7 +258,7 @@ const SubWindowContent: React.FC = () => {
       const section = route.params.get('section') || '';
       const key = route.params.get('key') || '';
       const tab = route.params.get('tab') || undefined;
-      // Bug11：从 URL 读取 galleryId 用于子窗口直接进入指定图集详情
+      // Bug11：从 URL 读取 galleryId 用于子窗口直接进入指定相册详情
       const galleryIdRaw = route.params.get('galleryId');
       const galleryIdParam = (() => {
         if (!galleryIdRaw) return undefined;

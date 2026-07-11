@@ -11,7 +11,7 @@ import { spacing, colors, fontSize } from '../styles/tokens';
  *
  * 交互（用户反馈后重做）：
  * 1. 主体是「丢失文件夹修复清单」——打开时自动检测磁盘上已不存在的绑定文件夹，
- *    逐项列出（旧路径只读 + 小字标注归属图集），右侧为每项选择新位置；
+ *    逐项列出（旧路径只读 + 小字标注归属相册），右侧为每项选择新位置；
  *    换机后旧路径在本机选不到，所以左侧不需要任何输入/选择。
  * 2. 推断传播：给一项选完新位置后，其余同根项按公共前缀自动推断新位置
  *    （标「推断」，可改可清）——整库搬迁场景选一次即可全部填好。
@@ -424,7 +424,7 @@ export const RelocateRootModal: React.FC<Props> = ({ open, onCancel, onPreview, 
                     {item.oldPath}
                   </div>
                   <div style={{ color: colors.textTertiary, fontSize: fontSize.xs }}>
-                    图集：{item.galleryName || '未知'}
+                    相册：{item.galleryName || '未知'}
                   </div>
                 </div>
                 <span style={{ color: colors.textTertiary }}>→</span>

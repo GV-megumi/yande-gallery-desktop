@@ -78,9 +78,9 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 相册 tab：折叠大标题 + 三分区自适应卡片网格（v0.6 spec §4.1/§4.2：置顶/全部相册/其他相册）。
- * 点击卡片跳图集详情；卡片长按弹「置顶/移入其他相册/重命名/删除」菜单（组织项纯本机离线可用）；
- * 顶栏右上「+」新建图集、「⋯」排序面板（spec §4.4）。无图集时展示空态文案，但「+」仍在，
- * 可创建首个图集。写入口离线（connState.online=false）置灰。
+ * 点击卡片跳相册详情；卡片长按弹「置顶/移入其他相册/重命名/删除」菜单（组织项纯本机离线可用）；
+ * 顶栏右上「+」新建相册、「⋯」排序面板（spec §4.4）。无相册时展示空态文案，但「+」仍在，
+ * 可创建首个相册。写入口离线（connState.online=false）置灰。
  */
 @Composable
 fun AlbumsScreen(
@@ -88,7 +88,7 @@ fun AlbumsScreen(
     navController: NavHostController,
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
-    // 三态：null=加载中（DB 未首发射）/ isEmpty=确无图集 / 非空=有图集（M4-T15，A7 消空态闪帧）
+    // 三态：null=加载中（DB 未首发射）/ isEmpty=确无相册 / 非空=有相册（M4-T15，A7 消空态闪帧）
     val sections by viewModel.sections.collectAsStateWithLifecycle()
     val sort by viewModel.albumsSort.collectAsStateWithLifecycle()
     val connState by viewModel.connState.collectAsStateWithLifecycle()
@@ -188,7 +188,7 @@ fun AlbumsScreen(
                             viewModel.commitManualOrder(pinned, normal).join()
                             // 等 sections 反映新手动序再退重排（审查 minor）：join 只等 Room 事务提交，
                             // combine 的 albumPrefs 源要等失效追踪重查询才发射——先退主网格会闪回旧序
-                            // 1~N 帧再跳新序。超时兜底：并发同步增删图集时集合不再逐项相等，不无限等。
+                            // 1~N 帧再跳新序。超时兜底：并发同步增删相册时集合不再逐项相等，不无限等。
                             withTimeoutOrNull(3_000) {
                                 viewModel.sections.first { s ->
                                     s != null &&
@@ -256,13 +256,13 @@ fun AlbumsScreen(
                             if (online) {
                                 newName = ""; showNew = true
                             } else {
-                                scope.launch { snackbarHostState.showSnackbar("离线状态无法新建图集") }
+                                scope.launch { snackbarHostState.showSnackbar("离线状态无法新建相册") }
                             }
                         },
                         modifier = Modifier
                             .semantics { if (!online) disabled() }
                             .testTag("albums_new"),
-                    ) { Icon(Icons.Filled.Add, contentDescription = "新建图集", tint = tint) }
+                    ) { Icon(Icons.Filled.Add, contentDescription = "新建相册", tint = tint) }
                     IconButton(onClick = { showOptions = true }, modifier = Modifier.testTag("albums_more")) {
                         Icon(Icons.Filled.MoreHoriz, contentDescription = "更多选项", tint = MaterialTheme.colorScheme.onSurface)
                     }
@@ -270,7 +270,7 @@ fun AlbumsScreen(
                 MiuiLargeTitle("相册", header)
                 val current = sections
                 when {
-                    // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有图集用户冷启动空态闪帧（A7）
+                    // 加载中（DB 首发射前）：空白 Box 不显 AlbumsEmpty，避免已有相册用户冷启动空态闪帧（A7）
                     current == null -> Box(Modifier.fillMaxSize())
                     current.isEmpty -> AlbumsEmpty()
                     else -> LazyVerticalGrid(
@@ -312,10 +312,10 @@ fun AlbumsScreen(
         )
     }
 
-    // 新建图集：输入名 → createGallery（名字去空白；空名不可提交）
+    // 新建相册：输入名 → createGallery（名字去空白；空名不可提交）
     if (showNew) {
         AlbumNameDialog(
-            title = "新建图集",
+            title = "新建相册",
             name = newName,
             onNameChange = { newName = it },
             confirmLabel = "创建",
@@ -325,8 +325,8 @@ fun AlbumsScreen(
                 showNew = false
                 scope.launch {
                     when (val r = viewModel.createGallery(name)) {
-                        WriteResult.Success -> snackbarHostState.showSnackbar("已新建图集「$name」")
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("新建图集失败", r))
+                        WriteResult.Success -> snackbarHostState.showSnackbar("已新建相册「$name」")
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("新建相册失败", r))
                     }
                 }
             },
@@ -337,7 +337,7 @@ fun AlbumsScreen(
     // 重命名：对话框预填当前名（renameName 打开时已置为 card.gallery.name）→ renameGallery
     renameId?.let { id ->
         AlbumNameDialog(
-            title = "重命名图集",
+            title = "重命名相册",
             name = renameName,
             onNameChange = { renameName = it },
             confirmLabel = "保存",
@@ -356,7 +356,7 @@ fun AlbumsScreen(
         )
     }
 
-    // 删除：二次确认，明示只删图集不删图片文件（brief 契约）→ deleteGallery
+    // 删除：二次确认，明示只删相册不删图片文件（brief 契约）→ deleteGallery
     deleteId?.let { id ->
         DeleteAlbumConfirmDialog(
             albumName = deleteName,
@@ -366,8 +366,8 @@ fun AlbumsScreen(
                 deleteId = null
                 scope.launch {
                     when (val r = viewModel.deleteGallery(id)) {
-                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除图集「$name」")
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除图集失败", r))
+                        WriteResult.Success -> snackbarHostState.showSnackbar("已删除相册「$name」")
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("删除相册失败", r))
                     }
                 }
             },
@@ -539,14 +539,14 @@ internal fun AlbumNameDialog(
             MiuiTextField(
                 value = name,
                 onValueChange = onNameChange,
-                label = "图集名",
+                label = "相册名",
                 modifier = Modifier.fillMaxWidth().testTag("album_name_field"),
             )
         },
     )
 }
 
-/** 删除图集二次确认：明示只删图集、不删图片文件（brief 契约）。 */
+/** 删除相册二次确认：明示只删相册、不删图片文件（brief 契约）。 */
 @Composable
 internal fun DeleteAlbumConfirmDialog(
     albumName: String,
@@ -554,8 +554,8 @@ internal fun DeleteAlbumConfirmDialog(
     onDismiss: () -> Unit,
 ) {
     MiuiDialog(
-        title = "删除图集",
-        text = "确定删除图集「$albumName」？只删除图集本身，不删除其中的图片文件。",
+        title = "删除相册",
+        text = "确定删除相册「$albumName」？只删除相册本身，不删除其中的图片文件。",
         confirmText = "删除",
         destructive = true,
         confirmTag = "album_delete_confirm",
@@ -572,7 +572,7 @@ private fun AlbumsEmpty(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            "还没有图集",
+            "还没有相册",
             style = MaterialTheme.typography.titleMedium,
             textAlign = TextAlign.Center,
         )

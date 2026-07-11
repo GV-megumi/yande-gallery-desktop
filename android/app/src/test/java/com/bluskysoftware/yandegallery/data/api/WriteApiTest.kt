@@ -37,7 +37,7 @@ class WriteApiTest {
         MockWebServer().use { s ->
             s.enqueue(MockResponse().setBody("""{"success":true,"data":{"id":42}}"""))
             s.start()
-            assertEquals(42L, api(s).createGallery(GalleryNameDto("新图集")).unwrap().id)
+            assertEquals(42L, api(s).createGallery(GalleryNameDto("新相册")).unwrap().id)
         }
     }
 

@@ -6,7 +6,7 @@ import path from 'path';
  *
  * 黑名单（gallery_ignored_folders）中位于扫描根内部的目录由 galleryService 转成
  * excludeDirs 传入：递归扫描命中排除目录（或其后代）即整棵跳过——不深入 readdir、
- * 其文件不参与导入。否则「删除图集自动拉黑」的子树会在父级重扫时整棵复活。
+ * 其文件不参与导入。否则「删除相册自动拉黑」的子树会在父级重扫时整棵复活。
  *
  * mock 手法与 imageService.appEvent.test.ts 一致：mock fs/promises 构造目录树，
  * mock database/thumbnail/config/事件，验证遍历与导入行为。

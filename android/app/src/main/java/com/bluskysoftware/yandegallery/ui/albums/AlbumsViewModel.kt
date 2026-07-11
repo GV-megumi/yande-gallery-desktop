@@ -21,7 +21,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-/** 图集卡片：cover 优先取 gallery.coverImageId，为空时兜底取图集内最新一张（spec §7.2）。 */
+/** 相册卡片：cover 优先取 gallery.coverImageId，为空时兜底取相册内最新一张（spec §7.2）。 */
 data class AlbumCard(val gallery: GalleryEntity, val coverImageId: Long?)
 
 class AlbumsViewModel(
@@ -41,14 +41,14 @@ class AlbumsViewModel(
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state
 
     /**
-     * 三分区卡片流（v0.6 spec §4.2；沿用 M4-T15 三态哨兵：null=加载中/isEmpty=确无图集）。
+     * 三分区卡片流（v0.6 spec §4.2；沿用 M4-T15 三态哨兵：null=加载中/isEmpty=确无相册）。
      * 卡片 + 组织偏好 + 排序三源 combine，组装收敛在 assembleAlbumSections 纯函数。
-     * 单查询 observeAlbumCards 一次带回图集 + 相关子查询算出的兜底封面 id，无 N+1；
-     * cover 优先 gallery.coverImageId，为空时用兜底（图集内最新一张，spec §7.2）。
+     * 单查询 observeAlbumCards 一次带回相册 + 相关子查询算出的兜底封面 id，无 N+1；
+     * cover 优先 gallery.coverImageId，为空时用兜底（相册内最新一张，spec §7.2）。
      *
      * 一石二鸟（stateIn(WhileSubscribed, null)）：① 裸冷 Flow 每订阅重跑 Room 查询（A1）→ 共享一份；
      * ② 初始 null 作「加载中」哨兵，AlbumsScreen 据此在 DB 首发射前渲染空白而非 AlbumsEmpty，
-     * 消除已有图集用户冷启动的空态闪帧（A7）。
+     * 消除已有相册用户冷启动的空态闪帧（A7）。
      */
     val sections: StateFlow<AlbumSections?> =
         combine(
@@ -95,14 +95,14 @@ class AlbumsViewModel(
         graph.viewPrefs.setAlbumsSort(AlbumSort.MANUAL)
     }
 
-    /** 新建图集：委托 WriteRepository（乐观镜像 → 服务端 → 失败不新增行）；Screen 据结果提示。 */
+    /** 新建相册：委托 WriteRepository（乐观镜像 → 服务端 → 失败不新增行）；Screen 据结果提示。 */
     suspend fun createGallery(name: String): WriteResult = writeRepository.createGallery(name)
 
-    /** 重命名图集：委托 WriteRepository（乐观改名 → 服务端 → 失败回滚旧名）。 */
+    /** 重命名相册：委托 WriteRepository（乐观改名 → 服务端 → 失败回滚旧名）。 */
     suspend fun renameGallery(galleryId: Long, name: String): WriteResult =
         writeRepository.renameGallery(galleryId, name)
 
-    /** 删除图集：委托 WriteRepository（乐观删镜像行+成员链 → 服务端；不删图片本体，spec §8）。 */
+    /** 删除相册：委托 WriteRepository（乐观删镜像行+成员链 → 服务端；不删图片本体，spec §8）。 */
     suspend fun deleteGallery(galleryId: Long): WriteResult = writeRepository.deleteGallery(galleryId)
 
     companion object {

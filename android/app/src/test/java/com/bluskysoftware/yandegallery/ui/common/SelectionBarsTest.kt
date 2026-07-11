@@ -61,7 +61,7 @@ class SelectionBarsTest {
     }
 
     @Test
-    fun `底部栏非图集上下文——无移出图集项`() {
+    fun `底部栏非相册上下文——无移出相册项`() {
         compose.setContent {
             SelectionBottomBar(
                 online = true,

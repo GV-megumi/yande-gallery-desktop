@@ -3,7 +3,7 @@ import sqlite3 from 'sqlite3';
 
 /**
  * setGalleryCover（v0.6 封面能力包，安卓 spec §6.1）：
- *   - 成员校验：封面必须是该图集成员（gallery_images 有行），杜绝跨图集串封面；
+ *   - 成员校验：封面必须是该相册成员（gallery_images 有行），杜绝跨相册串封面；
  *   - 接受 null：清除显式封面（读侧回落「最近加入」兜底）。
  *
  * 装置沿用 syncService.test.ts 的 :memory: sqlite + mock getDatabase 形态；

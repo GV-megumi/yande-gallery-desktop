@@ -3,14 +3,14 @@ import sqlite3 from 'sqlite3';
 import path from 'path';
 
 /**
- * 备份/恢复 × 图集解耦（真实 :memory: sqlite）
+ * 备份/恢复 × 相册解耦（真实 :memory: sqlite）
  *
  * 与 backupService.test.ts 的 mock 风格用例互补：本文件用真实 schema + 真实 SQL 验证——
  *   1. 新格式往返：导出携带 gallery_folders 绑定与 gallery_images 成员，清库后恢复完整回来，
  *      并按成员表重算 galleries.imageCount（§5.1 不变量：imageCount = COUNT(gallery_images)）；
  *   2. replace 模式连带清空两张关联表：FK OFF 下 DELETE galleries 不触发 CASCADE，
  *      若不显式清表会留下幽灵绑定（悬挂 folderPath 永久占用全局 UNIQUE、阻塞孤儿 GC）；
- *   3. 旧版（图集解耦前）备份兼容：galleries 旧列不再拖垮整个恢复事务，
+ *   3. 旧版（相册解耦前）备份兼容：galleries 旧列不再拖垮整个恢复事务，
  *      isWatching→autoScan、folderPath 转写为 gallery_folders 绑定。
  *
  * 只 mock 环境边界（getDatabase→内存库、config 读写、事件广播、白名单装载），SQL 全走真实 sqlite。
@@ -77,7 +77,7 @@ import {
   type AppBackupData,
 } from '../../../src/main/services/backupService';
 
-/** 备份涉及的 booru 表：本文件只验证图集侧行为，booru 表建成最小结构即可满足 SELECT 与 DELETE。 */
+/** 备份涉及的 booru 表：本文件只验证相册侧行为，booru 表建成最小结构即可满足 SELECT 与 DELETE。 */
 const MINIMAL_BOORU_TABLES = [
   'booru_sites',
   'booru_posts',
@@ -204,7 +204,7 @@ afterEach(async () => {
   vi.clearAllMocks();
 });
 
-describe('BACKUP_TABLES 图集解耦覆盖', () => {
+describe('BACKUP_TABLES 相册解耦覆盖', () => {
   it('应在 galleries 之后纳入 gallery_folders / gallery_images（恢复正序、删除逆序满足 FK 依赖）', () => {
     const tables = BACKUP_TABLES as readonly string[];
     const galleriesIdx = tables.indexOf('galleries');
@@ -259,7 +259,7 @@ describe('新格式备份：绑定与成员随备份往返', () => {
     // 篡改备份行中的 imageCount 缓存，验证恢复后按 gallery_images 重算（§5.1 不变量）
     (backup.tables.galleries[0] as Record<string, unknown>).imageCount = 999;
 
-    // 模拟丢失图集数据后的恢复（images 表仍在，如同本机数据修复场景）
+    // 模拟丢失相册数据后的恢复（images 表仍在，如同本机数据修复场景）
     await run(h.db, 'DELETE FROM gallery_images');
     await run(h.db, 'DELETE FROM gallery_folders');
     await run(h.db, 'DELETE FROM galleries');
@@ -300,7 +300,7 @@ describe('新格式备份：绑定与成员随备份往返', () => {
 
     const backup = await createAppBackupData();
 
-    // 备份之后新建图集 G2 并绑定 folderB——replace 恢复应把它连同绑定/成员一起清掉
+    // 备份之后新建相册 G2 并绑定 folderB——replace 恢复应把它连同绑定/成员一起清掉
     const g2 = await seedGallery('G2');
     await seedBinding(g2, folderB);
     const img2 = await seedImage(normalizePath(path.join('M:', 'gal', 'B', 'b.jpg')));
@@ -340,7 +340,7 @@ function buildBackupConfig(): AppBackupData['config'] {
 }
 
 /**
- * 构造旧版（图集解耦前）备份 payload：
+ * 构造旧版（相册解耦前）备份 payload：
  * - galleries 行携带旧列 folderPath/isWatching/recursive/extensions（contract 后已不存在）；
  * - 没有 gallery_folders / gallery_images 两张表（当时尚未引入）。
  */
@@ -357,7 +357,7 @@ function buildLegacyBackup(galleryRows: Record<string, unknown>[]): AppBackupDat
   } as unknown as AppBackupData;
 }
 
-describe('旧版（图集解耦前）备份兼容恢复', () => {
+describe('旧版（相册解耦前）备份兼容恢复', () => {
   it('galleries 旧行不再拖垮恢复：isWatching→autoScan，folderPath 转写为 gallery_folders 绑定，imageCount 重算为 0', async () => {
     const legacyFolder = path.join('M:', 'legacy', 'gal') + path.sep; // 末尾分隔符验证 normalizePath 归一
     const backup = buildLegacyBackup([
@@ -424,7 +424,7 @@ describe('旧版（图集解耦前）备份兼容恢复', () => {
     expect(await all(h.db, 'SELECT * FROM gallery_folders')).toEqual([]);
   });
 
-  it('merge 模式下旧绑定路径已被现有图集占用时按 INSERT OR IGNORE 保留现状（与启动迁移回填语义一致）', async () => {
+  it('merge 模式下旧绑定路径已被现有相册占用时按 INSERT OR IGNORE 保留现状（与启动迁移回填语义一致）', async () => {
     const folder = normalizePath(path.join('M:', 'shared', 'gal'));
     const existing = await seedGallery('Current');
     await seedBinding(existing, folder);
@@ -447,7 +447,7 @@ describe('旧版（图集解耦前）备份兼容恢复', () => {
 
     await restoreAppBackupData(backup, { mode: 'merge' });
 
-    // 图集行本身恢复成功；folderPath 全局 UNIQUE 已被现有图集占用，绑定保持不变
+    // 相册行本身恢复成功；folderPath 全局 UNIQUE 已被现有相册占用，绑定保持不变
     expect(await get(h.db, 'SELECT id FROM galleries WHERE id = 99')).toBeTruthy();
     const bindings = await all<{ galleryId: number; folderPath: string }>(h.db, 'SELECT galleryId, folderPath FROM gallery_folders');
     expect(bindings).toEqual([{ galleryId: existing, folderPath: folder }]);
@@ -581,7 +581,7 @@ describe('恢复后悬挂 images 引用清理（images 表不随备份走）', (
 
 describe('恢复与并发事务互斥（runExclusive）', () => {
   it('恢复期间并发的 runInTransaction 不会让 PRAGMA foreign_keys 永久失效', async () => {
-    const gid = await seedGallery('并发期图集');
+    const gid = await seedGallery('并发期相册');
     await seedBinding(gid, normalizePath('M:/con/root'));
     const backup = await createAppBackupData();
 

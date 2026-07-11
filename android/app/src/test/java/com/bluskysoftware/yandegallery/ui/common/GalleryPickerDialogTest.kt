@@ -10,7 +10,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
-/** D12A：GalleryPickerDialog excludeIds 过滤——被排除图集不出现在列表；过滤后为空复用空态文案。 */
+/** D12A：GalleryPickerDialog excludeIds 过滤——被排除相册不出现在列表；过滤后为空复用空态文案。 */
 @RunWith(RobolectricTestRunner::class)
 class GalleryPickerDialogTest {
     @get:Rule
@@ -19,7 +19,7 @@ class GalleryPickerDialogTest {
     private fun gallery(id: Long, name: String) = GalleryEntity(id, name, null, 0)
 
     @Test
-    fun `excludeIds 过滤掉当前图集条目`() {
+    fun `excludeIds 过滤掉当前相册条目`() {
         compose.setContent {
             GalleryPickerDialog(
                 galleries = listOf(gallery(1, "旅行"), gallery(2, "风景")),
@@ -55,7 +55,7 @@ class GalleryPickerDialogTest {
                 excludeIds = setOf(1L),
             )
         }
-        compose.onNodeWithText("暂无图集，可先在相册 tab 新建").assertIsDisplayed()
+        compose.onNodeWithText("暂无相册，可先在相册 tab 新建").assertIsDisplayed()
         compose.onNodeWithTag("gallery_pick_1").assertDoesNotExist()
     }
 }

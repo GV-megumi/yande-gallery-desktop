@@ -253,7 +253,7 @@ describe('syncService', () => {
       // changeSeq 是游标内部实现，不进载荷（契约不变，android 端无感知）
       expect('changeSeq' in item).toBe(false);
     }
-    // 无标签/图集的图片映射为空数组
+    // 无标签/相册的图片映射为空数组
     const noTag = items.find((i) => i.id === 4)!;
     expect(noTag.tagIds).toEqual([]);
     expect(noTag.galleryIds).toEqual([]);
@@ -272,14 +272,14 @@ describe('syncService', () => {
   });
 
   it('listSyncGalleries：有效封面兜底 + createdAt 载荷（v0.6 spec §6.2/§6.3）', async () => {
-    // 装置适配：种子 seed() 已建 gallery1 + 成员行，这里清空后按用例自建三图集
+    // 装置适配：种子 seed() 已建 gallery1 + 成员行，这里清空后按用例自建三相册
     // （DELETE galleries 经 FK CASCADE 连带清 gallery_images），断言与计划一致
     await run(h.db, 'DELETE FROM galleries');
     await run(h.db, `INSERT INTO galleries (id, name, coverImageId, imageCount, createdAt, updatedAt)
       VALUES (1, 'explicit', 2, 2, '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z'),
              (2, 'fallback', NULL, 2, '2026-01-02T00:00:00.000Z', '2026-01-02T00:00:00.000Z'),
              (3, 'empty', NULL, 0, '2026-01-03T00:00:00.000Z', '2026-01-03T00:00:00.000Z')`);
-    // 种子 images 已有 id 1..4（本文件 seed()）；图集2 两个成员，addedAt 晚者 id=1 应当选
+    // 种子 images 已有 id 1..4（本文件 seed()）；相册2 两个成员，addedAt 晚者 id=1 应当选
     await run(h.db, `INSERT INTO gallery_images (galleryId, imageId, addedAt)
       VALUES (1, 2, '2026-01-01T00:00:00.000Z'),
              (2, 3, '2026-01-01T00:00:00.000Z'),
@@ -292,7 +292,7 @@ describe('syncService', () => {
     ]);
   });
 
-  it('listSyncGalleries：显式封面被移出图集后回落兜底，不下发非成员封面（审查 major 回归）', async () => {
+  it('listSyncGalleries：显式封面被移出相册后回落兜底，不下发非成员封面（审查 major 回归）', async () => {
     await run(h.db, 'DELETE FROM galleries');
     // g1 显式封面 2 但成员只剩 3（2 已被移出，images 行仍在）；g2 显式封面 2 且已无任何成员
     await run(h.db, `INSERT INTO galleries (id, name, coverImageId, imageCount, createdAt, updatedAt)

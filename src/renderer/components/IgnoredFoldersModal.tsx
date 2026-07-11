@@ -9,9 +9,9 @@ import { useGalleryDomainEvents } from '../hooks/useGalleryDomainEvents';
  *
  * bug12 配套 UI：展示和管理 gallery_ignored_folders 表。
  * 用户可以：
- *   - 选择一个本地文件夹并把它加入忽略名单（防止被扫描成图集）；
+ *   - 选择一个本地文件夹并把它加入忽略名单（防止被扫描成相册）；
  *   - 编辑某条记录的备注；
- *   - 从忽略名单中移除某条记录（下次扫描可能会重新创建图集）。
+ *   - 从忽略名单中移除某条记录（下次扫描可能会重新创建相册）。
  *
  * 数据来源：window.electronAPI.gallery.{listIgnoredFolders, addIgnoredFolder,
  *   updateIgnoredFolder, removeIgnoredFolder}。本组件只做 UI 与状态管理，

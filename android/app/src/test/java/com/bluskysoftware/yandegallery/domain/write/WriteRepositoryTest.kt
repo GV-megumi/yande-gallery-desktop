@@ -389,12 +389,12 @@ class WriteRepositoryTest {
         val sync = AtomicInteger(0)
         val (repo, monitor) = build(api, sync)
 
-        val result = repo.createGallery("新图集")
+        val result = repo.createGallery("新相册")
 
         assertEquals(WriteResult.Success, result)
         val row = db.galleryDao().byId(42)
         assertNotNull(row)
-        assertEquals("新图集", row!!.name)
+        assertEquals("新相册", row!!.name)
         assertNull(row.coverImageId)
         assertEquals(0, row.imageCount)
         assertTrue(monitor.state.value.online)
@@ -531,7 +531,7 @@ class WriteRepositoryTest {
     // ---- 回滚对称性回归（BUG-03/04/14/15 + deleteGallery 同族）----
 
     @Test
-    fun `deleteImage 失败——回滚重建被级联删除的图集与标签链（BUG-03）`() = runTest {
+    fun `deleteImage 失败——回滚重建被级联删除的相册与标签链（BUG-03）`() = runTest {
         db.imageDao().upsertAll(listOf(image(1)))
         db.galleryDao().insertOne(gallery(5, "g"))
         db.tagDao().insertAll(listOf(TagEntity(7, "sky", null)))
@@ -544,13 +544,13 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertNotNull(db.imageDao().byId(1))
-        assertEquals("回滚须恢复图集链——否则图从图集凭空消失", listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals("回滚须恢复相册链——否则图从相册凭空消失", listOf(5L), db.imageDao().galleryIdsOf(1))
         assertEquals("回滚须恢复标签链——否则标签清空掉出搜索", listOf("sky"), db.imageDao().tagNamesOf(1))
     }
 
     @Test
     fun `addToGallery 失败——回滚不误删选中图原有的成员关系（BUG-04）`() = runTest {
-        db.imageDao().upsertAll(listOf(image(1), image(2)))   // 1 已在图集 G，2 是本次新加
+        db.imageDao().upsertAll(listOf(image(1), image(2)))   // 1 已在相册 G，2 是本次新加
         db.galleryDao().insertOne(gallery(5, "g"))
         db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
         val api = FakeWriteApi().apply { failAddToGallery = ApiException("PERMISSION_DENIED", "galleryWrite 未开", 403) }
@@ -559,7 +559,7 @@ class WriteRepositoryTest {
         val result = repo.addToGallery(5, listOf(1, 2))
 
         assertTrue(result is WriteResult.Failed)
-        assertEquals("已在图集的 1 不得被回滚静默移出", listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals("已在相册的 1 不得被回滚静默移出", listOf(5L), db.imageDao().galleryIdsOf(1))
         assertEquals("本次新加的 2 回滚移除", emptyList<Long>(), db.imageDao().galleryIdsOf(2))
     }
 
@@ -621,11 +621,11 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         assertNotNull(db.galleryDao().byId(5))
-        assertEquals("回滚回来的图集不得变成空集", listOf(5L), db.imageDao().galleryIdsOf(1))
+        assertEquals("回滚回来的相册不得变成空集", listOf(5L), db.imageDao().galleryIdsOf(1))
     }
 
     @Test
-    fun `batchDeleteImages 失败块回滚——镜像行连同图集标签链一并恢复（BUG-03 批量版）`() = runTest {
+    fun `batchDeleteImages 失败块回滚——镜像行连同相册标签链一并恢复（BUG-03 批量版）`() = runTest {
         db.imageDao().upsertAll(listOf(image(1)))
         db.galleryDao().insertOne(gallery(5, "g"))
         db.tagDao().insertAll(listOf(TagEntity(7, "sky", null)))

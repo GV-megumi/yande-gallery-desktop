@@ -6,14 +6,14 @@ import path from 'path';
  * deleteGallery —— Phase 3：按成员删除 + 孤儿回收（替代旧的 folderPath 前缀级联）
  *
  * 公开契约（必须保持不变）：
- *   - 返回 { success, error? }；图集不存在时 success:false + error，且不触清理；
- *   - 删除后：图集行消失、其成员图片（仅本图集独占的）被删、缩略图被清、
+ *   - 返回 { success, error? }；相册不存在时 success:false + error，且不触清理；
+ *   - 删除后：相册行消失、其成员图片（仅本相册独占的）被删、缩略图被清、
  *     booru_posts 对应行 downloaded=0/localPath=NULL 重置；
  *   - 每个绑定文件夹写入 gallery_ignored_folders（拉黑，下次扫描不重建）；
  *   - 事件 gallery:galleries-changed{action:'deleted'} + gallery:ignored-folders-changed{action:'created'}；
  *   - 原图文件不删（本测试在 :memory: 中不涉及真实磁盘）。
  *
- * 关键修复（多归属）：被另一图集同时引用的图片，删除本图集时不应被删。
+ * 关键修复（多归属）：被另一相册同时引用的图片，删除本相册时不应被删。
  *
  * 实现方式从"SQL 文本断言（mock db）"升级为"真实 :memory: sqlite + 端到端结果断言"，
  * 这样可验证 FK CASCADE 与多归属保护——比旧的 SQL 文本匹配覆盖更强。
@@ -238,7 +238,7 @@ afterEach(async () => {
 });
 
 describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
-  it('单文件夹图集：删除后图集消失、独占图片被删、缩略图清、booru 重置、文件夹拉黑、事件齐全', async () => {
+  it('单文件夹相册：删除后相册消失、独占图片被删、缩略图清、booru 重置、文件夹拉黑、事件齐全', async () => {
     const folder = normalizePath(path.join('M:', 'pics'));
     const galleryId = await addGallery(folder, 1);
     await addFolderBinding(galleryId, folder, 1);
@@ -255,7 +255,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     const tagRow = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
     await run(h.db, `INSERT INTO image_tags (imageId, tagId) VALUES (?, ?)`, [ia, tagRow!.id]);
 
-    // booru_post 落地在该图集目录（localImageId + localPath 命中）
+    // booru_post 落地在该相册目录（localImageId + localPath 命中）
     await run(h.db, `INSERT INTO booru_sites (name, url, type) VALUES ('S','https://s','moebooru')`);
     const siteRow = await get<{ id: number }>(h.db, 'SELECT last_insert_rowid() as id');
     await run(
@@ -265,7 +265,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
       [siteRow!.id, fa, ia]
     );
 
-    // invalid_images 关联本图集（删除时应被清，避免累积孤儿行）
+    // invalid_images 关联本相册（删除时应被清，避免累积孤儿行）
     await run(
       h.db,
       `INSERT INTO invalid_images (originalImageId, filename, filepath, galleryId)
@@ -277,7 +277,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
 
     expect(result.success).toBe(true);
 
-    // 图集行消失（FK CASCADE 连带 gallery_folders / gallery_images）
+    // 相册行消失（FK CASCADE 连带 gallery_folders / gallery_images）
     expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(0);
     expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE galleryId = ?', [galleryId])).toHaveLength(0);
     expect(await all(h.db, 'SELECT * FROM gallery_images WHERE galleryId = ?', [galleryId])).toHaveLength(0);
@@ -298,7 +298,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     const ignored = await all<{ folderPath: string }>(h.db, 'SELECT folderPath FROM gallery_ignored_folders');
     expect(ignored.map((r) => r.folderPath)).toContain(folder);
 
-    // invalid_images 本图集记录被清
+    // invalid_images 本相册记录被清
     expect(await all(h.db, 'SELECT * FROM invalid_images')).toHaveLength(0);
 
     // 事件齐全
@@ -308,7 +308,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     expect(h.removeRootCalls).toContain(folder);
   });
 
-  it('图集不存在时返回 success:false 且不触任何清理', async () => {
+  it('相册不存在时返回 success:false 且不触任何清理', async () => {
     const result = await deleteGallery(999);
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
@@ -318,7 +318,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     expect(h.ignoredChanged).toEqual([]);
   });
 
-  it('图集无图片时不调 deleteThumbnail，但仍删图集行 + 拉黑文件夹', async () => {
+  it('相册无图片时不调 deleteThumbnail，但仍删相册行 + 拉黑文件夹', async () => {
     const folder = normalizePath(path.join('M:', 'empty'));
     const galleryId = await addGallery(folder, 1);
     await addFolderBinding(galleryId, folder, 1);
@@ -350,10 +350,10 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
   });
 
   /**
-   * 多归属修复证明：一张图片同时归属图集 A 与图集 B；删除 A 时该图片不应被删，
+   * 多归属修复证明：一张图片同时归属相册 A 与相册 B；删除 A 时该图片不应被删，
    * 因为它仍是 B 的成员。旧的 folderPath 前缀级联会把它一起删掉（数据丢失）。
    */
-  it('共享图片同时归属另一图集时，删除本图集不删除该共享图（多归属修复）', async () => {
+  it('共享图片同时归属另一相册时，删除本相册不删除该共享图（多归属修复）', async () => {
     const folderA = normalizePath(path.join('M:', 'A'));
     const folderB = normalizePath(path.join('M:', 'B'));
     const galleryA = await addGallery(folderA, 1);
@@ -385,9 +385,9 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
   });
 
   /**
-   * 多文件夹图集：删除时每个绑定文件夹都应被拉黑（不仅是 galleries.folderPath）。
+   * 多文件夹相册：删除时每个绑定文件夹都应被拉黑（不仅是 galleries.folderPath）。
    */
-  it('多文件夹图集：删除时每个绑定文件夹都写入忽略名单', async () => {
+  it('多文件夹相册：删除时每个绑定文件夹都写入忽略名单', async () => {
     const folder1 = normalizePath(path.join('M:', 'multi1'));
     const folder2 = normalizePath(path.join('M:', 'multi2'));
     const galleryId = await addGallery(folder1, 1);
@@ -409,10 +409,10 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
 
   /**
    * 事务回滚：deleteGallery 第一个事务内某条写失败（这里令 gallery_ignored_folders
-   * 写入失败——删表使 INSERT 抛错）→ 整个事务回滚：图集行仍在、成员/图片完好；
+   * 写入失败——删表使 INSERT 抛错）→ 整个事务回滚：相册行仍在、成员/图片完好；
    * 且 cleanupOrphanImages（第二个事务）从不执行（无缩略图清理）。
    */
-  it('删图集事务内写失败时应整体回滚：图集与成员图片均保留', async () => {
+  it('删相册事务内写失败时应整体回滚：相册与成员图片均保留', async () => {
     const folder = normalizePath(path.join('M:', 'rollback'));
     const galleryId = await addGallery(folder, 1);
     await addFolderBinding(galleryId, folder, 1);
@@ -427,7 +427,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBeTruthy();
 
-    // 事务-1 回滚：图集行仍在
+    // 事务-1 回滚：相册行仍在
     expect(await all(h.db, 'SELECT * FROM galleries WHERE id = ?', [galleryId])).toHaveLength(1);
     // gallery_folders / gallery_images 也应回滚保留
     expect(await all(h.db, 'SELECT * FROM gallery_folders WHERE galleryId = ?', [galleryId])).toHaveLength(1);
@@ -468,7 +468,7 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
 
     expect(result.success).toBe(true);
     expect(lateId).toBeGreaterThan(0);
-    // early 与 late 都仅归属本图集：删除后不允许任何零归属僵尸行残留
+    // early 与 late 都仅归属本相册：删除后不允许任何零归属僵尸行残留
     const leftovers = (await all<{ id: number }>(h.db, 'SELECT id FROM images')).map((r) => r.id);
     expect(leftovers).toEqual([]);
     // late 的缩略图也应被清（证明它进了孤儿回收，而非被遗漏）
@@ -476,10 +476,10 @@ describe('deleteGallery — 按成员删除 + 孤儿回收', () => {
   });
 
   /**
-   * 拉黑名单 createdAt 保留：删除图集时若该文件夹已在忽略名单（带旧 createdAt），
+   * 拉黑名单 createdAt 保留：删除相册时若该文件夹已在忽略名单（带旧 createdAt），
    * INSERT OR REPLACE 的 COALESCE 应保留原 createdAt，仅刷新 updatedAt。
    */
-  it('删图集写忽略名单时应保留已有 createdAt，仅刷新 updatedAt', async () => {
+  it('删相册写忽略名单时应保留已有 createdAt，仅刷新 updatedAt', async () => {
     const folder = normalizePath(path.join('M:', 'preserve'));
     const galleryId = await addGallery(folder, 1);
     await addFolderBinding(galleryId, folder, 1);

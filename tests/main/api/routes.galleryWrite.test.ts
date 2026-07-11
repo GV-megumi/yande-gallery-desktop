@@ -97,7 +97,7 @@ function image(overrides: Partial<Image> = {}): Image {
 function gallery(overrides: Partial<Gallery> = {}): Gallery {
   return {
     id: 7,
-    name: '图集',
+    name: '相册',
     imageCount: 0,
     autoScan: true,
     createdAt: '2026-01-01T00:00:00.000Z',
@@ -272,12 +272,12 @@ describe('gallery write API routes', () => {
   });
 
   describe('POST /galleries', () => {
-    it('建空图集', async () => {
+    it('建空相册', async () => {
       mockCreateEmptyGallery.mockResolvedValue({ success: true, data: 7 });
       const route = findRoute(routes, '/api/app/v1/galleries', 'POST');
 
-      await expect(route.handler(context({ body: { name: '新图集' } }))).resolves.toEqual({ id: 7 });
-      expect(mockCreateEmptyGallery).toHaveBeenCalledWith('新图集');
+      await expect(route.handler(context({ body: { name: '新相册' } }))).resolves.toEqual({ id: 7 });
+      expect(mockCreateEmptyGallery).toHaveBeenCalledWith('新相册');
     });
 
     it('空名/纯空白 → 422', async () => {
@@ -294,7 +294,7 @@ describe('gallery write API routes', () => {
       mockCreateEmptyGallery.mockResolvedValue({ success: false, error: 'db error' });
       const route = findRoute(routes, '/api/app/v1/galleries', 'POST');
 
-      await expect(route.handler(context({ body: { name: '新图集' } })))
+      await expect(route.handler(context({ body: { name: '新相册' } })))
         .rejects.toMatchObject({ statusCode: 500, code: 'INTERNAL_ERROR' });
     });
   });
@@ -401,7 +401,7 @@ describe('gallery write API routes', () => {
         .rejects.toMatchObject({ statusCode: 422, code: 'VALIDATION_ERROR' });
     });
 
-    it('图集不存在 → 404（预检语义不变）', async () => {
+    it('相册不存在 → 404（预检语义不变）', async () => {
       mockGetGallery.mockResolvedValue({ success: false, error: 'not found' });
       const route = findRoute(routes, '/api/app/v1/galleries/:galleryId', 'PATCH');
       await expect(route.handler(context({ params: { galleryId: '7' }, body: { coverImageId: 10 } })))

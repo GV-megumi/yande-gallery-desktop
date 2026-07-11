@@ -65,7 +65,7 @@ class ThumbnailQueue {
   private running: Map<string, Promise<ThumbnailResult>> = new Map();
   private notifyPaths: Set<string> = new Set();
   // 墓碑：任务开跑后其图片被删除（无法中断 sharp），完成时丢弃产物、不通知渲染层。
-  // 不打墓碑的话，"删除图集/图片 → 清理缩略图 → 队列补生成"会留下永久泄漏的孤儿缩略图。
+  // 不打墓碑的话，"删除相册/图片 → 清理缩略图 → 队列补生成"会留下永久泄漏的孤儿缩略图。
   private cancelledRunning: Set<string> = new Set();
   private maxConcurrent: number = 3;
 

@@ -338,7 +338,7 @@ export type RendererGalleryIgnoredFoldersChangedEvent = RendererAppEventBase<
  * 重定位根目录（applyRelocateRoot）成功提交后的全量失效事件。
  * 语义与 app:data-restored 同强度：整库路径前缀已被改写（不动 updatedAt），
  * 常驻缓存页面的既有增量事件（updatedAt 游标 / 按 id 补丁）感知不到变化，
- * 订阅方应整体重载（图集列表 / 网格图片 / 「最近」游标 / 文件夹丢失标记）。
+ * 订阅方应整体重载（相册列表 / 网格图片 / 「最近」游标 / 文件夹丢失标记）。
  * payload 只带统计不带路径，避免本地路径经 API 事件桥外泄。
  */
 export interface RendererGalleryPathsRelocatedPayload {

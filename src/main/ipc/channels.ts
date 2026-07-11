@@ -2,12 +2,12 @@ export const IPC_CHANNELS = {
   // 数据库操作
   DB_INIT: 'db:init',
   DB_GET_IMAGES: 'db:get-images',
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // DB_ADD_IMAGE: 'db:add-image',
   DB_SEARCH_IMAGES: 'db:search-images',
 
   // 图片操作
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // IMAGE_SCAN_FOLDER: 'image:scan-folder',
   IMAGE_GENERATE_THUMBNAIL: 'image:generate-thumbnail',
   IMAGE_GET_THUMBNAIL: 'image:get-thumbnail',
@@ -21,7 +21,7 @@ export const IPC_CHANNELS = {
   GALLERY_GET_RECENT_IMAGES_AFTER: 'gallery:get-recent-images-after',
   GALLERY_GET_IMAGES_BY_GALLERY: 'gallery:get-images-by-gallery',
   GALLERY_GET_ALL_FOLDERS: 'gallery:get-all-folders',
-  // [已停用] 绕过 gallery_images 成员模型（会造出图集不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
+  // [已停用] 绕过 gallery_images 成员模型（会造出相册不可见的孤儿图）；零调用方，保留备查，如需重启请改走 scanFolderIntoGallery
   // GALLERY_SCAN_AND_IMPORT_FOLDER: 'gallery:scan-and-import-folder',
   GALLERY_GET_GALLERIES: 'gallery:get-galleries',
   GALLERY_GET_GALLERY: 'gallery:get-gallery',
@@ -38,7 +38,7 @@ export const IPC_CHANNELS = {
   GALLERY_BIND_FOLDER: 'gallery:bind-folder',
   GALLERY_UNBIND_FOLDER: 'gallery:unbind-folder',
   GALLERY_CHANGE_FOLDER_PATH: 'gallery:change-folder-path',
-  // Phase 7B 图集多文件夹管理：读取某图集的全部绑定文件夹（含 recursive / extensions）
+  // Phase 7B 相册多文件夹管理：读取某相册的全部绑定文件夹（含 recursive / extensions）
   GALLERY_GET_FOLDERS: 'gallery:get-folders',
   // Phase 6A 图库↔文件夹解耦：图库根重定位预检/应用 + 缺失文件夹检测
   GALLERY_RELOCATE_PREVIEW: 'gallery:relocate-preview',
@@ -260,7 +260,7 @@ export const IPC_CHANNELS = {
   BOORU_GET_COMMENTS: 'booru:get-comments',
   BOORU_CREATE_COMMENT: 'booru:create-comment',
 
-  // === Pool（图集） ===
+  // === Pool（相册） ===
   BOORU_GET_POOLS: 'booru:get-pools',
   BOORU_GET_POOL: 'booru:get-pool',
   BOORU_SEARCH_POOLS: 'booru:search-pools',

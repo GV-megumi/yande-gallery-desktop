@@ -5,9 +5,9 @@ import os from 'os';
 import fsp from 'fs/promises';
 
 /**
- * Phase 6B — applyScanPlan（按用户决议新建图集 / 合并到现有图集）
+ * Phase 6B — applyScanPlan（按用户决议新建相册 / 合并到现有相册）
  *
- * applyScanPlan 是 plan→apply 两步式 API 的第二步。扫描入库语义：图集 = 文件夹的
+ * applyScanPlan 是 plan→apply 两步式 API 的第二步。扫描入库语义：相册 = 文件夹的
  * **直接图片**，全程不递归（planScanFolder 候选只有 root 自身 + 一级子文件夹）：
  *   - resolution.create：逐项 createGallery({folderPath,name,isWatching:true,recursive:false,extensions})
  *     → scanFolderIntoGallery(newId, folderPath, false, extensions)，累加 created + imported/skipped；
@@ -153,7 +153,7 @@ afterEach(async () => {
 });
 
 describe('applyScanPlan', () => {
-  it('create：为每个候选新建图集（recursive=false，只收直接图片）并写入成员', async () => {
+  it('create：为每个候选新建相册（recursive=false，只收直接图片）并写入成员', async () => {
     const folderA = path.join(tmpRoot, 'A');
     await fsp.mkdir(folderA, { recursive: true });
     const normA = normalizePath(folderA);
@@ -176,7 +176,7 @@ describe('applyScanPlan', () => {
     // 磁盘扫描以非递归执行（不深入子目录）
     expect(vi.mocked(scanAndImportFolder)).toHaveBeenCalledWith(normA, ['.jpg'], false, []);
 
-    // 新图集存在且其绑定 recursive=0（后续「同步文件夹」也按非递归执行）
+    // 新相册存在且其绑定 recursive=0（后续「同步文件夹」也按非递归执行）
     const gallery = await get<{ id: number; recursive: number }>(
       h.db,
       `SELECT g.id, gf.recursive
@@ -195,7 +195,7 @@ describe('applyScanPlan', () => {
     expect(members).not.toContain(nested);
   });
 
-  it('merge：把文件夹加绑到现有图集并写入其成员', async () => {
+  it('merge：把文件夹加绑到现有相册并写入其成员', async () => {
     const existingFolder = normalizePath(path.join('M:', 'existingGal'));
     const galleryId = await addGallery(existingFolder, 'Existing');
 
@@ -216,7 +216,7 @@ describe('applyScanPlan', () => {
     expect(result.data!.merged).toBe(1);
     expect(result.data!.imported).toBe(1);
 
-    // 现有图集获得了 mergeFolder 的绑定，且绑定为非递归（只覆盖直接图片）
+    // 现有相册获得了 mergeFolder 的绑定，且绑定为非递归（只覆盖直接图片）
     const binding = await get<{ galleryId: number; recursive: number }>(
       h.db,
       'SELECT galleryId, recursive FROM gallery_folders WHERE folderPath = ?',
@@ -225,7 +225,7 @@ describe('applyScanPlan', () => {
     expect(binding!.galleryId).toBe(galleryId);
     expect(binding!.recursive).toBe(0);
 
-    // mergeFolder 的图片成为该图集成员
+    // mergeFolder 的图片成为该相册成员
     const members = (
       await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
     ).map((r) => r.imageId);
@@ -260,7 +260,7 @@ describe('applyScanPlan', () => {
     expect(result.data!.merged).toBe(1);
     expect(result.data!.imported).toBe(2);
 
-    // create 产生新图集且含成员（按 gallery_folders 绑定定位新图集 id）
+    // create 产生新相册且含成员（按 gallery_folders 绑定定位新相册 id）
     const newGallery = await get<{ id: number }>(
       h.db,
       'SELECT galleryId AS id FROM gallery_folders WHERE folderPath = ?',
@@ -272,15 +272,15 @@ describe('applyScanPlan', () => {
     ).map((r) => r.imageId);
     expect(newMembers).toContain(ci);
 
-    // merge 把 D 绑到现有图集且含成员
+    // merge 把 D 绑到现有相册且含成员
     const dMembers = (
       await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId])
     ).map((r) => r.imageId);
     expect(dMembers).toContain(di);
   });
 
-  it('create 同名去重：与现有图集重名时按规则追加 " (2)" 后缀，原图集不受影响', async () => {
-    // 预置一个名为 D 的图集（模拟碰撞决议里用户选了「新建独立图集」并携带原名 D）
+  it('create 同名去重：与现有相册重名时按规则追加 " (2)" 后缀，原相册不受影响', async () => {
+    // 预置一个名为 D 的相册（模拟碰撞决议里用户选了「新建独立相册」并携带原名 D）
     await addGallery(normalizePath(path.join('M:', 'existingD')), 'D');
 
     const folderD = path.join(tmpRoot, 'D');
@@ -297,7 +297,7 @@ describe('applyScanPlan', () => {
     expect(result.success).toBe(true);
     expect(result.data!.created).toBe(1);
 
-    // 新图集名应为 "D (2)"（galleries.name 无 UNIQUE，靠服务层去重避免两个不可区分的「D」）
+    // 新相册名应为 "D (2)"（galleries.name 无 UNIQUE，靠服务层去重避免两个不可区分的「D」）
     const newRow = await get<{ name: string }>(
       h.db,
       `SELECT g.name FROM galleries g JOIN gallery_folders gf ON gf.galleryId = g.id WHERE gf.folderPath = ?`,
@@ -310,8 +310,8 @@ describe('applyScanPlan', () => {
     expect(names).toEqual(['D', 'D (2)']);
   });
 
-  it('create 同批内重名也去重：同批两个同名项 + 已有同名图集 → 依次取 "(2)"、"(3)"', async () => {
-    // 已有图集名为 X；同一批 plan 内又有两个 basename 相同的候选（如 root 自身与其一级子目录同名）
+  it('create 同批内重名也去重：同批两个同名项 + 已有同名相册 → 依次取 "(2)"、"(3)"', async () => {
+    // 已有相册名为 X；同一批 plan 内又有两个 basename 相同的候选（如 root 自身与其一级子目录同名）
     await addGallery(normalizePath(path.join('M:', 'existingX')), 'X');
 
     const folderX1 = path.join(tmpRoot, 'a', 'X');
@@ -363,7 +363,7 @@ describe('applyScanPlan', () => {
     const normOk = normalizePath(folderOk);
     h.importByFolder[normOk] = { imported: 2, skipped: 5 };
 
-    // merge 项：目标文件夹已被其它图集绑定 → 整项失败（文件夹级失败）
+    // merge 项：目标文件夹已被其它相册绑定 → 整项失败（文件夹级失败）
     const galleryA = await addGallery(normalizePath(path.join('M:', 'countGalA')), 'CountA');
     const galleryB = await addGallery(normalizePath(path.join('M:', 'countGalB')), 'CountB');
     const folderShared = normalizePath(path.join('M:', 'countShared'));
@@ -419,7 +419,7 @@ describe('applyScanPlan', () => {
     const oi = await addImage(normalizePath(path.join(folderOk, 'ok.jpg')));
     h.importByFolder[normOk] = { imported: 1, skipped: 0 };
 
-    // 坏的 merge：folderShared 已被别的图集绑定 → bindFolder 拒绝（全局唯一）
+    // 坏的 merge：folderShared 已被别的相册绑定 → bindFolder 拒绝（全局唯一）
     const galleryA = await addGallery(normalizePath(path.join('M:', 'galA')), 'A');
     const galleryB = await addGallery(normalizePath(path.join('M:', 'galB')), 'B');
     const folderShared = normalizePath(path.join('M:', 'shared'));

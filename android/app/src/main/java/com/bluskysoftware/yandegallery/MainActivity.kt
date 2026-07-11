@@ -86,7 +86,7 @@ class MainActivity : ComponentActivity() {
                         AlbumDetailScreen(
                             viewModel = detailVm,
                             onBack = { nav.popBackStack() },
-                            // 图集内点开：把 galleryId 一并传给 viewer，翻页上下文限定在本图集
+                            // 相册内点开：把 galleryId 一并传给 viewer，翻页上下文限定在本相册
                             onOpenViewer = { imageId -> nav.navigate(Routes.viewer(imageId, galleryId)) },
                         )
                     },
@@ -102,7 +102,7 @@ class MainActivity : ComponentActivity() {
                                     nav.popBackStack()
                                 }
                             },
-                            // 详情面板「所属图集」→ 图集详情页
+                            // 详情面板「所属相册」→ 相册详情页
                             onOpenGallery = { gid -> nav.navigate(Routes.albumDetail(gid)) },
                             // 详情面板标签 chip → 搜索页（预填该标签名触发搜索）
                             onOpenSearch = { tag -> nav.navigate(Routes.search(tag)) },

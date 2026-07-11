@@ -10,7 +10,7 @@ import path from 'path';
  * downloadPath, recursive, extensions)，从而在 booru 下载完成后也写入 gallery_images
  * 成员。Phase 8A 后 galleries 不再有 recursive/extensions 列（归 gallery_folders）。
  *
- * 修复轮 U13：与下载启动侧 / 绑定保存侧一致，downloadPath 未命中该图集
+ * 修复轮 U13：与下载启动侧 / 绑定保存侧一致，downloadPath 未命中该相册
  * gallery_folders 时必须跳过同步（不回退默认扫描）——回退会把用户刚解绑回收的
  * 成员重新扫入 gallery_images，且该目录不在 app:// 白名单内，新成员显示为坏图。
  *
@@ -160,7 +160,7 @@ afterEach(async () => {
 });
 
 describe('booruService.syncGalleryAfterDownload 写 gallery_images 成员', () => {
-  it('下载完成后递归图集写入直接+嵌套成员并更新统计', async () => {
+  it('下载完成后递归相册写入直接+嵌套成员并更新统计', async () => {
     const folder = normalizePath(path.join('M:', 'dl'));
     const galleryId = await addGallery(folder, 1);
     const direct = await addImage(normalizePath(path.join('M:', 'dl', 'a.jpg')));
@@ -177,7 +177,7 @@ describe('booruService.syncGalleryAfterDownload 写 gallery_images 成员', () =
     expect(g?.imageCount).toBe(2);
   });
 
-  it('非递归图集只写直接子文件成员', async () => {
+  it('非递归相册只写直接子文件成员', async () => {
     const folder = normalizePath(path.join('M:', 'dl2'));
     const galleryId = await addGallery(folder, 0);
     const direct = await addImage(normalizePath(path.join('M:', 'dl2', 'a.jpg')));
@@ -192,11 +192,11 @@ describe('booruService.syncGalleryAfterDownload 写 gallery_images 成员', () =
     expect(members).not.toContain(nested);
   });
 
-  it('图集不存在时抛错（getGallery 失败）', async () => {
+  it('相册不存在时抛错（getGallery 失败）', async () => {
     await expect(syncGalleryAfterDownload(99999, normalizePath(path.join('M:', 'nope')))).rejects.toThrow();
   });
 
-  it('下载目录未绑定到图集时跳过同步：不扫描、不写成员、不改统计，并记日志说明原因', async () => {
+  it('下载目录未绑定到相册时跳过同步：不扫描、不写成员、不改统计，并记日志说明原因', async () => {
     const boundFolder = normalizePath(path.join('M:', 'dl3'));
     const unboundFolder = normalizePath(path.join('M:', 'unbound'));
     const galleryId = await addGallery(boundFolder, 1);
@@ -212,7 +212,7 @@ describe('booruService.syncGalleryAfterDownload 写 gallery_images 成员', () =
       // 不写任何 gallery_images 成员
       const members = await all<{ imageId: number }>(h.db, 'SELECT imageId FROM gallery_images WHERE galleryId = ?', [galleryId]);
       expect(members).toEqual([]);
-      // 不改图集统计
+      // 不改相册统计
       const g = await get<{ imageCount: number; lastScannedAt: string | null }>(
         h.db,
         'SELECT imageCount, lastScannedAt FROM galleries WHERE id = ?',
@@ -221,7 +221,7 @@ describe('booruService.syncGalleryAfterDownload 写 gallery_images 成员', () =
       expect(g?.imageCount).toBe(0);
       expect(g?.lastScannedAt).toBeNull();
       // 日志给出跳过原因（模块前缀）
-      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[booruService] 跳过下载后图集同步'));
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('[booruService] 跳过下载后相册同步'));
     } finally {
       warnSpy.mockRestore();
     }

@@ -7,12 +7,12 @@ import fs from 'fs/promises';
 /**
  * Phase 6B — planScanFolder（只读规划：一级子文件夹 + 同名碰撞分类）
  *
- * planScanFolder 是「扫描入库」两步式 API 的第一步（plan）：只读、不建图集、不写库。
+ * planScanFolder 是「扫描入库」两步式 API 的第一步（plan）：只读、不建相册、不写库。
  * 候选 = rootPath 的一级子目录（fs.readdir withFileTypes，仅目录）+ rootPath 本身，不深递归。
  * 每个候选先用 checkFolderHasImages（仅直接图片）过滤；含图片的候选再分类：
  *   - normalize(F) 已在 gallery_folders.folderPath → skipped: alreadyBound
  *   - 否则 normalize(F) 在 gallery_ignored_folders.folderPath → skipped: ignored
- *   - 否则存在 name == basename(F) 的图集 → collisions（带其 id+name）
+ *   - 否则存在 name == basename(F) 的相册 → collisions（带其 id+name）
  *   - 否则 → newFolders
  *
  * 用真实临时目录提供文件系统结构（验证「仅一级」深度正确），真实 :memory: sqlite 提供分类数据。
@@ -134,7 +134,7 @@ describe('planScanFolder', () => {
     //   root/A/sub/deep.jpg     → 更深一层，不应成为独立候选（仅一级）
     //   root/B/b.jpg            → alreadyBound（预置 gallery_folders）
     //   root/C/c.jpg            → ignored（预置 gallery_ignored_folders）
-    //   root/D/d.jpg            → 同名碰撞（预置一个 name='D' 的图集，路径不同）
+    //   root/D/d.jpg            → 同名碰撞（预置一个 name='D' 的相册，路径不同）
     //   root/E/                 → 无图片（仅子目录，无直接图片）
     //   root/E/onlysub/x.jpg    → E 的更深图片不算 E 的直接图片
     const folderA = path.join(tmpRoot, 'A');
@@ -151,14 +151,14 @@ describe('planScanFolder', () => {
     await fs.mkdir(folderE, { recursive: true });
     await touchImage(path.join(folderE, 'onlysub'), 'x.jpg');
 
-    // B 已绑定到某图集
+    // B 已绑定到某相册
     const galB = await addGallery(normalizePath(path.join('M:', 'someGalB')), 'galB-name');
     await bindGalleryFolder(galB, folderB);
 
     // C 在忽略名单
     await addIgnored(folderC);
 
-    // 同名碰撞：存在 name == 'D' 的图集（其路径与 root/D 不同）
+    // 同名碰撞：存在 name == 'D' 的相册（其路径与 root/D 不同）
     const galDExisting = await addGallery(normalizePath(path.join('M:', 'elsewhereD')), 'D');
 
     const result = await planScanFolder(tmpRoot, ['.jpg']);
@@ -191,14 +191,14 @@ describe('planScanFolder', () => {
       data.skipped.some((s) => s.folderPath === normalizePath(folderC) && s.reason === 'ignored')
     ).toBe(true);
 
-    // D → 同名碰撞，带现有图集 id + name
+    // D → 同名碰撞，带现有相册 id + name
     const dCollision = data.collisions.find((c) => c.folderPath === normalizePath(folderD));
     expect(dCollision).toBeTruthy();
     expect(dCollision!.name).toBe('D');
     expect(dCollision!.existingGalleryId).toBe(galDExisting);
     expect(dCollision!.existingGalleryName).toBe('D');
 
-    // E → 无直接图片，不出现在 new/collisions 中（noImages：可省略或列出，至少不建图集）
+    // E → 无直接图片，不出现在 new/collisions 中（noImages：可省略或列出，至少不建相册）
     expect(newPaths).not.toContain(normalizePath(folderE));
     expect(data.collisions.map((c) => c.folderPath)).not.toContain(normalizePath(folderE));
   });
@@ -233,9 +233,9 @@ describe('planScanFolder', () => {
     expect(result.error).toBeTruthy();
   });
 
-  it('库内存在多个同名图集时，碰撞目标确定性取 id 最小（最早创建）的那个', async () => {
-    // 历史数据可能已存在重名图集（去重规则引入前产生）；同名匹配必须确定性取最早的，
-    // 否则「合并」目标会在多个同名图集间漂移。锁定 ORDER BY id ASC 语义。
+  it('库内存在多个同名相册时，碰撞目标确定性取 id 最小（最早创建）的那个', async () => {
+    // 历史数据可能已存在重名相册（去重规则引入前产生）；同名匹配必须确定性取最早的，
+    // 否则「合并」目标会在多个同名相册间漂移。锁定 ORDER BY id ASC 语义。
     const folderD = path.join(tmpRoot, 'D');
     await touchImage(folderD, 'd.jpg');
 

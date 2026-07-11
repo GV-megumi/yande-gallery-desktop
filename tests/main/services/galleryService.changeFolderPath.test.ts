@@ -5,8 +5,8 @@ import path from 'path';
 /**
  * Phase 3 — changeFolderPath = unbindFolder(old) + bindFolder(new)
  *
- * - 图集把旧文件夹换成新文件夹：旧绑定解绑（成员重算 + 回收），新绑定扫描入成员；
- * - 图集记录与 id 保持不变；
+ * - 相册把旧文件夹换成新文件夹：旧绑定解绑（成员重算 + 回收），新绑定扫描入成员；
+ * - 相册记录与 id 保持不变；
  * - bind 失败时透传错误（旧文件夹已解绑——可接受，但要清晰报错）。
  *
  * 真实 :memory: sqlite + PRAGMA foreign_keys=ON；mock 掉 scanAndImportFolder 与 deleteThumbnail。
@@ -190,7 +190,7 @@ afterEach(async () => {
 });
 
 describe('changeFolderPath', () => {
-  it('图集把旧文件夹改成新文件夹：成员反映新路径，图集记录与 id 不变', async () => {
+  it('相册把旧文件夹改成新文件夹：成员反映新路径，相册记录与 id 不变', async () => {
     const oldFolder = normalizePath(path.join('M:', 'old'));
     const newFolder = normalizePath(path.join('M:', 'new'));
     const galleryId = await addGallery(oldFolder, 1);
@@ -219,7 +219,7 @@ describe('changeFolderPath', () => {
     const imgIds = (await all<{ id: number }>(h.db, 'SELECT id FROM images ORDER BY id')).map((r) => r.id);
     expect(imgIds).toEqual([newImg]);
 
-    // 图集记录与 id 不变
+    // 相册记录与 id 不变
     const g = await get<{ id: number; name: string }>(h.db, 'SELECT id, name FROM galleries WHERE id = ?', [galleryId]);
     expect(g?.id).toBe(galleryId);
     expect(g?.name).toBe('g');
@@ -231,7 +231,7 @@ describe('changeFolderPath', () => {
     const galleryId = await addGallery(oldFolder, 1);
     await addFolderBinding(galleryId, oldFolder, 1);
 
-    // takenFolder 已绑定到另一个图集
+    // takenFolder 已绑定到另一个相册
     const otherGallery = await addGallery(normalizePath(path.join('M:', 'other')), 1);
     await addFolderBinding(otherGallery, takenFolder, 1);
 
@@ -254,7 +254,7 @@ describe('changeFolderPath', () => {
     const oldImg = await addImage(normalizePath(path.join('M:', 'keep', 'o.jpg')));
     await addMembership(galleryId, oldImg);
 
-    // 新路径已被另一个图集占用 → bindFolder(new) 会因 UNIQUE 失败
+    // 新路径已被另一个相册占用 → bindFolder(new) 会因 UNIQUE 失败
     const otherGallery = await addGallery(normalizePath(path.join('M:', 'other')), 1);
     await addFolderBinding(otherGallery, takenFolder, 1);
 
@@ -374,7 +374,7 @@ describe('changeFolderPath', () => {
     const baseFolder = normalizePath(path.join('M:', 'base'));
     const oldFolder = normalizePath(path.join('M:', 'ghostOld'));
     const newFolder = normalizePath(path.join('M:', 'ghostNew'));
-    // 图集存在，但 oldFolder 没有对应绑定行（继承查询落空 → 回退修复前默认，不报错）
+    // 相册存在，但 oldFolder 没有对应绑定行（继承查询落空 → 回退修复前默认，不报错）
     const galleryId = await addGallery(baseFolder, 1);
     await addFolderBinding(galleryId, baseFolder, 1);
 

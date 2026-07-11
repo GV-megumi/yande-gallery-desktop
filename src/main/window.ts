@@ -705,7 +705,7 @@ export function setupWindowIPC(): void {
   });
 
   // 打开二级菜单页面子窗口
-  // extra：额外 query 串（例如 { galleryId: 5 } 用于 Bug11 子窗口直接进入图集详情）
+  // extra：额外 query 串（例如 { galleryId: 5 } 用于 Bug11 子窗口直接进入相册详情）
   ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN_SECONDARY_MENU, async (
     _event,
     section: string,

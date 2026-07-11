@@ -4,7 +4,7 @@ import sqlite3 from 'sqlite3';
 /**
  * Phase 2B — getImagesByGallery（按 gallery_images 成员读取）
  *
- * 图集详情读取用显式成员表 join（不再用 folderPath 前缀匹配）：
+ * 相册详情读取用显式成员表 join（不再用 folderPath 前缀匹配）：
  *   SELECT i.*, GROUP_CONCAT(t.name) FROM gallery_images gi
  *     JOIN images i ON i.id = gi.imageId
  *     LEFT JOIN image_tags it ...
@@ -91,7 +91,7 @@ async function addImage(filepath: string, updatedAt: string): Promise<number> {
   return row!.id;
 }
 
-/** 把图片加入图集成员表 */
+/** 把图片加入相册成员表 */
 async function addMembership(galleryId: number, imageId: number): Promise<void> {
   await run(
     h.db,
@@ -121,7 +121,7 @@ afterEach(async () => {
 });
 
 describe('imageService.getImagesByGallery', () => {
-  it('只返回该图集的成员图片，不返回非成员图片', async () => {
+  it('只返回该相册的成员图片，不返回非成员图片', async () => {
     const member1 = await addImage('M:/galA/a.jpg', '2024-01-02T00:00:00.000Z');
     const member2 = await addImage('M:/galA/b.jpg', '2024-01-03T00:00:00.000Z');
     const nonMember = await addImage('M:/galA/c.jpg', '2024-01-04T00:00:00.000Z');
@@ -138,7 +138,7 @@ describe('imageService.getImagesByGallery', () => {
     expect(result.total).toBe(2);
   });
 
-  it('不返回属于其他图集的图片', async () => {
+  it('不返回属于其他相册的图片', async () => {
     const inGallery1 = await addImage('M:/shared/a.jpg', '2024-01-02T00:00:00.000Z');
     const inGallery2 = await addImage('M:/shared/b.jpg', '2024-01-03T00:00:00.000Z');
     await addMembership(1, inGallery1);
@@ -215,7 +215,7 @@ describe('imageService.getImagesByGallery', () => {
     expect(page1Ids.some((id) => page2Ids.includes(id))).toBe(false);
   });
 
-  it('图集无成员时返回空数组且 total=0', async () => {
+  it('相册无成员时返回空数组且 total=0', async () => {
     const result = await getImagesByGallery(999);
 
     expect(result.success).toBe(true);
