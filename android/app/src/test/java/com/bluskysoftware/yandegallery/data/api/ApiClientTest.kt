@@ -59,6 +59,47 @@ class ApiClientTest {
     }
 
     @Test
+    fun `二进制路径空体 200 映射为 ApiException（不当成功、不被 Coil 缓存投毒）`() = runTest {
+        MockWebServer().use { server ->
+            // 旧桌面/生成中断会对缩略图发 Content-Length:0 的 200——须当失败抛出，
+            // 否则 Coil 缓存成「成功但空」条目并永久命中，重试也只命中空缓存无法自愈。
+            server.enqueue(MockResponse().setResponseCode(200).addHeader("Content-Type", "image/webp").setBody(""))
+            server.start()
+            val client = ApiClientFactory.okHttp({ "k" })
+            val ex = runCatching {
+                client.newCall(okhttp3.Request.Builder().url(server.url("/api/app/v1/images/11/thumbnail")).build()).execute()
+            }.exceptionOrNull()
+            assertTrue(ex is ApiException)
+            assertEquals("EMPTY_BINARY", (ex as ApiException).code)
+        }
+    }
+
+    @Test
+    fun `二进制路径非空 200 正常放行，不误伤`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).addHeader("Content-Type", "image/webp").setBody("abcd"))
+            server.start()
+            val client = ApiClientFactory.okHttp({ "k" })
+            val resp = client.newCall(okhttp3.Request.Builder().url(server.url("/api/app/v1/images/11/thumbnail")).build()).execute()
+            assertTrue(resp.isSuccessful)
+            assertEquals(4L, resp.body.contentLength())
+            resp.close()
+        }
+    }
+
+    @Test
+    fun `非二进制路径空体 200 不拦截（空体检查仅限图片路径）`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(200).setBody(""))
+            server.start()
+            val client = ApiClientFactory.okHttp({ "k" })
+            val resp = client.newCall(okhttp3.Request.Builder().url(server.url("/api/app/v1/sync/meta")).build()).execute()
+            assertTrue(resp.isSuccessful)
+            resp.close()
+        }
+    }
+
+    @Test
     fun `二进制路径 404 触发对账钩子，其它路径 404 不触发`() = runTest {
         MockWebServer().use { server ->
             repeat(2) {

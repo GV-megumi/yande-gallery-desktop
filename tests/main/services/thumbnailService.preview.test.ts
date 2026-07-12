@@ -27,6 +27,9 @@ const mocks = vi.hoisted(() => {
   return {
     fs: {
       access: vi.fn(),
+      // 缓存命中判定现走 fs.stat（要求 size>0，剔除 0 字节残骸），非 fs.access——
+      // 各用例按需设 stat：命中给非空 stat，未命中让其抛（ENOENT）走生成。
+      stat: vi.fn(),
       mkdir: vi.fn(async () => undefined),
       unlink: vi.fn(async () => undefined),
     },
@@ -76,6 +79,9 @@ describe('generatePreview 1600px 预览档生成', () => {
   beforeEach(() => {
     vi.resetModules();
     vi.clearAllMocks();
+    // 默认缓存未命中（stat 抛 ENOENT）：clearAllMocks 不重置实现，会跨用例串味——
+    // 命中用例设的 stat=resolve 若残留，会让「源缺失」等用例误判命中而短路。命中用例单独覆盖。
+    mocks.fs.stat.mockRejectedValue(new Error('ENOENT'));
   });
 
   it('generatePreview 以 1600 边界与 q88 生成 webp 到 previews 目录', async () => {
@@ -90,7 +96,8 @@ describe('generatePreview 1600px 预览档生成', () => {
   });
 
   it('缓存命中：不调 sharp 直接返回缓存路径（spec §10 缓存复用）', async () => {
-    mocks.fs.access.mockResolvedValue(undefined); // 源与缓存都存在
+    mocks.fs.access.mockResolvedValue(undefined); // 源存在
+    mocks.fs.stat.mockResolvedValue({ isFile: () => true, size: 100 }); // 缓存存在且非空 → 命中
     const { generatePreview } = await import('../../../src/main/services/thumbnailService.js');
     const result = await generatePreview(SOURCE);
     expect(result.success).toBe(true);

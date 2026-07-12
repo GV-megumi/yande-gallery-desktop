@@ -129,4 +129,14 @@ describe('serveBinaryFile', () => {
     await expect(serveBinaryFile(makeContext({}, res), path.join(tmpDir, 'nope.png'), 'fail'))
       .rejects.toMatchObject({ name: 'ApiHttpError', statusCode: 404, code: 'NOT_FOUND' });
   });
+
+  it('0 字节文件抛 404（不发 Content-Length:0 的 200，避免客户端缓存投毒）', async () => {
+    // 生成中断/失败会在缓存路径留下 0 字节残骸；若照发成 200，客户端图片库（Coil 等）会把
+    // 空体缓存成「成功」条目并永久命中，重试重打同一 URL 仍命中空缓存、无法自愈（真机实证）。
+    const emptyPath = path.join(tmpDir, 'empty.webp');
+    await fs.writeFile(emptyPath, Buffer.alloc(0));
+    const res = new FakeRes();
+    await expect(serveBinaryFile(makeContext({}, res), emptyPath, 'fail'))
+      .rejects.toMatchObject({ name: 'ApiHttpError', statusCode: 404, code: 'NOT_FOUND' });
+  });
 });

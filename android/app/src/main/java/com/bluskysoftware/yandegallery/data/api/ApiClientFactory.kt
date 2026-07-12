@@ -39,11 +39,21 @@ object ApiClientFactory {
             }
             .addInterceptor { chain ->
                 val response = chain.proceed(chain.request())
+                val isBinaryPath = BINARY_PATH.containsMatchIn(chain.request().url.encodedPath)
+                // 空体 200 的图片响应视为失败：旧桌面/缩略图生成中断会对二进制路径发 Content-Length:0
+                // 的 200，Coil 会把它当「成功但空」写入磁盘缓存并永久命中，RetryableAsyncImage 重试也
+                // 只命中这条空缓存、重打同一 URL 却读不到网络、无法自愈（真机联调实证的封面「加载失败」）。
+                // 抛错让 Coil 不缓存该响应、并让重试真正重打网络。仅限二进制图片路径，避免误伤 JSON 端点。
+                if (isBinaryPath && response.isSuccessful && response.body.contentLength() == 0L) {
+                    val code = response.code
+                    response.close()
+                    throw ApiException(code = "EMPTY_BINARY", message = "空的图片响应", httpStatus = code)
+                }
                 if (response.isSuccessful) return@addInterceptor response
                 val status = response.code
                 val bodyText = runCatching { response.peekBody(64 * 1024).string() }.getOrNull()
                 response.close()
-                if (status == 404 && BINARY_PATH.containsMatchIn(chain.request().url.encodedPath)) {
+                if (status == 404 && isBinaryPath) {
                     onBinaryNotFound?.invoke()
                 }
                 val error = bodyText?.let {

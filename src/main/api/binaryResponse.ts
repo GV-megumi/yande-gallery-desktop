@@ -109,7 +109,10 @@ export async function serveBinaryFile(
     }
     throw new ApiHttpError(500, 'INTERNAL_ERROR', internalMessage);
   }
-  if (!stat.isFile()) {
+  // 0 字节文件不是可服务的二进制内容：当作 404 而非发 Content-Length:0 的 200。生成中断/失败会在
+  // 缓存路径留下 0 字节残骸，空体 200 会被客户端图片库（Coil 等）缓存成「成功但空」条目并永久命中，
+  // 且客户端重试重打同一 URL 仍命中这条空缓存、无法自愈（真机联调实证的封面「加载失败」投毒）。
+  if (!stat.isFile() || stat.size === 0) {
     throw new ApiHttpError(404, 'NOT_FOUND', 'Resource not found');
   }
 

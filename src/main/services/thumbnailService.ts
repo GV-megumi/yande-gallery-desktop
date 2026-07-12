@@ -359,8 +359,12 @@ async function getThumbnailPath(imagePath: string): Promise<string> {
 
 async function thumbnailExists(thumbnailPath: string): Promise<boolean> {
   try {
-    await fs.access(thumbnailPath);
-    return true;
+    // 必须要求 size>0：生成中断/失败会在缓存路径留下 0 字节残骸，若把它当有效命中，
+    // serveBinaryFile 会发成 Content-Length:0 的 200、被客户端图片库缓存成「成功但空」
+    // 条目并永久命中（重试重打同一 URL 仍命中空缓存、无法自愈）。0 字节视为「不存在」，
+    // 让上层重新生成一次——真机联调实证的封面「加载失败」投毒的源头修复。
+    const stat = await fs.stat(thumbnailPath);
+    return stat.isFile() && stat.size > 0;
   } catch {
     return false;
   }
