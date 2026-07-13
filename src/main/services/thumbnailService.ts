@@ -15,7 +15,7 @@ async function getSharp() {
 import path from 'path';
 import fs from 'fs/promises';
 import crypto from 'crypto';
-import { getConfig, getThumbnailsPath, getPreviewsPath } from './config.js';
+import { getConfig, getThumbnailsPath, getPreviewsPath, getHqPath } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import type { RendererThumbnailGeneratedEvent } from '../../shared/types.js';
 
@@ -86,11 +86,11 @@ class ThumbnailQueue {
    * - 还在等待队列中的：直接移除，以 cancelled 结果 resolve（不 reject，免得后台任务的 .catch 刷告警）；
    * - 正在生成中的：打墓碑，完成后删除刚生成的产物文件并跳过 thumbnail:generated 通知。
    *
-   * 对每个裸路径生成两档 target key（thumbnail:/preview:），双档一并投毒取消。
+   * 对每个裸路径生成三档 target key（thumbnail:/preview:/hq:），三档一并投毒取消。
    */
   cancelPending(imagePaths: string[]): void {
     if (imagePaths.length === 0) return;
-    const targets = new Set(imagePaths.flatMap((p) => [`thumbnail:${p}`, `preview:${p}`]));
+    const targets = new Set(imagePaths.flatMap((p) => [`thumbnail:${p}`, `preview:${p}`, `hq:${p}`]));
 
     if (this.queue.length > 0) {
       const remaining: typeof this.queue = [];
@@ -334,22 +334,84 @@ async function generatePreviewInternal(imagePath: string, force: boolean): Promi
   }
 }
 
-type ImageTier = 'thumbnail' | 'preview';
+/**
+ * 生成 HQ 高质量档内部实现（结构镜像 generatePreviewInternal，spec §2.1）：
+ * - 同格式压缩：webp→webp q85、jpg/png/罕见格式→jpeg q85（png 转 jpeg 前 flatten 白底，D2）；
+ * - GIF 在 generateHq 层直通回源、不进此函数；
+ * - 不 emit thumbnail:generated（HQ 档不参与渲染层缩略图缓存）。
+ */
+async function generateHqInternal(imagePath: string, force: boolean): Promise<ThumbnailResult> {
+  try {
+    try {
+      await fs.access(imagePath);
+    } catch {
+      return { success: false, error: `原图不存在: ${imagePath}`, missing: true };
+    }
+
+    const config = getConfig();
+    const hqPath = await getTierCachePath('hq', imagePath);
+
+    if (!force && await thumbnailExists(hqPath)) {
+      return { success: true, data: hqPath };
+    }
+
+    const { maxWidth, maxHeight, quality } = config.thumbnails.hq;
+    const effort = normalizeThumbnailEffort(config.thumbnails.hq.effort);
+    const sharpLib = await getSharp();
+    const targetFormat = hqTargetFormat(path.extname(imagePath).toLowerCase());
+
+    const sharpInstance = sharpLib(imagePath)
+      .resize(maxWidth, maxHeight, {
+        fit: 'inside',
+        withoutEnlargement: true
+      });
+
+    if (targetFormat === 'webp') {
+      await sharpInstance.webp({ quality, effort }).toFile(hqPath);
+    } else {
+      // jpeg 无透明通道：png 等带 alpha 的源先 flatten 白底（spec §2.1/D2）；jpg 源 flatten 无副作用
+      await sharpInstance.flatten({ background: '#ffffff' }).jpeg({ quality, mozjpeg: true }).toFile(hqPath);
+    }
+
+    return { success: true, data: hqPath };
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error(`生成 HQ 档失败 ${imagePath}:`, errorMessage);
+    return { success: false, error: errorMessage, missing: isMissingSourceError(errorMessage) };
+  }
+}
+
+type ImageTier = 'thumbnail' | 'preview' | 'hq';
+
+type HqFormat = 'jpeg' | 'webp';
+
+/** HQ 档输出格式判定（spec §2.1/D2）：webp 同格式；jpg/jpeg 同格式（jpeg 编码器）；png 与罕见格式转 jpeg。GIF 不进 HQ 管线。 */
+function hqTargetFormat(ext: string): HqFormat {
+  return ext === '.webp' ? 'webp' : 'jpeg';
+}
+
+function hqCacheExt(format: HqFormat): string {
+  return format === 'webp' ? '.webp' : '.jpg';
+}
 
 /**
- * 计算某档位（缩略图 / 1600px 预览档）的缓存文件路径。
- * 两档同用 md5(源绝对路径) 命名，但落在各自目录，扩展名取各档 format（GIF 恒为 .gif）。
+ * 计算某档位（缩略图 / 1600px 预览档 / HQ 高质量档）的缓存文件路径。
+ * 三档同用 md5(源绝对路径) 命名，各落各目录；thumbnail/preview 扩展名取配置 format（GIF 恒 .gif），
+ * hq 扩展名按源格式动态定（同格式压缩，png→.jpg）。
  */
 async function getTierCachePath(tier: ImageTier, imagePath: string): Promise<string> {
   const config = getConfig();
-  const settings = tier === 'preview' ? config.thumbnails.preview : config.thumbnails;
-  const dir = tier === 'preview' ? getPreviewsPath() : getThumbnailsPath();
+  const dir = tier === 'hq' ? getHqPath() : tier === 'preview' ? getPreviewsPath() : getThumbnailsPath();
 
   await fs.mkdir(dir, { recursive: true });
 
   const hash = crypto.createHash('md5').update(imagePath).digest('hex');
   const ext = path.extname(imagePath).toLowerCase();
-  const cacheExt = ext === '.gif' ? '.gif' : `.${settings.format}`;
+  const cacheExt = tier === 'hq'
+    ? hqCacheExt(hqTargetFormat(ext))
+    : ext === '.gif'
+      ? '.gif'
+      : `.${(tier === 'preview' ? config.thumbnails.preview : config.thumbnails).format}`;
   return path.join(dir, `${hash}${cacheExt}`);
 }
 
@@ -513,6 +575,76 @@ export async function deletePreview(imagePath: string): Promise<{ success: boole
   try {
     const previewPath = await getTierCachePath('preview', imagePath);
     await fs.unlink(previewPath);
+    return { success: true };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+      return { success: true };
+    }
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
+  }
+}
+
+/**
+ * 生成 HQ 高质量档（手机端镜像同步用，spec §2）。GIF 不转码直通回源。
+ * 体积保护（spec §2.1）：每次服务（含缓存命中路径）比较产物与源文件字节数，
+ * 产物 ≥ 源文件 → 回源文件路径——「HQ 档体积恒 ≤ 原图」。
+ */
+export async function generateHq(imagePath: string, force: boolean = false): Promise<ThumbnailResult> {
+  if (path.extname(imagePath).toLowerCase() === '.gif') {
+    return { success: true, data: imagePath };
+  }
+
+  let result: ThumbnailResult;
+  if (force) {
+    result = await generateHqInternal(imagePath, true);
+  } else {
+    const cached = await getHqIfExists(imagePath);
+    if (cached) {
+      result = { success: true, data: cached };
+    } else {
+      result = await thumbnailQueue.enqueue({
+        key: `hq:${imagePath}`,
+        imagePath,
+        run: () => generateHqInternal(imagePath, false),
+        priority: 'foreground',   // HTTP 请求阻塞等待
+        notify: false,            // 不发 thumbnail:generated
+      });
+    }
+  }
+
+  if (!result.success || !result.data || result.data === imagePath) {
+    return result;
+  }
+  try {
+    const [hqStat, srcStat] = await Promise.all([fs.stat(result.data), fs.stat(imagePath)]);
+    if (hqStat.size >= srcStat.size) {
+      return { success: true, data: imagePath };
+    }
+  } catch {
+    // stat 失败不阻断：按产物返回（serveBinaryFile 对缺文件自会 404）
+  }
+  return result;
+}
+
+/** 返回已存在的 HQ 档路径；不存在返回 null。GIF 直接回源路径（无 HQ 产物）。 */
+export async function getHqIfExists(imagePath: string): Promise<string | null> {
+  if (path.extname(imagePath).toLowerCase() === '.gif') {
+    return imagePath;
+  }
+  try {
+    const hqPath = await getTierCachePath('hq', imagePath);
+    return (await thumbnailExists(hqPath)) ? hqPath : null;
+  } catch {
+    return null;
+  }
+}
+
+/** 删除某图片的 HQ 档文件（ENOENT 容忍）。结构镜像 deletePreview。 */
+export async function deleteHq(imagePath: string): Promise<{ success: boolean; error?: string }> {
+  try {
+    const hqPath = await getTierCachePath('hq', imagePath);
+    await fs.unlink(hqPath);
     return { success: true };
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {

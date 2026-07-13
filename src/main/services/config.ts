@@ -157,6 +157,13 @@ export interface AppConfig {
       format: string;
       effort: number;
     };
+    hq: {
+      cachePath: string;
+      maxWidth: number;
+      maxHeight: number;
+      quality: number;
+      effort: number;
+    };
   };
   app: {
     autoScan: boolean;
@@ -285,6 +292,13 @@ const DEFAULT_CONFIG: AppConfig = {
       maxHeight: 1600,
       quality: 88,
       format: 'webp',
+      effort: 3
+    },
+    hq: {
+      cachePath: 'hq',
+      maxWidth: 2560,
+      maxHeight: 2560,
+      quality: 85,
       effort: 3
     }
   },
@@ -554,6 +568,7 @@ export async function ensureDataDirectories(): Promise<void> {
     getDataDir(),               // dataDir（存放运行数据）
     getThumbnailsPath(),        // 缩略图目录
     getPreviewsPath(),          // 1600px 预览档目录
+    getHqPath(),                // HQ 高质量图档目录
     getCachePath(),             // Booru 图片缓存目录
   ];
 
@@ -1173,6 +1188,13 @@ export function normalizeConfigSaveInput(currentConfig: AppConfig, input: Config
         format: input.thumbnails?.preview?.format ?? currentConfig.thumbnails.preview.format,
         effort: input.thumbnails?.preview?.effort ?? currentConfig.thumbnails.preview.effort,
       },
+      hq: {
+        cachePath: input.thumbnails?.hq?.cachePath ?? currentConfig.thumbnails.hq.cachePath,
+        maxWidth: input.thumbnails?.hq?.maxWidth ?? currentConfig.thumbnails.hq.maxWidth,
+        maxHeight: input.thumbnails?.hq?.maxHeight ?? currentConfig.thumbnails.hq.maxHeight,
+        quality: input.thumbnails?.hq?.quality ?? currentConfig.thumbnails.hq.quality,
+        effort: input.thumbnails?.hq?.effort ?? currentConfig.thumbnails.hq.effort,
+      },
     },
     app: {
       autoScan: input.app?.autoScan ?? currentConfig.app.autoScan,
@@ -1438,6 +1460,14 @@ export function getThumbnailsPath(): string {
 export function getPreviewsPath(): string {
   const cfg = getConfig();
   return resolveDataPath(cfg.thumbnails.preview.cachePath);
+}
+
+/**
+ * 获取 HQ 高质量图档缓存目录（移动端镜像同步用，spec §2.1）
+ */
+export function getHqPath(): string {
+  const cfg = getConfig();
+  return resolveDataPath(cfg.thumbnails.hq.cachePath);
 }
 
 /**

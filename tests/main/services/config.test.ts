@@ -663,7 +663,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 }, hq: { cachePath: 'hq', maxWidth: 2560, maxHeight: 2560, quality: 85, effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -754,7 +754,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 }, hq: { cachePath: 'hq', maxWidth: 2560, maxHeight: 2560, quality: 85, effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -821,7 +821,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 }, hq: { cachePath: 'hq', maxWidth: 2560, maxHeight: 2560, quality: 85, effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -944,7 +944,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 }, hq: { cachePath: 'hq', maxWidth: 2560, maxHeight: 2560, quality: 85, effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
@@ -1018,7 +1018,7 @@ describe('config 模块纯函数测试', () => {
         dataPath: 'data',
         database: { path: 'gallery.db' },
         downloads: { path: 'downloads' },
-        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 } },
+        thumbnails: { cachePath: 'thumbnails', maxWidth: 800, maxHeight: 800, quality: 92, format: 'webp', effort: 3, preview: { cachePath: 'previews', maxWidth: 1600, maxHeight: 1600, quality: 88, format: 'webp', effort: 3 }, hq: { cachePath: 'hq', maxWidth: 2560, maxHeight: 2560, quality: 85, effort: 3 } },
         app: { autoScan: true },
         yande: { maxConcurrentDownloads: 5 },        network: {
           proxy: {
