@@ -173,4 +173,29 @@ class ImageMirrorStoreTest {
         assertNull(db.imageFileDao().byImageId(1, 42))
         assertNull(s.localFile(1, 42))
     }
+
+    @Test
+    fun `崩溃重试——target 已存在无行时 ensure 覆盖旧产物并登记新行`() = runTest {
+        // 模拟崩溃场景：上一轮 renameTo 已成功但进程在 upsert 前终止，target 残留、行缺失
+        val dir = File(root, "s1/i42").apply { mkdirs() }
+        File(dir, "foo.png").writeBytes(ByteArray(4) { 9 })
+        val payload = ByteArray(16) { it.toByte() }
+        server.enqueue(okBody(payload, "image/png"))
+        val file = store().ensure(1, 42, MirrorTier.ORIGINAL).getOrThrow()
+        assertEquals("foo.png", file.name)
+        assertTrue(file.readBytes().contentEquals(payload))   // 旧残留产物已被本次下载覆盖
+        val row = db.imageFileDao().byImageId(1, 42)!!
+        assertEquals("ORIGINAL", row.tier)
+        assertEquals(16L, row.bytes)
+    }
+
+    @Test
+    fun `sweepOrphans 正向守卫——行与文件都存在的目录不被误删`() = runTest {
+        server.enqueue(okBody(ByteArray(8), "image/jpeg"))
+        val s = store()
+        s.ensure(1, 42, MirrorTier.HQ)
+        s.sweepOrphans(1)
+        assertTrue(File(root, "s1/i42/foo.jpg").exists())
+        assertEquals("HQ", db.imageFileDao().byImageId(1, 42)?.tier)
+    }
 }
