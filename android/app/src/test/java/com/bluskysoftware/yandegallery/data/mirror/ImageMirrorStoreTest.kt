@@ -200,6 +200,21 @@ class ImageMirrorStoreTest {
     }
 
     @Test
+    fun `sweepOrphans 第三类孤儿——images 表行已消失时清 image_files 行与镜像目录`() = runTest {
+        // 复现 Task 8 审查遗留项的兜底通道：WriteRepository 的主动级联未必总能触达
+        // （例如级联本身异常中断），images 行先于 image_files 行/磁盘目录消失——
+        // sweepOrphans 须能独立发现并清理这类孤儿，不依赖对账 stale-diff（它对已消失的
+        // 本地 id 天然失明，见 WriteRepositoryTest 同批用例的说明）。
+        server.enqueue(okBody(ByteArray(8), "image/jpeg"))
+        val s = store()
+        s.ensure(1, 42, MirrorTier.HQ)
+        db.imageDao().deleteByIds(listOf(42))   // 模拟 images 行已先行消失
+        s.sweepOrphans(1)
+        assertNull(db.imageFileDao().byImageId(1, 42))
+        assertFalse(File(root, "s1/i42").exists())
+    }
+
+    @Test
     fun `全新安装镜像根目录不存在——ensure 前置建根目录，不再误判磁盘不足`() = runTest {
         // 复现首次安装场景：mirror 根目录从未被创建过（不同于 setup() 里已 mkdirs 的 root）。
         // 故意不注入 freeBytes，走构造函数默认值 rootDir.usableSpace——已用 jshell 核实

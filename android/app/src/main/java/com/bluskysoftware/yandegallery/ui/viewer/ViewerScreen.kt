@@ -145,7 +145,8 @@ fun ViewerScreen(
         }
     }
 
-    /** 删除（镜像层改造）：服务器删除成功即返回——镜像文件/image_files 行由对账级联自动清，
+    /** 删除（镜像层改造）：服务器删除成功即返回——镜像文件/image_files 行由 WriteRepository
+     *  删除成功后主动级联清理，对账/sweepOrphans 兜底异常退出场景，
      *  不再有 MediaStore 副本级联段（spec §4.4 删除跟随语义）。 */
     fun performDelete(imageId: Long) {
         scope.launch {

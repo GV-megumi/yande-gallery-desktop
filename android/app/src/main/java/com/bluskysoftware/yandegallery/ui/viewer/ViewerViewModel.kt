@@ -200,7 +200,8 @@ class ViewerViewModel(
     /** 相册列表（「加入相册」picker + 详情面板相册名解析），按名升序。 */
     val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
 
-    /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）；镜像文件级联由对账链路收口。 */
+    /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）；镜像文件由 WriteRepository 在
+     *  本次调用内主动级联清理，对账/sweepOrphans 兜底异常退出场景（Task 10 遗留审查项）。 */
     suspend fun deleteImage(imageId: Long): WriteResult = graph.writeRepository.deleteImage(imageId)
 
     /** 加标签（T6：已知 tag 本地乐观建链）。 */

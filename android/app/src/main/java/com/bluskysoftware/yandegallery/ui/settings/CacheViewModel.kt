@@ -18,7 +18,7 @@ import kotlinx.coroutines.launch
  * + 立即同步 + 清空图片镜像（连清行与文件，重新入队）；缩略图缓存占用与清理（原样保留）；
  * 同步状态展示（与设置页「图片同步」分组同一套文案，见 [syncStateSupporting]）。
  * 预览档/两档上限/已下载记录三块均已随本次改版下线（前二者 Task 8/9 功能性下线，
- * 后者归 Task 10 收尾——本页先只去 UI，DownloadDao/downloads 表留待 Task 10 一并处理）。
+ * 后者 Task 10 收尾完成——DownloadDao/downloads 表/MediaStore 网关已整体退役）。
  */
 class CacheViewModel(private val graph: AppGraph) : ViewModel() {
     private val _mirrorStats = MutableStateFlow<MirrorStats?>(null)

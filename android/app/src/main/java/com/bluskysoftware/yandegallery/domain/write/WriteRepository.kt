@@ -20,6 +20,8 @@ class WriteRepository(
     private val writeApi: WriteApi,
     private val db: AppDatabase,
     private val monitor: ConnectionMonitor,
+    private val activeServerId: suspend () -> Long? = { null },
+    private val removeMirrorFiles: suspend (Long, List<Long>) -> Unit = { _, _ -> },
     private val requestSync: () -> Unit,
 ) {
     // IN (:ids) 类 DAO 调用一律经此分块（审查确认 major）：API 26–30 框架 SQLite 绑定变量
@@ -30,6 +32,35 @@ class WriteRepository(
 
     private suspend fun deleteGalleryLinksChunked(galleryId: Long, imageIds: List<Long>) {
         imageIds.chunked(BATCH_CHUNK).forEach { db.imageDao().deleteGalleryLinks(galleryId, it) }
+    }
+
+    /**
+     * 主动级联清理镜像文件（Task 8 审查遗留项：App 内发起的删除永不级联镜像文件）：
+     * db.imageDao().deleteByIds 把 images 行整行抹掉后，SyncEngine 对账的 stale-diff
+     * （本地 id 集合里挑「不在远端集合」的）从此永远看不到该 id，RoomMirrorStore.deleteImages
+     * 那条既有对账级联路径永远轮不到触发——image_files 行与磁盘镜像文件会永久泄漏。
+     *
+     * 用「事后现状」ground truth 判定，不依赖调用方自行区分各出口分支的成功/回滚子集：
+     * candidateIds 传入本次尝试删除的全量候选，重新查一次 images 现存 id 作差集——
+     * 真正消失的才级联；因失败被回滚恢复的 id 会重新出现在 existingIds 里，天然被排除。
+     * 先按 image_files registered 收窄候选（而非直接对 candidateIds 做差集）：批量删除的
+     * candidateIds 可能整段传入（含从未在 images 表出现过的 id，例如调用方给了一段 id 区间），
+     * 这类 id 本就不在 images 里，会被误判成「本次删除后消失」而错误级联——只有真正登记过
+     * 镜像行的 id 才可能发生「泄漏」，先收窄可从根上排除这类误判。
+     * activeServerId 为 null（未选中服务器/测试未注入）时直接跳过，不误删。
+     */
+    private suspend fun cascadeMirror(candidateIds: List<Long>) {
+        if (candidateIds.isEmpty()) return
+        val serverId = activeServerId() ?: return
+        val registered = candidateIds.chunked(BATCH_CHUNK)
+            .flatMap { db.imageFileDao().byImageIds(serverId, it) }.map { it.imageId }
+        if (registered.isEmpty()) return
+        val stillThere = registered.chunked(BATCH_CHUNK)
+            .flatMap { db.imageDao().existingIds(it) }.toSet()
+        val gone = registered.filterNot { it in stillThere }
+        if (gone.isEmpty()) return
+        gone.chunked(BATCH_CHUNK).forEach { db.imageFileDao().deleteByImageIds(serverId, it) }
+        removeMirrorFiles(serverId, gone)
     }
 
     /**
@@ -68,7 +99,7 @@ class WriteRepository(
         // 镜像行不会带回链——曾致「删除失败」后图从相册/标签搜索凭空消失
         val galleryLinks = db.imageDao().galleryLinksOfImages(listOf(imageId))
         val tagLinks = db.imageDao().tagLinksOfImages(listOf(imageId))
-        return guarded(
+        val result = guarded(
             optimisticApply = { db.imageDao().deleteByIds(listOf(imageId)) },
             rollback = {
                 if (snapshot != null) {
@@ -79,6 +110,9 @@ class WriteRepository(
             },
             call = { writeApi.deleteImage(imageId) },
         )
+        // 取消场景 guarded 会重抛、走不到这——符合口径：取消镜像靠下一轮同步对账收敛
+        cascadeMirror(listOf(imageId))   // 真删除才会级联；回滚场景 existingIds 命中该 id，no-op
+        return result
     }
 
     suspend fun addTags(imageId: Long, names: List<String>): WriteResult {
@@ -231,6 +265,7 @@ class WriteRepository(
                 restore(chunks.drop(index).flatten())
                 monitor.reportFailure(e)
                 if (e is ApiException) requestSync()   // 服务器已应答：对账一次收敛回滚残差（BUG-02）
+                cascadeMirror(unique)   // 早退也级联「已成块」；被 restore 恢复的 id 经 existingIds 天然排除
                 return WriteResult.Failed(
                     (e as? ApiException)?.message ?: (e.message ?: "批量删除失败"),
                     unauthorized = (e as? ApiException)?.code == "UNAUTHORIZED",
@@ -239,6 +274,7 @@ class WriteRepository(
         }
         restore(failedIds)
         monitor.reportSuccess(); requestSync()
+        cascadeMirror(unique)   // 真失败已被 restore 恢复、existingIds 命中排除；其余（含 NOT_FOUND 当成功）级联
         return if (failedIds.isEmpty()) WriteResult.Success else WriteResult.Failed("部分删除失败")
     }
 }

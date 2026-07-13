@@ -463,7 +463,8 @@ fun PhotosScreen(
                 confirmBatchDelete = false
                 val ids = viewModel.selection.selected.toList()
                 scope.launch {
-                    // 本机镜像副本随对账级联自动清（spec §4.4 删除跟随），不再有 MediaStore 级联段
+                    // 本机镜像副本由 WriteRepository 删除成功后主动级联清（image_files 行+磁盘目录），
+                    // 对账/sweepOrphans 兜底异常退出场景（spec §4.4 删除跟随），不再有 MediaStore 级联段
                     when (val r = viewModel.batchDeleteSelected(ids)) {
                         WriteResult.Success -> snackbarHostState.showSnackbar("已删除 ${ids.size} 张")
                         is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("批量删除失败", r))

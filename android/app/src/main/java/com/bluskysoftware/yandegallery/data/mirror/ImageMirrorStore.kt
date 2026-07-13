@@ -184,7 +184,12 @@ class ImageMirrorStore(
         rootDir.listFiles()?.forEach { it.deleteRecursively() }
     }
 
-    /** 启动孤儿清扫（spec §3.4）：无行目录删除；有行无文件的行删除（下轮同步自动补）。 */
+    /**
+     * 启动孤儿清扫（spec §3.4）：无行目录删除；有行无文件的行删除（下轮同步自动补）；
+     * images 表行已先行消失的 image_files 行连同磁盘目录一并删除——第三类孤儿，兜底
+     * Task 8 审查遗留项：WriteRepository 的主动级联未必总能触达（例如级联本身异常中断），
+     * 这类孤儿对账 stale-diff 也天然看不见（本地 id 已不存在，无从对比出「多余」）。
+     */
     suspend fun sweepOrphans(serverId: Long) = withContext(Dispatchers.IO) {
         val rows = imageFileDao.allFor(serverId).associateBy { it.imageId }
         for (dir in File(rootDir, "s$serverId").listFiles().orEmpty()) {
@@ -200,7 +205,17 @@ class ImageMirrorStore(
             }
         }
         for ((id, row) in rows) {
-            if (!fileOf(row).isFile || fileOf(row).length() == 0L) imageFileDao.delete(serverId, id)
+            if (imageDao.byId(id) == null) {
+                // 第三类孤儿：持锁复查避免误删与 ensure()/主动级联竞态里刚补齐或刚清理的合法状态
+                lockFor(serverId, id).withLock {
+                    if (imageDao.byId(id) == null && imageFileDao.byImageId(serverId, id) != null) {
+                        imageFileDao.delete(serverId, id)
+                        File(rootDir, "s$serverId/i$id").deleteRecursively()
+                    }
+                }
+            } else if (!fileOf(row).isFile || fileOf(row).length() == 0L) {
+                imageFileDao.delete(serverId, id)
+            }
         }
     }
 

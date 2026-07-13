@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.domain.write
 
+import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
 import com.bluskysoftware.yandegallery.data.api.ApiException
@@ -8,6 +9,7 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.GalleryImageEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
 import com.bluskysoftware.yandegallery.data.db.ImageTagEntity
 import com.bluskysoftware.yandegallery.data.db.TagEntity
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
@@ -22,6 +24,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -33,14 +36,21 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 class WriteRepositoryTest {
     private lateinit var db: AppDatabase
+    private lateinit var mirrorRoot: File
 
     @Before
     fun setup() {
-        db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val context: Context = ApplicationProvider.getApplicationContext()
+        db = AppDatabase.inMemory(context)
+        // 镜像级联用例的假镜像文件落在这——真实文件而非纯内存假设，贴近 ImageMirrorStoreTest 的做法
+        mirrorRoot = File(context.cacheDir, "write-repo-test-${System.nanoTime()}").apply { mkdirs() }
     }
 
     @After
-    fun teardown() = db.close()
+    fun teardown() {
+        db.close()
+        mirrorRoot.deleteRecursively()
+    }
 
     /** 可注入每方法抛 ApiException 的 fake；记录调用便于断言 batch 端点被选用。 */
     private class FakeWriteApi : WriteApi {
@@ -125,13 +135,19 @@ class WriteRepositoryTest {
         id = id, name = name, coverImageId = null, imageCount = 0,
     )
 
-    /** 每个用例内新建 monitor + repo；requestSync 计数经 AtomicInteger 汇总。 */
+    /**
+     * 每个用例内新建 monitor + repo；requestSync 计数经 AtomicInteger 汇总。
+     * activeServerId/removeMirrorFiles 默认值为 no-op（多数用例不关心镜像级联）；
+     * 镜像级联用例按需具名传入，不影响既有 ~30 个用例的调用形态。
+     */
     private fun TestScope.build(
         api: FakeWriteApi,
         syncCount: AtomicInteger,
+        activeServerId: suspend () -> Long? = { null },
+        removeMirrorFiles: suspend (Long, List<Long>) -> Unit = { _, _ -> },
     ): Pair<WriteRepository, ConnectionMonitor> {
         val monitor = ConnectionMonitor(activeServerName = flowOf<String?>("srv"), scope = backgroundScope)
-        val repo = WriteRepository(api, db, monitor) { syncCount.incrementAndGet() }
+        val repo = WriteRepository(api, db, monitor, activeServerId, removeMirrorFiles) { syncCount.incrementAndGet() }
         return repo to monitor
     }
 
@@ -640,5 +656,109 @@ class WriteRepositoryTest {
         assertNotNull(db.imageDao().byId(1))
         assertEquals(listOf(5L), db.imageDao().galleryIdsOf(1))
         assertEquals(listOf("sky"), db.imageDao().tagNamesOf(1))
+    }
+
+    // ---- 镜像级联清理（Task 8 审查遗留项：App 内发起的删除永不级联镜像文件）----
+    // db.imageDao().deleteByIds 把行整行抹掉后，images 表里再也查不到该 id，SyncEngine 对账的
+    // stale-diff（本地 id 集合里挑出「不在远端集合」的）从此永远看不到它，RoomMirrorStore.deleteImages
+    // 这条既有对账级联路径永远轮不到触发——image_files 行与磁盘镜像文件会永久泄漏。
+    // 用 activeServerId/removeMirrorFiles 两个注入点在删除成功路径主动补一刀（镜像 RoomMirrorStore 的注入方式）。
+
+    @Test
+    fun `deleteImage 成功——级联删 image_files 行与磁盘镜像文件`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        val mirrorFile = File(mirrorRoot, "i1.jpg").apply { writeBytes(ByteArray(4)) }
+        db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "ORIGINAL", mirrorFile.path, 4L, 0L))
+        val removedCalls = mutableListOf<Pair<Long, List<Long>>>()
+        val api = FakeWriteApi()
+        val (repo, _) = build(
+            api, AtomicInteger(0),
+            activeServerId = { 1L },
+            removeMirrorFiles = { serverId, ids -> removedCalls += serverId to ids; mirrorFile.delete() },
+        )
+
+        val result = repo.deleteImage(1)
+
+        assertEquals(WriteResult.Success, result)
+        assertNull(db.imageFileDao().byImageId(1L, 1L))     // image_files 行随主动级联删除
+        assertFalse(mirrorFile.exists())                     // 磁盘镜像文件随注入回调删除
+        assertEquals(listOf(1L to listOf(1L)), removedCalls)
+    }
+
+    @Test
+    fun `deleteImage 失败回滚——镜像行与磁盘文件都不级联`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        val mirrorFile = File(mirrorRoot, "i1.jpg").apply { writeBytes(ByteArray(4)) }
+        db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "ORIGINAL", mirrorFile.path, 4L, 0L))
+        val removedCalls = mutableListOf<Pair<Long, List<Long>>>()
+        val api = FakeWriteApi().apply { failDeleteImage = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(
+            api, AtomicInteger(0),
+            activeServerId = { 1L },
+            removeMirrorFiles = { serverId, ids -> removedCalls += serverId to ids; mirrorFile.delete() },
+        )
+
+        val result = repo.deleteImage(1)
+
+        assertTrue(result is WriteResult.Failed)
+        assertNotNull(db.imageFileDao().byImageId(1L, 1L))   // 图本身回滚保留——镜像行不该被清
+        assertTrue(mirrorFile.exists())
+        assertTrue("回滚后 images 行仍在，级联判定须是 no-op", removedCalls.isEmpty())
+    }
+
+    @Test
+    fun `batchDeleteImages 部分失败——只级联真删除子集的镜像文件`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2), image(3)))
+        val files = (1L..3L).associateWith { id -> File(mirrorRoot, "i$id.jpg").apply { writeBytes(ByteArray(4)) } }
+        files.forEach { (id, f) -> db.imageFileDao().upsert(ImageFileEntity(1L, id, "ORIGINAL", f.path, 4L, 0L)) }
+        val removedIds = mutableListOf<Long>()
+        val api = FakeWriteApi().apply {
+            batchResults = listOf(
+                BatchDeleteItemDto(1, true),
+                BatchDeleteItemDto(2, false, "NOT_FOUND"),      // 桌面已删——视为成功，一并级联
+                BatchDeleteItemDto(3, false, "INTERNAL_ERROR"), // 真失败——回滚，不级联
+            )
+        }
+        val (repo, _) = build(
+            api, AtomicInteger(0),
+            activeServerId = { 1L },
+            removeMirrorFiles = { _, ids -> removedIds += ids; ids.forEach { files.getValue(it).delete() } },
+        )
+
+        val result = repo.batchDeleteImages(listOf(1, 2, 3))
+
+        assertTrue(result is WriteResult.Failed)
+        assertEquals(listOf(1L, 2L), removedIds.sorted())
+        assertNull(db.imageFileDao().byImageId(1L, 1L))
+        assertNull(db.imageFileDao().byImageId(1L, 2L))
+        assertNotNull(db.imageFileDao().byImageId(1L, 3L))    // 真失败回滚——镜像行与文件都保留
+        assertFalse(files.getValue(1).exists())
+        assertFalse(files.getValue(2).exists())
+        assertTrue(files.getValue(3).exists())
+    }
+
+    @Test
+    fun `batchDeleteImages 某块失败早退——已成块仍级联其镜像文件`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(901)))   // 边界：1 在首块、901 在次块
+        val f1 = File(mirrorRoot, "i1.jpg").apply { writeBytes(ByteArray(4)) }
+        val f901 = File(mirrorRoot, "i901.jpg").apply { writeBytes(ByteArray(4)) }
+        db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "ORIGINAL", f1.path, 4L, 0L))
+        db.imageFileDao().upsert(ImageFileEntity(1L, 901L, "ORIGINAL", f901.path, 4L, 0L))
+        val removedIds = mutableListOf<Long>()
+        val api = FakeWriteApi().apply { failBatchDeleteOnCallIndex = 1 }   // 第二块（次块）抛 500
+        val (repo, _) = build(
+            api, AtomicInteger(0),
+            activeServerId = { 1L },
+            removeMirrorFiles = { _, ids -> removedIds += ids; if (1L in ids) f1.delete(); if (901L in ids) f901.delete() },
+        )
+
+        val result = repo.batchDeleteImages((1L..901L).toList())
+
+        assertTrue(result is WriteResult.Failed)
+        assertEquals(listOf(1L), removedIds)      // 早退路径也须级联「已成块」；901（次块回滚）不级联
+        assertNull(db.imageFileDao().byImageId(1L, 1L))
+        assertNotNull(db.imageFileDao().byImageId(1L, 901L))
+        assertFalse(f1.exists())
+        assertTrue(f901.exists())
     }
 }
