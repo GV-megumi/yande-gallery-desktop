@@ -5,7 +5,7 @@
  */
 import { getGalleries, getGallery } from '../../services/galleryService.js';
 import { getImageById, getImages, getImagesByGallery } from '../../services/imageService.js';
-import { generatePreview, generateThumbnail } from '../../services/thumbnailService.js';
+import { generateHq, generatePreview, generateThumbnail } from '../../services/thumbnailService.js';
 import { serveBinaryFile } from '../binaryResponse.js';
 import { numberParam, optionalNumberQuery } from '../router.js';
 import { ApiHttpError, type ApiRequestContext, type ApiRoute } from '../types.js';
@@ -140,6 +140,20 @@ export function createImageBinaryRoutes(): ApiRoute[] {
         );
 
         return serveBinaryFile(context, previewPath, 'Failed to stream preview');
+      },
+    },
+    {
+      method: 'GET',
+      pattern: '/api/v1/images/:imageId/hq',
+      handler: async (context) => {
+        const imageId = numberParam(context.params.imageId, 'imageId');
+        const image = unwrapServiceResult(await getImageById(imageId), 'Failed to load image');
+        const hqPath = unwrapServiceResult(
+          await generateHq(image.filepath),
+          'Failed to generate hq image',
+        );
+
+        return serveBinaryFile(context, hqPath, 'Failed to stream hq image');
       },
     },
     {

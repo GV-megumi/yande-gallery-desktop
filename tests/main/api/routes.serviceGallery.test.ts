@@ -6,7 +6,7 @@ import { createAppServiceRoutes, createServiceRoutes } from '../../../src/main/a
 import { getApiServiceConfig } from '../../../src/main/services/config.js';
 import { getGalleries, getGallery } from '../../../src/main/services/galleryService.js';
 import { getImageById, getImages, getImagesByGallery } from '../../../src/main/services/imageService.js';
-import { generatePreview, generateThumbnail } from '../../../src/main/services/thumbnailService.js';
+import { generateHq, generatePreview, generateThumbnail } from '../../../src/main/services/thumbnailService.js';
 import { createReadStream } from 'fs';
 import { pipeline } from 'stream/promises';
 
@@ -36,6 +36,7 @@ vi.mock('../../../src/main/services/thumbnailService.js', () => ({
   cancelThumbnailGeneration: vi.fn(),
   generateThumbnail: vi.fn(),
   generatePreview: vi.fn(),
+  generateHq: vi.fn(),
 }));
 
 vi.mock('fs', () => ({
@@ -60,6 +61,7 @@ const mockGetImageById = vi.mocked(getImageById);
 const mockGetImagesByGallery = vi.mocked(getImagesByGallery);
 const mockGenerateThumbnail = vi.mocked(generateThumbnail);
 const mockGeneratePreview = vi.mocked(generatePreview);
+const mockGenerateHq = vi.mocked(generateHq);
 const mockCreateReadStream = vi.mocked(createReadStream);
 const mockPipeline = vi.mocked(pipeline);
 
@@ -408,6 +410,28 @@ describe('gallery and image API routes', () => {
     const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/preview');
     await expect(route.handler(context({ params: { imageId: '9' } })))
       .rejects.toMatchObject({ name: 'ApiHttpError', statusCode: 404 });
+  });
+
+  it('streams hq image when generation succeeds', async () => {
+    mockGetImageById.mockResolvedValue({ success: true, data: image() });
+    mockGenerateHq.mockResolvedValue({ success: true, data: 'M:/hq/source.jpg' });
+    mockPipeline.mockResolvedValue(undefined);
+
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/hq');
+    const result = await route.handler(context({ params: { imageId: '34' } }));
+
+    expect(result).toBeUndefined();
+    expect(mockGenerateHq).toHaveBeenCalledWith('M:/gallery/cats/cat.jpg');
+    expect(mockCreateReadStream).toHaveBeenCalledWith('M:/hq/source.jpg');
+  });
+
+  it('maps hq generation missing-source to 404', async () => {
+    mockGetImageById.mockResolvedValue({ success: true, data: image() });
+    mockGenerateHq.mockResolvedValue({ success: false, error: '原图不存在: x', missing: true });
+
+    const route = findRoute(createImageBinaryRoutes(), '/api/v1/images/:imageId/hq');
+    await expect(route.handler(context({ params: { imageId: '34' } })))
+      .rejects.toMatchObject({ statusCode: 404 });
   });
 
   it('streams original image files with an extension-based content type', async () => {
