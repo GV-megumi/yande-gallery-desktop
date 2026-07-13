@@ -25,6 +25,8 @@ class RoomMirrorStore(
     private val gateway: MediaStoreGateway? = null,
     private val activeServerId: suspend () -> Long? = { null },
     private val removeCachedImage: (serverId: Long, imageId: Long) -> Unit = { _, _ -> },
+    private val removeMirrorFiles: suspend (serverId: Long, imageIds: List<Long>) -> Unit = { _, _ -> },
+    private val clearMirrorFiles: suspend () -> Unit = {},
 ) : MirrorStore {
 
     override suspend fun readSyncState(): SyncState? =
@@ -40,18 +42,23 @@ class RoomMirrorStore(
             )
         )
 
-    override suspend fun clearMirror() = db.withTransaction {
-        db.imageDao().clearAll() // CASCADE 连带清 image_tags/gallery_images
-        db.galleryDao().clearAll()
-        db.tagDao().clearAll()
-        // 镜像身份失效（换服务器/dataVersion 变更）意味着 imageId→本地文件映射全部作废，
-        // 必须一并清空，否则跨服同号 id 会命中错误的本地原图；系统相册中的文件本身保留。
-        db.downloadDao().clearAll()
-        // album_prefs 同理（对齐 D10）：偏好按 galleryId 键，跨服低位 id 几乎必然撞号，
-        // 残留行会附身新服务器的同号相册（凭空置顶/从相册主区消失）；deleteOrphans 只管
-        // 「id 已不存在」的孤儿，撞号行它删不掉，必须随全量重建整表清空。
-        db.albumPrefsDao().clearAll()
-        db.syncStateDao().clear()
+    override suspend fun clearMirror() {
+        db.withTransaction {
+            db.imageDao().clearAll() // CASCADE 连带清 image_tags/gallery_images
+            db.galleryDao().clearAll()
+            db.tagDao().clearAll()
+            // 镜像身份失效（换服务器/dataVersion 变更）意味着 imageId→本地文件映射全部作废，
+            // 必须一并清空，否则跨服同号 id 会命中错误的本地原图；系统相册中的文件本身保留。
+            db.downloadDao().clearAll()
+            // album_prefs 同理（对齐 D10）：偏好按 galleryId 键，跨服低位 id 几乎必然撞号，
+            // 残留行会附身新服务器的同号相册（凭空置顶/从相册主区消失）；deleteOrphans 只管
+            // 「id 已不存在」的孤儿，撞号行它删不掉，必须随全量重建整表清空。
+            db.albumPrefsDao().clearAll()
+            // 镜像身份失效 → 图片镜像登记同域作废（spec §3.4 对账清理）；文件删除在事务外回调
+            db.imageFileDao().clearAll()
+            db.syncStateDao().clear()
+        }
+        clearMirrorFiles()
     }
 
     override suspend fun applyImagePage(items: List<SyncImageItemDto>) = db.withTransaction {
@@ -79,11 +86,14 @@ class RoomMirrorStore(
         val downloadRows = if (serverId != null) {
             ids.chunked(DELETE_CHUNK).flatMap { db.downloadDao().byImageIds(serverId, it) }
         } else emptyList()
-        // ② 事务内 images 行 + 本服 downloads 行分块删除
+        // ②' 事务内 images 行 + 本服 downloads 行 + image_files 镜像登记行分块删除
         db.withTransaction {
             ids.chunked(DELETE_CHUNK).forEach { chunk ->
                 db.imageDao().deleteByIds(chunk)
-                if (serverId != null) db.downloadDao().deleteByImageIds(serverId, chunk)
+                if (serverId != null) {
+                    db.downloadDao().deleteByImageIds(serverId, chunk)
+                    db.imageFileDao().deleteByImageIds(serverId, chunk)
+                }
             }
         }
         // ③ 事务外 IO 级联：(a) owned 系统相册副本直删 (b) 两级盘缓存条目按键清除
@@ -92,6 +102,10 @@ class RoomMirrorStore(
         }
         if (serverId != null) {
             ids.forEach { id -> removeCachedImage(serverId, id) }
+        }
+        // ③' 事务外 IO 级联追加：镜像目录删除（ORIGINAL 档同样跟随删除，spec §3.4）
+        if (serverId != null) {
+            removeMirrorFiles(serverId, ids)
         }
     }
 

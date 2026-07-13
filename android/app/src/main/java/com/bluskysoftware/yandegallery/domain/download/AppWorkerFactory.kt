@@ -4,7 +4,10 @@ import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncWorker
+import kotlinx.coroutines.flow.first
 
 /**
  * 自定义 WorkerFactory：把 AppGraph 注入 worker（默认初始化器已在 T1 移除，本工厂是生产环境
@@ -27,6 +30,17 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                 now = { java.time.Instant.now().toString() },
                 activeServerId = { graph.serverRepository.activeServer()?.id },   // 落行前校验（M4-T9 切服竞态）
                 notifier = AndroidDownloadNotifier(appContext),   // 前台下载通知（M4-D8）
+            )
+        } else if (workerClassName == MirrorSyncWorker::class.java.name) {
+            MirrorSyncWorker(
+                appContext,
+                workerParameters,
+                ensure = { serverId, imageId, tier -> graph.imageMirrorStore.ensure(serverId, imageId, tier) },
+                imageFileDao = graph.db.imageFileDao(),
+                saveMode = { mirrorTierOf(graph.prefsStore.imageSaveModeName.first()) },
+                activeServerId = { graph.serverRepository.activeServer()?.id },
+                monitor = graph.mirrorSyncMonitor,
+                notifier = AndroidMirrorSyncNotifier(appContext),
             )
         } else {
             null

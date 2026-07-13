@@ -9,6 +9,7 @@ import com.bluskysoftware.yandegallery.data.db.AlbumPrefsEntity
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
@@ -190,5 +191,34 @@ class RoomMirrorStoreTest {
         store.writeSyncState(updated)
 
         assertEquals(updated, store.readSyncState())
+    }
+
+    @Test
+    fun `clearMirror 清空 image_files 并回调 clearMirrorFiles`() = runTest {
+        var cleared = false
+        val cascadeStore = RoomMirrorStore(db, clearMirrorFiles = { cleared = true })
+        db.imageFileDao().upsert(ImageFileEntity(1, 1, "HQ", "s1/i1/a.jpg", 1, 0))
+        cascadeStore.clearMirror()
+        assertEquals(0L, db.imageFileDao().countFor(1))
+        assertTrue(cleared)
+    }
+
+    @Test
+    fun `deleteImages 级联清 image_files 行并回调 removeMirrorFiles`() = runTest {
+        val removed = mutableListOf<Long>()
+        val cascadeStore = RoomMirrorStore(
+            db,
+            activeServerId = { 1L },
+            removeMirrorFiles = { _, ids -> removed += ids },
+        )
+        db.imageDao().upsertAll(listOf(
+            ImageEntity(1, "1.jpg", 1, 1, 1L, "jpg", "2026", "2026"),
+            ImageEntity(2, "2.jpg", 1, 1, 1L, "jpg", "2026", "2026"),
+        ))
+        db.imageFileDao().upsert(ImageFileEntity(1, 1, "HQ", "s1/i1/a.jpg", 1, 0))
+        db.imageFileDao().upsert(ImageFileEntity(1, 2, "ORIGINAL", "s1/i2/b.jpg", 1, 0))
+        cascadeStore.deleteImages(listOf(1L, 2L))
+        assertEquals(0L, db.imageFileDao().countFor(1))
+        assertEquals(listOf(1L, 2L), removed.sorted())
     }
 }

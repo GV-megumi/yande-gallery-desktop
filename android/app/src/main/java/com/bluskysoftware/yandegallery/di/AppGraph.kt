@@ -11,6 +11,7 @@ import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
 import com.bluskysoftware.yandegallery.data.image.previewCacheKey
 import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
 import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
+import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
@@ -18,6 +19,8 @@ import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
+import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncManager
+import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncMonitor
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
@@ -95,9 +98,13 @@ class AppGraph(
                 val idChanged = active?.id != lastActive?.id
                 val endpointChanged = seeded && !idChanged &&
                     (active?.baseUrl != lastActive?.baseUrl || active?.apiKey != lastActive?.apiKey)
+                val previousId = lastActive?.id   // 切服取消要用旧 id，须在下面覆盖前存好局部变量
                 lastActive = active
                 seeded = true
                 if ((idChanged || endpointChanged) && autoSyncOnActiveChange) {
+                    // 切服（非编辑）→ 取消旧服残留的镜像同步工作，避免残留任务写脏新服数据（spec §6）
+                    previousId?.takeIf { idChanged && it != active?.id }
+                        ?.let { mirrorSyncManager.cancel(it) }
                     // 切到/编辑出真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
                     if (active != null) {
                         syncScheduler.requestSync(if (idChanged) "server-changed" else "server-edited")
@@ -152,6 +159,35 @@ class AppGraph(
         return ApiClientFactory.desktopApi(active.baseUrl, okHttp).also { cachedApi = it }
     }
 
+    /** 图片镜像层（spec §3）：外部私有目录 + image_files 登记；无外部存储回退内部 filesDir。 */
+    val imageMirrorStore by lazy {
+        ImageMirrorStore(
+            rootDir = java.io.File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "mirror"),
+            imageFileDao = db.imageFileDao(),
+            imageDao = db.imageDao(),
+            apiProvider = { api() },
+            activeServerId = { serverRepository.activeServer()?.id },
+        )
+    }
+    val mirrorSyncMonitor by lazy { MirrorSyncMonitor() }
+    val mirrorSyncManager by lazy { MirrorSyncManager(appContext) }
+
+    /** 镜像同步入队（读保存方式无关——worker 自读；此处只解偏好约束与激活服务器）。 */
+    fun requestMirrorSync(replace: Boolean = false) {
+        scope.launch {
+            val serverId = serverRepository.activeServer()?.id ?: return@launch
+            val cellular = prefsStore.mirrorSyncCellular.first()
+            mirrorSyncManager.requestSync(serverId, cellular, replace)
+        }
+    }
+
+    /** 启动期镜像孤儿清扫入口（YandeGalleryApp 调）；无激活服务器时空跑。 */
+    fun scopeLaunchSweep() {
+        scope.launch {
+            serverRepository.activeServer()?.id?.let { imageMirrorStore.sweepOrphans(it) }
+        }
+    }
+
     val mirrorStore by lazy {
         RoomMirrorStore(
             db,
@@ -162,6 +198,8 @@ class AppGraph(
                 thumbnailLoader.diskCache?.remove(thumbnailCacheKey(serverId, imageId))
                 previewLoader.diskCache?.remove(previewCacheKey(serverId, imageId))
             },
+            removeMirrorFiles = { serverId, ids -> imageMirrorStore.deleteDirs(serverId, ids) },
+            clearMirrorFiles = { imageMirrorStore.clearAllFiles() },
         )
     }
     val syncEngine by lazy {
@@ -187,6 +225,7 @@ class AppGraph(
             monitor = connectionMonitor,
             scope = scope,
             hadMirrorBefore = { mirrorStore.readSyncState() != null },
+            onSyncSuccess = { requestMirrorSync() },
         )
     }
 

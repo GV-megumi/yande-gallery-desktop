@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -68,5 +70,14 @@ class PrefsStoreTest {
         val brokenStore = PrefsStore(broken)
         assertNull(brokenStore.densityTierName.first())
         assertEquals(2L * 1024 * 1024 * 1024, brokenStore.thumbnailCacheMaxBytes.first())
+    }
+
+    @Test fun `图片保存方式与移动网络同步键——默认值与写读`() = runTest {
+        assertNull(store.imageSaveModeName.first())
+        assertFalse(store.mirrorSyncCellular.first())
+        store.setImageSaveModeName("ORIGINAL")
+        store.setMirrorSyncCellular(true)
+        assertEquals("ORIGINAL", store.imageSaveModeName.first())
+        assertTrue(store.mirrorSyncCellular.first())
     }
 }

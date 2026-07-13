@@ -3,6 +3,7 @@ package com.bluskysoftware.yandegallery.data.prefs
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
@@ -84,6 +85,20 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_DETAIL_COLUMNS] = columns }
     }
 
+    /** 图片保存方式（MirrorTier.name）；未设置为 null，映射与默认档（HQ）收敛在读取方 mirrorTierOf。 */
+    val imageSaveModeName: Flow<String?> = safeData.map { it[KEY_IMAGE_SAVE_MODE] }
+
+    suspend fun setImageSaveModeName(name: String) {
+        dataStore.edit { it[KEY_IMAGE_SAVE_MODE] = name }
+    }
+
+    /** 允许移动网络同步镜像（spec §5.1/D4），默认 false（仅 WiFi）。 */
+    val mirrorSyncCellular: Flow<Boolean> = safeData.map { it[KEY_MIRROR_CELLULAR] ?: false }
+
+    suspend fun setMirrorSyncCellular(allow: Boolean) {
+        dataStore.edit { it[KEY_MIRROR_CELLULAR] = allow }
+    }
+
     companion object {
         private val KEY_DENSITY = stringPreferencesKey("timeline_density")
         private val KEY_THUMB_MAX = longPreferencesKey("thumb_cache_max_bytes")
@@ -92,6 +107,8 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         private val KEY_ALBUMS_SORT = stringPreferencesKey("albums_sort")
         private val KEY_DETAIL_SORT = stringPreferencesKey("album_detail_sort")
         private val KEY_DETAIL_COLUMNS = intPreferencesKey("album_detail_columns")
+        private val KEY_IMAGE_SAVE_MODE = stringPreferencesKey("image_save_mode")
+        private val KEY_MIRROR_CELLULAR = booleanPreferencesKey("mirror_sync_cellular")
         const val DEFAULT_THUMB_MAX_BYTES = 2L * 1024 * 1024 * 1024
         const val DEFAULT_PREVIEW_MAX_BYTES = 1L * 1024 * 1024 * 1024
     }
