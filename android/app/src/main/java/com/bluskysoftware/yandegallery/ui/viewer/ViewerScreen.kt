@@ -79,7 +79,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且未下载时提示 1600 档像素不足）。 */
+/** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且无本机原图时提示清晰度不足，可查看原图）。 */
 private const val HIGH_ZOOM_THRESHOLD = 2.5f
 
 /**
