@@ -20,6 +20,7 @@ import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
 import java.io.File
+import java.io.IOException
 
 fun thumbnailUrl(baseUrl: String, imageId: Long): String =
     "${baseUrl.trimEnd('/')}/$APP_API_PATH/images/$imageId/thumbnail"
@@ -84,11 +85,20 @@ class MirrorFirstFetcherFactory(
      * 内存 Buffer 后再关闭连接——与 Coil 自身 NetworkFetcher 的处理方式一致，避免 ImageSource 持有的
      * 流跑在已经 close() 的连接上；缩略图体积小，一次性读入内存无虞。工程未引入 okhttp3.coroutines
      * 的 executeAsync，故用 withContext(Dispatchers.IO) 包同步 execute()（沿用 ImageMirrorStore 先例）。
+     *
+     * 非 2xx 必须显式拒绝（review 修复）：本方法自管请求、绕开 Coil 网络层，不能假设调用方注入的
+     * okHttp 一定带错误映射拦截器（生产环境的 AppGraph.okHttp 恰好带，但该保证对本类不可见、也不应
+     * 依赖）——不然 404/500 的错误体会被当成图片字节裸塞进 SourceFetchResult，Coil 解码时炸出的是
+     * 「格式不对」而非「请求失败」，误导排查方向（对齐 Coil 自身 NetworkFetcher 的状态码校验）。
      */
     private suspend fun fetchRemote(url: String): SourceFetchResult =
         withContext(Dispatchers.IO) {
             val request = Request.Builder().url(url).build()
             okHttp.newCall(request).execute().use { response ->
+                // 此处直接 throw：外层 .use{} 的 finally 仍会关闭 response，无需手动再关一次。
+                if (!response.isSuccessful) {
+                    throw IOException("缩略图请求失败 HTTP ${response.code}: $url")
+                }
                 val bytes = response.body.bytes()
                 SourceFetchResult(
                     source = ImageSource(source = Buffer().apply { write(bytes) }, fileSystem = FileSystem.SYSTEM),
@@ -99,17 +109,20 @@ class MirrorFirstFetcherFactory(
         }
 }
 
-/** 缩略图档（spec §4.1/D9）：不设上限（1 TiB 形式值，实质仅受磁盘约束）+ 镜像优先 Fetcher。 */
+/**
+ * 缩略图档（spec §4.1/D9）：不设上限（1 TiB 形式值，实质仅受磁盘约束）+ 镜像优先 Fetcher。
+ * 仅注册 MirrorFirstFetcherFactory（review 修复：移除不可达的 OkHttpNetworkFetcherFactory 兜底）——
+ * 网格侧全部请求经 thumbnailRequest() 构造，.data() 恒为 ThumbnailSpec，且 create() 从不返回 null，
+ * Coil 不会再向后尝试下一个 Fetcher.Factory；也无 Mapper 把 ThumbnailSpec 转成 OkHttpNetworkFetcherFactory
+ * 认得的 String/HttpUrl/Uri。网络回退已由 MirrorFirstFetcherFactory.fetchRemote() 自管，无需重复注册。
+ */
 fun buildThumbnailImageLoader(
     context: Context,
     okHttp: OkHttpClient,
     localFile: suspend (serverId: Long, imageId: Long) -> File?,
 ): ImageLoader =
     ImageLoader.Builder(context)
-        .components {
-            add(MirrorFirstFetcherFactory(localFile, okHttp))
-            add(OkHttpNetworkFetcherFactory(callFactory = { okHttp }))
-        }
+        .components { add(MirrorFirstFetcherFactory(localFile, okHttp)) }
         .diskCache(
             DiskCache.Builder()
                 .directory(context.cacheDir.resolve("thumbnails").toOkioPath())

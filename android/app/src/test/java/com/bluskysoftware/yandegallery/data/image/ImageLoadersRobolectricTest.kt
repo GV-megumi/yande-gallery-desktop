@@ -2,12 +2,14 @@ package com.bluskysoftware.yandegallery.data.image
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertThrows
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -74,6 +76,28 @@ class ImageLoadersRobolectricTest {
             )
             val result = fetcher.fetch() as coil3.fetch.SourceFetchResult
             assertNotNull(result.source)
+            assertEquals(1, server.requestCount)
+        } finally {
+            server.shutdown()
+        }
+    }
+
+    @Test
+    fun `MirrorFirstFetcher 远程 404——显式抛错而非当作图片数据`() = runTest {
+        val server = MockWebServer().apply {
+            enqueue(MockResponse().setResponseCode(404).setBody("""{"error":"not found"}"""))
+            start()
+        }
+        try {
+            val factory = MirrorFirstFetcherFactory(localFile = { _, _ -> null }, okHttp = OkHttpClient())
+            val fetcher = factory.create(
+                ThumbnailSpec(1, 42, server.url("/api/app/v1/images/42/thumbnail").toString()),
+                coil3.request.Options(ctx),
+                coil3.ImageLoader(ctx),
+            )
+            assertThrows(java.io.IOException::class.java) {
+                runBlocking { fetcher.fetch() }
+            }
             assertEquals(1, server.requestCount)
         } finally {
             server.shutdown()
