@@ -7,7 +7,6 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
-import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
@@ -22,8 +21,11 @@ private val Context.uiPrefs: DataStore<Preferences> by preferencesDataStore(name
 fun uiPrefsDataStore(context: Context): DataStore<Preferences> = context.uiPrefs
 
 /**
- * 全仓首个 DataStore Preferences（M4-T1，D3）：时间轴密度档位记忆 + 两档盘缓存上限。
+ * 全仓首个 DataStore Preferences（M4-T1，D3）：时间轴密度档位记忆、列表排序与列数、
+ * 图片保存方式（MirrorTier）与允许移动网络同步镜像等易失 UI 偏好。
  * 服务器配置仍在 Room servers 表（M2 既定偏离，spec §6.1 备注）；本仓只放「易失 UI 偏好」。
+ * 两档盘缓存上限（缩略图/预览）已随 Task 9 存储页改版下线——镜像层落地后缩略图仅剩
+ * Coil 自身磁盘缓存、无独立可调上限概念，预览档更是早随 Task 8 一并下线。
  */
 class PrefsStore(private val dataStore: DataStore<Preferences>) {
 
@@ -39,22 +41,6 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
 
     suspend fun setDensityTierName(name: String) {
         dataStore.edit { it[KEY_DENSITY] = name }
-    }
-
-    /** 缩略图盘缓存上限（字节），默认 2GB（spec §6.4「设置可调」）。 */
-    val thumbnailCacheMaxBytes: Flow<Long> =
-        safeData.map { it[KEY_THUMB_MAX] ?: DEFAULT_THUMB_MAX_BYTES }
-
-    /** 预览盘缓存上限（字节），默认 1GB。 */
-    val previewCacheMaxBytes: Flow<Long> =
-        safeData.map { it[KEY_PREVIEW_MAX] ?: DEFAULT_PREVIEW_MAX_BYTES }
-
-    suspend fun setThumbnailCacheMaxBytes(bytes: Long) {
-        dataStore.edit { it[KEY_THUMB_MAX] = bytes }
-    }
-
-    suspend fun setPreviewCacheMaxBytes(bytes: Long) {
-        dataStore.edit { it[KEY_PREVIEW_MAX] = bytes }
     }
 
     /** 照片页排序（PhotoSort.name）；未设置为 null，映射与默认收敛在 ViewPrefs（spec §2.3）。 */
@@ -101,15 +87,11 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
 
     companion object {
         private val KEY_DENSITY = stringPreferencesKey("timeline_density")
-        private val KEY_THUMB_MAX = longPreferencesKey("thumb_cache_max_bytes")
-        private val KEY_PREVIEW_MAX = longPreferencesKey("preview_cache_max_bytes")
         private val KEY_PHOTOS_SORT = stringPreferencesKey("photos_sort")
         private val KEY_ALBUMS_SORT = stringPreferencesKey("albums_sort")
         private val KEY_DETAIL_SORT = stringPreferencesKey("album_detail_sort")
         private val KEY_DETAIL_COLUMNS = intPreferencesKey("album_detail_columns")
         private val KEY_IMAGE_SAVE_MODE = stringPreferencesKey("image_save_mode")
         private val KEY_MIRROR_CELLULAR = booleanPreferencesKey("mirror_sync_cellular")
-        const val DEFAULT_THUMB_MAX_BYTES = 2L * 1024 * 1024 * 1024
-        const val DEFAULT_PREVIEW_MAX_BYTES = 1L * 1024 * 1024 * 1024
     }
 }

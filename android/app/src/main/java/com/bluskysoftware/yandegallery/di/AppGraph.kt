@@ -48,6 +48,10 @@ class AppGraph(
     // WorkManager 未显式初始化（AndroidManifest 移除了默认初始化器），直接调用会抛
     // IllegalStateException——AppGraphTest 注入 fake 观察"是否取消了正确的旧 id"而不触发它。
     private val cancelMirrorSyncOverride: ((Long) -> Unit)? = null,
+    // 测试注入缝：requestMirrorSync 真正的入队动作间接层，镜像 cancelMirrorSyncOverride 同一套理由
+    // ——Robolectric 下真 WorkManager 未初始化，SettingsViewModel/CacheViewModel 相关测试
+    // （切保存方式/移动网络开关/清空镜像）注入 fake 观察 (serverId, cellular, replace) 三元组。
+    private val requestMirrorSyncOverride: ((Long, Boolean, Boolean) -> Unit)? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -189,8 +193,14 @@ class AppGraph(
         scope.launch {
             val serverId = serverRepository.activeServer()?.id ?: return@launch
             val cellular = prefsStore.mirrorSyncCellular.first()
-            mirrorSyncManager.requestSync(serverId, cellular, replace)
+            doRequestMirrorSync(serverId, cellular, replace)
         }
+    }
+
+    /** requestMirrorSync 的真正出口：默认转发 mirrorSyncManager.requestSync，测试可覆写观察参数。 */
+    private fun doRequestMirrorSync(serverId: Long, cellular: Boolean, replace: Boolean) {
+        val override = requestMirrorSyncOverride
+        if (override != null) override(serverId, cellular, replace) else mirrorSyncManager.requestSync(serverId, cellular, replace)
     }
 
     /** 启动期镜像孤儿清扫入口（YandeGalleryApp 调）；无激活服务器时空跑。 */

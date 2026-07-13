@@ -31,6 +31,9 @@ import com.bluskysoftware.yandegallery.ui.theme.DarkDialogButton
  * 取消=灰底深字、确认=主蓝底白字、危险确认（删除类）=红底白字；单按钮场景把另一侧传 null。
  * [content] 槽放输入框/列表等自定义内容（可与 [text] 叠加，text 先渲染）。
  * confirmTag 透传各调用点既有 testTag（batch_delete_confirm 等），断言零迁移。
+ * dialogTag 同理透传弹窗外层 Surface 的 testTag（默认 "miui_dialog"）：同页可能出现多个
+ * MiuiDialog（如设置页图片同步确认框），调用点各传独有 tag 避免 onNodeWithTag 多命中歧义
+ * （Task 9：save_mode_confirm_dialog）。
  */
 @Composable
 fun MiuiDialog(
@@ -43,13 +46,14 @@ fun MiuiDialog(
     destructive: Boolean = false,
     confirmTag: String? = null,
     dismissText: String? = "取消",
+    dialogTag: String? = null,
     content: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     Dialog(onDismissRequest = onDismiss) {
         Surface(
             shape = RoundedCornerShape(20.dp),
             color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.fillMaxWidth().testTag("miui_dialog"),
+            modifier = Modifier.fillMaxWidth().testTag(dialogTag ?: "miui_dialog"),
         ) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 20.dp)) {
                 Text(

@@ -23,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
@@ -130,6 +131,39 @@ fun MiuiListItem(
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
             )
         }
+    }
+}
+
+/**
+ * 卡片组内开关行（Task 9，设置页「图片同步」分组用）：标题 + 可选副文 + 行尾 Switch。
+ * [modifier]（调用点传 testTag）直接落在 [Switch] 本体上，不落在外层 Row——纯 `.testTag()`
+ * 不建立 mergeDescendants 语义合并边界，若 tag 挂在 Row 上，`assertIsOn`/`assertIsOff`
+ * 断言取的 ToggleableState 语义实际长在子节点 Switch 自己的语义节点上，会找不到而失败。
+ */
+@Composable
+fun MiuiSwitchItem(
+    headline: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+) {
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(headline, style = MaterialTheme.typography.bodyLarge)
+            if (supporting != null) {
+                Text(
+                    supporting,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 2.dp),
+                )
+            }
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange, modifier = modifier)
     }
 }
 

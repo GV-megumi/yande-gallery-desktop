@@ -4,8 +4,7 @@ import com.bluskysoftware.yandegallery.awaitValue
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
-import com.bluskysoftware.yandegallery.data.db.DownloadEntity
-import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
 import kotlinx.coroutines.CoroutineScope
@@ -13,14 +12,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,16 +27,23 @@ import org.robolectric.RobolectricTestRunner
 import java.io.File
 
 /**
- * CacheViewModel 单元测试——Robolectric + :memory: Room + 临时文件 PrefsStore（隔离进程级 DataStore 单例）。
- * 覆盖：refresh() 占用统计（默认上限 2G/1G）、上限调整持久回读、已下载记录列表（LEFT JOIN 取 filename）与清空、
- * formatBytes 换算。清理/refresh 走真 Dispatchers.IO，故断言前用 first{} 挂起等落定（不叠 withTimeout——
- * 其虚拟时钟会在 runTest 里瞬时推进跳过真 IO；由 runTest 的 dispatchTimeout 兜底）。
+ * CacheViewModel 单元测试（存储页改版，Task 9）——Robolectric + :memory: Room + 临时文件 PrefsStore
+ * （隔离进程级 DataStore 单例）。覆盖：refresh() 镜像分档统计（高质量/原图张数字节，Task 3 statsFor）
+ * + 缩略图占用；clearMirror() 清行 + 删镜像文件（独立复算 AppGraph 内部 mirror/ 路径公式落一枚真实
+ * 标记文件验证是否真被删除）+ REPLACE 重新入队（requestMirrorSyncOverride fake 回调观察——Robolectric
+ * 环境下 WorkManager 未初始化，真调用会抛 IllegalStateException，同 cancelMirrorSyncOverride 先例）；
+ * formatBytes 换算。清理/refresh 走真 Dispatchers.IO，断言前用 awaitValue 轮询等落定（TestAwait 机理
+ * 注释：advanceUntilIdle 的虚拟时钟不追踪 AppGraph 自身 scope 上的真实 IO 协程，会 flake）。
+ * 两档上限（thumbLimitBytes/setThumbLimitBytes）与已下载记录（downloads/clearDownloadRecords）随
+ * 预览档/downloads 表退役一并下线，随本次改版从测试中移除。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class CacheViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var graph: AppGraph
+    private lateinit var mirrorRoot: File
+    private val resyncRequests = mutableListOf<Triple<Long, Boolean, Boolean>>()
 
     private val prefsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefsTmp = File.createTempFile("cache-vm-prefs", ".preferences_pb").also { it.delete() }
@@ -46,11 +52,15 @@ class CacheViewModelTest {
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
+        val appContext = ApplicationProvider.getApplicationContext<android.content.Context>()
+        // 与 AppGraph.imageMirrorStore 的 rootDir 公式保持一致（外部私有目录优先，回退内部 filesDir）
+        mirrorRoot = File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "mirror")
         graph = AppGraph(
-            ApplicationProvider.getApplicationContext(),
+            appContext,
             dbOverride = db,
             autoSyncOnActiveChange = false,
             prefsStoreOverride = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp }),
+            requestMirrorSyncOverride = { serverId, cellular, replace -> resyncRequests.add(Triple(serverId, cellular, replace)) },
         )
     }
 
@@ -60,59 +70,47 @@ class CacheViewModelTest {
         db.close()
         prefsScope.cancel()
         prefsTmp.delete()
+        mirrorRoot.deleteRecursively()
         Dispatchers.resetMain()
     }
 
     @Test
-    fun `refresh 后 stats 非 null 且缩略图不设限`() = runTest {
+    fun `refresh 统计镜像分档与缩略图占用`() = runTest {
+        val serverId = graph.serverRepository.addAndActivate("t9", "http://127.0.0.1:1", "k")
+        db.imageFileDao().upsert(ImageFileEntity(serverId, 1, "HQ", "s$serverId/i1/a.jpg", 100, 0))
+        db.imageFileDao().upsert(ImageFileEntity(serverId, 2, "ORIGINAL", "s$serverId/i2/b.jpg", 5000, 0))
         val vm = CacheViewModel(graph)
+
         vm.refresh()
-        val stats = awaitValue({ vm.stats.first() }) { it != null }!!   // 轮询等值（TestAwait 机理注释）
-        assertNotNull(stats)
-        // 任务 6：缩略图 loader 改镜像优先 + 不设限，diskCache.maxSize 恒为 1 TiB 形式值（不再读设置）
-        // 预览档已下线（镜像层 Task 8），stats 只剩缩略图一档
-        assertEquals(1L shl 40, stats.thumbMax)
+
+        val stats = awaitValue({ vm.mirrorStats.value }) { it != null }
+        assertEquals(100L, stats?.hqBytes)
+        assertEquals(1L, stats?.hqCount)
+        assertEquals(5000L, stats?.originalBytes)
+        assertEquals(1L, stats?.originalCount)
+        val thumb = awaitValue({ vm.thumbBytes.value }) { it != null }
+        assertEquals(0L, thumb)   // 新建空缓存
     }
 
     @Test
-    fun `setThumbLimitBytes 后 thumbLimitBytes 回读为新值`() = runTest {
+    fun `clearMirror 清行清文件并重新入队同步`() = runTest {
+        val serverId = graph.serverRepository.addAndActivate("t9b", "http://127.0.0.1:1", "k")
+        db.imageFileDao().upsert(ImageFileEntity(serverId, 1, "HQ", "s$serverId/i1/a.jpg", 100, 0))
+        // 真实标记文件：独立复算与 AppGraph.imageMirrorStore 相同的相对路径公式，验证 clearAllFiles() 真删除
+        val marker = File(mirrorRoot, "s$serverId/i1/a.jpg")
+        marker.parentFile?.mkdirs()
+        marker.writeText("x")
+        assertTrue(marker.exists())
+
         val vm = CacheViewModel(graph)
-        vm.setThumbLimitBytes(4L * 1024 * 1024 * 1024)
-        val v = awaitValue({ vm.thumbLimitBytes.first() }) { it == 4L * 1024 * 1024 * 1024 }
-        assertEquals(4L * 1024 * 1024 * 1024, v)
-    }
+        vm.clearMirror()
 
-    @Test
-    fun `种一行 downloads——列表按激活 serverId 过滤发射且 filename 为 LEFT JOIN 值，清空后为空`() = runTest {
-        // T9 后列表按激活 serverId 过滤：须先激活服务器（autoSyncOnActiveChange=false，无副作用）
-        val serverId = graph.serverRepository.addAndActivate("t9", "http://x:1", "k")
-        db.imageDao().upsertAll(
-            listOf(
-                ImageEntity(
-                    id = 7, filename = "neko.jpg", width = 1, height = 1,
-                    fileSize = 1, format = "jpg",
-                    createdAt = "2026-07-01T00:00:00.000Z", updatedAt = "2026-07-01T00:00:00.000Z",
-                ),
-            ),
-        )
-        db.downloadDao().upsert(
-            DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "2026-07-01T00:00:00.000Z"),
-        )
-        // 他服同号记录不得混入激活服务器的列表
-        db.downloadDao().upsert(
-            DownloadEntity(serverId = serverId + 1, imageId = 7, mediaStoreUri = "content://other/7", downloadedAt = "2026-07-01T00:00:00.000Z"),
-        )
-        val vm = CacheViewModel(graph)
-
-        val list = awaitValue({ vm.downloads.first() }) { it.isNotEmpty() }
-        assertEquals(1, list.size)
-        assertEquals(7L, list[0].imageId)
-        assertEquals("content://media/7", list[0].mediaStoreUri)
-        assertEquals("neko.jpg", list[0].filename)
-
-        vm.clearDownloadRecords()
-        val empty = awaitValue({ vm.downloads.first() }) { it.isEmpty() }
-        assertEquals(0, empty.size)
+        awaitValue({ db.imageFileDao().countFor(serverId) }) { it == 0L }
+        assertEquals(0L, db.imageFileDao().countFor(serverId))
+        awaitValue({ marker.exists() }) { !it }
+        assertFalse("clearAllFiles 应删除镜像目录下的真实文件", marker.exists())
+        awaitValue({ resyncRequests.toList() }) { it.any { r -> r.third } }
+        assertTrue("清空后应以 replace=true 重新入队同步", resyncRequests.any { it.third })
     }
 
     @Test

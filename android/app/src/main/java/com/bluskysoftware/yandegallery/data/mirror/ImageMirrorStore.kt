@@ -146,6 +146,9 @@ class ImageMirrorStore(
 
     fun fileOf(row: ImageFileEntity): File = File(rootDir, row.relPath)
 
+    /** 镜像根所在盘可用字节数（Task 9 设置页「切原图」预估对比展示用，公开转发 [freeBytes]）。 */
+    fun rootFreeBytes(): Long = freeBytes()
+
     suspend fun stats(serverId: Long): MirrorStats {
         var s = MirrorStats()
         for (t in imageFileDao.statsFor(serverId)) {
