@@ -41,7 +41,7 @@ class MigrationTest {
         // 1) 手工建真实 v2 库文件，种 1 行 images + 1 行旧版（无 serverId）downloads
         createRealV2Database()
 
-        // 2) 用 Room 打开并注册迁移链（库现为 v5，2→3→4→5 触发）与最终 schema 校验
+        // 2) 用 Room 打开并注册迁移链（库现为 v6，2→3→4→5→6 触发）与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
             .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()

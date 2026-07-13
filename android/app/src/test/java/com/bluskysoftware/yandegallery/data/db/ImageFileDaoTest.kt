@@ -69,6 +69,13 @@ class ImageFileDaoTest {
     }
 
     @Test
+    fun `missingImageIds 跨服隔离——他服行不掩盖本服缺失`() = runTest {
+        db.imageDao().upsertAll(listOf(img(1), img(2)))
+        dao.upsert(row(2, 1, "ORIGINAL"))   // 服务器 2 已登记 image 1，但 JOIN 按 serverId=1 域，不应满足本服查询
+        assertEquals(listOf(1L, 2L), dao.missingImageIds(1, needOriginal = false).sorted())
+    }
+
+    @Test
     fun `statsFor 按档位分组统计张数与字节`() = runTest {
         dao.upsert(row(1, 1, "HQ", 100))
         dao.upsert(row(1, 2, "HQ", 200))
@@ -84,6 +91,17 @@ class ImageFileDaoTest {
         db.imageDao().upsertAll(listOf(img(1, 1000), img(2, 2000), img(3, 4000)))
         dao.upsert(row(1, 2, "ORIGINAL"))   // 2 已有原图；1 无行、3 无行 → 1000+4000
         assertEquals(5000L, dao.missingOriginalBytes(1))
+    }
+
+    @Test
+    fun `missingOriginalBytes 跨服隔离——他服行不算已覆盖，全覆盖后 SUM 为 NULL`() = runTest {
+        db.imageDao().upsertAll(listOf(img(1, 1000), img(2, 2000)))
+        dao.upsert(row(2, 1, "ORIGINAL"))   // 服务器 2 已有原图，但本服（1）JOIN 查不到匹配行，两张仍算缺失
+        assertEquals(3000L, dao.missingOriginalBytes(1))
+
+        dao.upsert(row(1, 1, "ORIGINAL"))
+        dao.upsert(row(1, 2, "ORIGINAL"))
+        assertNull(dao.missingOriginalBytes(1))   // 本服全覆盖——WHERE 命中空集，SUM 为 NULL
     }
 
     @Test
