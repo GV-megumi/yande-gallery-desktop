@@ -8,7 +8,6 @@ import coil3.disk.DiskCache
 import coil3.disk.directory
 import coil3.fetch.Fetcher
 import coil3.fetch.SourceFetchResult
-import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.ImageRequest
 import coil3.request.Options
 import com.bluskysoftware.yandegallery.data.api.APP_API_PATH
@@ -31,26 +30,6 @@ fun thumbnailUrl(baseUrl: String, imageId: Long): String =
  * 简单正确。代价：同库换 IP（= 换 server 行）会重新缓存——正确性优先于该微优化。
  */
 fun thumbnailCacheKey(serverId: Long, imageId: Long): String = "s$serverId:t$imageId"
-
-/**
- * 参数化档位 ImageLoader（M4-T8 收拢，清 M3-T2「两 builder 结构重复」记债）：独立盘缓存目录 + 可调上限。
- * maxSizeBytes 经设置页调整（spec §6.4「设置可调」）、构建期定死——改后须重建 loader（下次进程启动）才生效。
- */
-fun buildTierImageLoader(
-    context: Context,
-    okHttp: OkHttpClient,
-    cacheDirName: String,
-    maxSizeBytes: Long,
-): ImageLoader =
-    ImageLoader.Builder(context)
-        .components { add(OkHttpNetworkFetcherFactory(callFactory = { okHttp })) }
-        .diskCache(
-            DiskCache.Builder()
-                .directory(context.cacheDir.resolve(cacheDirName).toOkioPath())
-                .maxSizeBytes(maxSizeBytes)
-                .build()
-        )
-        .build()
 
 /** 网格缩略图请求模型（镜像 spec §4.1）：携带定位三元组，Fetcher 据此先查本地镜像再回退网络。 */
 data class ThumbnailSpec(val serverId: Long, val imageId: Long, val url: String)
@@ -138,28 +117,5 @@ fun thumbnailRequest(context: Context, baseUrl: String, serverId: Long, imageId:
         .memoryCacheKey(thumbnailCacheKey(serverId, imageId))
         .build()
 
-fun previewUrl(baseUrl: String, imageId: Long): String =
-    "${baseUrl.trimEnd('/')}/$APP_API_PATH/images/$imageId/preview"
-
 fun fileUrl(baseUrl: String, imageId: Long): String =
     "${baseUrl.trimEnd('/')}/$APP_API_PATH/images/$imageId/file"
-
-/**
- * serverId 命名空间（与 v0.2.0 review 修复的 thumbnailCacheKey 一致）：多服务器同 imageId 不同图，
- * 缓存键须含本机 servers 行 id，否则切服命中错图。
- */
-fun previewCacheKey(serverId: Long, imageId: Long): String = "s$serverId:preview:$imageId"
-
-/** 预览档：LRU 语义目录 previews，默认 1GB（spec §6.4，上限设置页可调）。 */
-fun buildPreviewImageLoader(
-    context: Context,
-    okHttp: OkHttpClient,
-    maxSizeBytes: Long = 1L * 1024 * 1024 * 1024,
-): ImageLoader = buildTierImageLoader(context, okHttp, "previews", maxSizeBytes)
-
-fun previewRequest(context: Context, baseUrl: String, serverId: Long, imageId: Long): ImageRequest =
-    ImageRequest.Builder(context)
-        .data(previewUrl(baseUrl, imageId))
-        .diskCacheKey(previewCacheKey(serverId, imageId))
-        .memoryCacheKey(previewCacheKey(serverId, imageId))
-        .build()

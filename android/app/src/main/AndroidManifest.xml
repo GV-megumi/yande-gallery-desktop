@@ -31,7 +31,7 @@
             </intent-filter>
         </activity>
 
-        <!-- 分享未经 MediaStore 的临时文件时用；MediaStore content:// URI 分享无需它，保留以兜底 -->
+        <!-- 镜像层文件分享主通道（spec §4.4）：私有 mirror/ 文件经 FileProvider 转 content:// 授权 -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

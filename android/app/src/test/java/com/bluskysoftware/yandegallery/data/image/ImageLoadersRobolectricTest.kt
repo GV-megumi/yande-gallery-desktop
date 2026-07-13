@@ -17,26 +17,13 @@ import java.io.File
 
 /**
  * 构建 ImageLoader/DiskCache 需 Android Context，故走 Robolectric（既有 ImageLoadersTest 为纯 JVM，不动）。
- * M4-T8：两档 builder 收拢为参数化单源后，验证上限参数经 DiskCache.maxSize 生效、目录名落到独立子目录。
  * 任务 6（spec §4.1/D9/D11）：缩略图侧改镜像优先——thumbnailRequest 的 data 换成 ThumbnailSpec、
  * MirrorFirstFetcher 本地命中/回退网络两分支、buildThumbnailImageLoader 不再接受数值上限（不设限）。
+ * 镜像层 Task 8：1600px 预览档下线，preview/tier builder 相关用例随符号一并删除。
  */
 @RunWith(RobolectricTestRunner::class)
 class ImageLoadersRobolectricTest {
     private val ctx = ApplicationProvider.getApplicationContext<Context>()
-    private val okHttp = OkHttpClient()
-
-    // 缩略图半支随任务 6 迁到下面「buildThumbnailImageLoader 不设限」——不再接受数值 maxSizeBytes 参数。
-    @Test fun `预览 loader 上限参数生效`() {
-        assertEquals(256L * 1024 * 1024,
-            buildPreviewImageLoader(ctx, okHttp, 256L * 1024 * 1024).diskCache?.maxSize)
-    }
-
-    @Test fun `参数化 builder 目录与上限`() {
-        val loader = buildTierImageLoader(ctx, okHttp, "tier-test", 128L * 1024 * 1024)
-        assertEquals(128L * 1024 * 1024, loader.diskCache?.maxSize)
-        assertEquals(true, loader.diskCache?.directory.toString().endsWith("tier-test"))
-    }
 
     @Test
     fun `thumbnailRequest data 为 ThumbnailSpec——缓存键不变`() {

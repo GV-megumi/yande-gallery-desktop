@@ -6,9 +6,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
-import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
-import com.bluskysoftware.yandegallery.data.image.previewCacheKey
 import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
 import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
@@ -119,6 +117,10 @@ class AppGraph(
         }
         // 二进制 404 → 触发一次对账（spec §6.3-4；钩子在 Task 3 拦截器里，此处接到调度器）
         onBinaryNotFound = { syncScheduler.requestSync("binary-404") }
+        // 预览档下线（spec §7）：一次性删除旧 cacheDir/previews 目录（v0.6 遗留盘占用）
+        scope.launch(Dispatchers.IO) {
+            runCatching { appContext.cacheDir.resolve("previews").deleteRecursively() }
+        }
     }
 
     val okHttp by lazy {
@@ -136,13 +138,7 @@ class AppGraph(
         )
     }
 
-    /** 1600px 预览档 loader：上限来自设置（改后下次启动生效，M4-T8）。 */
-    val previewLoader by lazy {
-        val maxBytes = runBlocking { prefsStore.previewCacheMaxBytes.first() }
-        buildPreviewImageLoader(appContext, okHttp, maxBytes)
-    }
-
-    /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
+    /** MediaStore 网关（旧下载体系遗留；RoomMirrorStore 对账清旧 uri 仍用，Task 10 一并退役）。 */
     val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
 
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
@@ -210,9 +206,8 @@ class AppGraph(
             gateway = mediaStoreGateway,
             activeServerId = { serverRepository.activeServer()?.id },
             removeCachedImage = { serverId, imageId ->
-                // 对账删除的行级联清两级盘缓存条目（Coil 3.5 DiskCache.remove(key) 已核）
+                // 对账删除的行级联清缩略图盘缓存条目（预览档已下线，只剩这一级；Coil 3.5 DiskCache.remove(key) 已核）
                 thumbnailLoader.diskCache?.remove(thumbnailCacheKey(serverId, imageId))
-                previewLoader.diskCache?.remove(previewCacheKey(serverId, imageId))
             },
             removeMirrorFiles = { serverId, ids -> imageMirrorStore.deleteDirs(serverId, ids) },
             clearMirrorFiles = { imageMirrorStore.clearAllFiles() },

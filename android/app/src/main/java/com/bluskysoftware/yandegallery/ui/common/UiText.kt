@@ -2,7 +2,10 @@ package com.bluskysoftware.yandegallery.ui.common
 
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 
-/** 图片 format → MIME（下载入队/分享共用）；未知格式回退通配。原 ui.viewer 版迁此（D12A 归拢）。 */
+/**
+ * 文件扩展名 → MIME（分享用）；未知回退通配。镜像层 Task 8 起入参口径为**实际文件扩展名**
+ * （`file.extension`）——HQ 档把 png 源转成 .jpg，按 image.format 会错报 MIME。映射表本身不变。
+ */
 internal fun mimeOf(format: String): String = when (format.lowercase()) {
     "jpg", "jpeg" -> "image/jpeg"
     "png" -> "image/png"

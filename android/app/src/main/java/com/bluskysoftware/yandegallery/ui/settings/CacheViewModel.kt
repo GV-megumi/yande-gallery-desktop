@@ -17,12 +17,13 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 /**
- * 缓存管理（spec §6.4 / D7）：两档盘缓存占用展示 + 分别清理（连清内存）+ 上限可调（下次启动生效）
+ * 缓存管理（spec §6.4 / D7；预览档下线后只剩缩略图一档，存储页改版归 Task 9）：
+ * 缩略图盘缓存占用展示 + 清理（连清内存）+ 上限可调（下次启动生效）
  * + 已下载记录列表与清空（只清应用内记录，系统相册文件保留）。所有触盘操作均走 Dispatchers.IO。
  */
 class CacheViewModel(private val graph: AppGraph) : ViewModel() {
 
-    data class CacheStats(val thumbBytes: Long, val thumbMax: Long, val previewBytes: Long, val previewMax: Long)
+    data class CacheStats(val thumbBytes: Long, val thumbMax: Long)
 
     private val _stats = MutableStateFlow<CacheStats?>(null)
     val stats: StateFlow<CacheStats?> = _stats
@@ -35,7 +36,6 @@ class CacheViewModel(private val graph: AppGraph) : ViewModel() {
             else graph.db.downloadDao().observeDownloadedWithMeta(server.id)
         }
     val thumbLimitBytes: Flow<Long> = graph.prefsStore.thumbnailCacheMaxBytes
-    val previewLimitBytes: Flow<Long> = graph.prefsStore.previewCacheMaxBytes
 
     /** DiskCache.size 为同步属性读，仍放 IO（触盘统计，D7）；进页与每次清理后调用。 */
     fun refresh() {
@@ -43,8 +43,6 @@ class CacheViewModel(private val graph: AppGraph) : ViewModel() {
             _stats.value = CacheStats(
                 thumbBytes = graph.thumbnailLoader.diskCache?.size ?: 0L,
                 thumbMax = graph.thumbnailLoader.diskCache?.maxSize ?: 0L,
-                previewBytes = graph.previewLoader.diskCache?.size ?: 0L,
-                previewMax = graph.previewLoader.diskCache?.maxSize ?: 0L,
             )
         }
     }
@@ -58,21 +56,12 @@ class CacheViewModel(private val graph: AppGraph) : ViewModel() {
         }
     }
 
-    fun clearPreviews() {
-        viewModelScope.launch(Dispatchers.IO) {
-            graph.previewLoader.diskCache?.clear()
-            graph.previewLoader.memoryCache?.clear()
-            refresh()
-        }
-    }
-
     /** 只清应用内 downloads 记录；系统相册文件保留（UI 文案已明示）。 */
     fun clearDownloadRecords() {
         viewModelScope.launch(Dispatchers.IO) { graph.db.downloadDao().clearAll() }
     }
 
     fun setThumbLimitBytes(bytes: Long) { viewModelScope.launch { graph.prefsStore.setThumbnailCacheMaxBytes(bytes) } }
-    fun setPreviewLimitBytes(bytes: Long) { viewModelScope.launch { graph.prefsStore.setPreviewCacheMaxBytes(bytes) } }
 
     companion object {
         fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {

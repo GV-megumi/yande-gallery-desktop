@@ -64,14 +64,14 @@ class CacheViewModelTest {
     }
 
     @Test
-    fun `refresh 后 stats 非 null 且缩略图不设限、预览为默认 1G`() = runTest {
+    fun `refresh 后 stats 非 null 且缩略图不设限`() = runTest {
         val vm = CacheViewModel(graph)
         vm.refresh()
         val stats = awaitValue({ vm.stats.first() }) { it != null }!!   // 轮询等值（TestAwait 机理注释）
         assertNotNull(stats)
         // 任务 6：缩略图 loader 改镜像优先 + 不设限，diskCache.maxSize 恒为 1 TiB 形式值（不再读设置）
+        // 预览档已下线（镜像层 Task 8），stats 只剩缩略图一档
         assertEquals(1L shl 40, stats.thumbMax)
-        assertEquals(1L * 1024 * 1024 * 1024, stats.previewMax)
     }
 
     @Test

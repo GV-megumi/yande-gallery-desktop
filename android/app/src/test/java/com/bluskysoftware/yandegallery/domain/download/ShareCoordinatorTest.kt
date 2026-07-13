@@ -1,72 +1,74 @@
 package com.bluskysoftware.yandegallery.domain.download
 
-import androidx.work.WorkInfo
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
-import kotlinx.coroutines.flow.MutableStateFlow
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
+/** 分享四级规则（spec §4.4/需求 4）：原图 > HQ > 在线临时拉取 > 离线失败。纯逻辑注入，无 Android 依赖。 */
 class ShareCoordinatorTest {
-    private fun img(id: Long) = ImageEntity(id, "f$id.jpg", 1, 1, 1L, "jpg", "2026", "2026")
 
-    @Test fun `全部已下载直接返回 不入队`() = runTest {
-        var enqueued = 0
+    private fun img(id: Long) = ImageEntity(id, "a$id.jpg", 1, 1, 100, "jpg", "", "")
+
+    @Test
+    fun `本地有文件直接用——不触发 ensure`() = runTest {
+        var ensured = 0
         val c = ShareCoordinator(
-            isDownloaded = { "content://$it" },
-            enqueue = { enqueued++ },
-            observeState = { MutableStateFlow(null) },
-            exists = { true },
-            clearStaleRow = {},
+            localFile = { File("local-$it.jpg") },
+            ensure = { _, _ -> ensured++; Result.failure(IllegalStateException("不该调")) },
+            saveMode = { MirrorTier.HQ },
+            online = { true },
         )
-        val r = c.ensureDownloadedUris(listOf(img(1), img(2)))
-        assertEquals(listOf("content://1", "content://2"), r.uris)
-        assertTrue(r.failedIds.isEmpty())
-        assertEquals(0, enqueued)
+        val out = c.shareFiles(listOf(img(1), img(2)))
+        assertEquals(listOf("local-1.jpg", "local-2.jpg"), out.files.map { it.name })
+        assertEquals(0, ensured)
+        assertTrue(out.failedIds.isEmpty())
     }
 
-    @Test fun `缺失项入队等待成功后重查回uri`() = runTest {
-        val row = mutableMapOf<Long, String>()
-        val state = MutableStateFlow<WorkInfo.State?>(null)
+    @Test
+    fun `本地缺失且在线——按当前保存方式 ensure 后分享（D10）`() = runTest {
+        var ensuredTier: MirrorTier? = null
         val c = ShareCoordinator(
-            isDownloaded = { row[it] },
-            enqueue = { image -> row[image.id] = "content://dl-${image.id}"; state.value = WorkInfo.State.SUCCEEDED },
-            observeState = { state },
-            exists = { true },
-            clearStaleRow = {},
+            localFile = { null },
+            ensure = { id, tier -> ensuredTier = tier; Result.success(File("pulled-$id.jpg")) },
+            saveMode = { MirrorTier.ORIGINAL },
+            online = { true },
         )
-        val r = c.ensureDownloadedUris(listOf(img(9)))
-        assertEquals(listOf("content://dl-9"), r.uris)
+        val out = c.shareFiles(listOf(img(7)))
+        assertEquals(listOf("pulled-7.jpg"), out.files.map { it.name })
+        assertEquals(MirrorTier.ORIGINAL, ensuredTier)
     }
 
-    @Test fun `失败项归入 failedIds 保留成功集`() = runTest {
-        val state = MutableStateFlow<WorkInfo.State?>(WorkInfo.State.FAILED)
+    @Test
+    fun `本地缺失且离线——计入 failedIds 不 ensure`() = runTest {
+        var ensured = 0
         val c = ShareCoordinator(
-            isDownloaded = { if (it == 1L) "content://1" else null },
-            enqueue = {},
-            observeState = { state },
-            exists = { true },
-            clearStaleRow = {},
+            localFile = { null },
+            ensure = { _, _ -> ensured++; Result.success(File("x")) },
+            saveMode = { MirrorTier.HQ },
+            online = { false },
         )
-        val r = c.ensureDownloadedUris(listOf(img(1), img(2)))
-        assertEquals(listOf("content://1"), r.uris)
-        assertEquals(listOf(2L), r.failedIds)
+        val out = c.shareFiles(listOf(img(7)))
+        assertEquals(listOf(7L), out.failedIds)
+        assertEquals(0, ensured)
     }
 
-    @Test fun `失效映射先清行再按未下载重下`() = runTest {
-        var cleared = 0
-        val fresh = mutableMapOf(5L to "content://stale")
-        val state = MutableStateFlow<WorkInfo.State?>(null)
+    @Test
+    fun `多张混合——在线拉取失败的计入 failedIds，其余照常`() = runTest {
         val c = ShareCoordinator(
-            isDownloaded = { fresh[it] },
-            enqueue = { image -> fresh[image.id] = "content://fresh"; state.value = WorkInfo.State.SUCCEEDED },
-            observeState = { state },
-            exists = { it != "content://stale" },   // 旧 uri 文件已被用户删除
-            clearStaleRow = { cleared++; fresh.remove(it) },
+            localFile = { id -> if (id == 1L) File("local-1.jpg") else null },
+            ensure = { id, _ ->
+                if (id == 2L) Result.success(File("pulled-2.jpg"))
+                else Result.failure(java.io.IOException("断了"))
+            },
+            saveMode = { MirrorTier.HQ },
+            online = { true },
         )
-        val r = c.ensureDownloadedUris(listOf(img(5)))
-        assertEquals(1, cleared)
-        assertEquals(listOf("content://fresh"), r.uris)
+        val out = c.shareFiles(listOf(img(1), img(2), img(3)))
+        assertEquals(listOf("local-1.jpg", "pulled-2.jpg"), out.files.map { it.name })
+        assertEquals(listOf(3L), out.failedIds)
     }
 }

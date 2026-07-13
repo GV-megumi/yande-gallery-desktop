@@ -32,20 +32,18 @@ import kotlinx.coroutines.launch
 
 private const val GB = 1024L * 1024 * 1024
 
-// 上限档位（字节）：缩略图 1/2/4/8 GB，预览 0.5/1/2/4 GB（spec §6.4）。
+// 上限档位（字节）：缩略图 1/2/4/8 GB（spec §6.4；预览档已下线，存储页改版归 Task 9）。
 private val THUMB_LIMITS = listOf("1 GB" to GB, "2 GB" to 2 * GB, "4 GB" to 4 * GB, "8 GB" to 8 * GB)
-private val PREVIEW_LIMITS = listOf("0.5 GB" to GB / 2, "1 GB" to GB, "2 GB" to 2 * GB, "4 GB" to 4 * GB)
 
 /**
- * 缓存管理页（spec §6.4/§8.2）：MIUI 卡片分组三区——缩略图缓存 / 预览缓存（各含占用展示、上限档位、清理）
- * + 已下载记录（条数 + 文件名列表 + 清空记录，文案明示只清记录不删相册文件）；页脚提示上限调整下次启动生效。
- * 进页 refresh() 读盘统计；清理后 VM 内部再刷新。
+ * 缓存管理页（spec §6.4/§8.2；预览档下线后剩缩略图一区）：MIUI 卡片分组——缩略图缓存
+ * （占用展示、上限档位、清理）+ 已下载记录（条数 + 文件名列表 + 清空记录，文案明示只清记录
+ * 不删相册文件）；页脚提示上限调整下次启动生效。进页 refresh() 读盘统计；清理后 VM 内部再刷新。
  */
 @Composable
 fun CacheScreen(vm: CacheViewModel, onBack: () -> Unit) {
     val stats by vm.stats.collectAsStateWithLifecycle()
     val thumbLimit by vm.thumbLimitBytes.collectAsStateWithLifecycle(PrefsStore.DEFAULT_THUMB_MAX_BYTES)
-    val previewLimit by vm.previewLimitBytes.collectAsStateWithLifecycle(PrefsStore.DEFAULT_PREVIEW_MAX_BYTES)
     val downloads by vm.downloads.collectAsStateWithLifecycle(emptyList())
 
     val snackbar = remember { SnackbarHostState() }
@@ -74,21 +72,6 @@ fun CacheScreen(vm: CacheViewModel, onBack: () -> Unit) {
                     clearTag = "cache_clear_thumb",
                     onClear = {
                         vm.clearThumbnails()
-                        scope.launch { snackbar.showSnackbar("已清理") }
-                    },
-                )
-            }
-            item {
-                CacheTierSection(
-                    title = "预览缓存",
-                    usedBytes = stats?.previewBytes,
-                    maxBytes = stats?.previewMax,
-                    options = PREVIEW_LIMITS,
-                    selectedLimit = previewLimit,
-                    onSelect = vm::setPreviewLimitBytes,
-                    clearTag = "cache_clear_preview",
-                    onClear = {
-                        vm.clearPreviews()
                         scope.launch { snackbar.showSnackbar("已清理") }
                     },
                 )
