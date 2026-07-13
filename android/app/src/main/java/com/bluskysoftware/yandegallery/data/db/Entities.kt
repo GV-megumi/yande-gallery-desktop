@@ -109,3 +109,18 @@ data class AlbumPrefsEntity(
     val inOther: Boolean = false,
     val manualOrder: Int? = null,    // 区内手动序；NULL=未定序（手动模式排区尾按名兜底）
 )
+
+/**
+ * 图片镜像登记表（镜像 spec §3.2）：每图一行、档位互斥（tier=HQ|ORIGINAL，MirrorTier.name）；
+ * HQ→原图升级 = 同行 UPDATE。不建外键（同 album_prefs 理由：images 全量对账可能整表重写，
+ * FK CASCADE 会误清登记；孤儿由对账后清理收口）。relPath 相对 mirror 根（如 "s1/i42/foo.jpg"）。
+ */
+@Entity(tableName = "image_files", primaryKeys = ["serverId", "imageId"])
+data class ImageFileEntity(
+    val serverId: Long,
+    val imageId: Long,
+    val tier: String,
+    val relPath: String,
+    val bytes: Long,
+    val createdAt: Long,   // epoch ms
+)

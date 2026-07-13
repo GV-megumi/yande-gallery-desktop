@@ -43,7 +43,7 @@ class MigrationTest {
 
         // 2) 用 Room 打开并注册迁移链（库现为 v5，2→3→4→5 触发）与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -63,9 +63,9 @@ class MigrationTest {
         // 1) 手工建真实 v1 库文件（非 Room createAll 全新库），并种一行 images
         createRealV1Database()
 
-        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v5，1→2→3→4→5 全链）——触发迁移与最终 schema 校验
+        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v6，1→2→3→4→5→6 全链）——触发迁移与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -92,9 +92,9 @@ class MigrationTest {
         //    同一秒内先写 A（整秒，无小数位）后写 B（.500）：TEXT 字典序 'Z'>'.' 使 A 误排在 B 前。
         createRealV3Database()
 
-        // 2) Room 打开触发 3→4→5：Kotlin 侧逐行解析换算搬入 INTEGER 新表
+        // 2) Room 打开触发 3→4→5→6：Kotlin 侧逐行解析换算搬入 INTEGER 新表
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -115,9 +115,9 @@ class MigrationTest {
         // 1) 手工建真实 v4 库文件，种 1 行 galleries（尚无 createdAt 列、无 album_prefs 表）
         createRealV4Database()
 
-        // 2) Room 打开触发 4→5 迁移与最终 v5 schema 校验
+        // 2) Room 打开触发 4→5→6 迁移与最终 v6 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
             .allowMainThreadQueries()
             .build()
         try {
@@ -134,6 +134,28 @@ class MigrationTest {
                 assertTrue(c.moveToFirst())
                 assertEquals(1, c.getInt(0))
             }
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `v5 迁移到 v6 建 image_files 且 downloads 保留`() = runTest {
+        createRealV1Database()   // 借 v1 起点走全链 1→6
+
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(
+                AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
+                AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6,
+            )
+            .allowMainThreadQueries()
+            .build()
+        try {
+            db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "HQ", "s1/i1/a.jpg", 10L, 0L))
+            assertEquals("HQ", db.imageFileDao().byImageId(1L, 1L)?.tier)
+            // downloads 表 v6 仍在（v7 收尾任务才删）
+            db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='downloads'", null)
+                .use { assertTrue(it.moveToFirst()) }
         } finally {
             db.close()
         }

@@ -10,9 +10,9 @@ import androidx.room.RoomDatabase
         ImageEntity::class, GalleryEntity::class, GalleryImageEntity::class,
         TagEntity::class, ImageTagEntity::class,
         ServerEntity::class, SyncStateEntity::class, DownloadEntity::class,
-        SearchHistoryEntity::class, AlbumPrefsEntity::class,
+        SearchHistoryEntity::class, AlbumPrefsEntity::class, ImageFileEntity::class,
     ],
-    version = 5,
+    version = 6,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -24,6 +24,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun downloadDao(): DownloadDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun albumPrefsDao(): AlbumPrefsDao
+    abstract fun imageFileDao(): ImageFileDao
 
     companion object {
         // v1→2：新增 search_history 表（其余表不变）。CREATE 语句须与 Room 对该实体的期望逐字一致。
@@ -86,9 +87,22 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v5→6（镜像层 spec §3.2）：新建 image_files 登记表。downloads 表暂保留——计划期两步走，
+        // 下载/分享链路逐任务切换期间新旧表并存可编译可测；v7（收尾任务）再 DROP。
+        val MIGRATION_5_6 = object : androidx.room.migration.Migration(5, 6) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `image_files` (`serverId` INTEGER NOT NULL, " +
+                        "`imageId` INTEGER NOT NULL, `tier` TEXT NOT NULL, `relPath` TEXT NOT NULL, " +
+                        "`bytes` INTEGER NOT NULL, `createdAt` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`serverId`, `imageId`))"
+                )
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "yande-gallery.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .build()
 
         // inMemory 每次全新建库，无历史版本，无需注册迁移。
