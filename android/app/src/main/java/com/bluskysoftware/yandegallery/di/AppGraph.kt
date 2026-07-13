@@ -8,7 +8,6 @@ import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
 import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
-import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
 import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
@@ -142,9 +141,6 @@ class AppGraph(
         )
     }
 
-    /** MediaStore 网关（旧下载体系遗留；RoomMirrorStore 对账清旧 uri 仍用，Task 10 一并退役）。 */
-    val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
-
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
     val downloadManager by lazy { DownloadManager(appContext) }
 
@@ -213,7 +209,6 @@ class AppGraph(
     val mirrorStore by lazy {
         RoomMirrorStore(
             db,
-            gateway = mediaStoreGateway,
             activeServerId = { serverRepository.activeServer()?.id },
             removeCachedImage = { serverId, imageId ->
                 // 对账删除的行级联清缩略图盘缓存条目（预览档已下线，只剩这一级；Coil 3.5 DiskCache.remove(key) 已核）
@@ -250,12 +245,19 @@ class AppGraph(
         )
     }
 
-    /** 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。 */
+    /**
+     * 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。
+     * activeServerId/removeMirrorFiles（Task 10 遗留审查项）：App 内发起的删除主动级联清理
+     * image_files 行与磁盘镜像目录——单纯等对账/sweepOrphans 兜底会因 images 行已被本仓库
+     * 乐观删除而永远看不到「已消失」的 id，无法触发对账那条级联路径。
+     */
     val writeRepository by lazy {
         WriteRepository(
             writeApi = RetrofitWriteApi { api() },
             db = db,
             monitor = connectionMonitor,
+            activeServerId = { serverRepository.activeServer()?.id },
+            removeMirrorFiles = { serverId, ids -> imageMirrorStore.deleteDirs(serverId, ids) },
             requestSync = { syncScheduler.requestSync("write") },
         )
     }

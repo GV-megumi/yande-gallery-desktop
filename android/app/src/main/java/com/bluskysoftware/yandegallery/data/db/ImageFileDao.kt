@@ -6,7 +6,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import kotlinx.coroutines.flow.Flow
 
-/** 镜像登记 DAO（spec §3.2）：全部查询带 serverId 域（多服务器同号 imageId 互不污染，对齐 DownloadDao 惯例）。 */
+/** 镜像登记 DAO（spec §3.2）：全部查询带 serverId 域（多服务器同号 imageId 互不污染，沿用镜像层既有的 serverId 域隔离惯例）。 */
 @Dao
 interface ImageFileDao {
     @Query("SELECT * FROM image_files WHERE serverId = :serverId AND imageId = :imageId")
@@ -25,7 +25,7 @@ interface ImageFileDao {
     @Query("SELECT * FROM image_files WHERE serverId = :serverId AND imageId IN (:imageIds)")
     suspend fun byImageIds(serverId: Long, imageIds: List<Long>): List<ImageFileEntity>
 
-    /** clearMirror 用：镜像身份失效即全清（对齐 DownloadDao.clearAll 语义）。 */
+    /** clearMirror 用：镜像身份失效即全清。 */
     @Query("DELETE FROM image_files")
     suspend fun clearAll()
 
@@ -33,7 +33,7 @@ interface ImageFileDao {
     @Query("SELECT * FROM image_files WHERE serverId = :serverId")
     suspend fun allFor(serverId: Long): List<ImageFileEntity>
 
-    /** 大图页/分享同步判断用：本服全量行 Flow（收集成 map，对齐 downloads observeDownloaded 用法）。 */
+    /** 大图页/分享同步判断用：本服全量行 Flow（收集成 map，供按 imageId 查是否已同步）。 */
     @Query("SELECT * FROM image_files WHERE serverId = :serverId")
     fun observeFor(serverId: Long): Flow<List<ImageFileEntity>>
 

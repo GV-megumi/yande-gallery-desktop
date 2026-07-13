@@ -1,7 +1,6 @@
 package com.bluskysoftware.yandegallery.data.db
 
 import androidx.test.core.app.ApplicationProvider
-import app.cash.turbine.test
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.*
@@ -11,9 +10,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 /**
- * M3-T4: GalleryDao 写操作扩展（重命名/删除相册消费），以及 TagDao.byName / DownloadDao 反应式
- * Flow 查询。后两者未各自建 DAO 专属测试文件（brief 只列出本文件与 ImageDaoWriteTest.kt 两个测试
- * 文件），故与 GalleryDao 写操作一并放在这里。
+ * M3-T4: GalleryDao 写操作扩展（重命名/删除相册消费），以及 TagDao.byName 查询。后者未各自建
+ * DAO 专属测试文件（brief 只列出本文件与 ImageDaoWriteTest.kt 两个测试文件），故与 GalleryDao
+ * 写操作一并放在这里。（Task 10：DownloadDao 随 MediaStore 下载链路退役，其反应式 Flow
+ * 测试用例随之删除。）
  */
 @RunWith(RobolectricTestRunner::class)
 class GalleryDaoWriteTest {
@@ -69,31 +69,5 @@ class GalleryDaoWriteTest {
         assertEquals(1L, db.tagDao().byName("cat")?.id)
         assertEquals(1L, db.tagDao().byName("CAT")?.id)
         assertNull(db.tagDao().byName("dog"))
-    }
-
-    @Test
-    fun `observeDownloadedIds 按 serverId 域发射 upsert 后更新且他服行不混入`() = runTest {
-        db.downloadDao().observeDownloadedIds(1L).test {
-            assertEquals(emptyList<Long>(), awaitItem())
-            db.downloadDao().upsert(
-                DownloadEntity(serverId = 1, imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
-            )
-            assertEquals(listOf(1L), awaitItem())
-            // 他服同号映射写入不改变本服域的可见集合（Room 表变更会重发射同值，容忍去重）
-            db.downloadDao().upsert(
-                DownloadEntity(serverId = 2, imageId = 2, mediaStoreUri = "content://y/2", downloadedAt = "2026-01-01T00:00:00.000Z")
-            )
-            assertEquals(listOf(1L), awaitItem())
-        }
-    }
-
-    @Test
-    fun `observeDownloaded 返回本服完整实体供构建 imageId 到 uri 的映射`() = runTest {
-        db.downloadDao().observeDownloaded(1L).test {
-            assertEquals(emptyList<DownloadEntity>(), awaitItem())
-            val entity = DownloadEntity(serverId = 1, imageId = 1, mediaStoreUri = "content://x/1", downloadedAt = "2026-01-01T00:00:00.000Z")
-            db.downloadDao().upsert(entity)
-            assertEquals(listOf(entity), awaitItem())
-        }
     }
 }

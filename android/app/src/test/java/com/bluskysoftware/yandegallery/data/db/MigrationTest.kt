@@ -37,35 +37,13 @@ class MigrationTest {
     }
 
     @Test
-    fun `v2 迁移到 v3 downloads 换 serverId 复合主键 旧行丢弃 images 保留`() = runTest {
-        // 1) 手工建真实 v2 库文件，种 1 行 images + 1 行旧版（无 serverId）downloads
-        createRealV2Database()
-
-        // 2) 用 Room 打开并注册迁移链（库现为 v6，2→3→4→5→6 触发）与最终 schema 校验
-        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
-            .allowMainThreadQueries()
-            .build()
-        try {
-            assertEquals(1L, db.imageDao().countAll())                        // 镜像数据保留
-            assertNull(db.downloadDao().byImageId(1L, 1L))                    // 旧 downloads 行已丢弃
-            db.downloadDao().upsert(DownloadEntity(1L, 1L, "content://x", "2026-07-05T00:00:00.000Z"))
-            db.downloadDao().upsert(DownloadEntity(2L, 1L, "content://y", "2026-07-05T00:00:00.000Z"))
-            assertEquals("content://x", db.downloadDao().byImageId(1L, 1L)?.mediaStoreUri)  // 复合主键：同 imageId 双服务器共存
-            assertEquals("content://y", db.downloadDao().byImageId(2L, 1L)?.mediaStoreUri)
-        } finally {
-            db.close()
-        }
-    }
-
-    @Test
     fun `v1 迁移到 v2 建 search_history 且保留 images`() = runTest {
         // 1) 手工建真实 v1 库文件（非 Room createAll 全新库），并种一行 images
         createRealV1Database()
 
-        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v6，1→2→3→4→5→6 全链）——触发迁移与最终 schema 校验
+        // 2) 用 Room 打开同一文件并注册迁移链（库现为 v7，1→2→3→4→5→6→7 全链）——触发迁移与最终 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
             .allowMainThreadQueries()
             .build()
         try {
@@ -94,7 +72,7 @@ class MigrationTest {
 
         // 2) Room 打开触发 3→4→5→6：Kotlin 侧逐行解析换算搬入 INTEGER 新表
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
             .allowMainThreadQueries()
             .build()
         try {
@@ -117,7 +95,7 @@ class MigrationTest {
 
         // 2) Room 打开触发 4→5→6 迁移与最终 v6 schema 校验
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
-            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6)
+            .addMigrations(AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4, AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7)
             .allowMainThreadQueries()
             .build()
         try {
@@ -140,22 +118,40 @@ class MigrationTest {
     }
 
     @Test
-    fun `v5 迁移到 v6 建 image_files 且 downloads 保留`() = runTest {
-        createRealV1Database()   // 借 v1 起点走全链 1→6
+    fun `v5 迁移到 v6 建 image_files 表可用`() = runTest {
+        createRealV1Database()   // 借 v1 起点走全链 1→6(→7)
 
         val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
             .addMigrations(
                 AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
-                AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6,
+                AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
             )
             .allowMainThreadQueries()
             .build()
         try {
             db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "HQ", "s1/i1/a.jpg", 10L, 0L))
             assertEquals("HQ", db.imageFileDao().byImageId(1L, 1L)?.tier)
-            // downloads 表 v6 仍在（v7 收尾任务才删）
+        } finally {
+            db.close()
+        }
+    }
+
+    @Test
+    fun `v6 迁移到 v7 downloads 表删除 image_files 保留`() = runTest {
+        createRealV1Database()
+
+        val db = Room.databaseBuilder(context, AppDatabase::class.java, dbName)
+            .addMigrations(
+                AppDatabase.MIGRATION_1_2, AppDatabase.MIGRATION_2_3, AppDatabase.MIGRATION_3_4,
+                AppDatabase.MIGRATION_4_5, AppDatabase.MIGRATION_5_6, AppDatabase.MIGRATION_6_7,
+            )
+            .allowMainThreadQueries()
+            .build()
+        try {
             db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='downloads'", null)
-                .use { assertTrue(it.moveToFirst()) }
+                .use { assertFalse(it.moveToFirst()) }
+            db.imageFileDao().upsert(ImageFileEntity(1L, 1L, "HQ", "s1/i1/a.jpg", 10L, 0L))
+            assertEquals(1L, db.imageFileDao().countFor(1L))
         } finally {
             db.close()
         }
@@ -196,27 +192,6 @@ class MigrationTest {
         }
     }
 
-    /** 复刻 v2 schema（照 2.json：v1 各表 + search_history + v2 identity_hash），种 images 与旧版 downloads 各一行。 */
-    private fun createRealV2Database() {
-        val dbFile = context.getDatabasePath(dbName)
-        dbFile.parentFile?.mkdirs()
-        val v2 = SQLiteDatabase.openOrCreateDatabase(dbFile, null)
-        try {
-            V2_STATEMENTS.forEach(v2::execSQL)
-            v2.execSQL(
-                "INSERT INTO images (id,filename,width,height,fileSize,format,createdAt,updatedAt) " +
-                    "VALUES (1,'a.jpg',1,1,1,'jpg','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z')",
-            )
-            v2.execSQL(
-                "INSERT INTO downloads (imageId, mediaStoreUri, downloadedAt) " +
-                    "VALUES (1, 'content://old', '2026-01-01T00:00:00.000Z')",
-            )
-            v2.version = 2 // PRAGMA user_version = 2，使 Room 判定需 2→3 迁移
-        } finally {
-            v2.close()
-        }
-    }
-
     /** 复刻 v4 schema（照 4.json：v3 各表但 search_history.at 为 INTEGER），种 galleries 一行（无 createdAt 列）。 */
     private fun createRealV4Database() {
         val dbFile = context.getDatabasePath(dbName)
@@ -247,12 +222,6 @@ class MigrationTest {
             "CREATE TABLE IF NOT EXISTS `downloads` (`imageId` INTEGER NOT NULL, `mediaStoreUri` TEXT NOT NULL, `downloadedAt` TEXT NOT NULL, PRIMARY KEY(`imageId`))",
             "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
             "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9ac9c16ad105e1a52e68a57efd6715f4')",
-        )
-
-        /** v2 建表语句：v1 各表（downloads 仍是旧版 imageId 主键）+ search_history + v2 identity_hash（schemas/.../2.json）。 */
-        val V2_STATEMENTS = V1_STATEMENTS.dropLast(1) + listOf(
-            "CREATE TABLE IF NOT EXISTS `search_history` (`query` TEXT NOT NULL, `at` TEXT NOT NULL, PRIMARY KEY(`query`))",
-            "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '9bad12e2c4ef32f36ccc17de8a121c62')",
         )
 
         /** v3 建表语句：v2 各表但 downloads 换 (serverId,imageId) 复合主键 + v3 identity_hash（schemas/.../3.json）。 */

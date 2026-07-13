@@ -9,10 +9,10 @@ import androidx.room.RoomDatabase
     entities = [
         ImageEntity::class, GalleryEntity::class, GalleryImageEntity::class,
         TagEntity::class, ImageTagEntity::class,
-        ServerEntity::class, SyncStateEntity::class, DownloadEntity::class,
+        ServerEntity::class, SyncStateEntity::class,
         SearchHistoryEntity::class, AlbumPrefsEntity::class, ImageFileEntity::class,
     ],
-    version = 6,
+    version = 7,
     exportSchema = true,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -21,7 +21,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun tagDao(): TagDao
     abstract fun serverDao(): ServerDao
     abstract fun syncStateDao(): SyncStateDao
-    abstract fun downloadDao(): DownloadDao
     abstract fun searchHistoryDao(): SearchHistoryDao
     abstract fun albumPrefsDao(): AlbumPrefsDao
     abstract fun imageFileDao(): ImageFileDao
@@ -100,9 +99,20 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        // v6→7（镜像 spec §7/D6）：MediaStore 下载链路退役，DROP downloads。旧下载记录作废
+        // （历史相册文件保留不动）；新语义由 image_files 承载。
+        val MIGRATION_6_7 = object : androidx.room.migration.Migration(6, 7) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("DROP TABLE IF EXISTS `downloads`")
+            }
+        }
+
         fun build(context: Context): AppDatabase =
             Room.databaseBuilder(context, AppDatabase::class.java, "yande-gallery.db")
-                .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(
+                    MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6,
+                    MIGRATION_6_7,
+                )
                 .build()
 
         // inMemory 每次全新建库，无历史版本，无需注册迁移。
