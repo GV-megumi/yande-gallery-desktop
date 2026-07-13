@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncWorker
@@ -23,12 +24,9 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
             DownloadWorker(
                 appContext,
                 workerParameters,
-                apiProvider = { graph.api() },
-                gateway = graph.mediaStoreGateway,
-                downloadDao = graph.db.downloadDao(),
-                // 二进制 404 对账由 graph.okHttp 错误映射拦截器统一触发，worker 不再重复 nudge（BUG-13）
-                now = { java.time.Instant.now().toString() },
-                activeServerId = { graph.serverRepository.activeServer()?.id },   // 落行前校验（M4-T9 切服竞态）
+                ensureOriginal = { serverId, imageId ->
+                    graph.imageMirrorStore.ensure(serverId, imageId, MirrorTier.ORIGINAL)
+                },
                 notifier = AndroidDownloadNotifier(appContext),   // 前台下载通知（M4-D8）
             )
         } else if (workerClassName == MirrorSyncWorker::class.java.name) {

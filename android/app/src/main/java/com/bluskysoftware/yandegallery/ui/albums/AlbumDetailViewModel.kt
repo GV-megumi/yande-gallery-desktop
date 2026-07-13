@@ -26,7 +26,6 @@ import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
-import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
@@ -98,7 +97,7 @@ class AlbumDetailViewModel(
         db = graph.db,
         writeRepository = writeRepository,
         activeServerId = { graph.serverRepository.activeServer()?.id },
-        enqueueDownload = { serverId, img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
+        enqueueDownload = { serverId, img -> graph.downloadManager.enqueue(serverId, img.id, img.filename) },
         observeDownloadState = graph.downloadManager::observeState,
         gatewayExists = { graph.mediaStoreGateway.exists(it.toUri()) },
     )

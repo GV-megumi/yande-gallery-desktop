@@ -28,7 +28,6 @@ import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
-import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -213,10 +212,10 @@ class ViewerViewModel(
     suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
 
-    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；mime 由 format 推导；无激活服务器不入队）。 */
+    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；无激活服务器不入队）。 */
     fun enqueueDownload(image: ImageEntity) {
         val serverId = activeServer.value?.id ?: return
-        graph.downloadManager.enqueue(serverId, image.id, image.filename, mimeOf(image.format))
+        graph.downloadManager.enqueue(serverId, image.id, image.filename)
     }
 
     /** 分享完整流（D9）：未下载先入队原图下载，等终态后返回可分享 uri；无激活服务器/下载失败 → failure。 */
@@ -224,7 +223,7 @@ class ViewerViewModel(
         val serverId = activeServer.value?.id ?: return Result.failure(IllegalStateException("无激活服务器"))
         val coordinator = ShareCoordinator(
             isDownloaded = { graph.db.downloadDao().byImageId(serverId, it)?.mediaStoreUri },
-            enqueue = { img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
+            enqueue = { img -> graph.downloadManager.enqueue(serverId, img.id, img.filename) },
             observeState = { graph.downloadManager.observeState(serverId, it) },
             exists = { gateway.exists(it.toUri()) },
             clearStaleRow = { graph.db.downloadDao().delete(serverId, it) },

@@ -1,8 +1,6 @@
 package com.bluskysoftware.yandegallery
 
-import android.app.PendingIntent
 import android.content.Context
-import android.net.Uri
 import androidx.core.app.NotificationCompat
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ForegroundInfo
@@ -12,12 +10,11 @@ import androidx.work.WorkerParameters
 import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.workDataOf
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
-import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
-import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.download.DownloadNotifier
 import com.bluskysoftware.yandegallery.domain.download.DownloadWorker
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -26,22 +23,22 @@ import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.io.ByteArrayOutputStream
-import java.io.OutputStream
+import java.io.File
 
 /**
- * M3 原图下载端到端：TestListenableWorkerBuilder 驱动**整条装配链**——
- * AppGraph 激活服务器行 → `graph.api()` 动态 Bearer + 错误映射拦截器 → 流式 GET /file →
- * 网关写入 → `graph.db` downloads 表落库 → observeDownloadedIds 观察流（viewer 跳原图档的数据源）。
+ * 原图下载端到端（镜像版，M7 改写）：TestListenableWorkerBuilder 驱动**整条生产装配链**——
+ * 与生产 AppWorkerFactory 逐项一致地把 ensureOriginal 接到 `graph.imageMirrorStore.ensure(..., ORIGINAL)`，
+ * 断言 `graph.api()` 派生的 Bearer（激活服务器行，非硬编码 provider）、真实 GET 路径、镜像目录落盘
+ * 字节与 image_files 升 ORIGINAL。
  *
- * 与 DownloadWorkerTest（worker 内部四条路径的单测）互补：这里只走成功链路，但断言链路
- * **两端**的外部效果——请求形状（路径/Bearer）与 DownloadEntity 全字段内容，网关按计划留 fake
- * （MediaStore 真机语义 Robolectric 不可靠，见 MediaStoreGateway 注释，实机清单覆盖）。
+ * 与 DownloadWorkerTest（worker 结果分流单测，ensureOriginal 用 fake，不触网络/AppGraph）、
+ * ImageMirrorStoreTest（ensure 本体的落盘/校验/删 HQ 细节，apiProvider 固定 key 不经 AppGraph）互补：
+ * 这里唯一验证「真实 AppGraph 装配下 Bearer 来自激活服务器行」这条生产接线，其余细节两处已覆盖，
+ * 不重复断言（旧版 MediaStore/downloads 表全链路随 worker 改写退役，见 M7 任务）。
  */
 @RunWith(RobolectricTestRunner::class)
 class DownloadE2ETest {
@@ -54,6 +51,11 @@ class DownloadE2ETest {
         db = AppDatabase.inMemory(context)
         // 关自动同步：下载链路成功不触发对账，requestCount 应精确为 1（激活时不许有 sync 请求混入）。
         graph = AppGraph(context, dbOverride = db, autoSyncOnActiveChange = false)
+        // 预建镜像根目录：ImageMirrorStore.ensure() 的可用空间校验查询 rootDir.usableSpace，
+        // 目录不存在时该调用返回 0 → 误判磁盘不足（DiskFullException）。ImageMirrorStoreTest 用可注入
+        // 的 freeBytes 规避此坑，但这里走生产 graph.imageMirrorStore（无覆盖缝），改为预建目录令
+        // usableSpace() 落在真实存在的路径上，对照 AppGraph 里 rootDir 的构造方式（不能只建 filesDir）。
+        File(context.getExternalFilesDir(null) ?: context.filesDir, "mirror").mkdirs()
     }
 
     @After
@@ -63,7 +65,7 @@ class DownloadE2ETest {
     }
 
     @Test
-    fun `原图下载全链路——GET file 带 Bearer，完整字节经网关写入，downloads 表记录 uri 与时间`() = runTest {
+    fun `原图下载全链路——GET file 带激活服务器 Bearer，完整字节落镜像目录，image_files 升 ORIGINAL`() = runTest {
         // 超过 64KB 拷贝缓冲 + 非对齐尾块：跨多轮读写循环，Content-Length 完整性校验真实生效
         //（MockWebServer 对 body 自动带精确 Content-Length）。
         val payload = ByteArray(96 * 1024 + 17) { (it % 251).toByte() }
@@ -71,15 +73,20 @@ class DownloadE2ETest {
             server.enqueue(MockResponse().setBody(Buffer().write(payload)))
             server.start()
             val serverId = graph.serverRepository.addAndActivate("e2e-dl", server.url("/").toString(), "key-dl")
+            // ensure() 落盘前先查 imageDao 取原始文件名——须先有元数据行（对齐 ImageMirrorStoreTest 惯例）
+            db.imageDao().upsertAll(listOf(
+                ImageEntity(
+                    77, "77.jpg", 10, 10, payload.size.toLong(), "jpg",
+                    "2026-07-05T00:00:00.000Z", "2026-07-05T00:00:00.000Z",
+                ),
+            ))
 
-            val gateway = RecordingGateway()
             val worker = TestListenableWorkerBuilder<DownloadWorker>(
                 context,
                 workDataOf(
                     DownloadWorker.KEY_SERVER_ID to serverId,
                     DownloadWorker.KEY_IMAGE_ID to 77L,
                     DownloadWorker.KEY_FILENAME to "77.jpg",
-                    DownloadWorker.KEY_MIME to "image/jpeg",
                 ),
             ).setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(
@@ -87,19 +94,12 @@ class DownloadE2ETest {
                     workerClassName: String,
                     workerParameters: WorkerParameters,
                 ): ListenableWorker =
-                    // deps 接线与生产 AppWorkerFactory 逐项一致（apiProvider/downloadDao 都取自同一
-                    // graph；404 对账钩子在 graph.okHttp 拦截器上，BUG-13 后 worker 无此参数）；
-                    // 仅 gateway 换 fake、now 固定以便断言 downloadedAt。
+                    // deps 接线与生产 AppWorkerFactory 逐项一致：ensureOriginal 直接接 graph.imageMirrorStore.ensure；
+                    // 唯 notifier 换 fake（TestListenableWorkerBuilder 自带 ForegroundUpdater 接住，链路语义零改动）。
                     DownloadWorker(
                         appContext,
                         workerParameters,
-                        apiProvider = { graph.api() },
-                        gateway = gateway,
-                        downloadDao = graph.db.downloadDao(),
-                        now = { "2026-07-05T12:00:00Z" },
-                        activeServerId = { graph.serverRepository.activeServer()?.id },
-                        // fake notifier：返回最小 ForegroundInfo，TestListenableWorkerBuilder 自带
-                        // ForegroundUpdater 接住（不起真 service），链路语义零改动。
+                        ensureOriginal = { sid, iid -> graph.imageMirrorStore.ensure(sid, iid, MirrorTier.ORIGINAL) },
                         notifier = object : DownloadNotifier {
                             override fun ensureChannel() {}
                             override fun foregroundInfo(imageId: Long, filename: String, written: Long, total: Long) =
@@ -109,7 +109,6 @@ class DownloadE2ETest {
                                         .setSmallIcon(android.R.drawable.stat_sys_download).build(),
                                 )
                         },
-                        timeMs = { 0L },
                     )
             }).build()
 
@@ -124,39 +123,17 @@ class DownloadE2ETest {
             assertEquals("/api/app/v1/images/77/file", req.path)
             assertEquals("Bearer key-dl", req.getHeader("Authorization"))
 
-            // ② 网关效果：完整字节 + finalize（挂起条目转正）+ 无 discard
-            assertArrayEquals("网关应收到与响应体一致的完整字节", payload, gateway.bytes())
-            assertTrue("成功应 finalize 使相册可见", gateway.finalized)
-            assertEquals("成功不应 discard", 0, gateway.discardCount)
+            // ② 镜像落盘效果：完整字节写入镜像目录（ensure 内 Content-Length 校验已生效，非本测重点）
+            val localFile = graph.imageMirrorStore.localFile(serverId, 77)?.file
+            assertNotNull("成功应落入镜像目录", localFile)
+            assertArrayEquals("镜像文件应与响应体一致的完整字节", payload, localFile!!.readBytes())
 
-            // ③ DownloadEntity 全字段：imageId / 网关返回的 mediaStoreUri / 注入的 downloadedAt
-            val row = graph.db.downloadDao().byImageId(serverId, 77)
-            assertNotNull("成功应落库一行", row)
+            // ③ image_files 全字段：serverId / imageId / tier 升 ORIGINAL
+            val row = graph.db.imageFileDao().byImageId(serverId, 77)
+            assertNotNull("成功应登记 image_files 行", row)
             assertEquals(serverId, row!!.serverId)
             assertEquals(77L, row.imageId)
-            assertEquals(gateway.createdUri.toString(), row.mediaStoreUri)
-            assertEquals("2026-07-05T12:00:00Z", row.downloadedAt)
-
-            // ④ 观察流：viewer「已下载直接跳原图档」的数据源立即可见本次下载
-            assertEquals(listOf(77L), graph.db.downloadDao().observeDownloadedIds(serverId).first())
+            assertEquals("ORIGINAL", row.tier)
         }
-    }
-
-    /** 内存 fake 网关：记录创建的 uri、累积写入字节、finalize/discard 调用。 */
-    private class RecordingGateway : MediaStoreGateway {
-        val createdUri: Uri = Uri.parse("content://fake/media/e2e-77")
-        private val sink = ByteArrayOutputStream()
-        var finalized = false
-        var discardCount = 0
-
-        override fun createPending(displayName: String, mime: String): Uri = createdUri
-        override fun openOutput(uri: Uri): OutputStream = sink
-        override fun finalize(uri: Uri) { finalized = true }
-        override fun discard(uri: Uri) { discardCount++ }
-        override fun exists(uri: Uri): Boolean = true
-        override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
-        override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
-
-        fun bytes(): ByteArray = sink.toByteArray()
     }
 }
