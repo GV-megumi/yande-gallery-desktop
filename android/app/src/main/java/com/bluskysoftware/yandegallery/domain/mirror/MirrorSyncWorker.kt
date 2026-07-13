@@ -59,7 +59,9 @@ class MirrorSyncWorker(
         val done = AtomicLong(0)
         val retryable = AtomicInteger(0)
         val diskFull = AtomicBoolean(false)
-        var lastNotifyMs = 0L
+        // 并发 3 路（CONCURRENCY）都会读写节流时间戳——原子量避免数据竞争；节流本身是近似的，
+        // get/set 弱一致即可，不需要 CAS。
+        val lastNotifyMs = AtomicLong(0L)
 
         suspend fun step(imageId: Long): Result? {   // 非 null = 需要立刻中止的终态
             if (diskFull.get()) return null
@@ -72,11 +74,15 @@ class MirrorSyncWorker(
             }
             val d = done.get()
             monitor.progress(d, total)
-            if (shouldUpdateNotification(lastNotifyMs, timeMs(), -1, if (total > 0) ((d * 100) / total).toInt() else -1)) {
-                lastNotifyMs = timeMs()
-                setProgress(workDataOf(KEY_DONE to d, KEY_TOTAL to total))
-                runCatching { setForeground(notifier.foregroundInfo(d, total)) }
-                    .onFailure { if (it is CancellationException) throw it }
+            if (shouldUpdateNotification(lastNotifyMs.get(), timeMs(), -1, if (total > 0) ((d * 100) / total).toInt() else -1)) {
+                lastNotifyMs.set(timeMs())
+                // setProgress 与 setForeground 都可能抛非取消异常（WorkManager 内部态/33+ 未授权通知）
+                // ——合并进同一个 runCatching 降级为纯后台，避免异常逃逸 step()→awaitAll()→doWork()
+                // 导致 monitor.finish() 被跳过（running 卡 true，UI 永久显示"同步中"）。
+                runCatching {
+                    setProgress(workDataOf(KEY_DONE to d, KEY_TOTAL to total))
+                    setForeground(notifier.foregroundInfo(d, total))
+                }.onFailure { if (it is CancellationException) throw it }
             }
             return null
         }

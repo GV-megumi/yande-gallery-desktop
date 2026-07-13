@@ -46,6 +46,10 @@ class AppGraph(
     // 避免 collector 的自动同步与手动同步争抢同一 MockWebServer 的 FIFO 响应。生产恒 true。
     private val autoSyncOnActiveChange: Boolean = true,
     private val prefsStoreOverride: com.bluskysoftware.yandegallery.data.prefs.PrefsStore? = null,
+    // 测试注入缝：切服取消动作间接层。生产走真实 mirrorSyncManager.cancel；Robolectric 环境下
+    // WorkManager 未显式初始化（AndroidManifest 移除了默认初始化器），直接调用会抛
+    // IllegalStateException——AppGraphTest 注入 fake 观察"是否取消了正确的旧 id"而不触发它。
+    private val cancelMirrorSyncOverride: ((Long) -> Unit)? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -104,7 +108,7 @@ class AppGraph(
                 if ((idChanged || endpointChanged) && autoSyncOnActiveChange) {
                     // 切服（非编辑）→ 取消旧服残留的镜像同步工作，避免残留任务写脏新服数据（spec §6）
                     previousId?.takeIf { idChanged && it != active?.id }
-                        ?.let { mirrorSyncManager.cancel(it) }
+                        ?.let { cancelMirrorSync(it) }
                     // 切到/编辑出真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
                     if (active != null) {
                         syncScheduler.requestSync(if (idChanged) "server-changed" else "server-edited")
@@ -171,6 +175,16 @@ class AppGraph(
     }
     val mirrorSyncMonitor by lazy { MirrorSyncMonitor() }
     val mirrorSyncManager by lazy { MirrorSyncManager(appContext) }
+
+    /**
+     * 切服取消的真正出口：默认转发到 mirrorSyncManager.cancel（惰性求值不受影响——override 非空时
+     * 完全不触碰 mirrorSyncManager，不会意外初始化 WorkManager）；测试注入 cancelMirrorSyncOverride
+     * 拦截观察调用参数，验证 previousId 在 lastActive 覆盖前捕获、仅真实 id 变化才取消（AppGraphTest）。
+     */
+    private fun cancelMirrorSync(serverId: Long) {
+        val override = cancelMirrorSyncOverride
+        if (override != null) override(serverId) else mirrorSyncManager.cancel(serverId)
+    }
 
     /** 镜像同步入队（读保存方式无关——worker 自读；此处只解偏好约束与激活服务器）。 */
     fun requestMirrorSync(replace: Boolean = false) {
