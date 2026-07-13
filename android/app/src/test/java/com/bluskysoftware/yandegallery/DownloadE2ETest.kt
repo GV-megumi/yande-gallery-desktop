@@ -27,7 +27,6 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.io.File
 
 /**
  * 原图下载端到端（镜像版，M7 改写）：TestListenableWorkerBuilder 驱动**整条生产装配链**——
@@ -51,11 +50,6 @@ class DownloadE2ETest {
         db = AppDatabase.inMemory(context)
         // 关自动同步：下载链路成功不触发对账，requestCount 应精确为 1（激活时不许有 sync 请求混入）。
         graph = AppGraph(context, dbOverride = db, autoSyncOnActiveChange = false)
-        // 预建镜像根目录：ImageMirrorStore.ensure() 的可用空间校验查询 rootDir.usableSpace，
-        // 目录不存在时该调用返回 0 → 误判磁盘不足（DiskFullException）。ImageMirrorStoreTest 用可注入
-        // 的 freeBytes 规避此坑，但这里走生产 graph.imageMirrorStore（无覆盖缝），改为预建目录令
-        // usableSpace() 落在真实存在的路径上，对照 AppGraph 里 rootDir 的构造方式（不能只建 filesDir）。
-        File(context.getExternalFilesDir(null) ?: context.filesDir, "mirror").mkdirs()
     }
 
     @After

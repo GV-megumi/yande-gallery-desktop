@@ -57,6 +57,12 @@ class ImageMirrorStore(
             ) return Result.success(existing)
         }
 
+        // 全新安装时 mirror/ 根目录从未被创建过：File.usableSpace 对不存在的路径返回 0
+        // （不是"未知"而是"0 可用"，statvfs 语义），会被下面的阈值判断永久误判磁盘不足——
+        // sync 恒报 DISK_FULL、DownloadWorker 无限重试且无自愈路径（目录不存在的状态不会自己变化）。
+        // 此处前置建根目录，让 freeBytes() 查询落在真实存在的路径上；mkdirs 幂等、开销可忽略，
+        // 顺带让下面 per-image 目录的 mkdirs 少建一层父目录。
+        rootDir.mkdirs()
         if (freeBytes() < MIN_FREE_BYTES) return Result.failure(DiskFullException())
         val api = apiProvider() ?: return Result.failure(IllegalStateException("无激活服务器"))
         val entity = imageDao.byId(imageId)

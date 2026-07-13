@@ -198,4 +198,31 @@ class ImageMirrorStoreTest {
         assertTrue(File(root, "s1/i42/foo.jpg").exists())
         assertEquals("HQ", db.imageFileDao().byImageId(1, 42)?.tier)
     }
+
+    @Test
+    fun `全新安装镜像根目录不存在——ensure 前置建根目录，不再误判磁盘不足`() = runTest {
+        // 复现首次安装场景：mirror 根目录从未被创建过（不同于 setup() 里已 mkdirs 的 root）。
+        // 故意不注入 freeBytes，走构造函数默认值 rootDir.usableSpace——已用 jshell 核实
+        // JDK 17 + Windows 下该 API 对不存在的路径返回 0（非"未知"而是"0 可用"，statvfs 语义），
+        // 若 ensureLocked 在建目录前查可用空间，会对全新安装永久误判磁盘不足（DownloadWorker
+        // 无限重试、sync 恒报 DISK_FULL，无自愈路径）。
+        val context: Context = ApplicationProvider.getApplicationContext()
+        val freshRoot = File(context.cacheDir, "mirror-fresh-${System.nanoTime()}")
+        assertFalse(freshRoot.exists())
+        val freshStore = ImageMirrorStore(
+            rootDir = freshRoot,
+            imageFileDao = db.imageFileDao(),
+            imageDao = db.imageDao(),
+            apiProvider = { api },
+            activeServerId = { activeId },
+            nowMs = { 1720000000000L },
+            // freeBytes 故意不传，用默认 lambda——本用例专测该默认路径
+        )
+        val payload = ByteArray(8) { it.toByte() }
+        server.enqueue(okBody(payload, "image/jpeg"))
+        val file = freshStore.ensure(1, 42, MirrorTier.HQ).getOrThrow()
+        assertTrue(file.isFile)
+        assertTrue(file.readBytes().contentEquals(payload))
+        freshRoot.deleteRecursively()
+    }
 }
