@@ -128,10 +128,12 @@ class AppGraph(
         )
     }
 
-    /** 缩略图 loader：上限来自设置（改后下次启动生效——DiskCache.maxSize 构建期定死，M4-T8）。 */
+    /** 缩略图 loader（spec §4.1/D9）：不设上限 + 镜像优先（本地文件直出，未同步图回退网络）。 */
     val thumbnailLoader by lazy {
-        val maxBytes = runBlocking { prefsStore.thumbnailCacheMaxBytes.first() }   // 一次性小文件读
-        buildThumbnailImageLoader(appContext, okHttp, maxBytes)
+        buildThumbnailImageLoader(
+            appContext, okHttp,
+            localFile = { serverId, imageId -> imageMirrorStore.localFile(serverId, imageId)?.file },
+        )
     }
 
     /** 1600px 预览档 loader：上限来自设置（改后下次启动生效，M4-T8）。 */
