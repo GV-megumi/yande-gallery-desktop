@@ -121,4 +121,19 @@ class ApiClientTest {
             assertEquals(1, hooked)
         }
     }
+
+    @Test
+    fun `hq 路径 404 触发 onBinaryNotFound 对账 nudge`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(404).setBody("""{"success":false}"""))
+            server.start()
+            var nudged = false
+            val api = ApiClientFactory.desktopApi(
+                server.url("/").toString(),
+                ApiClientFactory.okHttp({ "k" }, onBinaryNotFound = { nudged = true }),
+            )
+            runCatching { api.downloadHq(1) }
+            assertTrue(nudged)
+        }
+    }
 }
