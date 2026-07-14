@@ -87,6 +87,9 @@ class AndroidMirrorSyncNotifier(private val context: Context) : MirrorSyncNotifi
 
     companion object {
         const val CHANNEL_ID = "mirror_sync"
-        const val NOTIFICATION_ID = 0x4D53   // 'MS'：与逐图下载通知（imageId hash）错开
+        // 固定负值（而非原 0x4D53）：Long.hashCode() 对非负 imageId（本工程实际范围远小于 2^31）
+        // 恒产出非负 Int，负值常量因此不可能与任何 imageId.hashCode() 撞车——原正值常量曾与
+        // imageId=19795（即 0x4D53）真实相等，导致该图下载通知与镜像同步通知互相覆盖。
+        const val NOTIFICATION_ID = -0x4D53
     }
 }

@@ -63,8 +63,8 @@ class MirrorSyncWorker(
         // get/set 弱一致即可，不需要 CAS。
         val lastNotifyMs = AtomicLong(0L)
 
-        suspend fun step(imageId: Long): Result? {   // 非 null = 需要立刻中止的终态
-            if (diskFull.get()) return null
+        suspend fun step(imageId: Long) {
+            if (diskFull.get()) return
             val r = ensure(serverId, imageId, tier)
             when {
                 r.isSuccess -> done.incrementAndGet()
@@ -84,7 +84,6 @@ class MirrorSyncWorker(
                     setForeground(notifier.foregroundInfo(d, total))
                 }.onFailure { if (it is CancellationException) throw it }
             }
-            return null
         }
 
         // 前 5 张串行探测（spec §3.4-4）：仅 HQ 模式判旧桌面——/file 旧桌面也有，原图模式不误伤
