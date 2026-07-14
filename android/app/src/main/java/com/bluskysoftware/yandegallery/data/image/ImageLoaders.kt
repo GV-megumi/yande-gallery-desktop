@@ -78,16 +78,32 @@ class MirrorFirstFetcherFactory(
         withContext(Dispatchers.IO) {
             val cacheKey = options.diskCacheKey ?: url
             if (diskCache != null && options.diskCachePolicy.readEnabled) {
-                diskCache.openSnapshot(cacheKey)?.use { snapshot ->
-                    return@withContext SourceFetchResult(
-                        source = ImageSource(
-                            file = snapshot.data,
-                            fileSystem = diskCache.fileSystem,
-                            diskCacheKey = cacheKey,
-                        ),
-                        mimeType = null,
-                        dataSource = DataSource.DISK,
-                    )
+                val snapshot = diskCache.openSnapshot(cacheKey)
+                if (snapshot != null) {
+                    // 快照所有权转移给 ImageSource（review 修复）：不再 snapshot.use{} 在此处提前 close——
+                    // 那样快照会在 Coil 解码器真正读取文件前就被释放，若此时另一线程对同 key 发生驱逐/
+                    // 覆盖写，解码读到的可能是已被替换/删除的文件（窄竞态：1 TiB 缓存下驱逐概率≈0，但
+                    // 正确性不应依赖这一点）。ImageSource 的 closeable 形参正是为此设计：Coil 保证解码
+                    // 完成（无论成功/失败）后才 close() 返回的 ImageSource，届时才级联 close() 这里传入
+                    // 的 snapshot——构造到解码全程持有文件句柄，不再提前释放。
+                    try {
+                        return@withContext SourceFetchResult(
+                            source = ImageSource(
+                                file = snapshot.data,
+                                fileSystem = diskCache.fileSystem,
+                                diskCacheKey = cacheKey,
+                                closeable = snapshot,
+                            ),
+                            mimeType = null,
+                            dataSource = DataSource.DISK,
+                        )
+                    } catch (e: Throwable) {
+                        // 构造 SourceFetchResult/ImageSource 本身只做字段赋值、不触发 IO，理论上不会抛；
+                        // 但一旦抛出，所有权尚未成功转移给 ImageSource，必须在此显式关闭，否则快照句柄
+                        // 泄漏（防御性兜底，不吞异常——close 后原样抛出）。
+                        snapshot.close()
+                        throw e
+                    }
                 }
             }
             val request = Request.Builder().url(url).build()
