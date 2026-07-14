@@ -1,8 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
-import android.app.PendingIntent
-import android.net.Uri
-import androidx.core.net.toUri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
@@ -20,34 +17,34 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.db.buildGalleryImagesQuery
 import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
-import com.bluskysoftware.yandegallery.data.image.previewRequest
-import com.bluskysoftware.yandegallery.data.image.previewUrl
-import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
-import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
+import com.bluskysoftware.yandegallery.data.image.thumbnailUrl
+import com.bluskysoftware.yandegallery.data.mirror.LocalImage
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
+import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
-import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.launch
 
 /**
- * 大图页 ViewModel（Task 10 消费）：分页来源二选一 + 三档图片模型选择 + 详情组装 + 下载/连接状态。
+ * 大图页 ViewModel（Task 10 消费；镜像层改造 spec §4.2/§4.4）：分页来源二选一 + 本地镜像直出/
+ * 缩略图占位的模型选择 + 详情组装 + 下载/连接状态。
  *
- * gateway 走构造入参（默认取自 graph，测试可替换 fake——AppGraph 不支持替换 mediaStoreGateway）。
- *
- * 关键：[modelFor] 在 composition 中**同步**调用，直接读三个 StateFlow 的 `.value`
- * （downloadedUris / activeServer）。为保证无订阅者时 `.value` 仍新鲜，这几个流用
+ * 关键：[modelFor] 在 composition 中**同步**调用，直接读两个 StateFlow 的 `.value`
+ * （localImages / activeServer）。为保证无订阅者时 `.value` 仍新鲜，这几个流用
  * `SharingStarted.Eagerly`——不能依赖 Task 10 一定订阅它们才生效（否则永远读到初始空值）。
  *
  * @param imageId  被点开的图片 id（首屏定位用，见 [initialImageId]）
@@ -57,11 +54,10 @@ class ViewerViewModel(
     private val graph: AppGraph,
     imageId: Long,
     private val galleryId: Long?,
-    private val gateway: MediaStoreGateway = graph.mediaStoreGateway,
 ) : ViewModel() {
 
-    /** 1600px 预览档专用 loader（Task 2），Task 10 的 AsyncImage 直接消费。 */
-    val previewLoader: ImageLoader get() = graph.previewLoader
+    /** 大图 loader（预览档下线后取缩略图 loader）：本地镜像文件直出走 Fetcher 本地分支，占位走缩略图键。 */
+    val imageLoader: ImageLoader get() = graph.thumbnailLoader
 
     /**
      * 首屏定位契约：仅暴露被点图片 id，由 Task 10 在 LazyPagingItems 快照里按 id 匹配定位初始页。
@@ -79,7 +75,7 @@ class ViewerViewModel(
     /** 大图页所处相册上下文：非 null → 从相册进入（「移出当前相册」可用）；null → 时间轴进入（该项置灰）。 */
     val contextGalleryId: Long? = galleryId
 
-    /** 当前激活服务器：提供 baseUrl，其 id 供 [modelFor] 拼 preview 缓存键命名空间。 */
+    /** 当前激活服务器：提供 baseUrl，其 id 供 [modelFor] 拼缩略图缓存键命名空间。 */
     val activeServer: StateFlow<ServerEntity?> =
         graph.serverRepository.observeActive()
             .stateIn(viewModelScope, SharingStarted.Eagerly, null)
@@ -111,25 +107,18 @@ class ViewerViewModel(
             }
         }.flow.cachedIn(viewModelScope)
 
-    /**
-     * 已下载映射（M4-T15）：收集期在 IO 线程预校验 gateway.exists，失效行直接清除——
-     * map 里只留「文件确实存在」的映射，[modelFor]/预取读 map 零 IPC（D13/A3：主线程 binder 从热路径整体移除）。
-     * 前置收集成 map：[modelFor] 在 composition 同步调用，不能走 suspend 版 byImageId。
-     * M4-T9：按激活 serverId 过滤（flatMapLatest 挂在 observeActive 上，切服即换域；无激活服务器发空 map）。
-     * Eagerly 收集保证无订阅者时 `.value` 也已追平 DB。
-     */
+    /** 本地镜像映射（spec §4.2）：行 Flow 收集 + 文件存在性 IO 预校验；modelFor 同步读零 IO。 */
     @OptIn(ExperimentalCoroutinesApi::class)
-    val downloadedUris: StateFlow<Map<Long, String>> =
+    val localImages: StateFlow<Map<Long, LocalImage>> =
         graph.serverRepository.observeActive()
             .flatMapLatest { server ->
                 if (server == null) flowOf(emptyMap())
-                else graph.db.downloadDao().observeDownloaded(server.id).map { rows ->
-                    val valid = mutableMapOf<Long, String>()
+                else graph.db.imageFileDao().observeFor(server.id).map { rows ->
+                    val valid = mutableMapOf<Long, LocalImage>()
                     for (row in rows) {
-                        if (gateway.exists(row.mediaStoreUri.toUri())) {
-                            valid[row.imageId] = row.mediaStoreUri
-                        } else {
-                            graph.db.downloadDao().delete(server.id, row.imageId)   // 映射失效即清（spec §6.4）
+                        val file = graph.imageMirrorStore.fileOf(row)
+                        if (file.isFile && file.length() > 0) {
+                            valid[row.imageId] = LocalImage(mirrorTierOf(row.tier), file)
                         }
                     }
                     valid
@@ -138,39 +127,56 @@ class ViewerViewModel(
             .flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyMap())
 
-    /**
-     * 已下载 id 集合：由 [downloadedUris] 派生（只含收集期预校验存在的行），语义与映射一致。
-     * M4-T9 的 serverId 过滤随 [downloadedUris] 一并生效；Eagerly 语义不变。
-     */
+    /** 已有本机原图的 id 集（「查看原图」按钮态：已有→打勾禁用）。 */
     val downloadedIds: StateFlow<Set<Long>> =
-        downloadedUris
-            .map { it.keys }
+        localImages
+            .map { m -> m.filterValues { it.tier == MirrorTier.ORIGINAL }.keys }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptySet())
 
     /** 连接状态：写按钮/下载按钮按需置灰（Task 11）。 */
     val connState: StateFlow<ConnState> = graph.connectionMonitor.state
 
-    /** 某图下载中/成功/失败状态（WorkManager WorkInfo；downloads 表无状态列，只成功后落一行）。 */
+    /** 某图下载中/成功/失败状态（WorkManager WorkInfo；原图 ensure 成功后落 image_files 行）。 */
     fun downloadState(imageId: Long): Flow<WorkInfo.State?> {
         val serverId = activeServer.value?.id ?: return flowOf(null)
         return graph.downloadManager.observeState(serverId, imageId)
     }
 
     /**
-     * 三档模型（**同步**、零 IPC）：map 命中即本地 [Uri]（存在性已由 [downloadedUris] 收集链路担保），
-     * 否则 1600 档 [previewRequest]。gateway.exists 已整体前移到收集期，modelFor 本体只读 map（D13/A3）。
-     *
-     * 无激活服务器的退化态**不伪造 s0 命名空间**：返回不带缓存键的裸请求（此时 baseUrl 为空串，
-     * 请求自然失败 → T5 占位；绝不能用 serverId=0 落一份假命名空间的缓存条目串图）。
+     * 大图模型（同步零 IO，spec §4.2）：本地镜像命中 → File 直出（Coil 按视图降采样）；
+     * 未镜像 → 缩略图请求占位（ThumbnailSpec 命中缩略图缓存），清晰版由 [ensureViewable]
+     * 在线插队补齐后经 localImages 流自动切换。无激活服务器退化裸缩略图 URL（不伪造缓存键）。
      */
     fun modelFor(image: ImageEntity, baseUrl: String): Any {
-        val uriString = downloadedUris.value[image.id]
-        if (uriString != null) return uriString.toUri()
+        val local = localImages.value[image.id]
+        if (local != null) return local.file
         val server = activeServer.value
-            ?: return ImageRequest.Builder(graph.appContext)
-                .data(previewUrl(baseUrl, image.id))
-                .build()
-        return previewRequest(graph.appContext, baseUrl, server.id, image.id)
+            ?: return ImageRequest.Builder(graph.appContext).data(thumbnailUrl(baseUrl, image.id)).build()
+        return thumbnailRequest(graph.appContext, baseUrl, server.id, image.id)
+    }
+
+    /** 在线插队补当前图（spec §4.2）：不排 Worker 队列，独立协程 ensure；离线/失败静默（占位已示意）。 */
+    fun ensureViewable(image: ImageEntity) {
+        val serverId = activeServer.value?.id ?: return
+        if (localImages.value[image.id] != null || !graph.connectionMonitor.state.value.online) return
+        viewModelScope.launch(Dispatchers.IO) {
+            val tier = mirrorTierOf(graph.prefsStore.imageSaveModeName.first())
+            graph.imageMirrorStore.ensure(serverId, image.id, tier)
+        }
+    }
+
+    /** 分享文件（spec §4.4）：四级规则单张版。 */
+    suspend fun shareFileFor(image: ImageEntity): Result<java.io.File> {
+        val serverId = activeServer.value?.id ?: return Result.failure(IllegalStateException("无激活服务器"))
+        val coordinator = ShareCoordinator(
+            localFile = { graph.imageMirrorStore.localFile(serverId, it)?.file },
+            ensure = { id, tier -> graph.imageMirrorStore.ensure(serverId, id, tier) },
+            saveMode = { mirrorTierOf(graph.prefsStore.imageSaveModeName.first()) },
+            online = { graph.connectionMonitor.state.value.online },
+        )
+        val outcome = coordinator.shareFiles(listOf(image))
+        return outcome.files.firstOrNull()?.let { Result.success(it) }
+            ?: Result.failure(IllegalStateException(if (graph.connectionMonitor.state.value.online) "拉取失败" else "未同步且离线"))
     }
 
     /**
@@ -189,12 +195,13 @@ class ViewerViewModel(
         )
     }
 
-    // ---- Task 11 委托：Screen 不直接触 graph，写操作/下载/级联删副本均经 VM 单点 ----
+    // ---- Task 11 委托：Screen 不直接触 graph，写操作/下载均经 VM 单点 ----
 
     /** 相册列表（「加入相册」picker + 详情面板相册名解析），按名升序。 */
     val galleries: Flow<List<GalleryEntity>> = graph.db.galleryDao().observeAll()
 
-    /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）。 */
+    /** 删除当前图（T6：乐观删镜像 + 404 当成功 + 失败回滚）；镜像文件由 WriteRepository 在
+     *  本次调用内主动级联清理，对账/sweepOrphans 兜底异常退出场景（Task 10 遗留审查项）。 */
     suspend fun deleteImage(imageId: Long): WriteResult = graph.writeRepository.deleteImage(imageId)
 
     /** 加标签（T6：已知 tag 本地乐观建链）。 */
@@ -213,41 +220,10 @@ class ViewerViewModel(
     suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
 
-    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；mime 由 format 推导；无激活服务器不入队）。 */
+    /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；无激活服务器不入队）。 */
     fun enqueueDownload(image: ImageEntity) {
         val serverId = activeServer.value?.id ?: return
-        graph.downloadManager.enqueue(serverId, image.id, image.filename, mimeOf(image.format))
-    }
-
-    /** 分享完整流（D9）：未下载先入队原图下载，等终态后返回可分享 uri；无激活服务器/下载失败 → failure。 */
-    suspend fun ensureDownloadedThenUri(image: ImageEntity): Result<String> {
-        val serverId = activeServer.value?.id ?: return Result.failure(IllegalStateException("无激活服务器"))
-        val coordinator = ShareCoordinator(
-            isDownloaded = { graph.db.downloadDao().byImageId(serverId, it)?.mediaStoreUri },
-            enqueue = { img -> graph.downloadManager.enqueue(serverId, img.id, img.filename, mimeOf(img.format)) },
-            observeState = { graph.downloadManager.observeState(serverId, it) },
-            exists = { gateway.exists(it.toUri()) },
-            clearStaleRow = { graph.db.downloadDao().delete(serverId, it) },
-        )
-        val outcome = coordinator.ensureDownloadedUris(listOf(image))
-        return outcome.uris.firstOrNull()?.let { Result.success(it) }
-            ?: Result.failure(IllegalStateException("原图下载失败"))
-    }
-
-    /** 级联删本地副本：30+ 返回系统确认 PendingIntent（UI 层经 StartIntentSenderForResult 启动）；<30 返回 null（调用方走 [deleteLocalCopy]）。 */
-    fun buildDeleteRequest(uri: Uri): PendingIntent? = gateway.buildDeleteRequest(listOf(uri))
-
-    /**
-     * <30 直删本地副本（M4-T9）：返回结构化结果——API 29 所有权丢失时为 NeedsConsent（携带
-     * IntentSender，Screen 走与 30+ 同一个 cascadeLauncher），失败为 Failed（spec §8 不静默）。
-     */
-    suspend fun deleteLocalCopy(uri: Uri): DeleteOwnedResult =
-        withContext(Dispatchers.IO) { gateway.deleteOwned(uri) }
-
-    /** 清 downloads 映射行（本服域）：级联删除完成或用户拒绝系统确认后都要清（spec §8）。 */
-    suspend fun clearDownloadRow(imageId: Long) {
-        val serverId = activeServer.value?.id ?: return
-        graph.db.downloadDao().delete(serverId, imageId)
+        graph.downloadManager.enqueue(serverId, image.id, image.filename)
     }
 
     companion object {

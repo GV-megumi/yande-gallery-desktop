@@ -6,11 +6,9 @@ import com.bluskysoftware.yandegallery.data.api.ApiClientFactory
 import com.bluskysoftware.yandegallery.data.api.DesktopApi
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
-import com.bluskysoftware.yandegallery.data.image.buildPreviewImageLoader
 import com.bluskysoftware.yandegallery.data.image.buildThumbnailImageLoader
-import com.bluskysoftware.yandegallery.data.image.previewCacheKey
 import com.bluskysoftware.yandegallery.data.image.thumbnailCacheKey
-import com.bluskysoftware.yandegallery.data.media.AndroidMediaStoreGateway
+import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.data.prefs.uiPrefsDataStore
 import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
@@ -18,6 +16,8 @@ import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
+import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncManager
+import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncMonitor
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
 import com.bluskysoftware.yandegallery.domain.sync.SseClient
 import com.bluskysoftware.yandegallery.domain.sync.SyncEngine
@@ -43,6 +43,14 @@ class AppGraph(
     // 避免 collector 的自动同步与手动同步争抢同一 MockWebServer 的 FIFO 响应。生产恒 true。
     private val autoSyncOnActiveChange: Boolean = true,
     private val prefsStoreOverride: com.bluskysoftware.yandegallery.data.prefs.PrefsStore? = null,
+    // 测试注入缝：切服取消动作间接层。生产走真实 mirrorSyncManager.cancel；Robolectric 环境下
+    // WorkManager 未显式初始化（AndroidManifest 移除了默认初始化器），直接调用会抛
+    // IllegalStateException——AppGraphTest 注入 fake 观察"是否取消了正确的旧 id"而不触发它。
+    private val cancelMirrorSyncOverride: ((Long) -> Unit)? = null,
+    // 测试注入缝：requestMirrorSync 真正的入队动作间接层，镜像 cancelMirrorSyncOverride 同一套理由
+    // ——Robolectric 下真 WorkManager 未初始化，SettingsViewModel/CacheViewModel 相关测试
+    // （切保存方式/移动网络开关/清空镜像）注入 fake 观察 (serverId, cellular, replace) 三元组。
+    private val requestMirrorSyncOverride: ((Long, Boolean, Boolean) -> Unit)? = null,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -95,9 +103,13 @@ class AppGraph(
                 val idChanged = active?.id != lastActive?.id
                 val endpointChanged = seeded && !idChanged &&
                     (active?.baseUrl != lastActive?.baseUrl || active?.apiKey != lastActive?.apiKey)
+                val previousId = lastActive?.id   // 切服取消要用旧 id，须在下面覆盖前存好局部变量
                 lastActive = active
                 seeded = true
                 if ((idChanged || endpointChanged) && autoSyncOnActiveChange) {
+                    // 切服（非编辑）→ 取消旧服残留的镜像同步工作，避免残留任务写脏新服数据（spec §6）
+                    previousId?.takeIf { idChanged && it != active?.id }
+                        ?.let { cancelMirrorSync(it) }
                     // 切到/编辑出真实服务器才发起同步；切到「无服务器」只重连 SSE（拆掉旧连接）。
                     if (active != null) {
                         syncScheduler.requestSync(if (idChanged) "server-changed" else "server-edited")
@@ -108,6 +120,10 @@ class AppGraph(
         }
         // 二进制 404 → 触发一次对账（spec §6.3-4；钩子在 Task 3 拦截器里，此处接到调度器）
         onBinaryNotFound = { syncScheduler.requestSync("binary-404") }
+        // 预览档下线（spec §7）：一次性删除旧 cacheDir/previews 目录（v0.6 遗留盘占用）
+        scope.launch(Dispatchers.IO) {
+            runCatching { appContext.cacheDir.resolve("previews").deleteRecursively() }
+        }
     }
 
     val okHttp by lazy {
@@ -117,20 +133,13 @@ class AppGraph(
         )
     }
 
-    /** 缩略图 loader：上限来自设置（改后下次启动生效——DiskCache.maxSize 构建期定死，M4-T8）。 */
+    /** 缩略图 loader（spec §4.1/D9）：不设上限 + 镜像优先（本地文件直出，未同步图回退网络）。 */
     val thumbnailLoader by lazy {
-        val maxBytes = runBlocking { prefsStore.thumbnailCacheMaxBytes.first() }   // 一次性小文件读
-        buildThumbnailImageLoader(appContext, okHttp, maxBytes)
+        buildThumbnailImageLoader(
+            appContext, okHttp,
+            localFile = { serverId, imageId -> imageMirrorStore.localFile(serverId, imageId)?.file },
+        )
     }
-
-    /** 1600px 预览档 loader：上限来自设置（改后下次启动生效，M4-T8）。 */
-    val previewLoader by lazy {
-        val maxBytes = runBlocking { prefsStore.previewCacheMaxBytes.first() }
-        buildPreviewImageLoader(appContext, okHttp, maxBytes)
-    }
-
-    /** 原图下载写入系统相册的网关（Task 8 DownloadWorker 用）；真机语义留待实机验证。 */
-    val mediaStoreGateway by lazy { AndroidMediaStoreGateway(appContext) }
 
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
     val downloadManager by lazy { DownloadManager(appContext) }
@@ -152,16 +161,61 @@ class AppGraph(
         return ApiClientFactory.desktopApi(active.baseUrl, okHttp).also { cachedApi = it }
     }
 
+    /** 图片镜像层（spec §3）：外部私有目录 + image_files 登记；无外部存储回退内部 filesDir。 */
+    val imageMirrorStore by lazy {
+        ImageMirrorStore(
+            rootDir = java.io.File(appContext.getExternalFilesDir(null) ?: appContext.filesDir, "mirror"),
+            imageFileDao = db.imageFileDao(),
+            imageDao = db.imageDao(),
+            apiProvider = { api() },
+            activeServerId = { serverRepository.activeServer()?.id },
+        )
+    }
+    val mirrorSyncMonitor by lazy { MirrorSyncMonitor() }
+    val mirrorSyncManager by lazy { MirrorSyncManager(appContext) }
+
+    /**
+     * 切服取消的真正出口：默认转发到 mirrorSyncManager.cancel（惰性求值不受影响——override 非空时
+     * 完全不触碰 mirrorSyncManager，不会意外初始化 WorkManager）；测试注入 cancelMirrorSyncOverride
+     * 拦截观察调用参数，验证 previousId 在 lastActive 覆盖前捕获、仅真实 id 变化才取消（AppGraphTest）。
+     */
+    private fun cancelMirrorSync(serverId: Long) {
+        val override = cancelMirrorSyncOverride
+        if (override != null) override(serverId) else mirrorSyncManager.cancel(serverId)
+    }
+
+    /** 镜像同步入队（读保存方式无关——worker 自读；此处只解偏好约束与激活服务器）。 */
+    fun requestMirrorSync(replace: Boolean = false) {
+        scope.launch {
+            val serverId = serverRepository.activeServer()?.id ?: return@launch
+            val cellular = prefsStore.mirrorSyncCellular.first()
+            doRequestMirrorSync(serverId, cellular, replace)
+        }
+    }
+
+    /** requestMirrorSync 的真正出口：默认转发 mirrorSyncManager.requestSync，测试可覆写观察参数。 */
+    private fun doRequestMirrorSync(serverId: Long, cellular: Boolean, replace: Boolean) {
+        val override = requestMirrorSyncOverride
+        if (override != null) override(serverId, cellular, replace) else mirrorSyncManager.requestSync(serverId, cellular, replace)
+    }
+
+    /** 启动期镜像孤儿清扫入口（YandeGalleryApp 调）；无激活服务器时空跑。 */
+    fun scopeLaunchSweep() {
+        scope.launch {
+            serverRepository.activeServer()?.id?.let { imageMirrorStore.sweepOrphans(it) }
+        }
+    }
+
     val mirrorStore by lazy {
         RoomMirrorStore(
             db,
-            gateway = mediaStoreGateway,
             activeServerId = { serverRepository.activeServer()?.id },
             removeCachedImage = { serverId, imageId ->
-                // 对账删除的行级联清两级盘缓存条目（Coil 3.5 DiskCache.remove(key) 已核）
+                // 对账删除的行级联清缩略图盘缓存条目（预览档已下线，只剩这一级；Coil 3.5 DiskCache.remove(key) 已核）
                 thumbnailLoader.diskCache?.remove(thumbnailCacheKey(serverId, imageId))
-                previewLoader.diskCache?.remove(previewCacheKey(serverId, imageId))
             },
+            removeMirrorFiles = { serverId, ids -> imageMirrorStore.deleteDirs(serverId, ids) },
+            clearMirrorFiles = { imageMirrorStore.clearAllFiles() },
         )
     }
     val syncEngine by lazy {
@@ -187,15 +241,23 @@ class AppGraph(
             monitor = connectionMonitor,
             scope = scope,
             hadMirrorBefore = { mirrorStore.readSyncState() != null },
+            onSyncSuccess = { requestMirrorSync() },
         )
     }
 
-    /** 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。 */
+    /**
+     * 写操作仓库：乐观镜像 + 回滚 + 404 当成功；写成功后 requestSync 冗余对账（M3-T6）。
+     * activeServerId/removeMirrorFiles（Task 10 遗留审查项）：App 内发起的删除主动级联清理
+     * image_files 行与磁盘镜像目录——单纯等对账/sweepOrphans 兜底会因 images 行已被本仓库
+     * 乐观删除而永远看不到「已消失」的 id，无法触发对账那条级联路径。
+     */
     val writeRepository by lazy {
         WriteRepository(
             writeApi = RetrofitWriteApi { api() },
             db = db,
             monitor = connectionMonitor,
+            activeServerId = { serverRepository.activeServer()?.id },
+            removeMirrorFiles = { serverId, ids -> imageMirrorStore.deleteDirs(serverId, ids) },
             requestSync = { syncScheduler.requestSync("write") },
         )
     }

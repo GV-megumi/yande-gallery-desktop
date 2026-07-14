@@ -77,16 +77,6 @@ data class SyncStateEntity(
     val lastSyncAt: String,
 )
 
-// v3（M4-T9，D10）：serverId 复合主键——多服务器同号 imageId 的下载映射互不污染；
-// 飞行中下载跨切服的行由 worker 落行前校验拦截，不再依赖 clearMirror 时序。
-@Entity(tableName = "downloads", primaryKeys = ["serverId", "imageId"])
-data class DownloadEntity(
-    val serverId: Long,
-    val imageId: Long,
-    val mediaStoreUri: String,
-    val downloadedAt: String,
-)
-
 // 搜索历史（v1→2 迁移新增；v3→4 at 改 epochMillis）：query 为主键（同词覆盖去重），at 为写入
 // 时间戳用于倒序——曾存 Instant.toString()，整秒省略小数位使 TEXT 字典序错位（BUG-17）。
 @Entity(tableName = "search_history")
@@ -108,4 +98,19 @@ data class AlbumPrefsEntity(
     val pinnedAt: Long? = null,      // epoch ms，置顶区默认序（新置顶在前）
     val inOther: Boolean = false,
     val manualOrder: Int? = null,    // 区内手动序；NULL=未定序（手动模式排区尾按名兜底）
+)
+
+/**
+ * 图片镜像登记表（镜像 spec §3.2）：每图一行、档位互斥（tier=HQ|ORIGINAL，MirrorTier.name）；
+ * HQ→原图升级 = 同行 UPDATE。不建外键（同 album_prefs 理由：images 全量对账可能整表重写，
+ * FK CASCADE 会误清登记；孤儿由对账后清理收口）。relPath 相对 mirror 根（如 "s1/i42/foo.jpg"）。
+ */
+@Entity(tableName = "image_files", primaryKeys = ["serverId", "imageId"])
+data class ImageFileEntity(
+    val serverId: Long,
+    val imageId: Long,
+    val tier: String,
+    val relPath: String,
+    val bytes: Long,
+    val createdAt: Long,   // epoch ms
 )

@@ -53,3 +53,43 @@ class AndroidDownloadNotifier(private val context: Context) : DownloadNotifier {
         const val CHANNEL_ID = "download_progress"
     }
 }
+
+/** 镜像同步聚合进度通知（spec §3.4）：单通知「正在同步图片 x/y」；抽象注入同 DownloadNotifier 理由。 */
+interface MirrorSyncNotifier {
+    fun ensureChannel()
+    fun foregroundInfo(done: Long, total: Long): ForegroundInfo
+}
+
+class AndroidMirrorSyncNotifier(private val context: Context) : MirrorSyncNotifier {
+
+    override fun ensureChannel() {
+        val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        nm.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "图片同步", NotificationManager.IMPORTANCE_LOW),
+        )
+    }
+
+    override fun foregroundInfo(done: Long, total: Long): ForegroundInfo {
+        val pct = if (total > 0) ((done * 100) / total).toInt() else -1
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle("正在同步图片")
+            .setContentText("$done / $total")
+            .setOngoing(true)
+            .apply { if (pct >= 0) setProgress(100, pct, false) else setProgress(0, 0, true) }
+            .build()
+        return if (Build.VERSION.SDK_INT >= 29) {
+            ForegroundInfo(NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            ForegroundInfo(NOTIFICATION_ID, notification)
+        }
+    }
+
+    companion object {
+        const val CHANNEL_ID = "mirror_sync"
+        // 固定负值（而非原 0x4D53）：Long.hashCode() 对非负 imageId（本工程实际范围远小于 2^31）
+        // 恒产出非负 Int，负值常量因此不可能与任何 imageId.hashCode() 撞车——原正值常量曾与
+        // imageId=19795（即 0x4D53）真实相等，导致该图下载通知与镜像同步通知互相覆盖。
+        const val NOTIFICATION_ID = -0x4D53
+    }
+}

@@ -128,4 +128,27 @@ class SyncSchedulerTest {
 
         assertEquals(0, notices.size)
     }
+
+    @Test
+    fun `同步成功触发 onSyncSuccess，失败不触发`() = runTest(UnconfinedTestDispatcher()) {
+        var hooked = 0
+        val mon = monitor(backgroundScope)
+        // 成功一轮
+        val ok = SyncScheduler(
+            syncRun = { SyncOutcome(fullRebuild = false, upserted = 0, deleted = 0) },
+            monitor = mon, scope = backgroundScope, hadMirrorBefore = { true },
+            onSyncSuccess = { hooked++ },
+        )
+        ok.requestSync("test")
+        assertEquals(1, hooked)
+
+        // 失败一轮
+        val bad = SyncScheduler(
+            syncRun = { throw RuntimeException("boom") },
+            monitor = mon, scope = backgroundScope, hadMirrorBefore = { true },
+            onSyncSuccess = { hooked++ },
+        )
+        bad.requestSync("test")
+        assertEquals(1, hooked)
+    }
 }

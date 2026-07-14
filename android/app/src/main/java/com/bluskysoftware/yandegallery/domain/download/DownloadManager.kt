@@ -22,14 +22,13 @@ import java.util.concurrent.TimeUnit
  */
 class DownloadManager(private val context: Context) {
 
-    fun enqueue(serverId: Long, imageId: Long, filename: String, mime: String) {
+    fun enqueue(serverId: Long, imageId: Long, filename: String) {
         val req = OneTimeWorkRequestBuilder<DownloadWorker>()
             .setInputData(
                 workDataOf(
                     DownloadWorker.KEY_SERVER_ID to serverId,
                     DownloadWorker.KEY_IMAGE_ID to imageId,
                     DownloadWorker.KEY_FILENAME to filename,
-                    DownloadWorker.KEY_MIME to mime,
                 ),
             )
             .setConstraints(Constraints(requiredNetworkType = NetworkType.CONNECTED))

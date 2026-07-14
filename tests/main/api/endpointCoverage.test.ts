@@ -16,6 +16,7 @@ const agentEndpoints = [
   ['GET', '/api/v1/images/:imageId'],
   ['GET', '/api/v1/images/:imageId/thumbnail'],
   ['GET', '/api/v1/images/:imageId/preview'],
+  ['GET', '/api/v1/images/:imageId/hq'],
   ['GET', '/api/v1/images/:imageId/file'],
   ['GET', '/api/v1/booru-sites'],
   ['GET', '/api/v1/booru-sites/active'],
@@ -67,6 +68,7 @@ const appEndpoints = [
   ['DELETE', '/api/app/v1/galleries/:galleryId/images'],
   ['GET', '/api/app/v1/images/:imageId/thumbnail'],
   ['GET', '/api/app/v1/images/:imageId/preview'],
+  ['GET', '/api/app/v1/images/:imageId/hq'],
   ['GET', '/api/app/v1/images/:imageId/file'],
   ['GET', '/api/app/v1/events/system'],
 ];

@@ -13,7 +13,9 @@ import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.test.runTest
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -32,15 +34,6 @@ class PrefsStoreTest {
         assertNull(store.densityTierName.first())
         store.setDensityTierName("DAY_3")
         assertEquals("DAY_3", store.densityTierName.first())
-    }
-
-    @Test fun `缓存上限默认 2G与1G 可改并持久`() = runTest {
-        assertEquals(2L * 1024 * 1024 * 1024, store.thumbnailCacheMaxBytes.first())
-        assertEquals(1L * 1024 * 1024 * 1024, store.previewCacheMaxBytes.first())
-        store.setThumbnailCacheMaxBytes(4L * 1024 * 1024 * 1024)
-        store.setPreviewCacheMaxBytes(512L * 1024 * 1024)
-        assertEquals(4L * 1024 * 1024 * 1024, store.thumbnailCacheMaxBytes.first())
-        assertEquals(512L * 1024 * 1024, store.previewCacheMaxBytes.first())
     }
 
     @Test fun `排序与列数四键读写回环_未设置为null`() = runTest {
@@ -67,6 +60,15 @@ class PrefsStoreTest {
         }
         val brokenStore = PrefsStore(broken)
         assertNull(brokenStore.densityTierName.first())
-        assertEquals(2L * 1024 * 1024 * 1024, brokenStore.thumbnailCacheMaxBytes.first())
+        assertFalse(brokenStore.mirrorSyncCellular.first())
+    }
+
+    @Test fun `图片保存方式与移动网络同步键——默认值与写读`() = runTest {
+        assertNull(store.imageSaveModeName.first())
+        assertFalse(store.mirrorSyncCellular.first())
+        store.setImageSaveModeName("ORIGINAL")
+        store.setMirrorSyncCellular(true)
+        assertEquals("ORIGINAL", store.imageSaveModeName.first())
+        assertTrue(store.mirrorSyncCellular.first())
     }
 }

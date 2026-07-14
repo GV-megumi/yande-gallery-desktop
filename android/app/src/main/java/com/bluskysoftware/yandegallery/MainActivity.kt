@@ -28,6 +28,7 @@ import com.bluskysoftware.yandegallery.ui.servers.ServersViewModel
 import com.bluskysoftware.yandegallery.ui.settings.CacheScreen
 import com.bluskysoftware.yandegallery.ui.settings.CacheViewModel
 import com.bluskysoftware.yandegallery.ui.settings.SettingsScreen
+import com.bluskysoftware.yandegallery.ui.settings.SettingsViewModel
 import com.bluskysoftware.yandegallery.ui.theme.YandeGalleryTheme
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerScreen
 import com.bluskysoftware.yandegallery.ui.viewer.ViewerViewModel
@@ -122,7 +123,9 @@ class MainActivity : ComponentActivity() {
                             runCatching { packageManager.getPackageInfo(packageName, 0).versionName }
                                 .getOrNull() ?: "unknown"
                         }
+                        val settingsVm: SettingsViewModel = viewModel(factory = SettingsViewModel.factory(graph))
                         SettingsScreen(
+                            vm = settingsVm,
                             onBack = { nav.popBackStack() },
                             onOpenServers = { nav.navigate(Routes.Servers) },
                             versionName = versionName,

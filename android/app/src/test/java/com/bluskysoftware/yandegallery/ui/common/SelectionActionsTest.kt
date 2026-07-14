@@ -1,22 +1,19 @@
 package com.bluskysoftware.yandegallery.ui.common
 
 import androidx.test.core.app.ApplicationProvider
-import androidx.work.WorkInfo
 import com.bluskysoftware.yandegallery.data.api.AddMembersDto
 import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.api.BatchDeleteItemDto
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
-import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.write.WriteApi
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
-import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.flowOf
-import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -28,10 +25,12 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import java.io.File
 
 /**
- * M3-T13: SelectionActions 批量动作——:memory: Room（真 DAO）+ 真 WriteRepository + 最小 FakeWriteApi
- * （镜像 T6 测试装配）；下载入队走记录回调，不触 WorkManager（M4-T11：终态观察同为注入 fake 流）。
+ * M3-T13 → 镜像层 Task 8: SelectionActions 批量动作——:memory: Room（真 DAO）+ 真 WriteRepository +
+ * 最小 FakeWriteApi（镜像 T6 测试装配）；分享走镜像四级规则（localFile/ensureTier/saveMode/online
+ * 全部注入 fake），下载入队走记录回调，不触 WorkManager/网络栈。
  */
 @RunWith(RobolectricTestRunner::class)
 class SelectionActionsTest {
@@ -81,13 +80,21 @@ class SelectionActionsTest {
         fileSize = 1, format = "jpg", createdAt = createdAt, updatedAt = createdAt,
     )
 
+    private fun fileRow(serverId: Long, imageId: Long, tier: MirrorTier) = ImageFileEntity(
+        serverId = serverId, imageId = imageId, tier = tier.name,
+        relPath = "s$serverId/i$imageId/$imageId.jpg", bytes = 1, createdAt = 0,
+    )
+
     private fun TestScope.build(
         api: FakeWriteApi = FakeWriteApi(),
         enqueued: MutableList<Pair<Long, Long>> = mutableListOf(),
         activeServerId: suspend () -> Long? = { 1L },
-        observeDownloadState: (Long, Long) -> Flow<WorkInfo.State?> = { _, _ -> MutableStateFlow(null) },
-        gatewayExists: (String) -> Boolean = { true },
-        onEnqueue: (Long, ImageEntity) -> Unit = { _, _ -> },
+        localFile: suspend (Long) -> File? = { null },
+        ensureTier: suspend (Long, MirrorTier) -> Result<File> = { _, _ ->
+            Result.failure(IllegalStateException("测试未配置 ensure"))
+        },
+        saveMode: suspend () -> MirrorTier = { MirrorTier.HQ },
+        online: () -> Boolean = { true },
     ): SelectionActions {
         val monitor = ConnectionMonitor(activeServerName = flowOf<String?>("srv"), scope = backgroundScope)
         val repo = WriteRepository(api, db, monitor) { }
@@ -95,12 +102,11 @@ class SelectionActionsTest {
             db = db,
             writeRepository = repo,
             activeServerId = activeServerId,
-            enqueueDownload = { serverId, img ->
-                enqueued += serverId to img.id
-                onEnqueue(serverId, img)
-            },
-            observeDownloadState = observeDownloadState,
-            gatewayExists = gatewayExists,
+            localFile = localFile,
+            ensureTier = ensureTier,
+            saveMode = saveMode,
+            online = online,
+            enqueueOriginal = { serverId, img -> enqueued += serverId to img.id },
         )
     }
 
@@ -127,145 +133,111 @@ class SelectionActionsTest {
     }
 
     @Test
-    fun `ensureShareUris 全部已下载——按传入顺序返回本服 uri 且不入队`() = runTest {
+    fun `ensureShareFiles 全部本地——按传入顺序返回文件且不触 ensure`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
-        db.downloadDao().upsert(DownloadEntity(2, 1, "content://other/1", "t"))   // 他服同号映射不得串
-        val enqueued = mutableListOf<Pair<Long, Long>>()
-        val actions = build(enqueued = enqueued)
-
-        val outcome = actions.ensureShareUris(listOf(2, 1))
-
-        assertEquals(listOf("content://media/2", "content://media/1"), outcome.uris)
-        assertTrue(outcome.failedIds.isEmpty())
-        assertEquals(emptyList<Pair<Long, Long>>(), enqueued)
-    }
-
-    @Test
-    fun `ensureShareUris 缺失项以激活 serverId 入队等终态成功后返回全量 uri`() = runTest {
-        db.imageDao().upsertAll(listOf(image(1), image(2)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        val state = MutableStateFlow<WorkInfo.State?>(null)
-        val enqueued = mutableListOf<Pair<Long, Long>>()
+        var ensured = 0
         val actions = build(
-            enqueued = enqueued,
-            observeDownloadState = { _, _ -> state },
-            onEnqueue = { serverId, img ->
-                // 模拟 worker 成功：落 downloads 行 + 置终态（真实链路 DownloadWorker 成功后 upsert）
-                runBlocking { db.downloadDao().upsert(DownloadEntity(serverId, img.id, "content://dl-${img.id}", "t")) }
-                state.value = WorkInfo.State.SUCCEEDED
-            },
+            localFile = { File("local-$it.jpg") },
+            ensureTier = { _, _ -> ensured++; Result.failure(IllegalStateException("不该调")) },
         )
 
-        val outcome = actions.ensureShareUris(listOf(1, 2))
+        val outcome = actions.ensureShareFiles(listOf(2, 1))
 
-        assertEquals(listOf(1L to 2L), enqueued)   // 已下载的 1 不重复入队
-        assertEquals(listOf("content://media/1", "content://dl-2"), outcome.uris)
+        assertEquals(listOf("local-2.jpg", "local-1.jpg"), outcome.files.map { it.name })
+        assertTrue(outcome.failedIds.isEmpty())
+        assertEquals(0, ensured)
+    }
+
+    @Test
+    fun `ensureShareFiles 缺失项在线按保存方式 ensure 后返回全量`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
+        val ensuredTiers = mutableListOf<Pair<Long, MirrorTier>>()
+        val actions = build(
+            localFile = { id -> if (id == 1L) File("local-1.jpg") else null },
+            ensureTier = { id, tier ->
+                ensuredTiers += id to tier
+                Result.success(File("pulled-$id.jpg"))
+            },
+            saveMode = { MirrorTier.ORIGINAL },
+        )
+
+        val outcome = actions.ensureShareFiles(listOf(1, 2))
+
+        assertEquals(listOf(2L to MirrorTier.ORIGINAL), ensuredTiers)   // 本地已有的 1 不重复拉
+        assertEquals(listOf("local-1.jpg", "pulled-2.jpg"), outcome.files.map { it.name })
         assertTrue(outcome.failedIds.isEmpty())
     }
 
     @Test
-    fun `ensureShareUris 下载失败项计入 failedIds 保留成功子集`() = runTest {
+    fun `ensureShareFiles 拉取失败项计入 failedIds 保留成功子集`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        val actions = build(observeDownloadState = { _, _ -> MutableStateFlow(WorkInfo.State.FAILED) })
+        val actions = build(
+            localFile = { id -> if (id == 1L) File("local-1.jpg") else null },
+            ensureTier = { _, _ -> Result.failure(java.io.IOException("断了")) },
+        )
 
-        val outcome = actions.ensureShareUris(listOf(1, 2))
+        val outcome = actions.ensureShareFiles(listOf(1, 2))
 
-        assertEquals(listOf("content://media/1"), outcome.uris)
+        assertEquals(listOf("local-1.jpg"), outcome.files.map { it.name })
         assertEquals(listOf(2L), outcome.failedIds)
     }
 
     @Test
-    fun `ensureShareUris 失效映射先清行再重下——不分享亡失 uri`() = runTest {
-        db.imageDao().upsertAll(listOf(image(1)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://stale", "t"))   // 行在文件亡
-        val state = MutableStateFlow<WorkInfo.State?>(null)
+    fun `ensureShareFiles 离线且缺本地——计失败不 ensure`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1), image(2)))
+        var ensured = 0
         val actions = build(
-            gatewayExists = { it != "content://stale" },
-            observeDownloadState = { _, _ -> state },
-            onEnqueue = { serverId, img ->
-                runBlocking { db.downloadDao().upsert(DownloadEntity(serverId, img.id, "content://fresh", "t")) }
-                state.value = WorkInfo.State.SUCCEEDED
-            },
+            localFile = { id -> if (id == 1L) File("local-1.jpg") else null },
+            ensureTier = { _, _ -> ensured++; Result.success(File("x")) },
+            online = { false },
         )
 
-        val outcome = actions.ensureShareUris(listOf(1))
+        val outcome = actions.ensureShareFiles(listOf(1, 2))
 
-        assertEquals(listOf("content://fresh"), outcome.uris)
-        assertEquals("content://fresh", db.downloadDao().byImageId(1, 1)?.mediaStoreUri)
+        assertEquals(listOf("local-1.jpg"), outcome.files.map { it.name })
+        assertEquals(listOf(2L), outcome.failedIds)
+        assertEquals(0, ensured)
     }
 
     @Test
-    fun `ensureShareUris 镜像已删 id 计入失败——其余照常分享`() = runTest {
+    fun `ensureShareFiles 镜像已删 id 计入失败——其余照常分享`() = runTest {
         db.imageDao().upsertAll(listOf(image(1)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
+        val actions = build(localFile = { File("local-$it.jpg") })
 
-        val outcome = build().ensureShareUris(listOf(1, 99))   // 99 已被同步删除
+        val outcome = actions.ensureShareFiles(listOf(1, 99))   // 99 已被同步删除
 
-        assertEquals(listOf("content://media/1"), outcome.uris)
+        assertEquals(listOf("local-1.jpg"), outcome.files.map { it.name })
         assertEquals(listOf(99L), outcome.failedIds)
     }
 
     @Test
-    fun `ensureShareUris 无激活服务器——全部计失败`() = runTest {
-        val outcome = build(activeServerId = { null }).ensureShareUris(listOf(1, 2))
+    fun `anyDownloaded 本服有原图行即真，仅 HQ、他服或无激活服务器为假`() = runTest {
+        db.imageDao().upsertAll(listOf(image(2), image(5), image(6)))
+        db.imageFileDao().upsert(fileRow(1, 2, MirrorTier.ORIGINAL))
+        db.imageFileDao().upsert(fileRow(1, 6, MirrorTier.HQ))              // HQ 行不算「有原图」
+        db.imageFileDao().upsert(fileRow(2, 5, MirrorTier.ORIGINAL))        // 他服行不算本服
 
-        assertTrue(outcome.uris.isEmpty())
-        assertEquals(listOf(1L, 2L), outcome.failedIds)
-    }
-
-    @Test
-    fun `downloadedUrisFor 只取本服快照，无激活服务器返回空`() = runTest {
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        db.downloadDao().upsert(DownloadEntity(2, 1, "content://other/1", "t"))   // 他服同号映射
-        db.downloadDao().upsert(DownloadEntity(1, 3, "content://media/3", "t"))
-
-        assertEquals(
-            listOf("content://media/1", "content://media/3"),
-            build().downloadedUrisFor(listOf(1, 2, 3)),         // 2 未下载 → 只回已下载的本服行
-        )
-        assertEquals(
-            emptyList<String>(),
-            build(activeServerId = { null }).downloadedUrisFor(listOf(1, 3)),
-        )
-    }
-
-    @Test
-    fun `anyDownloaded 本服任一有副本即真，全无或无激活服务器为假`() = runTest {
-        db.imageDao().upsertAll(listOf(image(2), image(5)))   // 已下载图必有镜像行（M4-T14 filterExisting 前置）
-        db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
-        db.downloadDao().upsert(DownloadEntity(2, 5, "content://other/5", "t"))   // 他服行不算本服
-
-        assertTrue("选中含本服已下载的 2 → 真", build().anyDownloaded(listOf(1, 2, 3)))
-        assertEquals("全未下载 → 假", false, build().anyDownloaded(listOf(1, 3)))
+        assertTrue("选中含本服原图行的 2 → 真", build().anyDownloaded(listOf(1, 2, 3)))
+        assertEquals("仅 HQ 行 → 假", false, build().anyDownloaded(listOf(6)))
         assertEquals("他服同号不算 → 假", false, build().anyDownloaded(listOf(5)))
         assertEquals("无激活服务器 → 假", false, build(activeServerId = { null }).anyDownloaded(listOf(2)))
     }
 
     @Test
-    fun `batchDelete 全部成功——镜像行删除且本服下载映射行清理`() = runTest {
+    fun `batchDelete 全部成功——镜像行删除`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
-        db.downloadDao().upsert(DownloadEntity(2, 1, "content://other/1", "t"))   // 他服行不受波及
         val actions = build()   // batchResults 为空 → 无失败项 → Success
 
         val result = actions.batchDelete(listOf(1, 2))
 
         assertEquals(WriteResult.Success, result)
         assertNull(db.imageDao().byId(1))
-        assertNull(db.downloadDao().byImageId(1, 1))
-        assertNull(db.downloadDao().byImageId(1, 2))
-        assertNotNull("他服同号映射保留", db.downloadDao().byImageId(2, 1))
+        assertNull(db.imageDao().byId(2))
     }
 
     @Test
-    fun `batchDelete 部分失败——回滚 id 的镜像与下载行保留，已删 id 的清理`() = runTest {
+    fun `batchDelete 部分失败——回滚 id 的镜像行保留`() = runTest {
         db.imageDao().upsertAll(listOf(image(1), image(2)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
-        db.downloadDao().upsert(DownloadEntity(1, 2, "content://media/2", "t"))
         val api = FakeWriteApi().apply {
             batchResults = listOf(
                 BatchDeleteItemDto(imageId = 1, success = true),
@@ -278,9 +250,7 @@ class SelectionActionsTest {
 
         assertTrue(result is WriteResult.Failed)
         assertNull(db.imageDao().byId(1))                      // 成功项：镜像已删
-        assertNull(db.downloadDao().byImageId(1, 1))           // 成功项：下载行清理
         assertNotNull(db.imageDao().byId(2))                   // 失败项：镜像回滚
-        assertNotNull(db.downloadDao().byImageId(1, 2))        // 失败项：下载行保留
     }
 
     @Test
@@ -307,9 +277,8 @@ class SelectionActionsTest {
     }
 
     @Test
-    fun `batchDelete 整体异常——全部回滚且不清任何下载行`() = runTest {
+    fun `batchDelete 整体异常——全部回滚`() = runTest {
         db.imageDao().upsertAll(listOf(image(1)))
-        db.downloadDao().upsert(DownloadEntity(1, 1, "content://media/1", "t"))
         val api = FakeWriteApi().apply {
             failBatchDelete = ApiException("INTERNAL_ERROR", "boom", 500)
         }
@@ -319,6 +288,5 @@ class SelectionActionsTest {
 
         assertTrue(result is WriteResult.Failed)
         assertNotNull(db.imageDao().byId(1))
-        assertNotNull(db.downloadDao().byImageId(1, 1))
     }
 }

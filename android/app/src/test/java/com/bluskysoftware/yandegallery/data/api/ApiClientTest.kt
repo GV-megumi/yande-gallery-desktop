@@ -121,4 +121,22 @@ class ApiClientTest {
             assertEquals(1, hooked)
         }
     }
+
+    @Test
+    fun `hq 路径 404 不触发 onBinaryNotFound 对账 nudge（端点缺失≠图片已删，根治 SERVER_TOO_OLD 活锁）`() = runTest {
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setResponseCode(404).setBody("""{"success":false}"""))
+            server.start()
+            var nudged = false
+            val api = ApiClientFactory.desktopApi(
+                server.url("/").toString(),
+                ApiClientFactory.okHttp({ "k" }, onBinaryNotFound = { nudged = true }),
+            )
+            runCatching { api.downloadHq(1) }
+            // 旧桌面没有 /hq 路由，404 只代表「端点不存在」，对账删不掉任何行；若仍 nudge，
+            // 会与镜像同步 worker 的重新调度形成活锁（Critical #1，SERVER_TOO_OLD 场景）。
+            // thumbnail/file 404 已覆盖真正的「图片已删除」场景，此处必须不触发。
+            assertFalse(nudged)
+        }
+    }
 }

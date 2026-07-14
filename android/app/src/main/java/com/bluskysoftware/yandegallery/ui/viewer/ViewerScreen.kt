@@ -4,9 +4,6 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.IntentSenderRequest
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -60,7 +57,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -70,15 +67,11 @@ import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.work.WorkInfo
 import coil3.ImageLoader
-import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
-import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
-import com.bluskysoftware.yandegallery.ui.common.LEGACY_STORAGE_DENIED_TEXT
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
-import com.bluskysoftware.yandegallery.ui.common.rememberLegacyStorageGate
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import com.bluskysoftware.yandegallery.ui.photos.viewerDateLabel
 import com.bluskysoftware.yandegallery.ui.photos.viewerTimeLabel
@@ -86,7 +79,7 @@ import java.time.LocalDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且未下载时提示 1600 档像素不足）。 */
+/** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且无本机原图时提示清晰度不足，可查看原图）。 */
 private const val HIGH_ZOOM_THRESHOLD = 2.5f
 
 /**
@@ -107,7 +100,8 @@ fun ViewerScreen(
     onOpenSearch: (String) -> Unit = {},
 ) {
     val activeServer by viewModel.activeServer.collectAsStateWithLifecycle()
-    val downloadedUris by viewModel.downloadedUris.collectAsStateWithLifecycle()
+    val localImages by viewModel.localImages.collectAsStateWithLifecycle()
+    val downloadedIds by viewModel.downloadedIds.collectAsStateWithLifecycle()
     val connState by viewModel.connState.collectAsStateWithLifecycle()
     val galleries by viewModel.galleries.collectAsStateWithLifecycle(initialValue = emptyList())
     val items = viewModel.pagingFlow.collectAsLazyPagingItems()
@@ -126,20 +120,6 @@ fun ViewerScreen(
     var confirmDeleteName by rememberSaveable { mutableStateOf("") }
     var confirmDeleteHasLocal by rememberSaveable { mutableStateOf(false) }
     var pickGalleryFor by rememberSaveable { mutableStateOf<Long?>(null) }
-    var cascadeImageId by rememberSaveable { mutableStateOf<Long?>(null) }
-
-    // 30+ 级联删系统相册副本的确认结果：同意 → 系统已删文件；拒绝 → 文件保留（用户自主选择）。
-    // 两种结果都只清 downloads 映射行（spec §8），随后返回上一页（镜像行已删，图已不在）。
-    val cascadeLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartIntentSenderForResult(),
-    ) {
-        val id = cascadeImageId
-        cascadeImageId = null
-        scope.launch {
-            if (id != null) viewModel.clearDownloadRow(id)
-            onBack()
-        }
-    }
 
     /** detailOf 对同步中途被删的行抛 IllegalArgumentException（T9 KDoc 契约）——捕获降级：关面板 + 提示。 */
     fun openDetail(imageId: Long) {
@@ -165,42 +145,14 @@ fun ViewerScreen(
         }
     }
 
+    /** 删除（镜像层改造）：服务器删除成功即返回——镜像文件/image_files 行由 WriteRepository
+     *  删除成功后主动级联清理，对账/sweepOrphans 兜底异常退出场景，
+     *  不再有 MediaStore 副本级联段（spec §4.4 删除跟随语义）。 */
     fun performDelete(imageId: Long) {
         scope.launch {
-            val localUri = viewModel.downloadedUris.value[imageId]  // 先取快照（删镜像行不影响 downloads 表）
             when (val result = viewModel.deleteImage(imageId)) {
                 is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("删除失败", result))
-                WriteResult.Success -> {
-                    if (localUri == null) {
-                        onBack()
-                        return@launch
-                    }
-                    val uri = localUri.toUri()
-                    val pending = viewModel.buildDeleteRequest(uri)
-                    if (pending != null) {
-                        // 30+：先记 imageId 再拉系统确认；清映射与返回收敛到 launcher 回调
-                        cascadeImageId = imageId
-                        cascadeLauncher.launch(IntentSenderRequest.Builder(pending.intentSender).build())
-                    } else {
-                        // <30：直删本地副本；API 29 失去所有权时系统抛 RecoverableSecurityException，
-                        // gateway 转成 NeedsConsent(intentSender)——走与 30+ 同一个 cascadeLauncher（spec §8）
-                        when (val r = viewModel.deleteLocalCopy(uri)) {
-                            is DeleteOwnedResult.NeedsConsent -> {
-                                cascadeImageId = imageId
-                                cascadeLauncher.launch(IntentSenderRequest.Builder(r.intentSender).build())
-                            }
-                            is DeleteOwnedResult.Failed -> {
-                                snackbar.showSnackbar("本地副本删除失败：${r.message ?: "未知错误"}")   // spec §8 明确报错不静默
-                                viewModel.clearDownloadRow(imageId)
-                                onBack()
-                            }
-                            DeleteOwnedResult.Deleted -> {
-                                viewModel.clearDownloadRow(imageId)
-                                onBack()
-                            }
-                        }
-                    }
-                }
+                WriteResult.Success -> onBack()
             }
         }
     }
@@ -209,35 +161,30 @@ fun ViewerScreen(
     // 进行中一律忽略后续点按；离开页面 scope 亡即随之取消，无需额外清理。
     var shareJob by remember { mutableStateOf<Job?>(null) }
 
-    // legacy 存储权限门卫（BUG-07）：26-28 查看原图/带下载分享须先持 WRITE_EXTERNAL_STORAGE，29+ 直通
-    val storageGate = rememberLegacyStorageGate(onDenied = {
-        scope.launch { snackbar.showSnackbar(LEGACY_STORAGE_DENIED_TEXT) }
-    })
-
-    /** 分享完整流（M4-T11/D9）：未下载先入队原图下载（带前台通知），等终态后自动 ACTION_SEND；
-     *  离线且缺原图直接提示不入队；下载失败提示取消。离开页面即取消等待（scope 随 composition 亡），
-     *  底层下载不取消（KEEP 队列继续，产物仍落库——D9 取消语义）。 */
+    /** 分享（spec §4.4 四级规则）：本地镜像（原图>HQ）直接分享；无本地且在线先 ensure 入镜像；
+     *  离线且未同步直接提示。文件经 FileProvider 转 content:// 授权分享。 */
     fun share(image: ImageEntity) {
-        if (shareJob?.isActive == true) return   // 等待中：忽略重复点按
-        if (!connState.online && viewModel.downloadedUris.value[image.id] == null) {
-            scope.launch { snackbar.showSnackbar("离线状态无法下载缺失原图，请连接后重试") }
+        if (shareJob?.isActive == true) return
+        if (!connState.online && viewModel.localImages.value[image.id] == null) {
+            scope.launch { snackbar.showSnackbar("该图未同步且当前离线，无法分享") }
             return
         }
         shareJob = scope.launch {
-            if (viewModel.downloadedUris.value[image.id] == null) {
-                // fire-and-forget：提示不阻塞入队（showSnackbar 挂起到消失，串行会推迟下载约 4s）
-                launch { snackbar.showSnackbar("正在下载原图，完成后自动分享…") }
+            if (viewModel.localImages.value[image.id] == null) {
+                launch { snackbar.showSnackbar("正在获取图片，完成后自动分享…") }
             }
-            viewModel.ensureDownloadedThenUri(image)
-                .onSuccess { uri ->
+            viewModel.shareFileFor(image)
+                .onSuccess { file ->
+                    val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
                     val send = Intent(Intent.ACTION_SEND).apply {
-                        type = mimeOf(image.format)
-                        putExtra(Intent.EXTRA_STREAM, uri.toUri())
+                        // mimeOf 按实际文件扩展名（HQ 档 png 源转出的是 .jpg，image.format 会错报）
+                        type = mimeOf(file.extension)
+                        putExtra(Intent.EXTRA_STREAM, uri)
                         addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                     }
                     context.startActivity(Intent.createChooser(send, "分享图片"))
                 }
-                .onFailure { snackbar.showSnackbar("分享取消：原图下载失败") }
+                .onFailure { snackbar.showSnackbar("分享取消：${it.message}") }
         }
     }
 
@@ -245,67 +192,77 @@ fun ViewerScreen(
         ViewerPager(
             items = items,
             initialImageId = viewModel.initialImageId,
-            imageLoader = viewModel.previewLoader,
-            // 模型记忆化（M4-T15：modelFor 已零 IPC 纯读 map，但仍避免每缩放帧重建 ImageRequest 对象）。
-            // key 含「该图当前下载映射 + baseUrl」——下载完成/失效或切服时 key 变化，
-            // 档位升降级仍即时生效（downloadedUris 以 Compose 状态订阅，变化会触发重组）。
+            imageLoader = viewModel.imageLoader,
+            // 模型记忆化（M4-T15：modelFor 零 IO 纯读 map，但仍避免每缩放帧重建模型对象）。
+            // key 含「该图当前本地镜像 + baseUrl」——镜像补齐/失效或切服时 key 变化，
+            // 清晰版切换即时生效（localImages 以 Compose 状态订阅，变化会触发重组）。
             modelFor = { image ->
-                remember(image.id, downloadedUris[image.id], baseUrl) {
+                remember(image.id, localImages[image.id], baseUrl) {
                     viewModel.modelFor(image, baseUrl)
                 }
             },
             onPrefetch = { image ->
-                // 相邻预取（spec §6.4/§9）：已下载的图 modelFor 返回 Uri（本地即读，无需预取）；
-                // 仅对走 1600 档网络请求的图 enqueue，复用与页面完全一致的缓存键。
-                if (server != null) {
-                    val model = viewModel.modelFor(image, baseUrl)
-                    if (model is ImageRequest) viewModel.previewLoader.enqueue(model)
-                }
+                // 相邻预取（spec §4.2）：未镜像的邻图在线插队 ensure 入镜像（已镜像/离线时为空操作）；
+                // 占位缩略图本就命中缩略图缓存，无需另行 enqueue。
+                if (server != null) viewModel.ensureViewable(image)
             },
             actionBar = { image, zoomedIn ->
                 val workState by remember(image.id) { viewModel.downloadState(image.id) }
                     .collectAsStateWithLifecycle(initialValue = null)
-                val isDownloaded = downloadedUris.containsKey(image.id)
+                val isDownloaded = downloadedIds.contains(image.id)
                 // 下载失败提示：只在观察到「进行中 → FAILED」翻转时提示一次（历史 FAILED 不随翻页重复骚扰）。
-                // T8 约定 MediaStore 写失败也表现为 WorkInfo FAILED（spec §8 明确报错不静默）。
+                // T8 约定镜像写失败也表现为 WorkInfo FAILED（spec §8 明确报错不静默）。
                 var prevWorkState by remember(image.id) { mutableStateOf<WorkInfo.State?>(null) }
                 LaunchedEffect(workState) {
                     if (workState == WorkInfo.State.FAILED && prevWorkState?.isFinished == false) {
-                        snackbar.showSnackbar("下载失败：网络中断或保存到系统相册失败")
+                        snackbar.showSnackbar("下载失败：网络中断或保存原图失败")
                     }
                     prevWorkState = workState
                 }
-                ViewerActionBar(
-                    image = image,
-                    isDownloaded = isDownloaded,
-                    downloading = workState == WorkInfo.State.ENQUEUED || workState == WorkInfo.State.RUNNING,
-                    online = connState.online,
-                    highZoom = zoomedIn && !isDownloaded,
-                    // 已下载副本直接分享无需写权限；缺原图的分享会先入队下载，与查看原图同过存储门卫（BUG-07）
-                    onShare = { if (isDownloaded) share(image) else storageGate { share(image) } },
-                    onViewOriginal = { storageGate { viewModel.enqueueDownload(image) } },
-                    onDelete = {
-                        // 打开确认框时快照：id/文件名（旋转不丢）+ 是否有本地副本（决定文案分支）
-                        confirmDeleteId = image.id
-                        confirmDeleteName = image.filename
-                        confirmDeleteHasLocal = downloadedUris[image.id] != null
-                    },
-                    onDetail = {
-                        showTagEditor = false
-                        openDetail(image.id)
-                    },
-                    onAddToGallery = { pickGalleryFor = image.id },
-                    onRemoveFromGallery = viewModel.contextGalleryId?.let { galleryId ->
-                        {
-                            scope.launch {
-                                when (val r = viewModel.removeFromGallery(galleryId, image.id)) {
-                                    WriteResult.Success -> snackbar.showSnackbar("已移出当前相册")
-                                    is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移出相册失败", r))
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    // 「未同步」提示条（spec §4.2）：无本地镜像且离线——当前只有缩略图可看，无法取清晰版
+                    if (localImages[image.id] == null && !connState.online) {
+                        Text(
+                            "未同步：离线中仅可查看缩略图",
+                            color = Color.White.copy(alpha = 0.85f),
+                            style = MaterialTheme.typography.labelMedium,
+                            modifier = Modifier
+                                .padding(bottom = 6.dp)
+                                .testTag("viewer_unsynced_badge"),
+                        )
+                    }
+                    ViewerActionBar(
+                        image = image,
+                        isDownloaded = isDownloaded,
+                        downloading = workState == WorkInfo.State.ENQUEUED || workState == WorkInfo.State.RUNNING,
+                        online = connState.online,
+                        highZoom = zoomedIn && !isDownloaded,
+                        // 镜像写私有目录不需要 WRITE 权限——storageGate 包装移除（Task 10 删门卫本体）
+                        onShare = { share(image) },
+                        onViewOriginal = { viewModel.enqueueDownload(image) },
+                        onDelete = {
+                            // 打开确认框时快照：id/文件名（旋转不丢）+ 是否有本地镜像（决定文案分支）
+                            confirmDeleteId = image.id
+                            confirmDeleteName = image.filename
+                            confirmDeleteHasLocal = localImages[image.id] != null
+                        },
+                        onDetail = {
+                            showTagEditor = false
+                            openDetail(image.id)
+                        },
+                        onAddToGallery = { pickGalleryFor = image.id },
+                        onRemoveFromGallery = viewModel.contextGalleryId?.let { galleryId ->
+                            {
+                                scope.launch {
+                                    when (val r = viewModel.removeFromGallery(galleryId, image.id)) {
+                                        WriteResult.Success -> snackbar.showSnackbar("已移出当前相册")
+                                        is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移出相册失败", r))
+                                    }
                                 }
                             }
-                        }
-                    },
-                )
+                        },
+                    )
+                }
             },
             onBack = onBack,
         )

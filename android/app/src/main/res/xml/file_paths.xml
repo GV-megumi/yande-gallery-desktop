@@ -1,4 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
+    <!-- 镜像层分享（spec §4.4）：外部私有 mirror/ 为主，内部 filesDir 回退同名段 -->
+    <external-files-path name="mirror" path="mirror/" />
+    <files-path name="mirror_fallback" path="mirror/" />
     <cache-path name="shared" path="shared/" />
 </paths>

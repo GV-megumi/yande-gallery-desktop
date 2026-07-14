@@ -1,18 +1,16 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
-import android.app.PendingIntent
-import android.net.Uri
-import androidx.core.net.toUri
+import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import app.cash.turbine.test
 import coil3.request.ImageRequest
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
-import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
 import com.bluskysoftware.yandegallery.data.db.TagEntity
-import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
-import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
+import com.bluskysoftware.yandegallery.data.image.ThumbnailSpec
+import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.di.AppGraph
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -23,27 +21,26 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import java.io.OutputStream
+import java.io.File
 
 /**
- * ViewerViewModel 单元测试（TDD）——Robolectric + :memory: Room，镜像既有 VM 测试装配。
+ * ViewerViewModel 单元测试（TDD；镜像层 Task 8 改造）——Robolectric + :memory: Room。
  *
- * modelFor 在 composition 里同步读 downloadedUris.value，故三个被它读取的 StateFlow 用 Eagerly 收集；
- * 测试用 turbine 订阅 downloadedUris 等种子行进入 map 后再调 modelFor，确定性覆盖三档选择与失效清行。
- * gateway 走构造入参（AppGraph 不支持替换 mediaStoreGateway），以 fake 控制 exists 分支。
+ * modelFor 在 composition 里同步读 localImages.value，故被它读取的 StateFlow 用 Eagerly 收集；
+ * 测试用 turbine 订阅 localImages 等种子行进入 map 后再调 modelFor，确定性覆盖本地直出/占位/
+ * 行在文件亡三态。镜像夹具 = image_files 行 + 真实临时镜像文件（graph.imageMirrorStore 同根目录）。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
 class ViewerViewModelTest {
     private lateinit var db: AppDatabase
     private lateinit var graph: AppGraph
-    private var serverId: Long = 0L   // T9 后 downloads 流按激活 serverId 过滤，用例须有激活服务器
+    private var serverId: Long = 0L   // 镜像流按激活 serverId 过滤，用例须有激活服务器
 
     @Before
     fun setup() {
@@ -51,7 +48,7 @@ class ViewerViewModelTest {
         // 故把 Main 换成 UnconfinedTestDispatcher，让 Eagerly 收集器随 Room 发射即时追平（否则 turbine 超时）。
         Dispatchers.setMain(UnconfinedTestDispatcher())
         db = AppDatabase.inMemory(ApplicationProvider.getApplicationContext())
-        // autoSyncOnActiveChange=false：种激活服务器只为给 downloads 流提供 serverId 域，
+        // autoSyncOnActiveChange=false：种激活服务器只为给镜像流提供 serverId 域，
         // 不许触发自动同步/SSE（无真实服务器，Task 9 适配）。
         graph = AppGraph(ApplicationProvider.getApplicationContext(), dbOverride = db, autoSyncOnActiveChange = false)
         serverId = runBlocking { graph.serverRepository.addAndActivate("t9", "http://x:1", "k") }
@@ -61,6 +58,7 @@ class ViewerViewModelTest {
     fun teardown() {
         graph.shutdownForTest()   // 先停 graph 后台协程再关库——防关库后仍触 Room 的收尾竞态
         db.close()
+        mirrorRoot().deleteRecursively()   // 清镜像临时文件（Robolectric 各用例独立 context，防御性清理）
         Dispatchers.resetMain()
     }
 
@@ -69,8 +67,25 @@ class ViewerViewModelTest {
         fileSize = 1, format = "jpg", createdAt = createdAt, updatedAt = createdAt,
     )
 
-    private fun vm(imageId: Long, galleryId: Long? = null, gateway: MediaStoreGateway = FakeGateway()) =
-        ViewerViewModel(graph, imageId, galleryId, gateway)
+    private fun vm(imageId: Long, galleryId: Long? = null) = ViewerViewModel(graph, imageId, galleryId)
+
+    /** 与 AppGraph.imageMirrorStore 同一根目录（getExternalFilesDir 回退 filesDir + "mirror"）。 */
+    private fun mirrorRoot(): File {
+        val ctx = ApplicationProvider.getApplicationContext<Context>()
+        return File(ctx.getExternalFilesDir(null) ?: ctx.filesDir, "mirror")
+    }
+
+    /** 镜像夹具：image_files 行 + 真实落盘文件（fileOf 存在性校验需要非空文件）。 */
+    private fun seedMirror(imageId: Long, tier: MirrorTier, withFile: Boolean = true): File {
+        val rel = "s$serverId/i$imageId/$imageId.jpg"
+        val file = File(mirrorRoot(), rel)
+        if (withFile) {
+            file.parentFile!!.mkdirs()
+            file.writeBytes(ByteArray(4))
+        }
+        runBlocking { db.imageFileDao().upsert(ImageFileEntity(serverId, imageId, tier.name, rel, 4, 0)) }
+        return file
+    }
 
     @Test
     fun `detailOf 组装 tagNames 与 galleryIds`() = runTest {
@@ -94,13 +109,11 @@ class ViewerViewModelTest {
     }
 
     @Test
-    fun `已下载 id 进入 downloadedIds 集合`() = runTest {
+    fun `本机原图行进入 downloadedIds 集合`() = runTest {
         db.imageDao().upsertAll(listOf(image(7)))
-        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
-        // M4-T15：downloadedIds 由 downloadedUris 派生（只含收集期预校验 exists=true 的行），故须让 7 存在。
-        val gateway = FakeGateway(existing = setOf("content://media/7"))
+        seedMirror(7, MirrorTier.ORIGINAL)
 
-        vm(7, gateway = gateway).downloadedIds.test {
+        vm(7).downloadedIds.test {
             var ids = awaitItem()
             while (7L !in ids) ids = awaitItem()
             assertTrue(7L in ids)
@@ -109,89 +122,74 @@ class ViewerViewModelTest {
     }
 
     @Test
-    fun `modelFor 对已下载且系统相册仍在返回 Uri（跳 1600 档直读 MediaStore）`() = runTest {
+    fun `HQ 行进 localImages 但不进 downloadedIds（查看原图按钮仍可用）`() = runTest {
         db.imageDao().upsertAll(listOf(image(7)))
-        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
-        val gateway = FakeGateway(existing = setOf("content://media/7"))
-        val viewModel = vm(7, gateway = gateway)
+        seedMirror(7, MirrorTier.HQ)
+        val viewModel = vm(7)
 
-        viewModel.downloadedUris.test {
-            var uris = awaitItem()
-            while (!uris.containsKey(7L)) uris = awaitItem()
+        viewModel.localImages.test {
+            var m = awaitItem()
+            while (!m.containsKey(7L)) m = awaitItem()
+            assertEquals(MirrorTier.HQ, m[7L]!!.tier)
+            cancelAndIgnoreRemainingEvents()
+        }
+        assertTrue("HQ 档不算已有原图", 7L !in viewModel.downloadedIds.value)
+    }
+
+    @Test
+    fun `modelFor 本地镜像命中——返回 File 直出`() = runTest {
+        db.imageDao().upsertAll(listOf(image(7)))
+        val seeded = seedMirror(7, MirrorTier.ORIGINAL)
+        val viewModel = vm(7)
+
+        viewModel.localImages.test {
+            var m = awaitItem()
+            while (!m.containsKey(7L)) m = awaitItem()
 
             val model = viewModel.modelFor(image(7), "http://base")
 
-            assertTrue("已下载且系统相册仍在应返回 Uri", model is Uri)
-            assertEquals("content://media/7", model.toString())
+            assertTrue("本地镜像命中应返回 File 直出", model is File)
+            assertEquals(seeded.absolutePath, (model as File).absolutePath)
             cancelAndIgnoreRemainingEvents()
         }
     }
 
     @Test
-    fun `modelFor 对未下载返回 previewRequest`() = runTest {
+    fun `modelFor 未镜像——返回缩略图请求占位（ThumbnailSpec 同键）`() = runTest {
         db.imageDao().upsertAll(listOf(image(8)))
+        val viewModel = vm(8)
 
-        val model = vm(8).modelFor(image(8), "http://base")
+        // activeServer 为 Eagerly stateIn，Room 首发射异步——等追平再断言 ThumbnailSpec 分支
+        viewModel.activeServer.test {
+            var server = awaitItem()
+            while (server == null) server = awaitItem()
 
-        assertTrue("未下载应返回 1600 档 ImageRequest", model is ImageRequest)
+            val model = viewModel.modelFor(image(8), "http://base")
+
+            assertTrue("未镜像应返回缩略图占位 ImageRequest", model is ImageRequest)
+            val spec = (model as ImageRequest).data as ThumbnailSpec
+            assertEquals(serverId, spec.serverId)
+            assertEquals(8L, spec.imageId)
+            cancelAndIgnoreRemainingEvents()
+        }
     }
 
     @Test
-    fun `downloadedUris 收集期预校验——exists=false 的行不进映射且被清库`() = runTest {
+    fun `行在文件亡——不进 localImages 映射，modelFor 退回缩略图占位`() = runTest {
         db.imageDao().upsertAll(listOf(image(7), image(9)))
-        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
-        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 9, mediaStoreUri = "content://media/9", downloadedAt = "t"))
-        // 只有 7 的系统相册副本仍在；9 已被用户手删 → 收集链路应剔除并清库（spec §6.4，M4-T15 把清行从 modelFor 前移到收集期）。
-        val gateway = FakeGateway(existing = setOf("content://media/7"))
-        val viewModel = vm(7, gateway = gateway)
+        seedMirror(7, MirrorTier.ORIGINAL)
+        seedMirror(9, MirrorTier.ORIGINAL, withFile = false)   // 行在文件亡（用户手清/损坏）
+        val viewModel = vm(7)
 
-        viewModel.downloadedUris.test {
-            var uris = awaitItem()
-            while (!uris.containsKey(7L)) uris = awaitItem()
-            // 稳定态映射只含存在的 7，绝不含失效的 9
-            assertTrue("exists=true 的 7 应在映射", uris.containsKey(7L))
-            assertTrue("exists=false 的 9 不得进入映射", !uris.containsKey(9L))
+        viewModel.localImages.test {
+            var m = awaitItem()
+            while (!m.containsKey(7L)) m = awaitItem()
+            // 稳定态映射只含文件真实存在的 7，绝不含行在文件亡的 9（下轮 sweepOrphans 清行自愈）
+            assertTrue("文件存在的 7 应在映射", m.containsKey(7L))
+            assertTrue("行在文件亡的 9 不得进入映射", !m.containsKey(9L))
             cancelAndIgnoreRemainingEvents()
         }
-        // 失效行被收集链路顺手清（不再等 modelFor 触发）
-        assertNull("exists=false 的失效映射行应被清库", db.downloadDao().byImageId(serverId, 9))
-        // 未命中映射 → modelFor 退回 1600 档 preview（等价于「未下载」）
+        // 未命中映射 → modelFor 退回缩略图占位（等价于「未同步」）
         assertTrue(viewModel.modelFor(image(9), "http://base") is ImageRequest)
-    }
-
-    @Test
-    fun `modelFor 零 IPC——exists 只发生在收集链路而不在 modelFor`() = runTest {
-        db.imageDao().upsertAll(listOf(image(7)))
-        db.downloadDao().upsert(DownloadEntity(serverId = serverId, imageId = 7, mediaStoreUri = "content://media/7", downloadedAt = "t"))
-        val gateway = FakeGateway(existing = setOf("content://media/7"))
-        val viewModel = vm(7, gateway = gateway)
-
-        viewModel.downloadedUris.test {
-            var uris = awaitItem()
-            while (!uris.containsKey(7L)) uris = awaitItem()
-
-            val callsAfterCollect = gateway.existsCalls
-            // 命中与未命中各调若干次，均不得再触 gateway（modelFor 纯读 map，零 binder IPC）
-            repeat(3) { viewModel.modelFor(image(7), "http://base") }
-            repeat(3) { viewModel.modelFor(image(8), "http://base") }
-            assertEquals("modelFor 不得触 gateway.exists（零 IPC，A3 根治）", callsAfterCollect, gateway.existsCalls)
-            cancelAndIgnoreRemainingEvents()
-        }
-    }
-
-    /** 内存 fake：existing 集合内的 uri 字符串视为系统相册仍在；其余不存在。exists 计数用于零 IPC 断言（跨 IO 线程，用 Atomic）。 */
-    private class FakeGateway(private val existing: Set<String> = emptySet()) : MediaStoreGateway {
-        private val existsCounter = java.util.concurrent.atomic.AtomicInteger(0)
-        val existsCalls: Int get() = existsCounter.get()
-        override fun createPending(displayName: String, mime: String): Uri? = null
-        override fun openOutput(uri: Uri): OutputStream? = null
-        override fun finalize(uri: Uri) {}
-        override fun discard(uri: Uri) {}
-        override fun exists(uri: Uri): Boolean {
-            existsCounter.incrementAndGet()
-            return uri.toString() in existing
-        }
-        override fun buildDeleteRequest(uris: List<Uri>): PendingIntent? = null
-        override fun deleteOwned(uri: Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
     }
 }

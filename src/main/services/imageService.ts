@@ -3,7 +3,7 @@ import { getDatabase, run, get, all, runInTransaction, nextChangeSeq } from './d
 import path from 'path';
 import fs from 'fs/promises';
 import { normalizePath, isSubPath } from '../utils/path.js';
-import { enqueueThumbnailGeneration, deleteThumbnail, deletePreview, cancelThumbnailGeneration } from './thumbnailService.js';
+import { enqueueThumbnailGeneration, deleteThumbnail, deletePreview, deleteHq, cancelThumbnailGeneration } from './thumbnailService.js';
 import { getConfig } from './config.js';
 import { emitBuiltRendererAppEvent } from './rendererEventBus.js';
 import { emitGalleryImagesChanged } from './appEventPublisher.js';
@@ -347,6 +347,10 @@ export async function deleteImage(id: number): Promise<{ success: boolean; error
       // 联动清理 1600px 预览档（deletePreview 内部已对 ENOENT 容错）
       await deletePreview(row.filepath).catch((err: any) => {
         console.warn(`[imageService] 删除预览档失败: ${row.filepath}`, err?.message ?? err);
+      });
+      // 联动清理 HQ 高质量档（deleteHq 内部已对 ENOENT 容错，安卓镜像层同步用）
+      await deleteHq(row.filepath).catch((err: any) => {
+        console.warn(`[imageService] 删除 HQ 档失败: ${row.filepath}`, err?.message ?? err);
       });
     }
 

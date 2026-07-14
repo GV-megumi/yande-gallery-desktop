@@ -19,6 +19,7 @@ class SyncScheduler(
     private val monitor: ConnectionMonitor,
     private val scope: CoroutineScope,
     private val hadMirrorBefore: suspend () -> Boolean,   // 注入：store.readSyncState() != null
+    private val onSyncSuccess: (() -> Unit)? = null,   // 成功一轮后调用（M4-T5：镜像同步入队钩子）
 ) {
     // running/pending 均在实例锁下读写；不持有 Job 引用（不取消进行中的任务）。
     private var running = false
@@ -51,6 +52,7 @@ class SyncScheduler(
                 if (outcome.fullRebuild && hadMirror) {
                     _rebuildNotices.tryEmit(Unit)
                 }
+                onSyncSuccess?.invoke()
             }
             .onFailure { monitor.reportFailure(it) }
     }

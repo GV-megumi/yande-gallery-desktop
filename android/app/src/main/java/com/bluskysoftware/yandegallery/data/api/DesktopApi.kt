@@ -84,4 +84,10 @@ interface DesktopApi {
         @Path("imageId") imageId: Long,
         @Header("Range") range: String? = null,
     ): Response<ResponseBody>
+
+    // HQ 高质量图流式下载（镜像 spec §2.3/§3.3）：@Streaming 同 downloadOriginal；
+    // Content-Type 决定落盘扩展名（png→jpg / 体积保护回退原格式）。
+    @Streaming
+    @GET("$APP_API_PATH/images/{imageId}/hq")
+    suspend fun downloadHq(@Path("imageId") imageId: Long): Response<ResponseBody>
 }

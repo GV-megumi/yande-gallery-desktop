@@ -7,11 +7,9 @@ import com.bluskysoftware.yandegallery.data.api.SyncImageItemDto
 import com.bluskysoftware.yandegallery.data.api.SyncTagDto
 import com.bluskysoftware.yandegallery.data.db.AlbumPrefsEntity
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
-import com.bluskysoftware.yandegallery.data.db.DownloadEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.db.ImageFileEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
-import com.bluskysoftware.yandegallery.data.media.DeleteOwnedResult
-import com.bluskysoftware.yandegallery.data.media.MediaStoreGateway
 import com.bluskysoftware.yandegallery.domain.sync.SyncState
 import kotlinx.coroutines.test.runTest
 import org.junit.After
@@ -114,53 +112,6 @@ class RoomMirrorStoreTest {
     }
 
     @Test
-    fun `clearMirror 一并清空 downloads 表（镜像身份失效则映射作废，D10 裁定保留全清）`() = runTest {
-        // v3 后 downloads 虽有 serverId 命名空间，clearMirror 仍表示「镜像身份失效」——
-        // 全清是最小正确实现（D10 裁定保留）；系统相册文件本身不动。
-        store.applyImagePage(listOf(imageItem(1, listOf(1), listOf(1))))
-        db.downloadDao().upsert(
-            DownloadEntity(serverId = 1, imageId = 1, mediaStoreUri = "content://old/1", downloadedAt = "2026-01-01T00:00:00.000Z")
-        )
-        assertEquals(1L, rowCount("downloads"))
-
-        store.clearMirror()
-
-        assertEquals(0L, rowCount("downloads"))
-        // 与既有行为一致：镜像表同样被清空
-        assertEquals(0L, rowCount("images"))
-    }
-
-    @Test
-    fun `对账删除级联：删本服映射与副本、清缓存键、他服映射保留`() = runTest {
-        val discarded = mutableListOf<String>()
-        val removedKeys = mutableListOf<Pair<Long, Long>>()
-        val fakeGateway = object : MediaStoreGateway {
-            override fun createPending(displayName: String, mime: String): android.net.Uri? = null
-            override fun openOutput(uri: android.net.Uri): java.io.OutputStream? = null
-            override fun finalize(uri: android.net.Uri) {}
-            override fun discard(uri: android.net.Uri) { discarded += uri.toString() }
-            override fun exists(uri: android.net.Uri) = true
-            override fun buildDeleteRequest(uris: List<android.net.Uri>): android.app.PendingIntent? = null
-            override fun deleteOwned(uri: android.net.Uri): DeleteOwnedResult = DeleteOwnedResult.Deleted
-        }
-        val cascadeStore = RoomMirrorStore(
-            db, gateway = fakeGateway,
-            activeServerId = { 1L },
-            removeCachedImage = { serverId, imageId -> removedKeys += serverId to imageId },
-        )
-        db.imageDao().upsertAll(listOf(ImageEntity(7, "a.jpg", 1, 1, 1L, "jpg", "2026", "2026")))
-        db.downloadDao().upsert(DownloadEntity(1L, 7L, "content://own", "2026"))   // 本服映射
-        db.downloadDao().upsert(DownloadEntity(2L, 7L, "content://other", "2026")) // 他服同号映射
-
-        cascadeStore.deleteImages(listOf(7L))
-
-        assertNull(db.downloadDao().byImageId(1L, 7L))                       // 本服行清
-        assertEquals("content://other", db.downloadDao().byImageId(2L, 7L)?.mediaStoreUri)  // 他服行保留
-        assertEquals(listOf("content://own"), discarded)                     // 副本直删（后台定界，见实现注释）
-        assertEquals(listOf(1L to 7L), removedKeys)                          // 两级缓存键清除回调
-    }
-
-    @Test
     fun `replaceGalleries 映射createdAt并清孤儿偏好`() = runTest {
         db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 1, pinned = true, pinnedAt = 1L))
         db.albumPrefsDao().upsert(AlbumPrefsEntity(galleryId = 2, inOther = true))
@@ -190,5 +141,34 @@ class RoomMirrorStoreTest {
         store.writeSyncState(updated)
 
         assertEquals(updated, store.readSyncState())
+    }
+
+    @Test
+    fun `clearMirror 清空 image_files 并回调 clearMirrorFiles`() = runTest {
+        var cleared = false
+        val cascadeStore = RoomMirrorStore(db, clearMirrorFiles = { cleared = true })
+        db.imageFileDao().upsert(ImageFileEntity(1, 1, "HQ", "s1/i1/a.jpg", 1, 0))
+        cascadeStore.clearMirror()
+        assertEquals(0L, db.imageFileDao().countFor(1))
+        assertTrue(cleared)
+    }
+
+    @Test
+    fun `deleteImages 级联清 image_files 行并回调 removeMirrorFiles`() = runTest {
+        val removed = mutableListOf<Long>()
+        val cascadeStore = RoomMirrorStore(
+            db,
+            activeServerId = { 1L },
+            removeMirrorFiles = { _, ids -> removed += ids },
+        )
+        db.imageDao().upsertAll(listOf(
+            ImageEntity(1, "1.jpg", 1, 1, 1L, "jpg", "2026", "2026"),
+            ImageEntity(2, "2.jpg", 1, 1, 1L, "jpg", "2026", "2026"),
+        ))
+        db.imageFileDao().upsert(ImageFileEntity(1, 1, "HQ", "s1/i1/a.jpg", 1, 0))
+        db.imageFileDao().upsert(ImageFileEntity(1, 2, "ORIGINAL", "s1/i2/b.jpg", 1, 0))
+        cascadeStore.deleteImages(listOf(1L, 2L))
+        assertEquals(0L, db.imageFileDao().countFor(1))
+        assertEquals(listOf(1L, 2L), removed.sorted())
     }
 }

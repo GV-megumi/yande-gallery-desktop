@@ -51,6 +51,14 @@ interface ImageDao {
     @Query("SELECT id FROM images")
     suspend fun allIds(): List<Long>
 
+    /**
+     * 级联清理用的「事后现状」查询（Task 10 遗留审查项）：给定候选 id 集合，回出仍在 images
+     * 表里存活的那些。调用方用 candidateIds - 本结果 算出「真已消失」的子集，不必自行追踪
+     * 各写路径分支（乐观删/回滚/批量分块部分失败）各自的成功判定，对任何出口都稳健。
+     */
+    @Query("SELECT id FROM images WHERE id IN (:ids)")
+    suspend fun existingIds(ids: List<Long>): List<Long>
+
     @Query("DELETE FROM images WHERE id IN (:ids)")
     suspend fun deleteByIds(ids: List<Long>)
 

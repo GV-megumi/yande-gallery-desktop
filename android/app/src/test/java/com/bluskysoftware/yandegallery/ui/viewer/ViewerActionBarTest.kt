@@ -72,7 +72,7 @@ class ViewerActionBarTest {
     }
 
     @Test
-    fun `highZoom 显示 1600 档像素不足提示`() {
+    fun `highZoom 显示清晰度不足提示`() {
         setBar(highZoom = true)
         compose.onNodeWithTag("viewer_zoom_hint").assertIsDisplayed()
     }

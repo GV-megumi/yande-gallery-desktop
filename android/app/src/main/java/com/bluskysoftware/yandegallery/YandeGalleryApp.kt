@@ -35,5 +35,8 @@ class YandeGalleryApp : Application(), Configuration.Provider {
                 graph.networkMonitor.stop()
             }
         })
+
+        // 启动孤儿清扫（镜像 spec §3.4）：无行目录删、有行无文件的行删（下轮同步自动补）
+        graph.scopeLaunchSweep()
     }
 }

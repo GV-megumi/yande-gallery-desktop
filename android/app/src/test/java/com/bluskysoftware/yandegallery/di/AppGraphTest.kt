@@ -166,4 +166,64 @@ class AppGraphTest {
             assertNull(graph.api())
         }
     }
+
+    /** 跳过可能先到的 SSE 订阅请求，返回首个 /sync/ 请求；用于确认"collector 确实处理到了这一轮事件"。 */
+    private fun MockWebServer.takeNextSyncRequest(): RecordedRequest? {
+        var req = takeRequest(5, TimeUnit.SECONDS)
+        while (req != null && req.path?.startsWith("/api/app/v1/sync/") != true) {
+            req = takeRequest(5, TimeUnit.SECONDS)
+        }
+        return req
+    }
+
+    /**
+     * 回归测试（审查发现）：AppGraph init 收集器里 `previousId` 必须在 `lastActive` 被覆盖前捕获，
+     * 且只有「真实 id 变化」才取消旧服镜像同步工作——「编辑激活行端点」（id 不变）不得误取消。
+     * 这个顺序此前是 BUG-10 同一个收集器里出过的问题类型，但一直没有测试盯着它。
+     *
+     * 用三台独立 MockWebServer（各自只承接一轮事件的请求）避免"请求队列里有上一轮遗留请求"的
+     * 误判风险——每次 takeNextSyncRequest() 返回非 null，才能确定 collector 已经跑到了
+     * cancel 判断之后的 requestSync 那一行（两者在同一段同步代码里，cancel 判断严格先执行）。
+     */
+    @Test
+    fun `切服才取消旧服镜像同步，previousId 在 lastActive 覆盖前捕获，端点编辑不误触发`() = runTest {
+        MockWebServer().use { serverA ->
+            MockWebServer().use { serverB ->
+                MockWebServer().use { serverC ->
+                    serverA.dispatcher = syncDispatcher("a")
+                    serverB.dispatcher = syncDispatcher("b")
+                    serverC.dispatcher = syncDispatcher("c")
+                    serverA.start()
+                    serverB.start()
+                    serverC.start()
+
+                    val cancelledIds = mutableListOf<Long>()
+                    val autoGraph = AppGraph(
+                        ApplicationProvider.getApplicationContext(),
+                        dbOverride = db,
+                        cancelMirrorSyncOverride = { cancelledIds.add(it) },
+                    )
+                    try {
+                        // 首次激活：previousId 为 null（尚未同步过任何服务器），不应触发取消
+                        val idA = autoGraph.serverRepository.addAndActivate("a", serverA.url("/").toString(), "key-a")
+                        assertNotNull("激活 A 应自动发起同步", serverA.takeNextSyncRequest())
+                        assertTrue("首次激活不应触发取消（previousId 为 null）", cancelledIds.isEmpty())
+
+                        // 编辑激活行 baseUrl（id 不变，A 行改指向 B）：只是端点编辑，不应触发取消
+                        autoGraph.serverRepository.updateServer(idA, "a", serverB.url("/").toString(), "key-a2")
+                        assertNotNull("端点编辑后应仍自动同步到新地址", serverB.takeNextSyncRequest())
+                        assertTrue("端点编辑（id 不变）不应触发取消", cancelledIds.isEmpty())
+
+                        // 切服（真正 id 变化 A→C）：previousId 必须是旧 id A，而不是被提前覆盖后的新 id
+                        val idC = autoGraph.serverRepository.addAndActivate("c", serverC.url("/").toString(), "key-c")
+                        assertNotNull("切服后应自动同步到新服务器", serverC.takeNextSyncRequest())
+                        assertEquals("id 变化应且只应取消旧服（A）的镜像同步工作", listOf(idA), cancelledIds)
+                        assertNotEquals("绝不能拿新 id 去取消自己", idC, cancelledIds.firstOrNull())
+                    } finally {
+                        autoGraph.shutdownForTest()
+                    }
+                }
+            }
+        }
+    }
 }
