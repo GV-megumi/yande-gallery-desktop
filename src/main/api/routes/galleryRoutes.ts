@@ -111,7 +111,7 @@ export function createGalleryRoutes(): ApiRoute[] {
   ];
 }
 
-/** 图片二进制三端点：agent 面（imageBinary 权限）与手机面（remap 共享 handler）都挂（spec §3.1）。 */
+/** 图片二进制四端点：agent 面（imageBinary 权限）与手机面（remap 共享 handler）都挂（spec §3.1）。 */
 export function createImageBinaryRoutes(): ApiRoute[] {
   return [
     {

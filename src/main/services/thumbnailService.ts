@@ -656,9 +656,9 @@ export async function deleteHq(imagePath: string): Promise<{ success: boolean; e
 }
 
 /**
- * 清理孤儿缩略图：thumbnails 目录中与库内任何图片都不再对应的缩略图文件。
+ * 清理孤儿缩略图：thumbnails/previews/hq 三档目录中与库内任何图片都不再对应的缓存文件。
  *
- * 缩略图按 md5(filepath) 命名；历史上存在输出格式切换（webp/jpeg/png），故按
+ * 三档缓存文件均按 md5(filepath) 命名；历史上存在输出格式切换（webp/jpeg/png），故按
  * 文件名的 hash 段对账、不看扩展名；只处理形如 `<32位hex>.<ext>` 的文件，其它一概不动。
  * 保护集 = images.filepath 的 md5 全集 ∪ invalid_images.thumbnailPath 的 hash 段
  * （失效迁移有意保留缩略图供无效列表页展示，清掉会变破图）。
@@ -690,9 +690,9 @@ export async function cleanupOrphanThumbnails(): Promise<{
       }
     }
 
-    // 单目录清扫：thumbnails 与 previews 复用同一 validHashes 集合（两档同用 md5(源路径) 命名）。
-    // 语义决策（写死）：invalid_images 引用的 hash 段命中的 preview 文件同样被保留——
-    // 无害（图片修复回库后 preview 直接复用）、零额外集合，与缩略图目录的保护语义对称。
+    // 三档同扫：thumbnails/previews/hq 复用同一 validHashes 集合（三档同用 md5(源路径) 命名）。
+    // 语义决策（写死）：invalid_images 引用的 hash 段命中的 preview/hq 文件同样被保留——
+    // 无害（图片修复回库后直接复用）、零额外集合，与缩略图目录的保护语义对称。
     const scanDir = async (dir: string): Promise<{ scanned: number; deleted: number; freedBytes: number }> => {
       let entries: string[] = [];
       try {
@@ -729,9 +729,10 @@ export async function cleanupOrphanThumbnails(): Promise<{
 
     const thumbResult = await scanDir(getThumbnailsPath());
     const previewResult = await scanDir(getPreviewsPath());
-    const scanned = thumbResult.scanned + previewResult.scanned;
-    const deleted = thumbResult.deleted + previewResult.deleted;
-    const freedBytes = thumbResult.freedBytes + previewResult.freedBytes;
+    const hqResult = await scanDir(getHqPath());
+    const scanned = thumbResult.scanned + previewResult.scanned + hqResult.scanned;
+    const deleted = thumbResult.deleted + previewResult.deleted + hqResult.deleted;
+    const freedBytes = thumbResult.freedBytes + previewResult.freedBytes + hqResult.freedBytes;
 
     console.log(`[thumbnailService] 孤儿缩略图清理完成: scanned=${scanned}, deleted=${deleted}, freed=${freedBytes}B`);
     return { success: true, data: { scanned, deleted, freedBytes } };
