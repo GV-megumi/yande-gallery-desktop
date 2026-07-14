@@ -20,6 +20,8 @@ class DownloadWorker(
     // androidx.work.ListenableWorker.Result（非泛型），必须全限定名避免歧义（对照 MirrorSyncWorker 用法）
     private val ensureOriginal: suspend (serverId: Long, imageId: Long) -> kotlin.Result<java.io.File>,
     private val notifier: DownloadNotifier,
+    // 陈旧任务判定（对齐 MirrorSyncWorker 先例）：切服后残留的旧队列项不应对新服务器生效。
+    private val activeServerId: suspend () -> Long?,
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
@@ -27,6 +29,10 @@ class DownloadWorker(
         val imageId = inputData.getLong(KEY_IMAGE_ID, -1L)
         val filename = inputData.getString(KEY_FILENAME) ?: "$imageId"
         if (serverId <= 0 || imageId <= 0) return Result.failure()
+        // 陈旧任务（切服后残留队列）直接完结，不再对新服务器重试：否则 ensure 抛出的
+        // 「服务器已切换」IllegalStateException 会走到下面的失败分支，但 WorkManager
+        // 持久化跨重启，旧任务在切回原服务器前会反复入队消耗资源（Important #2）。
+        if (activeServerId() != serverId) return Result.success()
 
         // 前台通知（大文件下载可视化）：33+ 未授权/31+ 后台 FGS 限制 runCatching 降级纯后台，
         // 唯 CancellationException 重抛（不吞取消，对齐仓内惯例）。镜像层无逐字节进度回调，
@@ -41,6 +47,9 @@ class DownloadWorker(
             result.isSuccess -> Result.success()
             (result.exceptionOrNull() as? ApiException)?.httpStatus == 404 -> Result.failure()
             result.exceptionOrNull() is ImageMirrorStore.DiskFullException -> Result.retry()
+            // 无激活服务器 / 元数据缺失 / 落盘前中途切服（ImageMirrorStore.ensure 三处
+            // IllegalStateException）均为重试无法自愈的终态：重试只会在下次切服前反复复现。
+            result.exceptionOrNull() is IllegalStateException -> Result.failure()
             else -> Result.retry()
         }
     }

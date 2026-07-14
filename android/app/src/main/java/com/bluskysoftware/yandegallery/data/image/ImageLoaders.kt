@@ -18,6 +18,7 @@ import okhttp3.Request
 import okio.Buffer
 import okio.FileSystem
 import okio.Path.Companion.toOkioPath
+import okio.buffer
 import java.io.File
 import java.io.IOException
 
@@ -36,8 +37,8 @@ data class ThumbnailSpec(val serverId: Long, val imageId: Long, val url: String)
 
 /**
  * 镜像优先 Fetcher（spec §4.1/D11）：本地有镜像文件（HQ/原图）→ 直接文件 Source（手机自产降采样、
- * 零网络零盘缓存写入）；未镜像 → 注入的 OkHttp 自行拉桌面端 /thumbnail（自管请求绕开 Coil 网络层，
- * 故不写 Coil 盘缓存——代价仅限于「刚入库未同步」这段窗口的重复拉取，可接受，见任务 brief 实现注意）。
+ * 零网络零盘缓存写入）；未镜像 → 先查 Coil 磁盘缓存，未命中再由注入的 OkHttp 自行拉桌面端
+ * /thumbnail（自管请求绕开 Coil 网络层，但写穿 imageLoader.diskCache，成功响应落盘供下次复用）。
  * localFile 注入挂 ImageMirrorStore::localFile（已校验文件存在性，行在文件亡按未命中处理）。
  */
 class MirrorFirstFetcherFactory(
@@ -55,23 +56,40 @@ class MirrorFirstFetcherFactory(
                     dataSource = DataSource.DISK,
                 )
             } else {
-                fetchRemote(data.url)
+                fetchRemote(data.url, options, imageLoader.diskCache)
             }
         }
 
     /**
-     * 网络回退：注入的 okHttp（已带 Bearer 拦截器）直接执行，不借道 Coil 网络层。响应体整段读进
-     * 内存 Buffer 后再关闭连接——与 Coil 自身 NetworkFetcher 的处理方式一致，避免 ImageSource 持有的
+     * 网络回退（写穿盘缓存，review 修复）：先查 Coil 磁盘缓存（未镜像但此前缓存过的缩略图零网络命中），
+     * 未命中再走注入的 okHttp（已带 Bearer 拦截器）直接执行，不借道 Coil 网络层——响应体整段读进
+     * 内存 Buffer 后再关闭连接，与 Coil 自身 NetworkFetcher 的处理方式一致，避免 ImageSource 持有的
      * 流跑在已经 close() 的连接上；缩略图体积小，一次性读入内存无虞。工程未引入 okhttp3.coroutines
      * 的 executeAsync，故用 withContext(Dispatchers.IO) 包同步 execute()（沿用 ImageMirrorStore 先例）。
+     * 网络成功后写入磁盘缓存，供下次「未镜像+已缓存」的请求零网络命中——此前实现自管请求全程绕开
+     * imageLoader.diskCache，导致缩略图翻页/刷新在服务器不可达时无法从磁盘缓存兜底（Important #3）。
      *
      * 非 2xx 必须显式拒绝（review 修复）：本方法自管请求、绕开 Coil 网络层，不能假设调用方注入的
      * okHttp 一定带错误映射拦截器（生产环境的 AppGraph.okHttp 恰好带，但该保证对本类不可见、也不应
      * 依赖）——不然 404/500 的错误体会被当成图片字节裸塞进 SourceFetchResult，Coil 解码时炸出的是
      * 「格式不对」而非「请求失败」，误导排查方向（对齐 Coil 自身 NetworkFetcher 的状态码校验）。
      */
-    private suspend fun fetchRemote(url: String): SourceFetchResult =
+    private suspend fun fetchRemote(url: String, options: Options, diskCache: DiskCache?): SourceFetchResult =
         withContext(Dispatchers.IO) {
+            val cacheKey = options.diskCacheKey ?: url
+            if (diskCache != null && options.diskCachePolicy.readEnabled) {
+                diskCache.openSnapshot(cacheKey)?.use { snapshot ->
+                    return@withContext SourceFetchResult(
+                        source = ImageSource(
+                            file = snapshot.data,
+                            fileSystem = diskCache.fileSystem,
+                            diskCacheKey = cacheKey,
+                        ),
+                        mimeType = null,
+                        dataSource = DataSource.DISK,
+                    )
+                }
+            }
             val request = Request.Builder().url(url).build()
             okHttp.newCall(request).execute().use { response ->
                 // 此处直接 throw：外层 .use{} 的 finally 仍会关闭 response，无需手动再关一次。
@@ -79,6 +97,9 @@ class MirrorFirstFetcherFactory(
                     throw IOException("缩略图请求失败 HTTP ${response.code}: $url")
                 }
                 val bytes = response.body.bytes()
+                if (diskCache != null && options.diskCachePolicy.writeEnabled) {
+                    writeToDiskCache(diskCache, cacheKey, bytes)
+                }
                 SourceFetchResult(
                     source = ImageSource(source = Buffer().apply { write(bytes) }, fileSystem = FileSystem.SYSTEM),
                     mimeType = response.header("Content-Type"),
@@ -86,6 +107,21 @@ class MirrorFirstFetcherFactory(
                 )
             }
         }
+
+    /**
+     * 写穿磁盘缓存：写失败（磁盘满/并发同 key 竞争等）仅 abort 放弃这次写入，不影响本次已经拿到的
+     * 网络结果——磁盘缓存本就是「有则加速、无则退化回网络」的旁路，写失败不应连累 fetchRemote 整体
+     * 失败。本函数无挂起点（同步 IO + okio 阻塞写），不涉及吞掉 CancellationException 的顾虑。
+     */
+    private fun writeToDiskCache(diskCache: DiskCache, key: String, bytes: ByteArray) {
+        val editor = diskCache.openEditor(key) ?: return
+        try {
+            diskCache.fileSystem.sink(editor.data).buffer().use { it.write(bytes) }
+            editor.commit()
+        } catch (_: Exception) {
+            editor.abort()
+        }
+    }
 }
 
 /**

@@ -103,6 +103,8 @@ class DownloadE2ETest {
                                         .setSmallIcon(android.R.drawable.stat_sys_download).build(),
                                 )
                         },
+                        // 与生产 AppWorkerFactory 逐项一致：陈旧任务判定同样接真实 serverRepository
+                        activeServerId = { graph.serverRepository.activeServer()?.id },
                     )
             }).build()
 

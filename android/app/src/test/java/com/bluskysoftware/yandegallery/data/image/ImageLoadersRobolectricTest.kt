@@ -7,6 +7,8 @@ import kotlinx.coroutines.test.runTest
 import okhttp3.OkHttpClient
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import okio.Path.Companion.toOkioPath
+import okio.buffer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
@@ -95,5 +97,56 @@ class ImageLoadersRobolectricTest {
     fun `buildThumbnailImageLoader 不设限——maxSize 为 1 TiB 形式上限`() {
         val loader = buildThumbnailImageLoader(ctx, OkHttpClient(), localFile = { _, _ -> null })
         assertEquals(1L shl 40, loader.diskCache?.maxSize)
+    }
+
+    @Test
+    fun `MirrorFirstFetcher 网络命中写穿磁盘缓存——服务器下线后第二次请求仍从盘命中`() = runTest {
+        val cacheDir = File(ctx.cacheDir, "mirror-fetcher-cache-test-network").apply { mkdirs() }
+        val loader = coil3.ImageLoader.Builder(ctx)
+            .diskCache(coil3.disk.DiskCache.Builder().directory(cacheDir.toOkioPath()).build())
+            .build()
+        val payload = ByteArray(8) { it.toByte() }
+        val server = MockWebServer().apply {
+            enqueue(MockResponse().setHeader("Content-Type", "image/jpeg").setBody(okio.Buffer().write(payload)))
+            start()
+        }
+        val url = server.url("/api/app/v1/images/42/thumbnail").toString()
+        val options = coil3.request.Options(ctx, diskCacheKey = "s1:t42")
+        val factory = MirrorFirstFetcherFactory(localFile = { _, _ -> null }, okHttp = OkHttpClient())
+
+        // 第一次：本地未镜像 → 回退网络，命中后写穿磁盘缓存
+        val first = factory.create(ThumbnailSpec(1, 42, url), options, loader).fetch() as coil3.fetch.SourceFetchResult
+        assertEquals(coil3.decode.DataSource.NETWORK, first.dataSource)
+        assertEquals(1, server.requestCount)
+        server.shutdown()   // 关服：第二次若误走网络分支会直接连接失败，而非静默重试
+
+        // 第二次：同 key 磁盘缓存应命中，零网络即可拿到与第一次网络响应一致的字节
+        val second = factory.create(ThumbnailSpec(1, 42, url), options, loader).fetch() as coil3.fetch.SourceFetchResult
+        assertEquals(coil3.decode.DataSource.DISK, second.dataSource)
+        assertEquals(payload.toList(), second.source.source().readByteArray().toList())
+    }
+
+    @Test
+    fun `MirrorFirstFetcher 本地镜像命中——即使同 key 磁盘缓存已有旧档也直接读镜像文件，不摸磁盘缓存`() = runTest {
+        val cacheDir = File(ctx.cacheDir, "mirror-fetcher-cache-test-mirror").apply { mkdirs() }
+        val diskCache = coil3.disk.DiskCache.Builder().directory(cacheDir.toOkioPath()).build()
+        val loader = coil3.ImageLoader.Builder(ctx).diskCache(diskCache).build()
+        val cacheKey = "s1:t42"
+        // 磁盘缓存里预置一份「旧」内容——若 Fetcher 误走磁盘缓存分支，读到的会是这份陈旧数据而非镜像文件
+        diskCache.openEditor(cacheKey)!!.let { editor ->
+            diskCache.fileSystem.sink(editor.data).buffer().use { it.write(ByteArray(4) { 9 }) }
+            editor.commit()
+        }
+        val mirrorFile = File.createTempFile("mirror", ".jpg").apply { writeBytes(ByteArray(8) { 1 }) }
+        val factory = MirrorFirstFetcherFactory(localFile = { _, _ -> mirrorFile }, okHttp = OkHttpClient())
+
+        val result = factory.create(
+            ThumbnailSpec(1, 42, "http://127.0.0.1:9/api/app/v1/images/42/thumbnail"),   // 不可达端口：走网络必炸
+            coil3.request.Options(ctx, diskCacheKey = cacheKey),
+            loader,
+        ).fetch() as coil3.fetch.SourceFetchResult
+
+        assertEquals(coil3.decode.DataSource.DISK, result.dataSource)
+        assertEquals(mirrorFile.toOkioPath(), result.source.file())
     }
 }

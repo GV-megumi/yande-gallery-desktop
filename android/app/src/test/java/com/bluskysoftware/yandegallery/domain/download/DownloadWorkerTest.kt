@@ -11,6 +11,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -30,7 +31,7 @@ class DownloadWorkerTest {
             throw IllegalStateException("测试不升前台")   // runCatching 降级路径
     }
 
-    private fun worker(ensure: suspend (Long, Long) -> Result<File>): DownloadWorker =
+    private fun worker(activeId: Long? = 1L, ensure: suspend (Long, Long) -> Result<File>): DownloadWorker =
         TestListenableWorkerBuilder<DownloadWorker>(context)
             .setInputData(workDataOf(
                 DownloadWorker.KEY_SERVER_ID to 1L,
@@ -39,7 +40,12 @@ class DownloadWorkerTest {
             ))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(c: Context, name: String, p: WorkerParameters): ListenableWorker =
-                    DownloadWorker(c, p, ensureOriginal = ensure, notifier = noopNotifier)
+                    DownloadWorker(
+                        c, p,
+                        ensureOriginal = ensure,
+                        notifier = noopNotifier,
+                        activeServerId = { activeId },
+                    )
             })
             .build() as DownloadWorker
 
@@ -73,9 +79,33 @@ class DownloadWorkerTest {
             .setInputData(workDataOf(DownloadWorker.KEY_IMAGE_ID to 42L))
             .setWorkerFactory(object : WorkerFactory() {
                 override fun createWorker(c: Context, name: String, p: WorkerParameters): ListenableWorker =
-                    DownloadWorker(c, p, ensureOriginal = { _, _ -> Result.success(File("x")) }, notifier = noopNotifier)
+                    DownloadWorker(
+                        c, p,
+                        ensureOriginal = { _, _ -> Result.success(File("x")) },
+                        notifier = noopNotifier,
+                        activeServerId = { 1L },
+                    )
             })
             .build() as DownloadWorker
+        assertEquals(ListenableWorker.Result.failure(), w.doWork())
+    }
+
+    @Test
+    fun `陈旧任务（activeServerId 与入参 serverId 不符）→ success 直接完结，不调用 ensure`() = runTest {
+        var ensureCalled = false
+        val w = worker(activeId = 999L) { _, _ ->
+            ensureCalled = true
+            Result.success(File("x"))
+        }
+        assertEquals(ListenableWorker.Result.success(), w.doWork())
+        assertFalse("陈旧任务（已切服）不应触发 ensure", ensureCalled)
+    }
+
+    @Test
+    fun `IllegalStateException（元数据缺失或中途切服）→ failure 不重试`() = runTest {
+        // ImageMirrorStore.ensure 的三处 IllegalStateException 均为重试无法自愈的终态
+        // （下次触发条件不变，会一直失败到下次切服），必须映射为终态 failure 而非 retry。
+        val w = worker { _, _ -> Result.failure(IllegalStateException("服务器已切换，中止落盘")) }
         assertEquals(ListenableWorker.Result.failure(), w.doWork())
     }
 }

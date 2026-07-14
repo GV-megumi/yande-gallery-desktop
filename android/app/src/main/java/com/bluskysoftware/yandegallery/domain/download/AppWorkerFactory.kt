@@ -28,6 +28,7 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                     graph.imageMirrorStore.ensure(serverId, imageId, MirrorTier.ORIGINAL)
                 },
                 notifier = AndroidDownloadNotifier(appContext),   // 前台下载通知（M4-D8）
+                activeServerId = { graph.serverRepository.activeServer()?.id },
             )
         } else if (workerClassName == MirrorSyncWorker::class.java.name) {
             MirrorSyncWorker(
