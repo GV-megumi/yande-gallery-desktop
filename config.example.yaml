@@ -48,7 +48,7 @@ thumbnails:
   quality: 92
   effort: 3
   format: webp
-  # 1600px 预览档（移动端全屏大图）
+  # 1600px 预览档（/preview 端点仍保留；安卓 0.7.0 起改用 hq 档镜像，不再调用）
   preview:
     cachePath: previews
     maxWidth: 1600
@@ -56,6 +56,14 @@ thumbnails:
     quality: 88
     effort: 3
     format: webp
+  # HQ 高质量档（安卓镜像同步用：长边 2560 同格式压缩、png 转 jpg 白底、gif 直通；
+  # 输出格式按源动态定，无 format 字段；体积保护恒 ≤ 原图）
+  hq:
+    cachePath: hq
+    maxWidth: 2560
+    maxHeight: 2560
+    quality: 85
+    effort: 3
 
 # -------- 应用 --------
 # 注：当前仅 autoScan 生效（其余历史字段已移除）
