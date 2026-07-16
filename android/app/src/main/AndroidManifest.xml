@@ -13,6 +13,12 @@
     <!-- 网络状态回调：恢复自动增量同步（spec §8）+ Coil 离线快速失败 -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
+    <!-- 手机相册 tab（本机相册 spec §3）：本机媒体读取；33+ 细分图片/视频，34+ 部分授权，26–32 旧读权限 -->
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
+    <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+
     <application
         android:name=".YandeGalleryApp"
         android:label="Yande Gallery"
