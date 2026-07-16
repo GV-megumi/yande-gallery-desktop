@@ -41,6 +41,24 @@ class DeviceModelsTest {
     }
 
     @Test
+    fun `相册排序_段边界匹配_防Camera360与GameScreenshots误置顶`() {
+        fun album(name: String, path: String?, count: Int) = DeviceAlbum(
+            key = BucketKey.Bucket(name.hashCode().toLong()),
+            name = name, relativePath = path, count = count, coverUri = null, isPending = false,
+        )
+        val sorted = sortDeviceAlbums(
+            listOf(
+                album("Camera360", "DCIM/Camera360/", 200),    // 不应置顶（tier 2）
+                album("GameScreenshots", "Pictures/GameScreenshots/", 150),  // 不应置顶（tier 2）
+                album("Camera", "DCIM/Camera/", 100),          // tier 0
+                album("Screenshots", "Pictures/Screenshots/", 50),  // tier 1
+            ),
+        )
+        // 预期：tier 0 (Camera) → tier 1 (Screenshots) → tier 2 按张数降序 (Camera360 > GameScreenshots)
+        assertEquals(listOf("Camera", "Screenshots", "Camera360", "GameScreenshots"), sorted.map { it.name })
+    }
+
+    @Test
     fun `目标目录校验_仅DCIM与Pictures前缀`() {
         assertTrue(isWritableAlbumPath("DCIM/Camera/"))
         assertTrue(isWritableAlbumPath("Pictures/WeChat/"))

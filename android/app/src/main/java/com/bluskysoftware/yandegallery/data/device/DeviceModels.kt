@@ -53,15 +53,18 @@ sealed interface BucketKey {
 }
 
 /**
- * 相册列表排序（spec §4.3）：相机（DCIM/Camera）→ 截图（* /Screenshots）置顶，
+ * 相册列表排序（spec §4.3）：相机（DCIM/Camera）→ 截图（段名恰为 Screenshots）置顶，
  * 其余按张数降序（同数按名称稳定），待落地相册垫底。
  */
 fun sortDeviceAlbums(albums: List<DeviceAlbum>): List<DeviceAlbum> {
-    fun rank(a: DeviceAlbum): Int = when {
-        a.isPending -> 3
-        a.relativePath?.startsWith("DCIM/Camera") == true -> 0
-        a.relativePath?.trimEnd('/')?.endsWith("Screenshots") == true -> 1
-        else -> 2
+    fun rank(a: DeviceAlbum): Int {
+        if (a.isPending) return 3
+        val p = a.relativePath?.trimEnd('/') ?: return 2
+        return when {
+            p == "DCIM/Camera" -> 0
+            p == "Screenshots" || p.endsWith("/Screenshots") -> 1
+            else -> 2
+        }
     }
     return albums.sortedWith(compareBy({ rank(it) }, { -it.count }, { it.name }))
 }
