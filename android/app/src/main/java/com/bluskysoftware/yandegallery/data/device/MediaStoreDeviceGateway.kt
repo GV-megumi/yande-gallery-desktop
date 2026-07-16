@@ -190,20 +190,21 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
                 put(MediaStore.MediaColumns.IS_PENDING, 1)
             }
             // 同名冲突 MediaStore 自动改名（同目录下重名 DISPLAY_NAME 自动追加后缀），无需本层处理
-            val uri = resolver.insert(collectionUri, values)
-                ?: return@withContext Result.failure<Uri>(IOException("MediaStore insert 失败：$collectionUri"))
-
+            var uri: Uri? = null
             try {
+                uri = resolver.insert(collectionUri, values)
+                    ?: return@withContext Result.failure<Uri>(IOException("MediaStore insert 失败：$collectionUri"))
+
                 val out = resolver.openOutputStream(uri) ?: throw IOException("无法打开输出流：$uri")
                 out.use { copyBytes(source, it) }
                 val done = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
                 resolver.update(uri, done, null, null)
                 Result.success(uri)
             } catch (e: CancellationException) {
-                resolver.delete(uri, null, null)   // 半成品行清理后不吞取消，重抛
+                uri?.let { resolver.delete(it, null, null) }   // 半成品行清理后不吞取消，重抛
                 throw e
             } catch (e: Exception) {
-                resolver.delete(uri, null, null)   // 失败清理半成品行（brief 约定）
+                uri?.let { resolver.delete(it, null, null) }   // 失败清理半成品行（brief 约定）
                 Result.failure(e)
             }
         }
