@@ -12,7 +12,6 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.material3.Text
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -36,6 +35,8 @@ import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsScreen
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.device.DeviceSelectionBars
+import com.bluskysoftware.yandegallery.ui.device.DeviceViewerScreen
+import com.bluskysoftware.yandegallery.ui.device.DeviceViewerViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -243,8 +244,7 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                         )
                     },
-                    // 手机相册三页占位（T4→T5→T6）：本任务再换 deviceAlbumDetailContent 真件，viewer
-                    // 仍是占位——Task 8 接
+                    // 手机相册三页（T4 占位 → T5/T6/T8 依次换真件）：列表页/网格页/大图页均已接实屏
                     deviceAlbumsContent = {
                         val deviceAlbumsVm: DeviceAlbumsViewModel =
                             viewModel(factory = DeviceAlbumsViewModel.factory(graph, deviceAccessLevel))
@@ -287,7 +287,21 @@ class MainActivity : ComponentActivity() {
                             selectionBars = deviceBars,
                         )
                     },
-                    deviceViewerContent = { _, _ -> Text("手机相册") },
+                    deviceViewerContent = { mediaId, bucketKeyRaw ->
+                        val deviceViewerVm: DeviceViewerViewModel =
+                            viewModel(factory = DeviceViewerViewModel.factory(graph, mediaId, bucketKeyRaw))
+                        DeviceViewerScreen(
+                            viewModel = deviceViewerVm,
+                            loader = graph.deviceLoader,
+                            // 防重入（Viewer M4-T14 同款）：列表清空自动返回与用户返回可能双触发，
+                            // 第二次会把下层网格页也 pop 掉——仅当栈顶仍是本路由才 pop
+                            onBack = {
+                                if (nav.currentBackStackEntry?.destination?.route == Routes.DeviceViewer) {
+                                    nav.popBackStack()
+                                }
+                            },
+                        )
+                    },
                 )
             }
         }

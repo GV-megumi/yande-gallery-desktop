@@ -296,8 +296,9 @@ fun DeviceAlbumDetailScreen(
     }
 }
 
-/** 分享 mime（brief 契约）：视频通配 video；图片按实际扩展名映射（未知回退 image 通配）。 */
-private fun DeviceMedia.mime(): String =
+/** 分享 mime（brief 契约）：视频通配 video；图片按实际扩展名映射（未知回退 image 通配）。
+ *  Task 8 起 internal 共享给 DeviceViewerScreen 的单张分享（同域同语义，不各自复制）。 */
+internal fun DeviceMedia.mime(): String =
     if (isVideo) "video/*" else mimeOf(displayName.substringAfterLast('.', ""))
 
 /** 网格格子：SelectableCell 包图 + 选中态角标；视频额外叠右下角时长角标（黑 55% 圆角底白字）。 */

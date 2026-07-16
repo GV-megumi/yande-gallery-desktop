@@ -193,8 +193,9 @@ class DeviceAlbumDetailScreenTest {
  *    还要过解码器，Robolectric 下 BitmapFactory 后端行为不稳定，直接交成品图跳过解码环节，
  *    请求确定性落 Success，ImageErrorPlaceholder 不挂载，测到未被遮蔽的真实交互路径。
  * 用户自注册组件优先于内建组件参与匹配（Coil ComponentRegistry 语义），无需担心被真实 Fetcher 抢先。
+ * Task 8 起 internal 共享给 DeviceViewerScreenTest（同款 content:// 遮蔽问题，装置不再各自复制）。
  */
-private class AlwaysSucceedFetcherFactory : Fetcher.Factory<CoilUri> {
+internal class AlwaysSucceedFetcherFactory : Fetcher.Factory<CoilUri> {
     override fun create(data: CoilUri, options: Options, imageLoader: ImageLoader): Fetcher = Fetcher {
         ImageFetchResult(
             image = ColorImage(color = 0xFF808080.toInt(), width = 8, height = 8),
