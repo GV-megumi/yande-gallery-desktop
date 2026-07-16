@@ -13,6 +13,7 @@ import com.bluskysoftware.yandegallery.data.device.sortDeviceAlbums
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -43,7 +44,14 @@ class DeviceAlbumsViewModel(
     ) { _, pending, level -> pending to level }
         .mapLatest { (pending, level) ->
             if (level == DeviceAccessLevel.DENIED) return@mapLatest emptyList()
-            val real = gateway.queryAlbums()
+            // 权限收回竞态兜底（spec §3，review Finding 1）：会话中途权限被撤销时
+            // MediaStoreDeviceGateway.queryAlbums 会抛 SecurityException——mapLatest 内异常不接住
+            // 会直接杀穿整条 flow 链（连带 Compose 收集器一起崩），这里退化空列表；等 MainActivity
+            // 权限桥下一轮重检把 accessLevel 喂成 DENIED，页面自然切到引导页。CancellationException
+            // 是协程自身取消信号必须原样重抛，不能被吞（沿用 MediaStoreDeviceGateway 各写操作同款判别）。
+            val real = runCatching { gateway.queryAlbums() }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrElse { emptyList() }
             // 收编：真实 bucket 与待落地占位撞名，占位记录失去存在意义——顺手清掉（spec §5.5），
             // 下一轮 devicePendingAlbums 重新发射时 buildAlbums 已经算过一遍、不会闪现残影。
             absorbedPendingNames(real, pending).forEach { prefsStore.removePendingAlbum(it) }

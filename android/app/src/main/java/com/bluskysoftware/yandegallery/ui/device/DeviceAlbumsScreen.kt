@@ -56,10 +56,11 @@ import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 
 /**
  * 手机相册 tab（Task 5，spec §2/§3/§5.5）：权限三态门控收敛在此页——DENIED 整页替换成引导页
- * （只留「授权」出口，不露出任何卡片）；PARTIAL 在网格上方挂常驻横幅（「管理」重新拉起系统
- * 部分照片选择器）；FULL/PARTIAL 均正常展示网格——「全部照片」聚合卡恒首位 + 真实相册 +
- * 待落地占位相册（灰底封面 + 长按「删除」）。顶栏「+」新建相册按 [DeviceCapabilities.canCreateAlbum]
- * 门控（26–28 建了也永远落不了地，直接不露入口，spec §2.3）。
+ * （只留一个出口按钮，不露出任何卡片；未永久拒绝显「授权」，永久拒绝显「去设置」，见
+ * [DevicePermissionGate] 与 [permanentlyDenied]，review Finding 4）；PARTIAL 在网格上方挂常驻
+ * 横幅（「管理」重新拉起系统部分照片选择器）；FULL/PARTIAL 均正常展示网格——「全部照片」聚合卡
+ * 恒首位 + 真实相册 + 待落地占位相册（灰底封面 + 长按「删除」）。顶栏「+」新建相册按
+ * [DeviceCapabilities.canCreateAlbum] 门控（26–28 建了也永远落不了地，直接不露入口，spec §2.3）。
  */
 @Composable
 fun DeviceAlbumsScreen(
@@ -68,11 +69,14 @@ fun DeviceAlbumsScreen(
     onOpenAlbum: (BucketKey) -> Unit,
     onRequestPermission: () -> Unit,
     onManagePartial: () -> Unit,
+    // 永久拒绝标记（spec §3，review Finding 4）：由 MainActivity 权限桥判定并喂入，本页只管展示；
+    // 默认 false 保持既有调用方（旧测试/占位）零改动可编译。
+    permanentlyDenied: Boolean = false,
 ) {
     val accessLevel by viewModel.accessLevel.collectAsStateWithLifecycle()
 
     if (accessLevel == DeviceAccessLevel.DENIED) {
-        DevicePermissionGate(onRequestPermission = onRequestPermission)
+        DevicePermissionGate(onRequestPermission = onRequestPermission, permanentlyDenied = permanentlyDenied)
         return
     }
 
@@ -158,9 +162,13 @@ fun DeviceAlbumsScreen(
     }
 }
 
-/** 权限引导页（spec §3）：DENIED 时整页替换，只留「授权」出口重新拉起系统权限弹窗。 */
+/**
+ * 权限引导页（spec §3）：DENIED 时整页替换，只留一个出口按钮。未永久拒绝时「授权」重新拉起
+ * 系统权限弹窗；永久拒绝（用户勾了"不再询问"或系统直接判定）后文案变「去设置」——回调本身不变，
+ * 具体是拉权限弹窗还是跳 app 详情页由 MainActivity 决定（本页不碰 Intent/Activity，纯展示分支）。
+ */
 @Composable
-private fun DevicePermissionGate(onRequestPermission: () -> Unit) {
+private fun DevicePermissionGate(onRequestPermission: () -> Unit, permanentlyDenied: Boolean = false) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -180,8 +188,8 @@ private fun DevicePermissionGate(onRequestPermission: () -> Unit) {
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp, bottom = 16.dp),
         )
-        Button(onClick = onRequestPermission, modifier = Modifier.testTag("device_permission_gate_button")) {
-            Text("授权")
+        Button(onClick = onRequestPermission, modifier = Modifier.testTag("device_permission_action")) {
+            Text(if (permanentlyDenied) "去设置" else "授权")
         }
     }
 }

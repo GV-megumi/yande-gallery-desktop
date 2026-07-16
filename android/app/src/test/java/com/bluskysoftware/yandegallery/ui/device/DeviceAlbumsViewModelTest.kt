@@ -99,7 +99,33 @@ class DeviceAlbumsViewModelTest {
             while (list.any { it.key == BucketKey.Pending("旅行") }) list = awaitItem()
             assertTrue(list.any { it.key == BucketKey.Bucket(9) && it.name == "旅行" })
         }
-        awaitValue({ prefsStore.devicePendingAlbums.first() }) { it == emptySet<String>() }
+        // review Finding 3：awaitValue 超时也不抛，只返回末次读值——不包一层断言的话，DataStore
+        // 键真被清掉这件事完全没人验证。改用同库既有 assertEquals(期望, awaitValue(...){...}) 惯例
+        // （对照 M4DensityPrefsE2ETest/PhotosViewModelTest/AlbumDetailViewModelTest）。
+        assertEquals(emptySet<String>(), awaitValue({ prefsStore.devicePendingAlbums.first() }) { it == emptySet<String>() })
+    }
+
+    @Test
+    fun `queryAlbums抛异常时真实相册降级为空_仅剩聚合卡_不崩溃`() = runTest {
+        // 权限收回竞态（review Finding 1）：MediaStoreDeviceGateway.queryAlbums 在权限会话中途被
+        // 撤销时会抛 SecurityException——VM 必须接住降级（真实相册视为空），不能让异常穿透杀死
+        // 整条 flow 链。buildAlbums 无条件补一张「全部照片」聚合卡（count=真实相册计数总和），
+        // 因此降级后的落点不是空列表，而是仅剩这张 count=0 的聚合卡——不能照搬 DENIED 分支
+        // 那种真空列表的断言（那条走的是 level 门控的另一条 return@mapLatest emptyList() 分支）。
+        gateway.albums = listOf(realAlbum(1, "Camera", 5))
+        val vm = DeviceAlbumsViewModel(gateway, prefsStore, MutableStateFlow(DeviceAccessLevel.FULL))
+        vm.albums.test {
+            var list = awaitItem()
+            while (list.none { it.key == BucketKey.Bucket(1) }) list = awaitItem()
+            assertTrue(list.any { it.key == BucketKey.Bucket(1) })
+
+            gateway.queryError = SecurityException("permission revoked mid-session")
+            gateway.changes.tryEmit(Unit)
+            list = awaitItem()
+            while (list.any { it.key == BucketKey.Bucket(1) }) list = awaitItem()
+            assertEquals(listOf(BucketKey.All), list.map { it.key })
+            assertEquals(0, list.first().count)
+        }
     }
 
     @Test

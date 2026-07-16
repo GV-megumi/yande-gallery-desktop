@@ -5,6 +5,7 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import coil3.ImageLoader
@@ -77,6 +78,7 @@ class DeviceAlbumsScreenTest {
         onOpenAlbum: (BucketKey) -> Unit = {},
         onRequestPermission: () -> Unit = {},
         onManagePartial: () -> Unit = {},
+        permanentlyDenied: Boolean = false,
     ) {
         val vm = DeviceAlbumsViewModel(gateway, prefsStore, MutableStateFlow(level))
         compose.setContent {
@@ -87,6 +89,7 @@ class DeviceAlbumsScreenTest {
                 onOpenAlbum = onOpenAlbum,
                 onRequestPermission = onRequestPermission,
                 onManagePartial = onManagePartial,
+                permanentlyDenied = permanentlyDenied,
             )
         }
     }
@@ -96,6 +99,15 @@ class DeviceAlbumsScreenTest {
         setScreen(DeviceAccessLevel.DENIED)
         compose.onNodeWithTag("device_permission_gate").assertIsDisplayed()
         compose.onNodeWithTag("device_albums_grid").assertDoesNotExist()
+    }
+
+    @Test
+    fun `永久拒绝后授权按钮变去设置`() {
+        // review Finding 4（spec §3）：DENIED + permanentlyDenied=true 时引导页按钮文案切「去设置」，
+        // tag 仍是同一个 device_permission_action（MainActivity 只切回调行为，不换按钮身份）。
+        setScreen(DeviceAccessLevel.DENIED, permanentlyDenied = true)
+        compose.onNodeWithTag("device_permission_action").assertIsDisplayed()
+        compose.onNodeWithText("去设置").assertIsDisplayed()
     }
 
     @Test

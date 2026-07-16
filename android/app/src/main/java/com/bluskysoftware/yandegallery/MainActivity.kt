@@ -1,18 +1,27 @@
 package com.bluskysoftware.yandegallery
 
 import android.content.Context
+import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -69,9 +78,34 @@ class MainActivity : ComponentActivity() {
                 // 会出现权限授予后画面不刷新的失联。
                 val deviceContext = LocalContext.current
                 val deviceAccessLevel = remember { MutableStateFlow(currentDeviceAccessLevel(deviceContext)) }
+                // 永久拒绝标记（review Finding 4，spec §3）：申请回调里如果某项权限「未授予」且系统已经
+                // 判定不该再展示理由说明（shouldShowRequestPermissionRationale=false，首次请求前也是
+                // false，需配合本次确有一次 launch 发生才有意义），说明用户勾了「不再询问」——引导页
+                // 按钮要从「授权」切换成「去设置」，跳系统应用详情页而不是再徒劳弹一次系统权限框。
+                val devicePermanentlyDenied = remember { mutableStateOf(false) }
                 val devicePermissionLauncher = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions(),
-                ) { deviceAccessLevel.value = currentDeviceAccessLevel(deviceContext) }
+                ) { results ->
+                    deviceAccessLevel.value = currentDeviceAccessLevel(deviceContext)
+                    devicePermanentlyDenied.value = results.any { (perm, granted) ->
+                        !granted && !ActivityCompat.shouldShowRequestPermissionRationale(this@MainActivity, perm)
+                    }
+                }
+                // ON_RESUME 权限重检（review Finding 2）：用户授权后把应用切到后台、去系统设置里撤销
+                // 权限、再切回前台——这条路径不会走 devicePermissionLauncher 回调（根本没发起系统请求），
+                // accessLevel 会停留在撤销前的旧值。叠加 Finding 1 的查询异常兜底后，二者共同保证撤销
+                // 权限这件事最终会被感知到并让页面收敛回引导页，而不是拿着过期 accessLevel 继续尝试
+                // 查询已被收回的 MediaStore 权限、被动等下一次异常兜底触发。
+                val deviceLifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(deviceLifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            deviceAccessLevel.value = currentDeviceAccessLevel(deviceContext)
+                        }
+                    }
+                    deviceLifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { deviceLifecycleOwner.lifecycle.removeObserver(observer) }
+                }
                 AppScaffold(
                     navController = nav,
                     photosSelectionBars = photosBars,
@@ -215,13 +249,25 @@ class MainActivity : ComponentActivity() {
                             loader = graph.deviceLoader,
                             onOpenAlbum = { key -> nav.navigate(Routes.deviceAlbumDetail(key)) },
                             onRequestPermission = {
-                                devicePermissionLauncher.launch(DeviceCapabilities.readPermissions().toTypedArray())
+                                // review Finding 4（spec §3）：永久拒绝后系统不会再弹权限对话框，
+                                // 再次 launch 只会静默立即回调「未授予」——改跳应用详情页交给用户手动开。
+                                if (devicePermanentlyDenied.value) {
+                                    startActivity(
+                                        Intent(
+                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.fromParts("package", packageName, null),
+                                        ),
+                                    )
+                                } else {
+                                    devicePermissionLauncher.launch(DeviceCapabilities.readPermissions().toTypedArray())
+                                }
                             },
                             // 34+ 对已是 PARTIAL 的应用重新申请同一批权限，系统会重新弹出部分照片选择
                             // 器供用户补选或升级为完整授权（brief 契约）；<34 不会展示横幅，不会走到这里
                             onManagePartial = {
                                 devicePermissionLauncher.launch(DeviceCapabilities.readPermissions().toTypedArray())
                             },
+                            permanentlyDenied = devicePermanentlyDenied.value,
                         )
                     },
                     deviceAlbumDetailContent = { Text("手机相册") },
