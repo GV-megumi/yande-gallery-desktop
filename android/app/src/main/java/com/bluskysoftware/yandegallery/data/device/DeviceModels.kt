@@ -82,6 +82,21 @@ fun validateNewAlbumName(name: String, existingNames: Set<String>): String? {
     return null
 }
 
+/**
+ * 文件扩展名 → MIME（分享/导出用）；未知回退图片通配。入参口径为**实际文件扩展名**
+ * （`file.extension`）——HQ 档把 png 源转成 .jpg，按 image.format 会错报 MIME。
+ * Task 10 迁自 ui/common/UiText.kt（原处保留转发引用）：导出 worker（domain/export）也要用，
+ * 不该反向依赖 ui 包；手机域模型层是两侧公共下游。
+ */
+fun mimeOf(format: String): String = when (format.lowercase()) {
+    "jpg", "jpeg" -> "image/jpeg"
+    "png" -> "image/png"
+    "gif" -> "image/gif"
+    "webp" -> "image/webp"
+    "bmp" -> "image/bmp"
+    else -> "image/*"
+}
+
 /** 视频时长角标文案：m:ss，≥1h 为 h:mm:ss。 */
 fun formatDurationMs(ms: Long): String {
     val totalSec = ms / 1000

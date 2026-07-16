@@ -16,6 +16,7 @@ import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
+import com.bluskysoftware.yandegallery.domain.export.DeviceExportManager
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncManager
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncMonitor
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
@@ -155,6 +156,9 @@ class AppGraph(
 
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
     val downloadManager by lazy { DownloadManager(appContext) }
+
+    /** 桌面→手机导出入队（本机相册 spec §6.1）：唯一工作名按服务器 APPEND_OR_REPLACE 排队。 */
+    val deviceExportManager by lazy { DeviceExportManager(appContext) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
