@@ -1,5 +1,6 @@
 package com.bluskysoftware.yandegallery.ui.device
 
+import android.app.PendingIntent
 import android.net.Uri
 import androidx.paging.PagingSource
 import androidx.paging.PagingState
@@ -18,7 +19,11 @@ import kotlinx.coroutines.flow.MutableSharedFlow
  * 模拟 MediaStore 变更脉冲。[media]/[pagingSource]（Task 6 起）：内部 [FakeMediaPagingSource]
  * 镜像 MediaStoreDeviceGateway.DeviceMediaPagingSource 的 offset 分页与 prevKey/nextKey 公式，
  * 数据源换成内存 List；每次调用都把新建实例记进 [createdPagingSources]，供测试取「上一代」
- * 断言 invalidate。写操作类方法本任务用不到，未实现即抛，误用即测试失败而非静默返回假数据。
+ * 断言 invalidate。
+ *
+ * 写操作（Task 7 起）：全部带「入参记录 + 可配置结果」双旋钮——insertCopy 走 [insertCopyHandler]
+ * （逐张定制成败），moveTo/deleteRequest/writeRequest 各配 result 字段；**未显式配置时保持
+ * 未实现即抛/返回失败**（沿用建立以来的口径：误用即测试红灯，而非静默返回假数据）。
  */
 class FakeDeviceGateway : DeviceMediaGateway {
     var albums: List<DeviceAlbum> = emptyList()
@@ -26,6 +31,23 @@ class FakeDeviceGateway : DeviceMediaGateway {
     var media: List<DeviceMedia> = emptyList()
     val changes = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
     val createdPagingSources = mutableListOf<PagingSource<Int, DeviceMedia>>()
+
+    /** insertCopy 入参记录（source + targetRelativePath），按调用顺序追加。 */
+    val insertCopyCalls = mutableListOf<Pair<DeviceSource, String>>()
+
+    /** insertCopy 结果定制：默认未配置即失败（UnsupportedOperationException），测试显式覆写。 */
+    var insertCopyHandler: (DeviceSource, String) -> Result<Uri> =
+        { _, _ -> Result.failure(UnsupportedOperationException("insertCopy 未配置")) }
+
+    /** moveTo 入参记录（uris + targetRelativePath）与可配置结果（null=未配置即失败）。 */
+    val moveToCalls = mutableListOf<Pair<List<Uri>, String>>()
+    var moveToResult: Result<Int>? = null
+
+    /** deleteRequest/writeRequest 入参记录与占位 PendingIntent（null=未配置即抛，Robolectric 下用 PendingIntent.getActivity 构造）。 */
+    val deleteRequestCalls = mutableListOf<List<Uri>>()
+    var deleteRequestResult: PendingIntent? = null
+    val writeRequestCalls = mutableListOf<List<Uri>>()
+    var writeRequestResult: PendingIntent? = null
 
     override suspend fun queryAlbums(): List<DeviceAlbum> {
         queryError?.let { throw it }
@@ -57,15 +79,29 @@ class FakeDeviceGateway : DeviceMediaGateway {
         }
     }
 
-    override suspend fun mediaByIds(ids: List<Long>) = emptyList<DeviceMedia>()
+    /** 选中 id → 完整行还原：镜像生产语义按 [media] 现有列表过滤（保持入参顺序无关、以库序为准）。 */
+    override suspend fun mediaByIds(ids: List<Long>): List<DeviceMedia> {
+        val wanted = ids.toSet()
+        return media.filter { it.mediaId in wanted }
+    }
 
-    override suspend fun insertCopy(source: DeviceSource, targetRelativePath: String) =
-        Result.failure<Uri>(UnsupportedOperationException())
+    override suspend fun insertCopy(source: DeviceSource, targetRelativePath: String): Result<Uri> {
+        insertCopyCalls += source to targetRelativePath
+        return insertCopyHandler(source, targetRelativePath)
+    }
 
-    override fun deleteRequest(uris: List<Uri>) = throw UnsupportedOperationException()
+    override fun deleteRequest(uris: List<Uri>): PendingIntent {
+        deleteRequestCalls += uris
+        return deleteRequestResult ?: throw UnsupportedOperationException("deleteRequest 未配置")
+    }
 
-    override fun writeRequest(uris: List<Uri>) = throw UnsupportedOperationException()
+    override fun writeRequest(uris: List<Uri>): PendingIntent {
+        writeRequestCalls += uris
+        return writeRequestResult ?: throw UnsupportedOperationException("writeRequest 未配置")
+    }
 
-    override suspend fun moveTo(uris: List<Uri>, targetRelativePath: String) =
-        Result.failure<Int>(UnsupportedOperationException())
+    override suspend fun moveTo(uris: List<Uri>, targetRelativePath: String): Result<Int> {
+        moveToCalls += uris to targetRelativePath
+        return moveToResult ?: Result.failure(UnsupportedOperationException("moveTo 未配置"))
+    }
 }

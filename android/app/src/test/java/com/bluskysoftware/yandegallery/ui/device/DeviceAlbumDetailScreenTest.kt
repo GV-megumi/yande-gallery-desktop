@@ -17,12 +17,17 @@ import coil3.decode.DataSource
 import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
 import coil3.request.Options
+import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
-import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
+import java.io.File
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -37,7 +42,8 @@ import org.robolectric.RobolectricTestRunner
 /**
  * [DeviceAlbumDetailScreen] compose 契约（Task 6，spec §2.2）：网格渲染、视频角标文案、单击/
  * 长按交互、多选顶栏 swap。捏合列数改用 [PinchStepState] 纯逻辑单测——手势驱动 Robolectric
- * 不可靠，AlbumDetailScreenTest 同款既有惯例（brief Step 1 明文要求）。
+ * 不可靠，AlbumDetailScreenTest 同款既有惯例（brief Step 1 明文要求）。Task 7 起 selectionBars
+ * 换 DeviceSelectionBars 桥（prefsStore 同步入装置），批量动作契约在 DeviceActionsTest。
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @RunWith(RobolectricTestRunner::class)
@@ -45,6 +51,9 @@ class DeviceAlbumDetailScreenTest {
     @get:Rule
     val compose = createComposeRule()
 
+    private val prefsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val prefsTmp = File.createTempFile("device_detail_screen_test", ".preferences_pb").also { it.delete() }
+    private val prefsStore = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp })
     private lateinit var gateway: FakeDeviceGateway
 
     @Before
@@ -56,6 +65,8 @@ class DeviceAlbumDetailScreenTest {
     @After
     fun teardown() {
         Dispatchers.resetMain()
+        prefsScope.cancel()
+        prefsTmp.delete()
     }
 
     private fun media(id: Long, isVideo: Boolean = false, durationMs: Long? = null) = DeviceMedia(
@@ -81,7 +92,7 @@ class DeviceAlbumDetailScreenTest {
      * 不含真实 IO，Unconfined 下与调用方同线程同步跑完，请求在合成当帧内确定性落定，消除竞态。
      */
     private fun setScreen(onOpenViewer: (Long) -> Unit = {}): DeviceAlbumDetailViewModel {
-        val vm = DeviceAlbumDetailViewModel(gateway, BucketKey.All.encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
         compose.setContent {
             val context = LocalContext.current
             DeviceAlbumDetailScreen(
@@ -92,7 +103,7 @@ class DeviceAlbumDetailScreenTest {
                     .build(),
                 onOpenViewer = onOpenViewer,
                 onBack = {},
-                selectionBars = PhotosSelectionBars(),
+                selectionBars = DeviceSelectionBars(),
             )
         }
         return vm

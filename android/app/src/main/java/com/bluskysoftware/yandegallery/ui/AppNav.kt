@@ -41,6 +41,8 @@ import androidx.navigation.compose.*
 import androidx.navigation.navArgument
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
 import com.bluskysoftware.yandegallery.ui.common.SelectionBottomBar
+import com.bluskysoftware.yandegallery.ui.device.DeviceSelectionBars
+import com.bluskysoftware.yandegallery.ui.device.DeviceSelectionBottomBar
 import com.bluskysoftware.yandegallery.ui.photos.PhotosPinnedTopBar
 
 object Routes {
@@ -134,7 +136,7 @@ fun AppScaffold(
     albumDetailContent: @Composable (Long) -> Unit,
     viewerContent: @Composable (imageId: Long, galleryId: Long?) -> Unit,
     searchContent: @Composable (initialQuery: String) -> Unit,
-    deviceSelectionBars: PhotosSelectionBars,
+    deviceSelectionBars: DeviceSelectionBars,
     deviceAlbumsContent: @Composable () -> Unit,
     deviceAlbumDetailContent: @Composable (String) -> Unit,
     deviceViewerContent: @Composable (mediaId: Long, bucketKey: String) -> Unit,
@@ -160,15 +162,10 @@ fun AppScaffold(
                     onAddToGallery = bars.onAddToGallery,
                 )
             } else if ((currentRoute == Routes.DeviceAlbums || currentRoute == Routes.DeviceAlbumDetail) && deviceBars != null) {
-                // 手机域多选底栏：swap 条件对照 photos 域先例，覆盖列表页与详情页两处网格（Task 7 接真回调）
-                SelectionBottomBar(
-                    online = deviceBars.online,
-                    inGallery = false,
-                    onDownload = deviceBars.onDownload,
-                    onShare = deviceBars.onShare,
-                    onDelete = deviceBars.onDelete,
-                    onAddToGallery = deviceBars.onAddToGallery,
-                )
+                // 手机域多选底栏（Task 7 修正 Task 4 临时接线）：swap 条件对照 photos 域先例、
+                // 覆盖列表页与详情页两处网格；动作面换成手机域专属 DeviceSelectionBottomBar
+                //（版本门控 false 项不渲染，spec §7）。
+                DeviceSelectionBottomBar(deviceBars)
             } else if (showBottomBar) {
                 MiuiNavBar(currentRoute) { route ->
                     navController.navigate(route) {
@@ -304,7 +301,7 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
             albumDetailContent = { Text("相册详情占位") },
             viewerContent = { _, _ -> Text("大图页占位") },
             searchContent = { Text("搜索页占位") },
-            deviceSelectionBars = remember { PhotosSelectionBars() },
+            deviceSelectionBars = remember { DeviceSelectionBars() },
             deviceAlbumsContent = { Text("手机相册占位") },
             deviceAlbumDetailContent = { Text("手机相册详情占位") },
             deviceViewerContent = { _, _ -> Text("手机相册大图页占位") },

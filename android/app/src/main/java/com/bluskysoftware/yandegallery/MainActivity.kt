@@ -35,6 +35,7 @@ import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsScreen
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsViewModel
+import com.bluskysoftware.yandegallery.ui.device.DeviceSelectionBars
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -70,8 +71,9 @@ class MainActivity : ComponentActivity() {
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
                 // 照片 tab 多选栏桥（M4-T12）：单实例连通 PhotosScreen（SideEffect 回填）与壳（条件 swap）
                 val photosBars = remember { PhotosSelectionBars() }
-                // 手机相册 tab 多选栏桥（T4）：同一套桥类型，Task 7 接真回调前先占位保证壳可编译可测
-                val deviceBars = remember { PhotosSelectionBars() }
+                // 手机域多选栏桥（Task 7 修正 T4 临时接线）：换专属 DeviceSelectionBars——
+                // DeviceAlbumDetailScreen SideEffect 回填、壳按路由 swap 成 DeviceSelectionBottomBar
+                val deviceBars = remember { DeviceSelectionBars() }
                 // 手机相册权限桥（T5，spec §3）：初始态现读 checkSelfPermission 算一次 accessLevel；
                 // remember 必须挂在这一层（不能下沉进 deviceAlbumsContent lambda 内部）——NavHost
                 // 切目的地会整体丢弃目的地内部的组合状态，但 viewModel() 工厂只在 ViewModelStore

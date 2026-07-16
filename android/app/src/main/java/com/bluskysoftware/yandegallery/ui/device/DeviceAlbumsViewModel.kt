@@ -103,6 +103,16 @@ internal fun buildAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<String
         coverUri = realAlbums.firstOrNull()?.coverUri,
         isPending = false,
     )
+    return listOf(allCard) + buildTargetAlbums(realAlbums, pendingNames)
+}
+
+/**
+ * 复制/移动目标候选组装（Task 7 复用点，spec §5.3）：真实相册 + 未被收编的待落地占位，同款
+ * 排序，**无**「全部照片」聚合卡——聚合卡不是合法写入目标（relativePath=null）。picker 数据源
+ * （DeviceAlbumDetailViewModel.targetAlbums）直接用本函数；列表页展示由 [buildAlbums] 在其上
+ * 加聚合卡，两处组装共此一源不漂移。
+ */
+internal fun buildTargetAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): List<DeviceAlbum> {
     val absorbed = absorbedPendingNames(realAlbums, pendingNames)
     val pendingCards = (pendingNames - absorbed).map { name ->
         DeviceAlbum(
@@ -114,5 +124,5 @@ internal fun buildAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<String
             isPending = true,
         )
     }
-    return listOf(allCard) + sortDeviceAlbums(realAlbums + pendingCards)
+    return sortDeviceAlbums(realAlbums + pendingCards)
 }
