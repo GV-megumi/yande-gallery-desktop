@@ -39,6 +39,11 @@ class FakeDeviceGateway : DeviceMediaGateway {
     var insertCopyHandler: (DeviceSource, String) -> Result<Uri> =
         { _, _ -> Result.failure(UnsupportedOperationException("insertCopy 未配置")) }
 
+    /** findCopy 入参记录与结果定制（Task 10 导出查重）：默认查无副本 null——查重是"没有才插"
+     * 语义，null 即"放行 insert"，是无害缺省，不沿用"未配置即抛"口径。 */
+    val findCopyCalls = mutableListOf<Pair<String, String>>()
+    var findCopyHandler: (String, String) -> Uri? = { _, _ -> null }
+
     /** moveTo 入参记录（uris + targetRelativePath）与可配置结果（null=未配置即失败）。 */
     val moveToCalls = mutableListOf<Pair<List<Uri>, String>>()
     var moveToResult: Result<Int>? = null
@@ -88,6 +93,11 @@ class FakeDeviceGateway : DeviceMediaGateway {
     override suspend fun insertCopy(source: DeviceSource, targetRelativePath: String): Result<Uri> {
         insertCopyCalls += source to targetRelativePath
         return insertCopyHandler(source, targetRelativePath)
+    }
+
+    override suspend fun findCopy(targetRelativePath: String, displayName: String): Uri? {
+        findCopyCalls += targetRelativePath to displayName
+        return findCopyHandler(targetRelativePath, displayName)
     }
 
     override fun deleteRequest(uris: List<Uri>): PendingIntent {

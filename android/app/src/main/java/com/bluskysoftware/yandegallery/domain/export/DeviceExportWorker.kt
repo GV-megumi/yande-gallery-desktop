@@ -2,9 +2,12 @@ package com.bluskysoftware.yandegallery.domain.export
 
 import android.content.Context
 import android.net.Uri
+import android.system.ErrnoException
+import android.system.OsConstants
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.device.DeviceSource
 import com.bluskysoftware.yandegallery.data.device.mimeOf
 import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
@@ -15,12 +18,23 @@ import java.io.File
 /**
  * 桌面→手机导出 worker（本机相册 spec §6.1）：逐张（串行）`ensureOriginal` 把原图收进镜像
  * （同 D7 语义：导出即升原图档，镜像层落盘/校验/删 HQ 全在 ImageMirrorStore.ensure 内）→
- * `insertCopy(LocalFile)` 复制落 MediaStore 目标相册。分流：
- * - 单张 ensure 404（原图已在桌面删除）或 insertCopy 失败 → 该张计入失败继续下一张；
- * - 磁盘不足 → 整批 [Result.retry]（指数退避，等清理出空间后续跑）；
+ * `findCopy` 查重 → 未落地才 `insertCopy(LocalFile)` 复制落 MediaStore 目标相册。
+ *
+ * 查重前置（review Critical #1）：worker 无断点，retry/约束中断/进程被杀后 WorkManager 都从头
+ * 重跑，而 insertCopy 刻意不幂等（同名 MediaStore 自动改名 "xx (1).jpg"）——不查重则每轮重跑
+ * 给已成功前缀追加一套真实重复照片；已落地张跳过计成功，重跑只补余量。
+ *
+ * 失败分流（对照 DownloadWorker/MirrorSyncWorker 口径）：
+ * - ensure 404（原图已在桌面删除）/ IllegalStateException（元数据缺失、下载中途切服）——重试
+ *   无法自愈的终态 → 该张计失败继续，末尾 outputData [KEY_FAILED_COUNT] 汇总（Task 11 UI 提示）；
+ * - ensure 其余失败（断网/连接重置/桌面离线等瞬时错误）→ 计 retryable 继续，先把能落的张落完，
+ *   收尾整批 [Result.retry]（对照 MirrorSyncWorker retryable 口径）——不与 404 同流静默计失败，
+ *   否则整批 SUCCEEDED 后瞬时错误永不自愈；
+ * - 磁盘不足（ensure 前置检查，或 insert 写流 ENOSPC——全批 ensure 命中缓存时前置检查被绕过，
+ *   满盘首现于 MediaStore 写流）→ 立即 [Result.retry]，退避等清出空间；
+ * - insert 其余失败（本地 MediaStore 错误）→ 该张计失败继续；
  * - 陈旧任务（activeServerId != 入参 serverId，切服后残留队列）→ [Result.success] 直接丢弃，
- *   每张开工前复查——已落地的照片是用户手机相册的真实文件，保留不回滚；
- * - 正常结束 → outputData [KEY_FAILED_COUNT] 报失败张数（Task 11 UI 据此提示）。
+ *   每张开工前复查——已落地的照片是用户手机相册的真实文件，保留不回滚。
  */
 class DeviceExportWorker(
     context: Context,
@@ -29,8 +43,9 @@ class DeviceExportWorker(
     // androidx.work.ListenableWorker.Result（非泛型），必须全限定名避免歧义（对照 DownloadWorker 用法）。
     // ORIGINAL 档位在 AppWorkerFactory 柯里化时烘焙，worker 不感知 tier。
     private val ensureOriginal: suspend (serverId: Long, imageId: Long) -> kotlin.Result<File>,
-    // 生产接 graph.deviceMediaGateway::insertCopy（方法引用），测试注 fake 记录入参
+    // 生产接 graph.deviceMediaGateway::insertCopy / ::findCopy（方法引用），测试注 fake 记录入参
     private val insertCopy: suspend (source: DeviceSource, targetRelativePath: String) -> kotlin.Result<Uri>,
+    private val findCopy: suspend (targetRelativePath: String, displayName: String) -> Uri?,
     // 陈旧任务判定（对齐 DownloadWorker/MirrorSyncWorker 先例）：切服后残留的旧队列项不应再动手
     private val activeServerId: suspend () -> Long?,
     private val notifier: DeviceExportNotifier,
@@ -53,7 +68,8 @@ class DeviceExportWorker(
         }.onFailure { if (it is CancellationException) throw it }
 
         var done = 0          // 已处理张数（含失败）——进度展示口径
-        var failed = 0
+        var failed = 0        // 终态失败（404/元数据缺失/insert 本地错误）——重试无法自愈
+        var retryable = 0     // 瞬时失败（网络等）——收尾整批 retry，重跑经查重只补余量
         var lastNotifyMs = 0L
         var lastPct = -1
         for (imageId in imageIds) {
@@ -65,16 +81,24 @@ class DeviceExportWorker(
             when {
                 ensured.isSuccess -> {
                     val file = ensured.getOrThrow()
-                    // mimeOf 按实际文件扩展名（镜像原图档保留源扩展名，不做转码改名）
-                    val source = DeviceSource.LocalFile(file, file.name, mimeOf(file.extension))
-                    if (insertCopy(source, targetPath).isFailure) failed++
+                    // 查重：目标目录已有同名副本（上轮重跑前已插入）→ 跳过计成功
+                    if (findCopy(targetPath, file.name) == null) {
+                        // mimeOf 按实际文件扩展名（镜像原图档保留源扩展名，不做转码改名）
+                        val source = DeviceSource.LocalFile(file, file.name, mimeOf(file.extension))
+                        val inserted = insertCopy(source, targetPath)
+                        when {
+                            inserted.isSuccess -> Unit
+                            inserted.exceptionOrNull().isDiskFull() -> return Result.retry()
+                            else -> failed++
+                        }
+                    }
                 }
                 ensured.exceptionOrNull() is ImageMirrorStore.DiskFullException ->
-                    // 磁盘满是整批性障碍：立即退避重试（已入镜像的张重试时 ensure 直接命中缓存）
+                    // 磁盘满是整批性障碍：立即退避重试（已入镜像的张重跑时 ensure 直接命中缓存）
                     return Result.retry()
-                // 404（原图已删）/网络中断/元数据缺失等：该张计失败继续——批量导出不因个别
-                // 图失败而整批中止；末尾以 KEY_FAILED_COUNT 汇总（Task 11 UI 提示"N 张失败"）
-                else -> failed++
+                (ensured.exceptionOrNull() as? ApiException)?.httpStatus == 404 -> failed++
+                ensured.exceptionOrNull() is IllegalStateException -> failed++
+                else -> retryable++
             }
             done++
             val pct = if (total > 0) (done * 100) / total else -1
@@ -87,7 +111,8 @@ class DeviceExportWorker(
                     .onFailure { if (it is CancellationException) throw it }
             }
         }
-        return Result.success(workDataOf(KEY_FAILED_COUNT to failed))
+        // 有瞬时失败 → 整批 retry 自愈（重跑经 findCopy 查重不重复）；否则终态成功带失败汇总
+        return if (retryable > 0) Result.retry() else Result.success(workDataOf(KEY_FAILED_COUNT to failed))
     }
 
     companion object {
@@ -95,5 +120,21 @@ class DeviceExportWorker(
         const val KEY_IMAGE_IDS = "imageIds"
         const val KEY_TARGET_PATH = "targetPath"
         const val KEY_FAILED_COUNT = "failedCount"
+
+        /**
+         * 满盘判读（insert 侧）：MediaStore 输出流写满盘抛出的 IOException 在 cause 链上包
+         * ErrnoException(ENOSPC)（镜像层 DiskFullException 一并识别，防未来网关实现转包）。
+         * 深度上限防御异常自环；ENOSPC 之外的 errno 不揽——其余本地错误按普通失败计。
+         */
+        internal fun Throwable?.isDiskFull(): Boolean {
+            var t = this
+            var depth = 0
+            while (t != null && depth++ < 10) {
+                if (t is ImageMirrorStore.DiskFullException) return true
+                if (t is ErrnoException && t.errno == OsConstants.ENOSPC) return true
+                t = t.cause
+            }
+            return false
+        }
     }
 }

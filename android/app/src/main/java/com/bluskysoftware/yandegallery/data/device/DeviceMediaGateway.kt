@@ -28,6 +28,16 @@ interface DeviceMediaGateway {
     /** 复制入本机相册（spec §5.3/§6.1）：源可以是手机媒体或桌面镜像文件，落地二者一视同仁。 */
     suspend fun insertCopy(source: DeviceSource, targetRelativePath: String): Result<Uri>
 
+    /**
+     * 按目标目录 + 文件名查已落地副本（导出查重，spec §6.1）：命中返回该行 uri，查无返回 null。
+     * 语义补给 [insertCopy]（其本身刻意不幂等：同名冲突 MediaStore 自动改名，Task 7 手机→手机
+     * 复制依赖这一点）——导出 worker 重跑（WorkManager retry/约束中断/进程被杀均从头跑）时
+     * 先查后插，已落地张跳过，否则每轮重跑都会追加一套 "xx (1).jpg" 真实重复照片。
+     * IS_PENDING 半成品行对默认查询不可见，不会把写到一半的行误判为已落地；
+     * 26–28 无 RELATIVE_PATH 列恒返回 null（复制能力本就被 [DeviceCapabilities.canCopy] 挡在 29+）。
+     */
+    suspend fun findCopy(targetRelativePath: String, displayName: String): Uri?
+
     /** 系统删除授权意图（`createDeleteRequest`，30+ API——调用方经 [DeviceCapabilities.canDelete] 门控）。 */
     fun deleteRequest(uris: List<Uri>): PendingIntent
 

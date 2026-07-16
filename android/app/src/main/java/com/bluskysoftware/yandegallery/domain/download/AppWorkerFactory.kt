@@ -52,6 +52,7 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                     graph.imageMirrorStore.ensure(serverId, imageId, MirrorTier.ORIGINAL)
                 },
                 insertCopy = graph.deviceMediaGateway::insertCopy,
+                findCopy = graph.deviceMediaGateway::findCopy,
                 activeServerId = { graph.serverRepository.activeServer()?.id },
                 notifier = AndroidDeviceExportNotifier(appContext),
             )

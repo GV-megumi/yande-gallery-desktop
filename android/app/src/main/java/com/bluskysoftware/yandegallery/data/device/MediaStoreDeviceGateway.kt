@@ -209,6 +209,30 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
             }
         }
 
+    override suspend fun findCopy(targetRelativePath: String, displayName: String): Uri? =
+        withContext(Dispatchers.IO) {
+            // 26–28 无 RELATIVE_PATH 列，查询会抛列不存在；导出/复制本就被 canCopy 挡在 29+，恒判无副本
+            if (Build.VERSION.SDK_INT < 29) return@withContext null
+            // MediaStore 落库时把 RELATIVE_PATH 规范成带尾斜杠形态，查询入参对齐同口径
+            val normalizedPath = if (targetRelativePath.endsWith("/")) targetRelativePath else "$targetRelativePath/"
+            val projection = arrayOf(MediaStore.Files.FileColumns._ID, MediaStore.Files.FileColumns.MEDIA_TYPE)
+            val selection = "$MEDIA_TYPE_SELECTION AND ${MediaStore.Files.FileColumns.RELATIVE_PATH} = ? " +
+                "AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?"
+            val args = MEDIA_TYPE_ARGS + arrayOf(normalizedPath, displayName)
+            // IS_PENDING=1 半成品行对默认查询不可见（29+ MediaStore 语义）——写到一半即中断的行不会误判命中
+            resolver.query(filesUri, projection, selection, args, null)?.use { cursor ->
+                if (!cursor.moveToFirst()) return@use null
+                val id = cursor.getLong(0)
+                val isVideo = cursor.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                val contentUri = if (isVideo) {
+                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                } else {
+                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                }
+                ContentUris.withAppendedId(contentUri, id)
+            }
+        }
+
     override suspend fun moveTo(uris: List<Uri>, targetRelativePath: String): Result<Int> =
         withContext(Dispatchers.IO) {
             if (uris.isEmpty()) return@withContext Result.success(0)

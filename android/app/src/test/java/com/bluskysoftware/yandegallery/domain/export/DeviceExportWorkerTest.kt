@@ -2,6 +2,8 @@ package com.bluskysoftware.yandegallery.domain.export
 
 import android.content.Context
 import android.net.Uri
+import android.system.ErrnoException
+import android.system.OsConstants
 import androidx.test.core.app.ApplicationProvider
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
@@ -20,12 +22,15 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import java.io.File
+import java.io.IOException
 
 /**
  * DeviceExportWorker（桌面→手机导出，本机相册 spec §6.1）：worker 只做「逐张（串行）ensure 原图
- * → insertCopy 落 MediaStore + 失败计数分流」——ensure 本体（落盘/校验/删 HQ）归 ImageMirrorStoreTest，
- * insertCopy 本体（ContentValues/IS_PENDING）归 MediaStoreDeviceGatewayTest，此处依赖全 fake。
+ * → findCopy 查重 → 未落地才 insertCopy + 失败分流」——ensure 本体（落盘/校验/删 HQ）归
+ * ImageMirrorStoreTest，insertCopy/findCopy 本体归 MediaStoreDeviceGateway（真机链路），此处依赖全 fake。
  * 装配对照 DownloadWorkerTest / DownloadE2ETest：TestListenableWorkerBuilder + 匿名 WorkerFactory。
+ * [landed] 已落地集合跨 worker 实例存活，模拟 MediaStore 在 WorkManager 各轮重跑之间的持久现状——
+ * 钉住「重跑经查重不重复 insert」（review Critical #1）。
  */
 @RunWith(RobolectricTestRunner::class)
 class DeviceExportWorkerTest {
@@ -38,8 +43,17 @@ class DeviceExportWorkerTest {
             throw IllegalStateException("测试不升前台")   // runCatching 降级路径
     }
 
-    /** insertCopy 入参记录（source + targetRelativePath），按调用顺序追加（对照 FakeDeviceGateway 口径）。 */
+    /** insertCopy/findCopy 入参记录（对照 FakeDeviceGateway 口径），按调用顺序追加。 */
     private val insertCalls = mutableListOf<Pair<DeviceSource, String>>()
+    private val findCopyCalls = mutableListOf<Pair<String, String>>()
+
+    /** 已落地副本集合（"path|name"）：insert 成功即登记、findCopy 据此命中——模拟真实 MediaStore 现状。 */
+    private val landed = mutableSetOf<String>()
+
+    /** insertCopy 结果定制旋钮（默认成功落地）：ENOSPC 用例覆写为满盘异常。 */
+    private var insertResult: (DeviceSource, String) -> Result<Uri> = { _, _ ->
+        Result.success(Uri.parse("content://media/external/images/media/${insertCalls.size}"))
+    }
 
     private fun worker(
         activeId: Long? = 1L,
@@ -58,7 +72,13 @@ class DeviceExportWorkerTest {
                         ensureOriginal = ensure,
                         insertCopy = { source, path ->
                             insertCalls += source to path
-                            Result.success(Uri.parse("content://media/external/images/media/${insertCalls.size}"))
+                            insertResult(source, path).onSuccess {
+                                landed += "$path|${(source as DeviceSource.LocalFile).displayName}"
+                            }
+                        },
+                        findCopy = { path, name ->
+                            findCopyCalls += path to name
+                            if ("$path|$name" in landed) Uri.parse("content://media/external/images/media/999") else null
                         },
                         activeServerId = { activeId },
                         notifier = noopNotifier,
@@ -72,7 +92,7 @@ class DeviceExportWorkerTest {
     }
 
     @Test
-    fun `全成功——逐张 ensure 后 insertCopy，失败计数 0`() = runTest {
+    fun `全成功——逐张先查重后 insertCopy，失败计数 0`() = runTest {
         val ensured = mutableMapOf<Long, File>()
         val w = worker(ensure = { serverId, imageId ->
             assertEquals("ensure 应收到 inputData 的 serverId", 1L, serverId)
@@ -81,6 +101,7 @@ class DeviceExportWorkerTest {
 
         assertEquals("全成功失败计数应为 0", 0, failedCountOf(w.doWork()))
 
+        assertEquals("三张应各查重一次（insert 前置）", 3, findCopyCalls.size)
         assertEquals("三张应各 insertCopy 一次", 3, insertCalls.size)
         insertCalls.forEachIndexed { i, (source, path) ->
             val imageId = (i + 1).toLong()   // 串行保持 inputData 顺序 1→2→3
@@ -110,10 +131,61 @@ class DeviceExportWorkerTest {
     }
 
     @Test
-    fun `磁盘不足——整批 retry（退避后续跑）`() = runTest {
+    fun `网络瞬断（IOException）——先落完可落的张，收尾整批 retry 而非静默计失败`() = runTest {
+        // 对照 MirrorSyncWorker retryable 口径：瞬时错误不与 404 同流——若计失败则整批
+        // SUCCEEDED 后永不自愈；retry 后重跑经 findCopy 查重只补余量，不重复照片
+        val w = worker(ensure = { _, imageId ->
+            if (imageId == 2L) Result.failure(IOException("连接重置"))
+            else Result.success(File("mirror/s1/i$imageId/$imageId.jpg"))
+        })
+        assertEquals(ListenableWorker.Result.retry(), w.doWork())
+        assertEquals(
+            "瞬断只影响该张，前后成功张本轮照常落地",
+            listOf("1.jpg", "3.jpg"),
+            insertCalls.map { (it.first as DeviceSource.LocalFile).displayName },
+        )
+    }
+
+    @Test
+    fun `ensure 磁盘不足——整批 retry（退避后续跑）`() = runTest {
         val w = worker(ensure = { _, _ -> Result.failure(ImageMirrorStore.DiskFullException()) })
         assertEquals(ListenableWorker.Result.retry(), w.doWork())
         assertEquals("磁盘满不应有任何 insertCopy", 0, insertCalls.size)
+    }
+
+    @Test
+    fun `已成功前缀后磁盘满——retry 重跑经查重跳过已落地，不产生重复照片`() = runTest {
+        // 第一轮：第 1 张成功落地，第 2 张磁盘满 → retry（worker 无断点，重跑从头走）
+        val run1 = worker(ensure = { _, imageId ->
+            if (imageId == 1L) Result.success(File("mirror/s1/i$imageId/img-$imageId.jpg"))
+            else Result.failure(ImageMirrorStore.DiskFullException())
+        })
+        assertEquals(ListenableWorker.Result.retry(), run1.doWork())
+        assertEquals("第一轮仅第 1 张落地", 1, insertCalls.size)
+
+        // 第二轮（退避后重跑，磁盘已清出；landed 跨实例存活模拟 MediaStore 持久现状）：
+        // findCopy 命中第 1 张已落地 → 跳过计成功，不重复 insert
+        val run2 = worker(ensure = { _, imageId ->
+            Result.success(File("mirror/s1/i$imageId/img-$imageId.jpg"))
+        })
+        assertEquals("重跑走完计 0 失败（查重跳过计成功）", 0, failedCountOf(run2.doWork()))
+        assertEquals(
+            "两轮合计每张恰 insert 一次，无 \"img-1 (1).jpg\" 式重复照片",
+            listOf("img-1.jpg", "img-2.jpg", "img-3.jpg"),
+            insertCalls.map { (it.first as DeviceSource.LocalFile).displayName },
+        )
+    }
+
+    @Test
+    fun `insert 侧 ENOSPC——识别为磁盘满整批 retry，而非计普通失败`() = runTest {
+        // 全批 ensure 命中镜像缓存 + 设备真满：ensure 的 500MB 前置检查被绕过，满盘首现于
+        // MediaStore 写流——IOException 的 cause 链上是 ErrnoException(ENOSPC)
+        insertResult = { _, _ ->
+            Result.failure(IOException("write failed", ErrnoException("write", OsConstants.ENOSPC)))
+        }
+        val w = worker(ensure = { _, imageId -> Result.success(File("mirror/s1/i$imageId/$imageId.jpg")) })
+        assertEquals(ListenableWorker.Result.retry(), w.doWork())
+        assertEquals("撞上满盘立即 retry，不再逐张空转", 1, insertCalls.size)
     }
 
     @Test
