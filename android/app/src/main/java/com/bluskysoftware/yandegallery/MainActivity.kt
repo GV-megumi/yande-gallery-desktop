@@ -1,17 +1,29 @@
 package com.bluskysoftware.yandegallery
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
+import androidx.compose.ui.platform.LocalContext
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
+import kotlinx.coroutines.flow.MutableStateFlow
+import com.bluskysoftware.yandegallery.data.device.DeviceAccessLevel
+import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.NotificationPermissionEffect
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsScreen
+import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumsScreen
@@ -49,6 +61,17 @@ class MainActivity : ComponentActivity() {
                 val photosBars = remember { PhotosSelectionBars() }
                 // 手机相册 tab 多选栏桥（T4）：同一套桥类型，Task 7 接真回调前先占位保证壳可编译可测
                 val deviceBars = remember { PhotosSelectionBars() }
+                // 手机相册权限桥（T5，spec §3）：初始态现读 checkSelfPermission 算一次 accessLevel；
+                // remember 必须挂在这一层（不能下沉进 deviceAlbumsContent lambda 内部）——NavHost
+                // 切目的地会整体丢弃目的地内部的组合状态，但 viewModel() 工厂只在 ViewModelStore
+                // 首次创建时调用一次；若 accessLevel 挂在 lambda 内部，导航去 detail 再回来后 VM
+                // 手里存的还是第一次那份 flow 实例，新 remember 出来的这份写不进 VM 在观察的那份，
+                // 会出现权限授予后画面不刷新的失联。
+                val deviceContext = LocalContext.current
+                val deviceAccessLevel = remember { MutableStateFlow(currentDeviceAccessLevel(deviceContext)) }
+                val devicePermissionLauncher = rememberLauncherForActivityResult(
+                    ActivityResultContracts.RequestMultiplePermissions(),
+                ) { deviceAccessLevel.value = currentDeviceAccessLevel(deviceContext) }
                 AppScaffold(
                     navController = nav,
                     photosSelectionBars = photosBars,
@@ -182,12 +205,37 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                         )
                     },
-                    // 手机相册三页占位（T4）：Task 5/6/8 逐个换真件，本任务只保证路由可达 + 壳可编译
-                    deviceAlbumsContent = { Text("手机相册") },
+                    // 手机相册三页占位（T4→T5）：本任务只换 deviceAlbumsContent 真件，detail/viewer
+                    // 仍是占位——Task 6/8 逐个接
+                    deviceAlbumsContent = {
+                        val deviceAlbumsVm: DeviceAlbumsViewModel =
+                            viewModel(factory = DeviceAlbumsViewModel.factory(graph, deviceAccessLevel))
+                        DeviceAlbumsScreen(
+                            viewModel = deviceAlbumsVm,
+                            loader = graph.deviceLoader,
+                            onOpenAlbum = { key -> nav.navigate(Routes.deviceAlbumDetail(key)) },
+                            onRequestPermission = {
+                                devicePermissionLauncher.launch(DeviceCapabilities.readPermissions().toTypedArray())
+                            },
+                            // 34+ 对已是 PARTIAL 的应用重新申请同一批权限，系统会重新弹出部分照片选择
+                            // 器供用户补选或升级为完整授权（brief 契约）；<34 不会展示横幅，不会走到这里
+                            onManagePartial = {
+                                devicePermissionLauncher.launch(DeviceCapabilities.readPermissions().toTypedArray())
+                            },
+                        )
+                    },
                     deviceAlbumDetailContent = { Text("手机相册") },
                     deviceViewerContent = { _, _ -> Text("手机相册") },
                 )
             }
         }
     }
+}
+
+/** 手机相册权限桥现算：以 [DeviceCapabilities.readPermissions] 清单逐项 checkSelfPermission。 */
+private fun currentDeviceAccessLevel(context: Context): DeviceAccessLevel {
+    val granted = DeviceCapabilities.readPermissions().filter {
+        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
+    }.toSet()
+    return DeviceCapabilities.accessLevelOf(Build.VERSION.SDK_INT, granted)
 }
