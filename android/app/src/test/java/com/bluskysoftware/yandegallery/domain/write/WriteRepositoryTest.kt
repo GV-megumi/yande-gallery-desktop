@@ -71,6 +71,11 @@ class WriteRepositoryTest {
         // 分块用例：记录每次 batch 调用收到的 id 列表；指定第 N 次(0基)调用抛 ApiException(500)。
         val batchDeleteInputs = mutableListOf<List<Long>>()
         var failBatchDeleteOnCallIndex: Int? = null
+        // 移动到相册用例：记录每次 removeImagesFromGallery 收到的 (galleryId, imageIds)；
+        // 指定第 N 次(0基)调用抛 ApiException(500)——仅让首次「当前移除」失败、补偿「目标移除」照常成功
+        //（沿用 failBatchDeleteOnCallIndex 的按调用序失败风格；全局 failRemoveFromGallery 会连补偿一并炸）。
+        val removeFromGalleryInputs = mutableListOf<Pair<Long, List<Long>>>()
+        var failRemoveFromGalleryOnCallIndex: Int? = null
 
         // 取消用例的门控：entered 通知「已进入调用」，gate 永不放行——调用只能被取消（无 sleep）。
         var deleteImageEntered: CompletableDeferred<Unit>? = null
@@ -117,7 +122,12 @@ class WriteRepositoryTest {
         }
 
         override suspend fun removeImagesFromGallery(galleryId: Long, imageIds: List<Long>): Int {
-            calls += "removeImagesFromGallery"; failRemoveFromGallery?.let { throw it }
+            // 先记录再判失败：失败调用也要留痕（补偿调用序断言依赖此）
+            calls += "removeImagesFromGallery"; removeFromGalleryInputs += galleryId to imageIds
+            failRemoveFromGallery?.let { throw it }
+            if (failRemoveFromGalleryOnCallIndex == removeFromGalleryInputs.size - 1) {
+                throw ApiException("INTERNAL_ERROR", "boom", 500)
+            }
             return imageIds.size
         }
 
@@ -760,5 +770,79 @@ class WriteRepositoryTest {
         assertNotNull(db.imageFileDao().byImageId(1L, 901L))
         assertFalse(f1.exists())
         assertTrue(f901.exists())
+    }
+
+    // ---- moveToGallery（桌面域移动，spec §6.2：目标加入成功→当前移除；移除失败补偿回滚）----
+    // A=10、B=20；image 1 初始在 A。gallery_images 现状即断言 ground truth（不看调用方分流子集）。
+
+    @Test
+    fun `移动到相册_目标加入且当前移除`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(10, "A"))
+        db.galleryDao().insertOne(gallery(20, "B"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(10, 1)))   // 1 初始在 A
+        val api = FakeWriteApi()
+        val (repo, monitor) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 10, toGalleryId = 20, imageIds = listOf(1))
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(listOf(20L), db.imageDao().galleryIdsOf(1))          // 只在 B 不在 A（加入 B 生效 + 移出 A 生效）
+        assertEquals(1, api.calls.count { it == "addImagesToGallery" })   // addImagesToGallery(B,[1]) 一次
+        assertEquals(listOf(10L to listOf(1L)), api.removeFromGalleryInputs)  // removeImagesFromGallery(A,[1]) 一次
+        assertTrue(monitor.state.value.online)
+    }
+
+    @Test
+    fun `移动到相册_移除失败时补偿回滚目标加入`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(10, "A"))
+        db.galleryDao().insertOne(gallery(20, "B"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(10, 1)))
+        // 仅首次「当前移除」(A) 失败 500；补偿「目标移除」(B) 照常成功——撤销刚才的目标加入
+        val api = FakeWriteApi().apply { failRemoveFromGalleryOnCallIndex = 0 }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 10, toGalleryId = 20, imageIds = listOf(1))
+
+        assertTrue(result is WriteResult.Failed)
+        assertEquals(listOf(10L), db.imageDao().galleryIdsOf(1))   // 回到初始态：1 仍在 A、不在 B
+        // 调用序：先 A 移除（失败）→ 再 B 补偿移除（撤销目标加入）
+        assertEquals(listOf(10L to listOf(1L), 20L to listOf(1L)), api.removeFromGalleryInputs)
+    }
+
+    @Test
+    fun `移动到相册_加入失败直接失败不发移除`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(10, "A"))
+        db.galleryDao().insertOne(gallery(20, "B"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(10, 1)))
+        val api = FakeWriteApi().apply { failAddToGallery = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 10, toGalleryId = 20, imageIds = listOf(1))
+
+        assertTrue(result is WriteResult.Failed)
+        assertFalse(api.calls.contains("removeImagesFromGallery"))       // 加入失败即止，绝不发移除
+        assertEquals(emptyList<Pair<Long, List<Long>>>(), api.removeFromGalleryInputs)
+        assertEquals(listOf(10L), db.imageDao().galleryIdsOf(1))          // 镜像不变：加入 B 已回滚、1 仍只在 A
+    }
+
+    @Test
+    fun `移动到相册_移除404当成功`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(10, "A"))
+        db.galleryDao().insertOne(gallery(20, "B"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(10, 1)))
+        // 目标已在桌面被移出——「当前移除」返回 404 当成功；整体 Success，不补偿
+        val api = FakeWriteApi().apply { failRemoveFromGallery = ApiException("NOT_FOUND", "已移出", 404) }
+        val (repo, monitor) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 10, toGalleryId = 20, imageIds = listOf(1))
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(listOf(20L), db.imageDao().galleryIdsOf(1))          // 1 移入 B、移出 A（404 当移除成功不回滚）
+        assertEquals(listOf(10L to listOf(1L)), api.removeFromGalleryInputs)  // 仅 A 移除一次，无 B 补偿
+        assertTrue(monitor.state.value.online)                           // 404 走 reportSuccess，仍 online
     }
 }

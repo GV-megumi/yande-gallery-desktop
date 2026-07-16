@@ -80,4 +80,8 @@ class SelectionActions(
     /** 批量移出相册（仅相册详情多选）；死 id 先滤（M4-T14）。 */
     suspend fun removeFromGallery(galleryId: Long, ids: List<Long>): WriteResult =
         writeRepository.removeFromGallery(galleryId, filterExisting(ids))
+
+    /** 移动到相册（仅相册详情多选，spec §6.2）；死 id 先滤（M4-T14 同族）。 */
+    suspend fun moveToGallery(fromGalleryId: Long, toGalleryId: Long, ids: List<Long>): WriteResult =
+        writeRepository.moveToGallery(fromGalleryId, toGalleryId, filterExisting(ids))
 }
