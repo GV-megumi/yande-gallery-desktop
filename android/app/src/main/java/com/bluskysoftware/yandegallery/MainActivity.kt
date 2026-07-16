@@ -4,6 +4,7 @@ import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.Text
 import androidx.compose.runtime.remember
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.rememberNavController
@@ -46,9 +47,12 @@ class MainActivity : ComponentActivity() {
                 val serversVm: ServersViewModel = viewModel(factory = ServersViewModel.factory(graph))
                 // 照片 tab 多选栏桥（M4-T12）：单实例连通 PhotosScreen（SideEffect 回填）与壳（条件 swap）
                 val photosBars = remember { PhotosSelectionBars() }
+                // 手机相册 tab 多选栏桥（T4）：同一套桥类型，Task 7 接真回调前先占位保证壳可编译可测
+                val deviceBars = remember { PhotosSelectionBars() }
                 AppScaffold(
                     navController = nav,
                     photosSelectionBars = photosBars,
+                    deviceSelectionBars = deviceBars,
                     photosContent = {
                         val photosVm: PhotosViewModel = viewModel(factory = PhotosViewModel.factory(graph))
                         PhotosScreen(
@@ -178,6 +182,10 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                         )
                     },
+                    // 手机相册三页占位（T4）：Task 5/6/8 逐个换真件，本任务只保证路由可达 + 壳可编译
+                    deviceAlbumsContent = { Text("手机相册") },
+                    deviceAlbumDetailContent = { Text("手机相册") },
+                    deviceViewerContent = { _, _ -> Text("手机相册") },
                 )
             }
         }

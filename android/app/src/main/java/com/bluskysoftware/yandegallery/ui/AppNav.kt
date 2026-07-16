@@ -20,8 +20,10 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoAlbum
+import androidx.compose.material.icons.outlined.PhoneAndroid
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoAlbum
 import androidx.compose.material3.*
@@ -53,6 +55,9 @@ object Routes {
     const val AddServer = "servers/add"
     const val EditServer = "servers/{serverId}/edit"
     const val Scan = "servers/scan"
+    const val DeviceAlbums = "device_albums"
+    const val DeviceAlbumDetail = "device_albums/{bucketKey}"
+    const val DeviceViewer = "device_viewer/{mediaId}?bucketKey={bucketKey}"
     const val Viewer = "viewer/{imageId}?galleryId={galleryId}"
     const val Search = "search?initialQuery={initialQuery}"
 
@@ -67,6 +72,13 @@ object Routes {
     /** 搜索页：query 非空（如大图页标签 chip 跳入）→ 预填并即时搜索；空 → 空白搜索页。 */
     fun search(query: String? = null) =
         if (query.isNullOrBlank()) "search" else "search?initialQuery=${Uri.encode(query)}"
+
+    // Uri.encode 收敛在此（对照 search 先例）：Pending 名称可含任意字符，路径段必须转义
+    fun deviceAlbumDetail(key: com.bluskysoftware.yandegallery.data.device.BucketKey) =
+        "device_albums/${Uri.encode(key.encode())}"
+
+    fun deviceViewer(mediaId: Long, key: com.bluskysoftware.yandegallery.data.device.BucketKey) =
+        "device_viewer/$mediaId?bucketKey=${Uri.encode(key.encode())}"
 }
 
 private data class BottomTab(val route: String, val label: String, val filled: ImageVector, val outlined: ImageVector)
@@ -74,6 +86,7 @@ private data class BottomTab(val route: String, val label: String, val filled: I
 private val bottomTabs = listOf(
     BottomTab(Routes.Photos, "照片", Icons.Filled.Photo, Icons.Outlined.Photo),
     BottomTab(Routes.Albums, "相册", Icons.Filled.PhotoAlbum, Icons.Outlined.PhotoAlbum),
+    BottomTab(Routes.DeviceAlbums, "手机相册", Icons.Filled.PhoneAndroid, Icons.Outlined.PhoneAndroid),
 )
 
 /** MIUI 式底部导航（spec §2.4）：surface 底 + 顶发丝线，无胶囊指示器、无水波；选中实心主色/未选线框灰。 */
@@ -121,10 +134,14 @@ fun AppScaffold(
     albumDetailContent: @Composable (Long) -> Unit,
     viewerContent: @Composable (imageId: Long, galleryId: Long?) -> Unit,
     searchContent: @Composable (initialQuery: String) -> Unit,
+    deviceSelectionBars: PhotosSelectionBars,
+    deviceAlbumsContent: @Composable () -> Unit,
+    deviceAlbumDetailContent: @Composable (String) -> Unit,
+    deviceViewerContent: @Composable (mediaId: Long, bucketKey: String) -> Unit,
 ) {
     val backStack by navController.currentBackStackEntryAsState()
     val currentRoute = backStack?.destination?.route
-    val showBottomBar = currentRoute == Routes.Photos || currentRoute == Routes.Albums
+    val showBottomBar = currentRoute == Routes.Photos || currentRoute == Routes.Albums || currentRoute == Routes.DeviceAlbums
 
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -132,6 +149,7 @@ fun AppScaffold(
         bottomBar = {
             // 多选激活：底部选择动作栏替换导航栏（顶部选择栏已在 PhotosScreen 内自渲染）
             val bars = photosSelectionBars.model
+            val deviceBars = deviceSelectionBars.model
             if (currentRoute == Routes.Photos && bars != null) {
                 SelectionBottomBar(
                     online = bars.online,
@@ -140,6 +158,16 @@ fun AppScaffold(
                     onShare = bars.onShare,
                     onDelete = bars.onDelete,
                     onAddToGallery = bars.onAddToGallery,
+                )
+            } else if ((currentRoute == Routes.DeviceAlbums || currentRoute == Routes.DeviceAlbumDetail) && deviceBars != null) {
+                // 手机域多选底栏：swap 条件对照 photos 域先例，覆盖列表页与详情页两处网格（Task 7 接真回调）
+                SelectionBottomBar(
+                    online = deviceBars.online,
+                    inGallery = false,
+                    onDownload = deviceBars.onDownload,
+                    onShare = deviceBars.onShare,
+                    onDelete = deviceBars.onDelete,
+                    onAddToGallery = deviceBars.onAddToGallery,
                 )
             } else if (showBottomBar) {
                 MiuiNavBar(currentRoute) { route ->
@@ -208,6 +236,26 @@ fun AppScaffold(
             ) { entry ->
                 searchContent(entry.arguments?.getString("initialQuery").orEmpty())
             }
+            composable(Routes.DeviceAlbums) { deviceAlbumsContent() }
+            composable(Routes.DeviceAlbumDetail) { entry ->
+                deviceAlbumDetailContent(entry.arguments?.getString("bucketKey") ?: "all")
+            }
+            composable(
+                Routes.DeviceViewer,
+                arguments = listOf(
+                    navArgument("mediaId") { type = NavType.LongType },
+                    navArgument("bucketKey") { type = NavType.StringType; defaultValue = "all" },
+                ),
+                enterTransition = { fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.92f, animationSpec = tween(220)) },
+                exitTransition = { fadeOut(animationSpec = tween(160)) },
+                popEnterTransition = { fadeIn(animationSpec = tween(160)) },
+                popExitTransition = { fadeOut(animationSpec = tween(160)) + scaleOut(targetScale = 0.92f, animationSpec = tween(160)) },
+            ) { entry ->
+                deviceViewerContent(
+                    entry.arguments?.getLong("mediaId") ?: -1L,
+                    entry.arguments?.getString("bucketKey") ?: "all",
+                )
+            }
         }
     }
 }
@@ -256,6 +304,10 @@ fun AppNavForTest(photosSelectionBars: PhotosSelectionBars? = null) {
             albumDetailContent = { Text("相册详情占位") },
             viewerContent = { _, _ -> Text("大图页占位") },
             searchContent = { Text("搜索页占位") },
+            deviceSelectionBars = remember { PhotosSelectionBars() },
+            deviceAlbumsContent = { Text("手机相册占位") },
+            deviceAlbumDetailContent = { Text("手机相册详情占位") },
+            deviceViewerContent = { _, _ -> Text("手机相册大图页占位") },
         )
     }
 }

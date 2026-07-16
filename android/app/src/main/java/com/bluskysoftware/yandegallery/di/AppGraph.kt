@@ -141,6 +141,18 @@ class AppGraph(
         )
     }
 
+    /** 手机域 MediaStore 网关（本机相册 spec §4）：UI/worker 全经此接口，测试注入 fake。 */
+    val deviceMediaGateway: com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway by lazy {
+        com.bluskysoftware.yandegallery.data.device.MediaStoreDeviceGateway(appContext)
+    }
+
+    /** 手机域图片 loader：content:// 走 Coil 默认数据源 + 视频海报帧解码；与镜像域两 loader 互不干扰。 */
+    val deviceLoader by lazy {
+        coil3.ImageLoader.Builder(appContext)
+            .components { add(coil3.video.VideoFrameDecoder.Factory()) }
+            .build()
+    }
+
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
     val downloadManager by lazy { DownloadManager(appContext) }
 
