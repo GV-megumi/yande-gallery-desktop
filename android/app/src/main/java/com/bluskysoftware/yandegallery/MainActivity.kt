@@ -31,6 +31,8 @@ import com.bluskysoftware.yandegallery.ui.AppScaffold
 import com.bluskysoftware.yandegallery.ui.Routes
 import com.bluskysoftware.yandegallery.ui.common.NotificationPermissionEffect
 import com.bluskysoftware.yandegallery.ui.common.PhotosSelectionBars
+import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumDetailScreen
+import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumDetailViewModel
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsScreen
 import com.bluskysoftware.yandegallery.ui.device.DeviceAlbumsViewModel
 import com.bluskysoftware.yandegallery.ui.albums.AlbumDetailScreen
@@ -239,8 +241,8 @@ class MainActivity : ComponentActivity() {
                             onBack = { nav.popBackStack() },
                         )
                     },
-                    // 手机相册三页占位（T4→T5）：本任务只换 deviceAlbumsContent 真件，detail/viewer
-                    // 仍是占位——Task 6/8 逐个接
+                    // 手机相册三页占位（T4→T5→T6）：本任务再换 deviceAlbumDetailContent 真件，viewer
+                    // 仍是占位——Task 8 接
                     deviceAlbumsContent = {
                         val deviceAlbumsVm: DeviceAlbumsViewModel =
                             viewModel(factory = DeviceAlbumsViewModel.factory(graph, deviceAccessLevel))
@@ -270,7 +272,19 @@ class MainActivity : ComponentActivity() {
                             permanentlyDenied = devicePermanentlyDenied.value,
                         )
                     },
-                    deviceAlbumDetailContent = { Text("手机相册") },
+                    deviceAlbumDetailContent = { raw ->
+                        val deviceDetailVm: DeviceAlbumDetailViewModel =
+                            viewModel(factory = DeviceAlbumDetailViewModel.factory(graph, raw))
+                        DeviceAlbumDetailScreen(
+                            viewModel = deviceDetailVm,
+                            loader = graph.deviceLoader,
+                            onOpenViewer = { mediaId ->
+                                nav.navigate(Routes.deviceViewer(mediaId, deviceDetailVm.bucketKey))
+                            },
+                            onBack = { nav.popBackStack() },
+                            selectionBars = deviceBars,
+                        )
+                    },
                     deviceViewerContent = { _, _ -> Text("手机相册") },
                 )
             }
