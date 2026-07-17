@@ -48,7 +48,8 @@ class SelectionBarsTest {
             SelectionBottomBar(
                 online = false,
                 inGallery = true,
-                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {},
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
+                onMoveTo = {},
                 onRemoveFromGallery = {},
             )
         }
@@ -56,7 +57,8 @@ class SelectionBarsTest {
         compose.onNodeWithTag("selection_action_download").assertIsEnabled()
         compose.onNodeWithTag("selection_action_share").assertIsEnabled()
         compose.onNodeWithTag("selection_action_delete").assertIsNotEnabled()
-        compose.onNodeWithTag("selection_action_add_to_gallery").assertIsNotEnabled()
+        compose.onNodeWithTag("selection_action_copy_to").assertIsNotEnabled()
+        compose.onNodeWithTag("selection_action_move_to").assertIsNotEnabled()
         compose.onNodeWithTag("selection_action_remove_from_gallery").assertIsNotEnabled()
     }
 
@@ -66,7 +68,7 @@ class SelectionBarsTest {
             SelectionBottomBar(
                 online = true,
                 inGallery = false,
-                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {},
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
             )
         }
 
@@ -75,11 +77,49 @@ class SelectionBarsTest {
     }
 
     @Test
+    fun `复制到新tag与文案存在_旧加入相册tag不存在`() {
+        compose.setContent {
+            SelectionBottomBar(
+                online = true, inGallery = false,
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_copy_to").assertIsDisplayed()
+        compose.onNodeWithText("复制到").assertIsDisplayed()
+        compose.onNodeWithTag("selection_action_add_to_gallery").assertDoesNotExist()
+        compose.onNodeWithText("加入相册").assertDoesNotExist()
+    }
+
+    @Test
+    fun `onMoveTo非null才渲染移动项`() {
+        compose.setContent {
+            SelectionBottomBar(
+                online = true, inGallery = true,
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
+                onMoveTo = {}, onRemoveFromGallery = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_move_to").assertIsDisplayed()
+        compose.onNodeWithText("移动到").assertIsDisplayed()
+    }
+
+    @Test
+    fun `onMoveTo为null不渲染移动项`() {
+        compose.setContent {
+            SelectionBottomBar(
+                online = true, inGallery = false,
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_move_to").assertDoesNotExist()
+    }
+
+    @Test
     fun `设为封面项仅在传入回调时出现且随在线态置灰`() {
         compose.setContent {
             SelectionBottomBar(
                 online = false, inGallery = true,
-                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {},
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {},
                 onRemoveFromGallery = {}, onSetCover = {},
             )
         }
@@ -92,7 +132,7 @@ class SelectionBarsTest {
         compose.setContent {
             SelectionBottomBar(
                 online = true, inGallery = true,
-                onDownload = {}, onShare = {}, onDelete = {}, onAddToGallery = {}, onRemoveFromGallery = {},
+                onDownload = {}, onShare = {}, onDelete = {}, onCopyTo = {}, onRemoveFromGallery = {},
             )
         }
         compose.onNodeWithTag("selection_action_set_cover").assertDoesNotExist()

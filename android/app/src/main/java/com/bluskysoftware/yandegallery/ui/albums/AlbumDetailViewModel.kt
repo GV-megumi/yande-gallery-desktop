@@ -14,6 +14,7 @@ import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.db.buildGalleryImagesQuery
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -21,6 +22,7 @@ import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import com.bluskysoftware.yandegallery.ui.common.DeviceCopyTargets
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import kotlinx.coroutines.flow.Flow
@@ -77,7 +79,7 @@ class AlbumDetailViewModel(
 
     // ---- Task 13 多选：VM 持有选择状态 + 批量动作（Screen 不直接触 graph） ----
 
-    /** 本相册 id（GalleryPickerDialog 排除自身——相册详情不应把选中项「加入当前所在相册」，D12A）。 */
+    /** 本相册 id（CopyTargetPicker excludeIds 排除自身——相册详情不应把选中项「复制/移动进当前所在相册」，D12A）。 */
     val currentGalleryId: Long get() = galleryId
 
     /** 连接状态：多选底部栏写动作离线置灰。 */
@@ -130,6 +132,30 @@ class AlbumDetailViewModel(
         val result = actions.removeFromGallery(galleryId, ids)
         if (result == WriteResult.Success) selection.clear()
         return result
+    }
+
+    /** 批量移动到目标相册（spec §6.2）：目标加入 + 当前移除，移除失败补偿回滚（T9 语义）。 */
+    suspend fun moveTo(targetGalleryId: Long, ids: List<Long>): WriteResult =
+        actions.moveToGallery(galleryId, targetGalleryId, ids)
+
+    // ---- Task 11「复制到」手机相册节：数据源/内联新建/导出入队 ----
+
+    private val deviceTargets = DeviceCopyTargets(graph.deviceMediaGateway, graph.prefsStore, viewModelScope)
+
+    /** 手机相册节候选（CopyTargetPicker Copy 模式，spec §6.1）：真实相册 + 待落地占位。 */
+    suspend fun deviceAlbumTargets(): List<DeviceAlbum> = deviceTargets.targets()
+
+    /** picker 内联新建手机相册（spec §5.5）：错误文案就地显示；null=成功（写入待落地占位）。 */
+    fun createDeviceAlbum(name: String): String? = deviceTargets.create(name)
+
+    /** 桌面→手机导出入队（spec §6.1）：>500 张分批防 Data 10KB 上限，唯一工作名顺序排队；无激活服务器 no-op。 */
+    fun exportSelectedToDevice(ids: List<Long>, targetPath: String) {
+        viewModelScope.launch {
+            val serverId = graph.serverRepository.activeServer()?.id ?: return@launch
+            ids.chunked(DeviceCopyTargets.EXPORT_BATCH).forEach { batch ->
+                graph.deviceExportManager.enqueue(serverId, batch, targetPath)
+            }
+        }
     }
 
     companion object {

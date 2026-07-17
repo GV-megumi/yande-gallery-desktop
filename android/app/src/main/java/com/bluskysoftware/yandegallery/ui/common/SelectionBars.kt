@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.DriveFileMove
 import androidx.compose.material.icons.filled.AddToPhotos
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
@@ -90,10 +91,13 @@ fun SelectionTopBar(
 }
 
 /**
- * 多选底部动作栏（M3-T13）：下载 / 分享 / 删除 / 加入相册（相册内多一项移出当前相册）。
+ * 多选底部动作栏（M3-T13；Task 11「加入相册」升级「复制到」）：下载 / 分享 / 删除 / 复制到
+ * （相册内多「移动到」与「移出当前相册」两项）。
  *
- * - online=false 置灰写动作（删除/加入/设封面/移出）——离线写操作不排队（spec §8）；
+ * - online=false 置灰写动作（删除/复制/移动/设封面/移出）——离线写操作不排队（spec §8）；
  *   下载（WorkManager 网络约束自会等待）与分享（读本地副本）保持可用，对齐大图页操作栏语义。
+ * - [onCopyTo] 打开 CopyTargetPicker（Copy 模式：桌面相册 + 手机相册两节，spec §6.1）。
+ * - [onMoveTo] 非空才呈现「移动到」项（spec §6.2：仅相册详情传入——时间轴无「当前相册」语义）。
  * - [inGallery] 为 true（相册详情）才呈现「移出相册」项，并回调 [onRemoveFromGallery]。
  * - [onSetCover] 非空才呈现「设为封面」项（v0.6 spec §5.3：相册详情恰选 1 张时传入）。
  */
@@ -104,7 +108,8 @@ fun SelectionBottomBar(
     onDownload: () -> Unit,
     onShare: () -> Unit,
     onDelete: () -> Unit,
-    onAddToGallery: () -> Unit,
+    onCopyTo: () -> Unit,
+    onMoveTo: (() -> Unit)? = null,
     onSetCover: (() -> Unit)? = null,
     onRemoveFromGallery: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -124,11 +129,19 @@ fun SelectionBottomBar(
                 SelectionAction(Icons.Filled.Share, "分享", enabled = true, tag = "selection_action_share", onClick = onShare)
                 SelectionAction(Icons.Filled.Delete, "删除", enabled = online, tag = "selection_action_delete", onClick = onDelete)
                 SelectionAction(
-                    Icons.Filled.AddToPhotos, "加入相册",
+                    Icons.Filled.AddToPhotos, "复制到",
                     enabled = online,
-                    tag = "selection_action_add_to_gallery",
-                    onClick = onAddToGallery,
+                    tag = "selection_action_copy_to",
+                    onClick = onCopyTo,
                 )
+                if (onMoveTo != null) {
+                    SelectionAction(
+                        Icons.AutoMirrored.Filled.DriveFileMove, "移动到",
+                        enabled = online,
+                        tag = "selection_action_move_to",
+                        onClick = onMoveTo,
+                    )
+                }
                 if (onSetCover != null) {
                     SelectionAction(
                         Icons.Filled.Image, "设为封面",

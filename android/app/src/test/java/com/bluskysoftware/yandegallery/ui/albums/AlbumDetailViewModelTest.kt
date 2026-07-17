@@ -30,6 +30,7 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -135,6 +136,33 @@ class AlbumDetailViewModelTest {
         // 按 PhotosViewModelTest 既有惯例 first{} 等值到位（写丢失时此处 runTest 超时红灯）
         assertEquals("SIZE_ASC", awaitValue({ graph.prefsStore.albumDetailSortName.first() }) { it == "SIZE_ASC" })
         assertEquals(5, awaitValue({ graph.prefsStore.albumDetailColumns.first() }) { it == 5 })
+    }
+
+    @Test
+    fun `移动到目标相册——目标加入且当前移除`() = runTest {
+        seedGallery(5, listOf(1, 2))
+        db.galleryDao().insertOne(GalleryEntity(6, "g6", null, 0))
+        val viewModel = vm(5, FakeWriteApi())
+
+        val result = viewModel.moveTo(6, listOf(1, 2))
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(listOf(6L), db.imageDao().galleryIdsOf(1))   // T9 语义：目标加入 + 当前移除
+        assertEquals(listOf(6L), db.imageDao().galleryIdsOf(2))
+    }
+
+    @Test
+    fun `deviceAlbumTargets合成待落地占位_createDeviceAlbum重名拒绝`() = runTest {
+        val viewModel = vm(5, FakeWriteApi())
+        graph.prefsStore.addPendingAlbum("旅行")
+
+        // Robolectric MediaStore 空——真实相册为空集，目标候选只剩待落地占位（Pictures/<名>/ 恒可写）
+        val targets = viewModel.deviceAlbumTargets()
+
+        assertEquals(listOf("Pictures/旅行/"), targets.map { it.relativePath })
+        assertTrue(targets.single().isPending)
+        assertEquals("已存在同名相册", viewModel.createDeviceAlbum("旅行"))   // 对最近候选快照重名校验
+        assertNull(viewModel.createDeviceAlbum("新相册"))
     }
 
     @Test

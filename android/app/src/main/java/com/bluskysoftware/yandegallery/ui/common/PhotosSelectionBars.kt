@@ -17,6 +17,6 @@ class PhotosSelectionBars {
         val onDownload: () -> Unit,
         val onShare: () -> Unit,
         val onDelete: () -> Unit,
-        val onAddToGallery: () -> Unit,
+        val onCopyTo: () -> Unit,   // Task 11 改名：「加入相册」→「复制到」；时间轴无移动（spec §6.2）
     )
 }

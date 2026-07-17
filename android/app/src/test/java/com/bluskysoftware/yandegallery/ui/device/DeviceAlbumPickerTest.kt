@@ -19,7 +19,7 @@ import org.robolectric.RobolectricTestRunner
  * [DeviceAlbumPicker] compose 契约（Task 7，spec §5.3/§5.5）：只列可写路径（DCIM//Pictures/）
  * 的真实相册 + 待落地相册、excludeKey 滤当前相册防自指、canCreate 门控「新建相册」行、
  * 新建重名错误文案就地显示与成功后以 Pictures/<名>/ 回调 onPick。
- * 纯无状态组件冒烟，装置对照 GalleryPickerDialogTest（该文件 Task 11 删除，不共用装置）。
+ * 纯无状态组件冒烟，装置对照 CopyTargetPickerTest（原单节选择器测试 Task 11 已删，不共用装置）。
  */
 @RunWith(RobolectricTestRunner::class)
 class DeviceAlbumPickerTest {

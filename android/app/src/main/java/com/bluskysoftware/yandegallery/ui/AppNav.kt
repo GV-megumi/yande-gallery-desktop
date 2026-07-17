@@ -159,7 +159,8 @@ fun AppScaffold(
                     onDownload = bars.onDownload,
                     onShare = bars.onShare,
                     onDelete = bars.onDelete,
-                    onAddToGallery = bars.onAddToGallery,
+                    onCopyTo = bars.onCopyTo,
+                    // 时间轴无「移动到」（spec §6.2：移动需「当前相册」语义）——onMoveTo 缺省 null 不渲染
                 )
             } else if ((currentRoute == Routes.DeviceAlbums || currentRoute == Routes.DeviceAlbumDetail) && deviceBars != null) {
                 // 手机域多选底栏（Task 7 修正 Task 4 临时接线）：swap 条件对照 photos 域先例、

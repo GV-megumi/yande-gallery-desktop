@@ -73,7 +73,7 @@ class SelectionActions(
         return writeRepository.batchDeleteImages(existing)
     }
 
-    /** 批量加入相册（GalleryPickerDialog 选定后）；死 id 先滤（M4-T14）。 */
+    /** 批量加入相册（CopyTargetPicker 桌面相册节选定后）；死 id 先滤（M4-T14）。 */
     suspend fun addToGallery(galleryId: Long, ids: List<Long>): WriteResult =
         writeRepository.addToGallery(galleryId, filterExisting(ids))
 
