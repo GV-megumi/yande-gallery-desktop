@@ -1,6 +1,7 @@
 package com.bluskysoftware.yandegallery.data.device
 
 import android.app.PendingIntent
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
@@ -8,6 +9,7 @@ import android.database.ContentObserver
 import android.database.Cursor
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
@@ -141,6 +143,33 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
     }
 
     override fun pagingSource(key: BucketKey): PagingSource<Int, DeviceMedia> = DeviceMediaPagingSource(key)
+
+    /**
+     * 分页取一页（时间倒序，DATE_TAKEN DESC, _ID DESC）。
+     * Android 11+（API 30+）MediaProvider 会拒绝 sortOrder 里的 `LIMIT` token
+     * （`IllegalArgumentException: Invalid token LIMIT`，真机联调确证），必须改走 Bundle 的
+     * `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET`；API 26–29 仍把 `LIMIT/OFFSET` 拼进排序串（旧路可用）。
+     * 两条排序列同向 DESC，`QUERY_ARG_SORT_DIRECTION` 统一降序等价原字符串序。
+     */
+    private fun queryPage(selection: String, args: Array<String>, limit: Int, offset: Int): Cursor? =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            val queryArgs = Bundle().apply {
+                putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
+                putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, args)
+                putStringArray(
+                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
+                    arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns._ID),
+                )
+                putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
+                putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
+                putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
+            }
+            resolver.query(filesUri, buildProjection(), queryArgs, null)
+        } else {
+            val sortOrder = "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC, " +
+                "${MediaStore.Files.FileColumns._ID} DESC LIMIT $limit OFFSET $offset"
+            resolver.query(filesUri, buildProjection(), selection, args, sortOrder)
+        }
 
     override suspend fun mediaByIds(ids: List<Long>): List<DeviceMedia> = withContext(Dispatchers.IO) {
         if (ids.isEmpty()) return@withContext emptyList()
@@ -302,10 +331,8 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
                         MEDIA_TYPE_SELECTION
                     }
                     val args = if (bucket != null) MEDIA_TYPE_ARGS + bucket.bucketId.toString() else MEDIA_TYPE_ARGS
-                    val sortOrder = "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC, " +
-                        "${MediaStore.Files.FileColumns._ID} DESC LIMIT $limit OFFSET $offset"
                     val items = mutableListOf<DeviceMedia>()
-                    resolver.query(filesUri, buildProjection(), selection, args, sortOrder)?.use { cursor ->
+                    queryPage(selection, args, limit, offset)?.use { cursor ->
                         val idx = MediaColumnIndices(cursor)
                         while (cursor.moveToNext()) items += cursor.readMedia(idx)
                     }
