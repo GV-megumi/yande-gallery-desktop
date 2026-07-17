@@ -498,10 +498,10 @@ fun PhotosScreen(
                 scope.launch {
                     when (val r = viewModel.addSelectedToGallery(galleryId, ids)) {
                         WriteResult.Success -> {
-                            snackbarHostState.showSnackbar("已加入相册（${ids.size} 张）")
+                            snackbarHostState.showSnackbar("已复制到相册（${ids.size} 张）")
                             viewModel.selection.clear()
                         }
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入相册失败", r))
+                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("复制到相册失败", r))
                     }
                 }
             },

@@ -333,8 +333,8 @@ fun ViewerScreen(
                 scope.launch {
                     if (mode == PickerMode.Copy) {
                         when (val r = viewModel.addToGallery(galleryId, imageId)) {
-                            WriteResult.Success -> snackbar.showSnackbar("已加入相册")
-                            is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("加入相册失败", r))
+                            WriteResult.Success -> snackbar.showSnackbar("已复制到相册")
+                            is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("复制到相册失败", r))
                         }
                     } else {
                         val targetName = galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
