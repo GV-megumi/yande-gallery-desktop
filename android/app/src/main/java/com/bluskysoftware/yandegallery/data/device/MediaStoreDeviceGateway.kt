@@ -149,18 +149,21 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
      * Android 11+（API 30+）MediaProvider 会拒绝 sortOrder 里的 `LIMIT` token
      * （`IllegalArgumentException: Invalid token LIMIT`，真机联调确证），必须改走 Bundle 的
      * `QUERY_ARG_LIMIT`/`QUERY_ARG_OFFSET`；API 26–29 仍把 `LIMIT/OFFSET` 拼进排序串（旧路可用）。
-     * 两条排序列同向 DESC，`QUERY_ARG_SORT_DIRECTION` 统一降序等价原字符串序。
+     * 排序不能用 `QUERY_ARG_SORT_COLUMNS`+`QUERY_ARG_SORT_DIRECTION`：AOSP `createSqlSortClause`
+     * 先 join 列名再整体追加一次 ` DESC`，产出 `datetaken, _id DESC`——DESC 只绑末列，DATE_TAKEN
+     * 实际按 ASC 排，真机 API30+ 网格最旧优先（adb 推的测试图 datetaken 为空、靠 _id 兜底才没暴露）。
+     * 改用 `QUERY_ARG_SQL_SORT_ORDER` 显式逐列 DESC：SORT_COLUMNS 缺席时 MediaProvider 直接采纳
+     * 该串，且逐列 DESC 能过 R+ 严格语法校验（守卫只拒 LIMIT token），与低版本字符串序字节一致。
      */
     private fun queryPage(selection: String, args: Array<String>, limit: Int, offset: Int): Cursor? =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             val queryArgs = Bundle().apply {
                 putString(ContentResolver.QUERY_ARG_SQL_SELECTION, selection)
                 putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, args)
-                putStringArray(
-                    ContentResolver.QUERY_ARG_SORT_COLUMNS,
-                    arrayOf(MediaStore.Files.FileColumns.DATE_TAKEN, MediaStore.Files.FileColumns._ID),
+                putString(
+                    ContentResolver.QUERY_ARG_SQL_SORT_ORDER,
+                    "${MediaStore.Files.FileColumns.DATE_TAKEN} DESC, ${MediaStore.Files.FileColumns._ID} DESC",
                 )
-                putInt(ContentResolver.QUERY_ARG_SORT_DIRECTION, ContentResolver.QUERY_SORT_DIRECTION_DESCENDING)
                 putInt(ContentResolver.QUERY_ARG_LIMIT, limit)
                 putInt(ContentResolver.QUERY_ARG_OFFSET, offset)
             }
@@ -310,7 +313,7 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
         }
     }
 
-    /** 相册网格分页（spec §4.3）：LIMIT/OFFSET 拼进排序串，时间倒序；Bucket 加 BUCKET_ID 过滤，Pending 恒空页。 */
+    /** 相册网格分页（spec §4.3）：时间倒序，经 [queryPage] 分页（30+ Bundle 参数 / ≤29 LIMIT 拼串）；Bucket 加 BUCKET_ID 过滤，Pending 恒空页。 */
     private inner class DeviceMediaPagingSource(private val key: BucketKey) : PagingSource<Int, DeviceMedia>() {
         override fun getRefreshKey(state: PagingState<Int, DeviceMedia>): Int? {
             val anchor = state.anchorPosition ?: return null
