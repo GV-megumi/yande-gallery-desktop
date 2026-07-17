@@ -122,7 +122,9 @@ fun DeviceViewerScreen(
     val snackbar = remember { SnackbarHostState() }
 
     val pagerState = rememberPagerState { items.itemCount }
-    val zoomStates = remember { mutableStateMapOf<Int, ZoomableImageState>() }
+    // 按 mediaId（而非页下标）键控缩放态：删除收缩后邻页落同下标——按 mediaId 键控防继承旧缩放
+    // （放大态残留还会经 consumesHorizontalDrag 锁死 Pager 横滑，终审 Fix 3）
+    val zoomStates = remember { mutableStateMapOf<Long, ZoomableImageState>() }
     // rememberSaveable（ViewerPager 同款）：旋转后 located 存活，不再触发定位循环拉回初始页
     var located by rememberSaveable { mutableStateOf(false) }
     var immersive by remember { mutableStateOf(false) }
@@ -206,10 +208,15 @@ fun DeviceViewerScreen(
     }
 
     // 页面 settle：其余页缩放重置（回看回到适配大小，ViewerPager 同款；本页无相邻预取需求——
-    // 手机域 content uri 由 Coil 按需加载，无镜像 ensure 类前置动作）。
+    // 手机域 content uri 由 Coil 按需加载，无镜像 ensure 类前置动作）。仅保留 settle 页那张的
+    // mediaId 一项，map 不随长列表滑动膨胀；settle 页 id 在 snapshotFlow 内取——删除收缩后同
+    // 下标换了内容也会触发清理，被删那张的残项即时移除；快照瞬时取不到（空表/越界）则全清兜底。
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }.collect { settled ->
-            zoomStates.keys.filter { it != settled }.forEach { zoomStates.remove(it) }
+        snapshotFlow {
+            val settled = pagerState.settledPage
+            if (settled in 0 until items.itemCount) items.peek(settled)?.mediaId else null
+        }.collect { settledId ->
+            zoomStates.keys.filter { it != settledId }.forEach { zoomStates.remove(it) }
         }
     }
 
@@ -237,9 +244,14 @@ fun DeviceViewerScreen(
             .background(Color.Black)
             .testTag("device_viewer_pager"),
     ) {
-        // derivedStateOf（ViewerPager 同款）：scale 每帧变化，门控只关心布尔翻转，避免逐帧重组
+        // derivedStateOf（ViewerPager 同款）：scale 每帧变化，门控只关心布尔翻转，避免逐帧重组；
+        // 键随 zoomStates 改为 mediaId——当前页下标先换算 id 再查（peek 不触发加载）
         val pagerScrollEnabled by remember {
-            derivedStateOf { zoomStates[pagerState.currentPage]?.consumesHorizontalDrag != true }
+            derivedStateOf {
+                val page = pagerState.currentPage
+                val id = if (page in 0 until items.itemCount) items.peek(page)?.mediaId else null
+                id == null || zoomStates[id]?.consumesHorizontalDrag != true
+            }
         }
         HorizontalPager(
             state = pagerState,
@@ -259,7 +271,7 @@ fun DeviceViewerScreen(
                 else -> ZoomableImage(
                     model = media.uri,
                     imageLoader = loader,
-                    state = zoomStates.getOrPut(page) { ZoomableImageState() },
+                    state = zoomStates.getOrPut(media.mediaId) { ZoomableImageState() },
                     contentDescription = media.displayName,
                     onSingleTap = { immersive = !immersive },
                     onDismiss = onBack,

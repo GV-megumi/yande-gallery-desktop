@@ -40,7 +40,10 @@ class DeviceExportManager(private val context: Context) {
             .enqueueUniqueWork(uniqueName(serverId), ExistingWorkPolicy.APPEND_OR_REPLACE, req)
     }
 
-    /** 队首（最早入队仍未终态）work 的状态；空链 null（Task 11 UI 据此显示"导出中"）。 */
+    /**
+     * 队首（最早入队仍未终态）work 的状态；空链 null。
+     * 预留观察接口，当前无 UI 消费者（终审 N1 裁定保留）——后续 picker 流程可据此显示「导出中」。
+     */
     fun observeState(serverId: Long): Flow<WorkInfo.State?> =
         WorkManager.getInstance(context)
             .getWorkInfosForUniqueWorkFlow(uniqueName(serverId))

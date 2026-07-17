@@ -36,11 +36,18 @@ import java.io.IOException
 class DeviceExportWorkerTest {
     private val context: Context = ApplicationProvider.getApplicationContext()
 
-    /** no-op 通知 fake：worker 通知路径 runCatching 包裹，用例不碰真通知服务（对照 DownloadWorkerTest）。 */
+    /**
+     * 通知 fake：前台路径 runCatching 包裹照旧 no-op（对照 DownloadWorkerTest），
+     * [completedCalls] 记录完成汇总调用入参——钉住「仅部分失败终态发汇总」（终审 Fix 1）。
+     */
+    private val completedCalls = mutableListOf<Triple<Int, Int, String>>()
     private val noopNotifier = object : DeviceExportNotifier {
         override fun ensureChannel() {}
         override fun foregroundInfo(done: Int, total: Int, targetPath: String) =
             throw IllegalStateException("测试不升前台")   // runCatching 降级路径
+        override fun notifyCompleted(ok: Int, failed: Int, targetPath: String) {
+            completedCalls += Triple(ok, failed, targetPath)
+        }
     }
 
     /** insertCopy/findCopy 入参记录（对照 FakeDeviceGateway 口径），按调用顺序追加。 */
@@ -128,6 +135,30 @@ class DeviceExportWorkerTest {
             listOf("1.png", "3.png"),
             insertCalls.map { (it.first as DeviceSource.LocalFile).displayName },
         )
+    }
+
+    @Test
+    fun `部分404失败——完成时发汇总通知（成功2失败1）`() = runTest {
+        // spec §6.1「失败项汇总提示」（终审 Fix 1）：终态成功但有失败张 → notifyCompleted 恰一次，
+        // 入参 = 成功数/失败数/目标路径——否则 404 跳过对用户完全静默
+        val w = worker(ensure = { _, imageId ->
+            if (imageId == 2L) Result.failure(ApiException("NOT_FOUND", "原图已删", 404))
+            else Result.success(File("mirror/s1/i$imageId/$imageId.jpg"))
+        })
+        assertEquals("仅 404 那张计失败", 1, failedCountOf(w.doWork()))
+        assertEquals(
+            "部分失败终态应发一次汇总通知（成功 2、失败 1、目标路径透传）",
+            listOf(Triple(2, 1, "Pictures/Yande/")),
+            completedCalls,
+        )
+    }
+
+    @Test
+    fun `全成功——不发汇总通知`() = runTest {
+        // 全成功保持静默：前台进度通知已展示到 total/total，再发汇总是噪音
+        val w = worker(ensure = { _, imageId -> Result.success(File("mirror/s1/i$imageId/$imageId.jpg")) })
+        assertEquals(0, failedCountOf(w.doWork()))
+        assertTrue("全成功不应发汇总通知", completedCalls.isEmpty())
     }
 
     @Test

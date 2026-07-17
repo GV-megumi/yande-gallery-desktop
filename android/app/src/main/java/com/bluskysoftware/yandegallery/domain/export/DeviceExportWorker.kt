@@ -26,7 +26,8 @@ import java.io.File
  *
  * 失败分流（对照 DownloadWorker/MirrorSyncWorker 口径）：
  * - ensure 404（原图已在桌面删除）/ IllegalStateException（元数据缺失、下载中途切服）——重试
- *   无法自愈的终态 → 该张计失败继续，末尾 outputData [KEY_FAILED_COUNT] 汇总（Task 11 UI 提示）；
+ *   无法自愈的终态 → 该张计失败继续，末尾 outputData [KEY_FAILED_COUNT] 汇总 + failed>0 时
+ *   发完成汇总通知（spec §6.1「失败项汇总提示」，终审 Fix 1）；
  * - ensure 其余失败（断网/连接重置/桌面离线等瞬时错误）→ 计 retryable 继续，先把能落的张落完，
  *   收尾整批 [Result.retry]（对照 MirrorSyncWorker retryable 口径）——不与 404 同流静默计失败，
  *   否则整批 SUCCEEDED 后瞬时错误永不自愈；
@@ -112,7 +113,15 @@ class DeviceExportWorker(
             }
         }
         // 有瞬时失败 → 整批 retry 自愈（重跑经 findCopy 查重不重复）；否则终态成功带失败汇总
-        return if (retryable > 0) Result.retry() else Result.success(workDataOf(KEY_FAILED_COUNT to failed))
+        if (retryable > 0) return Result.retry()
+        // 部分失败终态（404/insert 本地错误）→ 发汇总通知（spec §6.1「失败项汇总提示」，终审 Fix 1）：
+        // 全成功不发（前台进度通知已展示到 total/total）；retry/切服丢弃路径不发（非终态/非本批）。
+        // runCatching 同 setForeground 口径：33+ 未授权等通知失败不反噬工作结果，唯取消重抛。
+        if (failed > 0) {
+            runCatching { notifier.notifyCompleted(done - failed, failed, targetPath) }
+                .onFailure { if (it is CancellationException) throw it }
+        }
+        return Result.success(workDataOf(KEY_FAILED_COUNT to failed))
     }
 
     companion object {
