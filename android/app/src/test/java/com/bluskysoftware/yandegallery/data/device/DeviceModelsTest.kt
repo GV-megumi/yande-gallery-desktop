@@ -99,6 +99,17 @@ class DeviceModelsTest {
     }
 
     @Test
+    fun `新建相册名校验_尾随路径分隔符占位名拒绝_保pendingAlbumPath等价`() {
+        // v0.8.1 加固锁：`Trip/`/`Trip\`/裸 `/` 若放行，pendingAlbumPath 会造出 Pictures/Trip// 畸形路径，
+        // 且 absorbedPendingNames 的 trimEnd('/') 会与旧 `Pictures/$it` 判据产生行为差——校验器禁分隔符从源头堵死，
+        // 使 absorbedPendingNames 去尾斜杠判据对全部可创建名等价成立
+        assertNotNull(validateNewAlbumName("Trip/", emptySet()))     // 尾随正斜杠
+        assertNotNull(validateNewAlbumName("Trip\\", emptySet()))    // 尾随反斜杠
+        assertNotNull(validateNewAlbumName("/", emptySet()))         // 裸分隔符
+        assertNull(validateNewAlbumName("Trip", emptySet()))         // 正常名仍放行
+    }
+
+    @Test
     fun `视频时长格式化`() {
         assertEquals("0:07", formatDurationMs(7_000))
         assertEquals("1:05", formatDurationMs(65_000))

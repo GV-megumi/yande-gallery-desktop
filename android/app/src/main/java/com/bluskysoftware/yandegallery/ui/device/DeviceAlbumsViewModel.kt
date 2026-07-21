@@ -85,7 +85,9 @@ class DeviceAlbumsViewModel(
 
 /**
  * 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。
- * 路径判据 [pendingAlbumPath] 去尾斜杠 == 原 `Pictures/$it`（占位名入库即 trim、realPaths 亦 trimEnd，语义等价，v0.8.1 A3）。
+ * 路径判据 [pendingAlbumPath] 去尾斜杠 == 原 `Pictures/$it`：占位名入库即 trim、realPaths 亦 trimEnd；
+ * 又因 [validateNewAlbumName] 禁路径分隔符（`/` `\`），可创建名内必无内嵌斜杠，[pendingAlbumPath] 仅补一道
+ * 尾斜杠、trimEnd 恰削回，故二式对**全部可创建名**逐字节等价（等价性由校验器禁分隔符保证，非现状巧合，v0.8.1 A3）。
  */
 internal fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
     val realNames = realAlbums.map { it.name }.toSet()
