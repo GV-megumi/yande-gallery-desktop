@@ -381,9 +381,16 @@ fun AlbumDetailScreen(
             onPickDeviceAlbum = { path ->
                 pickerMode = null
                 val ids = viewModel.selection.selected.toList()
-                viewModel.exportSelectedToDevice(ids, path)
-                viewModel.selection.clear()
-                scope.launch { snackbarHostState.showSnackbar("已开始复制到手机相册") }
+                scope.launch {
+                    // D1 防御（v0.8.1）：入队成败分流提示——失败（WorkManager 异常/无激活服务器）不再谎报成功
+                    val ok = viewModel.exportSelectedToDevice(ids, path)
+                    if (ok) {
+                        viewModel.selection.clear()
+                        snackbarHostState.showSnackbar("已开始复制到手机相册")
+                    } else {
+                        snackbarHostState.showSnackbar("复制启动失败")   // 不清选择，可重试
+                    }
+                }
             },
             onCreateDeviceAlbum = viewModel::createDeviceAlbum,
             onDismiss = { pickerMode = null },

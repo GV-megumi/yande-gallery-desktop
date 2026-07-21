@@ -238,10 +238,14 @@ class ViewerViewModel(
     /** picker 内联新建手机相册（spec §5.5）：错误文案就地显示；null=成功（写入待落地占位）。 */
     fun createDeviceAlbum(name: String): String? = deviceTargets.create(name)
 
-    /** 桌面→手机导出入队（spec §6.1 单张版）：唯一工作名顺序排队；无激活服务器 no-op。 */
-    fun exportToDevice(imageId: Long, targetPath: String) {
-        val serverId = activeServer.value?.id ?: return
-        graph.deviceExportManager.enqueue(serverId, listOf(imageId), targetPath)
+    /**
+     * 桌面→手机导出入队（spec §6.1 单张版）：唯一工作名顺序排队。返回是否成功入队
+     * （v0.8.1 D1 防御）：无激活服务器 false（不触 WorkManager）、enqueue 异常 false——
+     * Screen 据此分流成败提示，不再谎报「已开始复制」。
+     */
+    fun exportToDevice(imageId: Long, targetPath: String): Boolean {
+        val serverId = activeServer.value?.id ?: return false
+        return graph.deviceExportManager.enqueue(serverId, listOf(imageId), targetPath)
     }
 
     /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；无激活服务器不入队）。 */

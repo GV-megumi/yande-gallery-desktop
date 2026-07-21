@@ -225,6 +225,29 @@ class PhotosViewModelTest {
     }
 
     @Test
+    fun `导出_无激活服务器返回false不入队`() = runTest {
+        // D1 防御（v0.8.1）：本文件 setup 惯例不种服务器——activeServer() 恒 null，正是导出防御的
+        // 失败前置；此前 fire-and-forget 静默 no-op，Screen 无条件弹「已开始复制」谎报成功
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val vm = PhotosViewModel(graph)
+        assertFalse("无激活服务器导出必须返回 false", vm.exportSelectedToDevice(listOf(1L), "Pictures/Yande/"))
+        val infos = WorkManager.getInstance(context).getWorkInfosForUniqueWork("device-export-1").get()
+        assertTrue("失败路径不得触碰 WorkManager 入队", infos.isEmpty())
+    }
+
+    @Test
+    fun `导出_入队异常返回false不谎报成功`() = runTest {
+        // D1 防御（v0.8.1）：单批 2000 id 超 WorkManager Data 10KB 硬上限（EXPORT_BATCH KDoc 同源），
+        // Data.Builder.build() 即抛 IllegalStateException——直测管理器 runCatching 收敛为 false
+        // （VM 逐批 all{} 上浮，Screen 据此分流「复制启动失败」）。刻意绕过 VM 分块直调管理器：
+        // 500 一批到不了上限；且本用例不触 WorkManager.getInstance，免疫沙箱静态初始化顺序。
+        assertFalse(
+            "入队异常必须收敛为 false（而非向上炸掉调用方协程）",
+            graph.deviceExportManager.enqueue(1L, (1L..2000L).toList(), "Pictures/Yande/"),
+        )
+    }
+
+    @Test
     fun `导出分块_超500拆多批保序尾批余数`() = runTest {
         // spec §6.1 分批防 Data 10KB 上限（加固轮 F9）：1001 张按 EXPORT_BATCH=500 切 500+500+1
         // 三批，经 DeviceExportManager 以唯一工作名 device-export-<serverId> APPEND_OR_REPLACE

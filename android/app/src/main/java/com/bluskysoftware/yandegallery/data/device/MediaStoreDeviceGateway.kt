@@ -251,18 +251,24 @@ class MediaStoreDeviceGateway(private val context: Context) : DeviceMediaGateway
             val selection = "$MEDIA_TYPE_SELECTION AND ${MediaStore.Files.FileColumns.RELATIVE_PATH} = ? " +
                 "AND ${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?"
             val args = MEDIA_TYPE_ARGS + arrayOf(normalizedPath, displayName)
-            // IS_PENDING=1 半成品行对默认查询不可见（29+ MediaStore 语义）——写到一半即中断的行不会误判命中
-            resolver.query(filesUri, projection, selection, args, null)?.use { cursor ->
-                if (!cursor.moveToFirst()) return@use null
-                val id = cursor.getLong(0)
-                val isVideo = cursor.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
-                val contentUri = if (isVideo) {
-                    MediaStore.Video.Media.EXTERNAL_CONTENT_URI
-                } else {
-                    MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+            // IS_PENDING=1 半成品行对默认查询不可见（29+ MediaStore 语义）——写到一半即中断的行不会误判命中。
+            // runCatching（v0.8.1 D2 防御）：OEM ROM 定制 MediaProvider 对 Files 联合 uri 的 RELATIVE_PATH
+            // 过滤查询可能抛（IllegalArgumentException/SQLite 方言差异），查重失败降级为「查无副本」放行
+            // insert——最坏同名重复落一张（MediaStore 自动改名 "xx (1).jpg"），远优于异常炸掉导出整批；
+            // CancellationException 原样重抛（结构化并发要求，DeviceCopyTargets.targets 同款口径）。
+            runCatching {
+                resolver.query(filesUri, projection, selection, args, null)?.use { cursor ->
+                    if (!cursor.moveToFirst()) return@use null
+                    val id = cursor.getLong(0)
+                    val isVideo = cursor.getInt(1) == MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+                    val contentUri = if (isVideo) {
+                        MediaStore.Video.Media.EXTERNAL_CONTENT_URI
+                    } else {
+                        MediaStore.Images.Media.EXTERNAL_CONTENT_URI
+                    }
+                    ContentUris.withAppendedId(contentUri, id)
                 }
-                ContentUris.withAppendedId(contentUri, id)
-            }
+            }.onFailure { if (it is CancellationException) throw it }.getOrNull()
         }
 
     override suspend fun moveTo(uris: List<Uri>, targetRelativePath: String): Result<Int> =

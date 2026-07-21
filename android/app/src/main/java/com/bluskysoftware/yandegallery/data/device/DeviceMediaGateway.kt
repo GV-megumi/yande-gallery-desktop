@@ -34,7 +34,9 @@ interface DeviceMediaGateway {
      * 复制依赖这一点）——导出 worker 重跑（WorkManager retry/约束中断/进程被杀均从头跑）时
      * 先查后插，已落地张跳过，否则每轮重跑都会追加一套 "xx (1).jpg" 真实重复照片。
      * IS_PENDING 半成品行对默认查询不可见，不会把写到一半的行误判为已落地；
-     * 26–28 无 RELATIVE_PATH 列恒返回 null（复制能力本就被 [DeviceCapabilities.canCopy] 挡在 29+）。
+     * 26–28 无 RELATIVE_PATH 列恒返回 null（复制能力本就被 [DeviceCapabilities.canCopy] 挡在 29+）；
+     * 查询异常（OEM ROM 定制 MediaProvider 拒绝该形态查询）降级为查无副本 null——放行 insert，
+     * 不把查重故障放大成导出整批失败（v0.8.1 D2）。
      */
     suspend fun findCopy(targetRelativePath: String, displayName: String): Uri?
 

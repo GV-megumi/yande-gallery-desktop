@@ -141,6 +141,8 @@ fun DeviceViewerScreen(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { }
     // 移动：系统写授权 RESULT_OK 后才真正 moveTo（spec §5.3 两段式）；取消则丢中继、无操作。
+    // v0.8.1 E1 走查确认：pendingMove 是 plain remember——授权弹窗期间进程重建即重置 null，
+    // RESULT_OK 回调经 `pending != null` 天然静默放弃（与 DeviceAlbumDetailScreen 空选中守护同语义），不需改码。
     val moveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->

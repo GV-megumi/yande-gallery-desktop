@@ -24,7 +24,12 @@ import java.util.concurrent.TimeUnit
  */
 class DeviceExportManager(private val context: Context) {
 
-    fun enqueue(serverId: Long, imageIds: List<Long>, targetPath: String) {
+    /**
+     * 入队一批导出，返回是否成功（v0.8.1 D1 防御）：WorkManager 未初始化（getInstance 抛
+     * IllegalStateException）、Data 序列化超 10KB 上限（workDataOf→build 即抛）等入队异常
+     * runCatching 收敛为 false——调用方据此分流失败提示，不再向上炸掉调用协程或静默谎报成功。
+     */
+    fun enqueue(serverId: Long, imageIds: List<Long>, targetPath: String): Boolean = runCatching {
         val req = OneTimeWorkRequestBuilder<DeviceExportWorker>()
             .setInputData(
                 workDataOf(
@@ -38,7 +43,7 @@ class DeviceExportManager(private val context: Context) {
             .build()
         WorkManager.getInstance(context)
             .enqueueUniqueWork(uniqueName(serverId), ExistingWorkPolicy.APPEND_OR_REPLACE, req)
-    }
+    }.isSuccess
 
     /**
      * 队首（最早入队仍未终态）work 的状态；空链 null。

@@ -148,13 +148,15 @@ class AlbumDetailViewModel(
     /** picker 内联新建手机相册（spec §5.5）：错误文案就地显示；null=成功（写入待落地占位）。 */
     fun createDeviceAlbum(name: String): String? = deviceTargets.create(name)
 
-    /** 桌面→手机导出入队（spec §6.1）：>500 张分批防 Data 10KB 上限，唯一工作名顺序排队；无激活服务器 no-op。 */
-    fun exportSelectedToDevice(ids: List<Long>, targetPath: String) {
-        viewModelScope.launch {
-            val serverId = graph.serverRepository.activeServer()?.id ?: return@launch
-            ids.chunked(DeviceCopyTargets.EXPORT_BATCH).forEach { batch ->
-                graph.deviceExportManager.enqueue(serverId, batch, targetPath)
-            }
+    /**
+     * 桌面→手机导出入队（spec §6.1）：>500 张分批防 Data 10KB 上限，唯一工作名顺序排队。
+     * 返回是否全部批次成功入队（v0.8.1 D1 防御）：无激活服务器 false（不触 WorkManager）、
+     * 任一批 enqueue 失败即 false（短路停投后续批）——Screen 据此分流成败提示，失败不清选择可重试。
+     */
+    suspend fun exportSelectedToDevice(ids: List<Long>, targetPath: String): Boolean {
+        val serverId = graph.serverRepository.activeServer()?.id ?: return false
+        return ids.chunked(DeviceCopyTargets.EXPORT_BATCH).all { batch ->
+            graph.deviceExportManager.enqueue(serverId, batch, targetPath)
         }
     }
 

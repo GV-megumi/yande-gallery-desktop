@@ -112,6 +112,10 @@ fun DeviceAlbumDetailScreen(
         val path = pendingMovePath
         pendingMovePath = null
         if (result.resultCode == Activity.RESULT_OK && path != null) {
+            // E1 进程重建守护（v0.8.1，spec H3 诚实降级）：授权弹窗悬窗期间进程被杀重建后
+            // pendingMovePath 经 rememberSaveable 存活，而 VM 选中集已随进程消亡——空选中即静默
+            // 放弃（不调 moveSelectedTo、不弹「已移动 0 张」误导提示），用户可重新选择重发起。
+            if (viewModel.selection.selected.isEmpty()) return@rememberLauncherForActivityResult
             scope.launch {
                 val totalCount = viewModel.selection.count
                 val moved = viewModel.moveSelectedTo(path).getOrDefault(0)

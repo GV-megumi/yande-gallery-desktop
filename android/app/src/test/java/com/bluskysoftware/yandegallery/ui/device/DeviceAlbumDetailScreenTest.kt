@@ -1,11 +1,19 @@
 package com.bluskysoftware.yandegallery.ui.device
 
+import android.app.Activity
 import android.app.Application
+import android.app.PendingIntent
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -17,6 +25,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.core.app.ActivityOptionsCompat
 import androidx.core.content.IntentCompat
 import coil3.ColorImage
 import coil3.ImageLoader
@@ -28,6 +37,7 @@ import coil3.request.Options
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.device.BucketKey
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
@@ -127,7 +137,7 @@ class DeviceAlbumDetailScreenTest {
      * bottomBar 独立槽（照生产 AppScaffold 结构）：若读在包含屏本体的同一重组域，屏内 SideEffect
      * 每轮回填新 Model（lambda 非结构相等）会自失效该域→无限重组（AppNotIdleException 实测）。
      */
-    private fun setScreenWithBars(): DeviceAlbumDetailViewModel {
+    private fun setScreenWithBars(registryOwner: ActivityResultRegistryOwner? = null): DeviceAlbumDetailViewModel {
         val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
         val bars = DeviceSelectionBars()
         compose.setContent {
@@ -140,22 +150,38 @@ class DeviceAlbumDetailScreenTest {
                     .coroutineContext(Dispatchers.Unconfined)
                     .build()
             }
-            Scaffold(
-                bottomBar = { bars.model?.let { DeviceSelectionBottomBar(it) } },
-            ) { padding ->
-                Box(Modifier.padding(padding)) {
-                    DeviceAlbumDetailScreen(
-                        viewModel = vm,
-                        loader = loader,
-                        onOpenViewer = {},
-                        onBack = {},
-                        selectionBars = bars,
-                    )
+            val body: @Composable () -> Unit = {
+                Scaffold(
+                    bottomBar = { bars.model?.let { DeviceSelectionBottomBar(it) } },
+                ) { padding ->
+                    Box(Modifier.padding(padding)) {
+                        DeviceAlbumDetailScreen(
+                            viewModel = vm,
+                            loader = loader,
+                            onOpenViewer = {},
+                            onBack = {},
+                            selectionBars = bars,
+                        )
+                    }
                 }
+            }
+            // E1 用例（v0.8.1）注入假 registry 接管 rememberLauncherForActivityResult；缺省走宿主 Activity
+            if (registryOwner != null) {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides registryOwner) { body() }
+            } else {
+                body()
             }
         }
         return vm
     }
+
+    /** Robolectric 下可构造的占位 PendingIntent（DeviceActionsTest 同款，写授权意图 fake 返回用）。 */
+    private fun placeholderPendingIntent(): PendingIntent = PendingIntent.getActivity(
+        ApplicationProvider.getApplicationContext(),
+        0,
+        Intent(),
+        PendingIntent.FLAG_IMMUTABLE,
+    )
 
     @Test
     fun `分享_单张实际mime_多张SEND_MULTIPLE通配`() {
@@ -241,6 +267,69 @@ class DeviceAlbumDetailScreenTest {
         }
         compose.onNodeWithTag("device_empty").assertIsDisplayed()
         compose.onNodeWithText("相册还没有照片", substring = true).assertExists()
+    }
+
+    @Test
+    fun `移动授权回调_空选中静默放弃不弹提示`() {
+        // E1 进程重建守护（v0.8.1，spec H3 诚实降级）：授权弹窗悬窗期间进程被杀重建后
+        // pendingMovePath 经 rememberSaveable 存活、VM 选中集已消亡——RESULT_OK 回调须静默放弃
+        // （不调 moveTo、不弹「已移动 0 张」误导提示）。launcher 结果经假 ActivityResultRegistry
+        // 直接驱动（onLaunch 只记 requestCode 不真跳系统弹窗，dispatchResult 模拟授权返回）；
+        // 授权悬窗期间清空选中模拟重建丢失。
+        gateway.media = listOf(media(1))
+        gateway.writeRequestResult = placeholderPendingIntent()
+        gateway.albums = listOf(
+            DeviceAlbum(
+                key = BucketKey.Bucket(10),
+                name = "Target",
+                relativePath = "Pictures/Target/",
+                count = 1,
+                coverUri = null,
+                isPending = false,
+            ),
+        )
+        val registry = object : ActivityResultRegistry() {
+            var lastRequestCode: Int? = null
+            override fun <I, O> onLaunch(
+                requestCode: Int,
+                contract: ActivityResultContract<I, O>,
+                input: I,
+                options: ActivityOptionsCompat?,
+            ) {
+                lastRequestCode = requestCode
+            }
+        }
+        val owner = object : ActivityResultRegistryOwner {
+            override val activityResultRegistry: ActivityResultRegistry = registry
+        }
+        val vm = setScreenWithBars(registryOwner = owner)
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_cell_1").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 长按进多选 → 底栏「移动到」 → picker 选目标 → moveWriteRequest 发起授权（落在假 registry）；
+        // targetAlbums 经真 DataStore IO 回环异步开 picker，waitUntil 等节点（waitForIdle 不追踪协程）
+        compose.onNodeWithTag("device_cell_1").performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_action_move_to").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_pick_b10").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("device_pick_b10").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { registry.lastRequestCode != null }
+        assertEquals("授权发起时恰一次 writeRequest", 1, gateway.writeRequestCalls.size)
+
+        // 授权悬窗期间进程重建：选中集丢失（pendingMovePath 属 rememberSaveable 存活，无需模拟丢）
+        vm.selection.clear()
+        compose.runOnIdle {
+            registry.dispatchResult(registry.lastRequestCode!!, Activity.RESULT_OK, Intent())
+        }
+        compose.waitForIdle()
+        compose.waitForIdle()   // 二连：回调 scope.launch 的续体在 AndroidUiDispatcher 上，再排一轮防假绿
+
+        // 静默放弃：不触 gateway.moveTo、无任何「已移动」snackbar（含「已移动 0 张」）
+        assertTrue("空选中授权回调不得调 moveTo", gateway.moveToCalls.isEmpty())
+        compose.onNodeWithText("已移动", substring = true).assertDoesNotExist()
     }
 
     @Test

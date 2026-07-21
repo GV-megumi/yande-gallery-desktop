@@ -344,8 +344,11 @@ fun ViewerScreen(
             },
             onPickDeviceAlbum = { path ->
                 pickTargetFor = null
-                viewModel.exportToDevice(imageId, path)
-                scope.launch { snackbar.showSnackbar("已开始复制到手机相册") }
+                scope.launch {
+                    // D1 防御（v0.8.1）：入队成败分流提示（单张无选择可清，失败可直接重试）
+                    val ok = viewModel.exportToDevice(imageId, path)
+                    snackbar.showSnackbar(if (ok) "已开始复制到手机相册" else "复制启动失败")
+                }
             },
             onCreateDeviceAlbum = viewModel::createDeviceAlbum,
             onDismiss = { pickTargetFor = null },
