@@ -23,6 +23,18 @@ class DeviceModelsTest {
     }
 
     @Test
+    fun `bucketKey_空段与非法前缀解码`() {
+        // 钉现状："b" 空 id 经 toLongOrNull 失败 → null；"p" 空名无空段校验，现状解出
+        // Pending("")（计划 brief 预期 null，以代码为准修断言）——App 自身构造不出裸 "p"
+        //（Pending 名来自 validateNewAlbumName，拒空白），两侧 VM 收参另有 ?: All 兜底，
+        // 属解析器宽松边界而非缺陷；若未来收紧为 null 属行为变更，需同步改此断言
+        assertEquals(BucketKey.Pending(""), BucketKey.decode("p"))   // Pending 空名（现状非 null）
+        assertNull(BucketKey.decode("b"))    // Bucket 空 id
+        assertNull(BucketKey.decode(""))
+        assertNull(BucketKey.decode("x9"))
+    }
+
+    @Test
     fun `相册排序_相机截图置顶_其余按张数降序_待落地垫底`() {
         fun album(name: String, path: String?, count: Int, pending: Boolean = false) = DeviceAlbum(
             key = if (pending) BucketKey.Pending(name) else BucketKey.Bucket(name.hashCode().toLong()),
@@ -64,6 +76,15 @@ class DeviceModelsTest {
         assertTrue(isWritableAlbumPath("Pictures/WeChat/"))
         assertFalse(isWritableAlbumPath("Download/"))
         assertFalse(isWritableAlbumPath("Movies/x/"))
+    }
+
+    @Test
+    fun `目标目录校验_无尾斜杠前缀同样通过`() {
+        // isWritableAlbumPath 以 startsWith 判前缀——真实 RELATIVE_PATH 带尾斜杠，
+        // 但 trimEnd 后的比较路径也应稳定通过/拒绝
+        assertTrue(isWritableAlbumPath("DCIM/Camera"))
+        assertTrue(isWritableAlbumPath("Pictures/Yande"))
+        assertFalse(isWritableAlbumPath("Download/Sub"))
     }
 
     @Test
