@@ -48,13 +48,13 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.formatDurationMs
+import com.bluskysoftware.yandegallery.data.device.mime
 import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.detectPinchStep
-import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.launch
 
@@ -295,11 +295,6 @@ fun DeviceAlbumDetailScreen(
         )
     }
 }
-
-/** 分享 mime（brief 契约）：视频通配 video；图片按实际扩展名映射（未知回退 image 通配）。
- *  Task 8 起 internal 共享给 DeviceViewerScreen 的单张分享（同域同语义，不各自复制）。 */
-internal fun DeviceMedia.mime(): String =
-    if (isVideo) "video/*" else mimeOf(displayName.substringAfterLast('.', ""))
 
 /** 网格格子：SelectableCell 包图 + 选中态角标；视频额外叠右下角时长角标（黑 55% 圆角底白字）。 */
 @Composable

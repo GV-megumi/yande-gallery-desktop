@@ -9,6 +9,7 @@ import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAccessLevel
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.sortDeviceAlbums
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
@@ -82,11 +83,14 @@ class DeviceAlbumsViewModel(
     }
 }
 
-/** 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。 */
+/**
+ * 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。
+ * 路径判据 [pendingAlbumPath] 去尾斜杠 == 原 `Pictures/$it`（占位名入库即 trim、realPaths 亦 trimEnd，语义等价，v0.8.1 A3）。
+ */
 internal fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
     val realNames = realAlbums.map { it.name }.toSet()
     val realPaths = realAlbums.mapNotNull { it.relativePath?.trimEnd('/') }.toSet()
-    return pendingNames.filterTo(mutableSetOf()) { it in realNames || "Pictures/$it" in realPaths }
+    return pendingNames.filterTo(mutableSetOf()) { it in realNames || pendingAlbumPath(it).trimEnd('/') in realPaths }
 }
 
 /**
@@ -118,7 +122,7 @@ internal fun buildTargetAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<
         DeviceAlbum(
             key = BucketKey.Pending(name),
             name = name,
-            relativePath = "Pictures/$name/",
+            relativePath = pendingAlbumPath(name),
             count = 0,
             coverUri = null,
             isPending = true,

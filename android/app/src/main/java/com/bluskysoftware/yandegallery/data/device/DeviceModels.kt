@@ -105,3 +105,10 @@ fun formatDurationMs(ms: Long): String {
     val s = totalSec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
+
+/** 待落地相册的固定落盘路径（六处构造点收敛，v0.8.1 A3）：`Pictures/<名>/`，名先 trim。 */
+fun pendingAlbumPath(name: String): String = "Pictures/${name.trim()}/"
+
+/** 分享用 mime（原 DeviceAlbumDetailScreen internal 件迁址，v0.8.1 A4）：视频通配，图片按扩展名。 */
+fun DeviceMedia.mime(): String =
+    if (isVideo) "video/*" else mimeOf(displayName.substringAfterLast('.', ""))

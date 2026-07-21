@@ -1,8 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -58,9 +55,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -74,7 +68,10 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.CopyTargetPicker
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.PickerMode
+import com.bluskysoftware.yandegallery.ui.common.applySystemBars
+import com.bluskysoftware.yandegallery.ui.common.findActivity
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
+import com.bluskysoftware.yandegallery.ui.common.setSystemBarAppearanceLight
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import com.bluskysoftware.yandegallery.ui.photos.viewerDateLabel
 import com.bluskysoftware.yandegallery.ui.photos.viewerTimeLabel
@@ -621,28 +618,4 @@ fun ViewerPager(
             }
         }
     }
-}
-
-/** 隐/显系统栏（沉浸模式）；window 取不到（非 Activity 宿主）时静默跳过。 */
-private fun applySystemBars(activity: Activity?, view: android.view.View, hide: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    if (hide) controller.hide(WindowInsetsCompat.Type.systemBars())
-    else controller.show(WindowInsetsCompat.Type.systemBars())
-}
-
-/** 写系统栏（状态栏+导航栏）图标深浅：light=true 深色图标（浅底页用）；window 取不到时静默跳过。 */
-private fun setSystemBarAppearanceLight(activity: Activity?, view: android.view.View, light: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.isAppearanceLightStatusBars = light
-    controller.isAppearanceLightNavigationBars = light
-}
-
-/** 从 Compose 视图上下文向上剥 ContextWrapper 找宿主 Activity（拿 window 用）。 */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

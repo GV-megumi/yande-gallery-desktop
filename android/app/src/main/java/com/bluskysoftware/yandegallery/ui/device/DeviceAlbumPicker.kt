@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.isWritableAlbumPath
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
 
@@ -91,7 +92,7 @@ fun DeviceAlbumPicker(
                         TextButton(
                             onClick = {
                                 val error = onCreate(newName)
-                                if (error != null) newError = error else onPick("Pictures/${newName.trim()}/")
+                                if (error != null) newError = error else onPick(pendingAlbumPath(newName))
                             },
                             modifier = Modifier.testTag("device_pick_create_confirm"),
                         ) { Text("创建") }

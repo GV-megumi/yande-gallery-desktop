@@ -31,6 +31,7 @@ import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
 import com.bluskysoftware.yandegallery.data.device.isWritableAlbumPath
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.ui.device.buildTargetAlbums
@@ -149,7 +150,7 @@ fun CopyTargetPicker(
                                         TextButton(
                                             onClick = {
                                                 val error = onCreateDeviceAlbum(newName)
-                                                if (error != null) newError = error else onPickDeviceAlbum("Pictures/${newName.trim()}/")
+                                                if (error != null) newError = error else onPickDeviceAlbum(pendingAlbumPath(newName))
                                             },
                                             modifier = Modifier.testTag("copy_picker_create_confirm"),
                                         ) { Text("创建") }

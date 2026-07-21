@@ -2,8 +2,6 @@ package com.bluskysoftware.yandegallery.ui.device
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,9 +68,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
@@ -80,7 +75,11 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.formatDurationMs
+import com.bluskysoftware.yandegallery.data.device.mime
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
+import com.bluskysoftware.yandegallery.ui.common.applySystemBars
+import com.bluskysoftware.yandegallery.ui.common.findActivity
+import com.bluskysoftware.yandegallery.ui.common.setSystemBarAppearanceLight
 import com.bluskysoftware.yandegallery.ui.photos.weekdayCn
 import com.bluskysoftware.yandegallery.ui.viewer.ZoomableImage
 import com.bluskysoftware.yandegallery.ui.viewer.ZoomableImageState
@@ -550,27 +549,3 @@ internal fun deviceViewerDateLabel(takenAtMs: Long, today: LocalDate): String {
 internal fun deviceViewerTimeLabel(takenAtMs: Long): String =
     Instant.ofEpochMilli(takenAtMs).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm"))
-
-/** 隐/显系统栏（沉浸模式，ViewerScreen 私有件同款复刻——跨包不可引用）；非 Activity 宿主静默跳过。 */
-private fun applySystemBars(activity: Activity?, view: android.view.View, hide: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    if (hide) controller.hide(WindowInsetsCompat.Type.systemBars())
-    else controller.show(WindowInsetsCompat.Type.systemBars())
-}
-
-/** 写系统栏图标深浅（ViewerScreen 私有件同款复刻）；window 取不到时静默跳过。 */
-private fun setSystemBarAppearanceLight(activity: Activity?, view: android.view.View, light: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.isAppearanceLightStatusBars = light
-    controller.isAppearanceLightNavigationBars = light
-}
-
-/** 从 Compose 视图上下文向上剥 ContextWrapper 找宿主 Activity（ViewerScreen 私有件同款复刻）。 */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}

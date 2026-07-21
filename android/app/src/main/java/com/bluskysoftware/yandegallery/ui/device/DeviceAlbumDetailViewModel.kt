@@ -16,6 +16,7 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
 import com.bluskysoftware.yandegallery.data.device.DeviceSource
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -172,7 +173,7 @@ class DeviceAlbumDetailViewModel(
         }
         if (ok > 0) {
             val pending = prefsStore.devicePendingAlbums.first()
-            pending.firstOrNull { "Pictures/$it/" == path }?.let { prefsStore.removePendingAlbum(it) }
+            pending.firstOrNull { pendingAlbumPath(it) == path }?.let { prefsStore.removePendingAlbum(it) }
         }
         return ok
     }
