@@ -2,12 +2,18 @@ package com.bluskysoftware.yandegallery.ui.common
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.BrokenImage
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -16,10 +22,13 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -32,6 +41,10 @@ import coil3.compose.AsyncImagePainter
  * key(retryEpoch) 重挂 AsyncImage 重新发请求（Coil 不缓存失败结果，重挂即重试；
  * 成功结果仍走盘/内存缓存直出，离线已缓存图不受影响）。
  * remember(model) 让重试/失败态随底图切换复位——LazyGrid 格子回收给不同图时不残留旧态。
+ *
+ * [gesturePassthrough]（加固轮 C 类，spec §3/H4 手势让位）：false（默认）失败占位整面可点重试
+ * （非网格调用点现状）；true 时占位面不自挂手势——点击/长按透传外层 SelectableCell 选择路由
+ * （失败格可打开/选中/长按进多选），重试仅由右下角角标按钮承载。三选择网格调用点传 true。
  */
 @Composable
 fun RetryableAsyncImage(
@@ -42,6 +55,7 @@ fun RetryableAsyncImage(
     modifier: Modifier = Modifier,
     imageModifier: Modifier? = null,   // null → matchParentSize（BoxScope 内解析，故不能作默认参数值）
     dark: Boolean = false,
+    gesturePassthrough: Boolean = false,
 ) {
     var retryEpoch by remember(model) { mutableStateOf(0) }
     var failed by remember(model) { mutableStateOf(false) }
@@ -62,26 +76,72 @@ fun RetryableAsyncImage(
                 dark = dark,
                 onRetry = { failed = false; retryEpoch++ },
                 modifier = Modifier.matchParentSize(),
+                gesturePassthrough = gesturePassthrough,
             )
         }
     }
 }
 
-/** 失败占位视觉（独立可测）：灰底/黑底 + 图标 + 中文提示，整块可点重试。 */
+/**
+ * 失败占位视觉（独立可测）：灰底/黑底 + 图标 + 中文提示 + 右下角重试角标（两态恒渲染，视觉一致）。
+ * 手势让位（加固轮 C 类，spec §3/H4）：[gesturePassthrough]=false 整面 clickable 重试（现状习惯）；
+ * true 时占位面不挂手势，点击/长按透传外层（SelectableCell 选择路由），重试仅由角标承载。
+ *
+ * 角标手势用自定义 pointerInput 而非 clickable：clickable 会消费 down，外层 combinedClickable 的
+ * 长按探测收不到完整事件序列（正是本次修复的吞手势根因）。此处只在「长按超时前抬手」时消费 up
+ * 并触发重试——外层单击探测据此取消，不双触发；按住超过长按阈值则全程不消费，长按恒透传外层
+ * （角标上长按同样进多选，spec 长按恒透传语义覆盖角标自身）。
+ */
 @Composable
-fun ImageErrorPlaceholder(dark: Boolean, onRetry: () -> Unit, modifier: Modifier = Modifier) {
+fun ImageErrorPlaceholder(
+    dark: Boolean,
+    onRetry: () -> Unit,
+    modifier: Modifier = Modifier,
+    gesturePassthrough: Boolean = false,
+) {
     val bg = if (dark) Color.Black else MaterialTheme.colorScheme.surfaceVariant
     val fg = if (dark) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-    Column(
+    // 角标 pointerInput 键 Unit 常驻，回调经 rememberUpdatedState 取最新（ZoomableImage 同款惯例）
+    val currentOnRetry by rememberUpdatedState(onRetry)
+    Box(
         modifier = modifier
             .background(bg)
-            .clickable(onClick = onRetry)
-            .padding(8.dp)
+            .then(if (gesturePassthrough) Modifier else Modifier.clickable(onClick = onRetry))
             .testTag("image_error_placeholder"),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
-        Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = fg)
-        Text("加载失败，点按重试", style = MaterialTheme.typography.labelSmall, color = fg)
+        Column(
+            modifier = Modifier.matchParentSize().padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = fg)
+            Text("加载失败，点按重试", style = MaterialTheme.typography.labelSmall, color = fg)
+        }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(4.dp)
+                .size(28.dp)
+                .clip(CircleShape)
+                .background(if (dark) Color.White.copy(alpha = 0.25f) else Color.Black.copy(alpha = 0.55f))
+                .pointerInput(Unit) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        // 只认「长按超时前抬手」为点按重试；超时未抬手不消费任何事件（长按透传）。
+                        // 拖出角标/事件被上游消费按取消处理（waitForUpOrCancellation 返回 null）。
+                        val up = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
+                            waitForUpOrCancellation()
+                        }
+                        if (up != null) {
+                            up.consume()
+                            currentOnRetry()
+                        }
+                    }
+                }
+                .testTag("image_error_retry_badge"),
+        ) {
+            Icon(Icons.Filled.Refresh, contentDescription = "重试", tint = Color.White, modifier = Modifier.size(16.dp))
+        }
     }
 }

@@ -324,6 +324,8 @@ private fun DeviceMediaCell(
                 contentDescription = media.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+                // 手势让位（加固轮 C 类）：失败格点击/长按透传 SelectableCell 选择路由，重试走角标
+                gesturePassthrough = true,
             )
             if (media.isVideo) {
                 Text(
