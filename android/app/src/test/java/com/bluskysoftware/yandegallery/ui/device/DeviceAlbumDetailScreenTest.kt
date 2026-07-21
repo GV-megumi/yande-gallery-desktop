@@ -1,6 +1,13 @@
 package com.bluskysoftware.yandegallery.ui.device
 
+import android.app.Application
+import android.content.Intent
 import android.net.Uri
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -10,6 +17,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.core.content.IntentCompat
 import coil3.ColorImage
 import coil3.ImageLoader
 import coil3.Uri as CoilUri
@@ -18,6 +26,7 @@ import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
 import coil3.request.Options
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
@@ -33,11 +42,13 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 
 /**
  * [DeviceAlbumDetailScreen] compose 契约（Task 6，spec §2.2）：网格渲染、视频角标文案、单击/
@@ -107,6 +118,78 @@ class DeviceAlbumDetailScreenTest {
             )
         }
         return vm
+    }
+
+    /**
+     * 分享装配（加固轮 F6）：真屏 + 桥动作栏同挂——DeviceSelectionBottomBar 生产中由壳
+     * （AppScaffold bottomBar 槽）按桥 model 渲染，本测试复刻该 swap 渲染以打通「长按进多选 →
+     * 点分享 → chooser intent」全链；loader/fetcher 同 [setScreen]。桥 model 的读取**必须**留在
+     * bottomBar 独立槽（照生产 AppScaffold 结构）：若读在包含屏本体的同一重组域，屏内 SideEffect
+     * 每轮回填新 Model（lambda 非结构相等）会自失效该域→无限重组（AppNotIdleException 实测）。
+     */
+    private fun setScreenWithBars(): DeviceAlbumDetailViewModel {
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+        val bars = DeviceSelectionBars()
+        compose.setContent {
+            val context = LocalContext.current
+            // loader 必须 remember：桥写入会致本装配重组，重建 loader 会让屏永不 skippable，
+            // 与上述 SideEffect 回填互激成环
+            val loader = remember {
+                ImageLoader.Builder(context)
+                    .components { add(AlwaysSucceedFetcherFactory()) }
+                    .coroutineContext(Dispatchers.Unconfined)
+                    .build()
+            }
+            Scaffold(
+                bottomBar = { bars.model?.let { DeviceSelectionBottomBar(it) } },
+            ) { padding ->
+                Box(Modifier.padding(padding)) {
+                    DeviceAlbumDetailScreen(
+                        viewModel = vm,
+                        loader = loader,
+                        onOpenViewer = {},
+                        onBack = {},
+                        selectionBars = bars,
+                    )
+                }
+            }
+        }
+        return vm
+    }
+
+    @Test
+    fun `分享_单张实际mime_多张SEND_MULTIPLE通配`() {
+        // 单张：ACTION_SEND + 实际 mime；多张：ACTION_SEND_MULTIPLE + */* + FLAG_GRANT_READ_URI_PERMISSION。
+        // chooser 包装（Intent.createChooser）经 EXTRA_INTENT 解包取内层断言。
+        gateway.media = listOf(media(1), media(2, isVideo = true, durationMs = 5_000))
+        setScreenWithBars()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_cell_1").fetchSemanticsNodes().isNotEmpty()
+        }
+        val shadowApp = shadowOf(ApplicationProvider.getApplicationContext<Application>())
+
+        // 长按 1 号（图片 img1.jpg）进多选 → 分享；shareSelected 经 scope.launch 异步组 intent，
+        // 用 peek 轮询等 startActivity 真发生（waitForIdle 不追踪协程完成，防时序 flake）
+        compose.onNodeWithTag("device_cell_1").performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_action_share").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { shadowApp.peekNextStartedActivity() != null }
+        val single = shadowApp.nextStartedActivity
+        assertEquals(Intent.ACTION_CHOOSER, single.action)
+        val singleInner = IntentCompat.getParcelableExtra(single, Intent.EXTRA_INTENT, Intent::class.java)!!
+        assertEquals(Intent.ACTION_SEND, singleInner.action)
+        assertEquals("image/jpeg", singleInner.type)   // 按实际扩展名映射，非通配
+
+        // 补选 2 号（视频）→ 分享不清选择（现状语义），选中成 {1,2}
+        compose.onNodeWithTag("device_cell_2").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_action_share").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { shadowApp.peekNextStartedActivity() != null }
+        val multi = shadowApp.nextStartedActivity
+        val multiInner = IntentCompat.getParcelableExtra(multi, Intent.EXTRA_INTENT, Intent::class.java)!!
+        assertEquals(Intent.ACTION_SEND_MULTIPLE, multiInner.action)
+        assertEquals("*/*", multiInner.type)
+        assertTrue(multiInner.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
     }
 
     @Test

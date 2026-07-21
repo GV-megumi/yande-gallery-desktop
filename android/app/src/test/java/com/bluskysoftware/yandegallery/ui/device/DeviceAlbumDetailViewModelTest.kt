@@ -93,6 +93,16 @@ class DeviceAlbumDetailViewModelTest {
     }
 
     @Test
+    fun `Pending上下文分页恒空页`() = runTest {
+        // 待落地相册恒无成员（加固轮 F5）：FakeMediaPagingSource 的 Pending 分支与生产
+        // DeviceMediaPagingSource 语义一致——即使网关 media 非空，Pending key 下快照必为空列表。
+        gateway.media = listOf(media(1))
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.Pending("旅行").encode())
+        val snapshot = vm.media.asSnapshot { }
+        assertEquals(emptyList<DeviceMedia>(), snapshot)
+    }
+
+    @Test
     fun `observeChanges脉冲触发invalidate`() = runTest {
         gateway.media = listOf(media(1), media(2))
         val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())

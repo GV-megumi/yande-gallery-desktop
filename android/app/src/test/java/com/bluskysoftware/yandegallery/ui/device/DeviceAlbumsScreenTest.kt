@@ -3,12 +3,15 @@ package com.bluskysoftware.yandegallery.ui.device
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTouchInput
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import coil3.ImageLoader
+import com.bluskysoftware.yandegallery.awaitValue
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAccessLevel
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
@@ -20,6 +23,8 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
@@ -130,6 +135,28 @@ class DeviceAlbumsScreenTest {
         }
         compose.onNodeWithTag("device_album_card_b7").performClick()
         assertEquals(BucketKey.Bucket(7), opened)
+    }
+
+    @Test
+    fun `待落地相册长按删除_确认框确认后移除`() {
+        // DeviceAlbumsScreen.kt 确认框链路（加固轮 F4）：长按 pending 卡 → DropdownMenu「删除」→
+        // MiuiDialog 二次确认（confirmTag=device_album_delete_confirm）→ deletePendingAlbum →
+        // DataStore 占位记录移除。tag 按实际实现：卡片 device_album_card_p<名>、菜单项
+        // device_album_menu_delete（brief 示意的 device_album_p旅行/文字「删除」有歧义——菜单项与
+        // 确认按钮同文案，钉现状按 tag 定位）。
+        runBlocking { prefsStore.addPendingAlbum("旅行") }
+        setScreen(DeviceAccessLevel.FULL)
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_album_card_p旅行").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("device_album_card_p旅行").performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_album_menu_delete").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_album_delete_confirm").performClick()
+        // review Finding 3 口径：awaitValue 超时不抛，外包断言确认 DataStore 键真被清掉
+        val cleared = runBlocking { awaitValue({ prefsStore.devicePendingAlbums.first() }) { "旅行" !in it } }
+        assertEquals(emptySet<String>(), cleared)
     }
 
     @Test

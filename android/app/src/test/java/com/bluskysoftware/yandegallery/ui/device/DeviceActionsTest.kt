@@ -158,6 +158,21 @@ class DeviceActionsTest {
     }
 
     @Test
+    fun `移动到_部分行未生效时成功数按rows-affected对账`() = runTest {
+        // 网关 moveTo 计数 = resolver.update 返回行数之和；0 行的 uri 不计成败——
+        // UI 侧以 successCount vs 选中数 对账提示（T3(c) 语义钉板，加固轮 F3）
+        gateway.media = listOf(media(1), media(2), media(3))
+        gateway.moveToResult = Result.success(2)   // 3 选 2 行生效
+        val vm = vm()
+        vm.selection.selectAll(listOf(1, 2, 3))
+
+        val moved = vm.moveSelectedTo("Pictures/Target/").getOrDefault(0)
+
+        assertEquals(2, moved)
+        assertEquals(3, gateway.moveToCalls.single().first.size)   // 三 uri 全量传入
+    }
+
+    @Test
     fun `删除_uris正确传入deleteRequest`() = runTest {
         val m1 = media(1)
         val m3 = media(3)

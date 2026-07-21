@@ -54,6 +54,13 @@ class DeviceExportWorkerTest {
     private val insertCalls = mutableListOf<Pair<DeviceSource, String>>()
     private val findCopyCalls = mutableListOf<Pair<String, String>>()
 
+    /**
+     * 统一 call log（加固轮 D3；Task 8 的 DeviceCopyWorkerTest 沿用此形态）：`"find:<名>"` /
+     * `"insert:<名>"` 按**实际调用序**交错追加——上面两张分列表各自保序但相互无序，只有共享
+     * 时间线才能钉「逐张先查后插」；两分列表保留同步追加，既有断言零改动。
+     */
+    private val calls = mutableListOf<String>()
+
     /** 已落地副本集合（"path|name"）：insert 成功即登记、findCopy 据此命中——模拟真实 MediaStore 现状。 */
     private val landed = mutableSetOf<String>()
 
@@ -79,12 +86,13 @@ class DeviceExportWorkerTest {
                         ensureOriginal = ensure,
                         insertCopy = { source, path ->
                             insertCalls += source to path
-                            insertResult(source, path).onSuccess {
-                                landed += "$path|${(source as DeviceSource.LocalFile).displayName}"
-                            }
+                            val name = (source as DeviceSource.LocalFile).displayName
+                            calls += "insert:$name"
+                            insertResult(source, path).onSuccess { landed += "$path|$name" }
                         },
                         findCopy = { path, name ->
                             findCopyCalls += path to name
+                            calls += "find:$name"
                             if ("$path|$name" in landed) Uri.parse("content://media/external/images/media/999") else null
                         },
                         activeServerId = { activeId },
@@ -110,6 +118,16 @@ class DeviceExportWorkerTest {
 
         assertEquals("三张应各查重一次（insert 前置）", 3, findCopyCalls.size)
         assertEquals("三张应各 insertCopy 一次", 3, insertCalls.size)
+        // 逐张严格「先查后插」交错序（加固轮 D3，防未来改成批查或先插后查）；
+        // 文件名按本用例 ensure 实际返回（img-<id>.jpg），brief 示意的 1.jpg 系另一命名
+        assertEquals(
+            listOf(
+                "find:img-1.jpg", "insert:img-1.jpg",
+                "find:img-2.jpg", "insert:img-2.jpg",
+                "find:img-3.jpg", "insert:img-3.jpg",
+            ),
+            calls,
+        )
         insertCalls.forEachIndexed { i, (source, path) ->
             val imageId = (i + 1).toLong()   // 串行保持 inputData 顺序 1→2→3
             assertEquals("targetPath 应逐张透传", "Pictures/Yande/", path)

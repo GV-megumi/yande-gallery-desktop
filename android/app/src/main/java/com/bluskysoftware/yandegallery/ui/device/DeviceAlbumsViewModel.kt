@@ -83,7 +83,7 @@ class DeviceAlbumsViewModel(
 }
 
 /** 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。 */
-private fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
+internal fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
     val realNames = realAlbums.map { it.name }.toSet()
     val realPaths = realAlbums.mapNotNull { it.relativePath?.trimEnd('/') }.toSet()
     return pendingNames.filterTo(mutableSetOf()) { it in realNames || "Pictures/$it" in realPaths }

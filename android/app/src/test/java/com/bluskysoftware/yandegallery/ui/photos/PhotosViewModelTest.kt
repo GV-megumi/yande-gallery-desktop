@@ -1,9 +1,12 @@
 package com.bluskysoftware.yandegallery.ui.photos
 
+import android.content.Context
 import com.bluskysoftware.yandegallery.awaitValue
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.paging.testing.asSnapshot
 import androidx.test.core.app.ApplicationProvider
+import androidx.work.WorkManager
+import androidx.work.testing.WorkManagerTestInitHelper
 import app.cash.turbine.test
 import com.bluskysoftware.yandegallery.data.db.AppDatabase
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
@@ -52,6 +55,8 @@ class PhotosViewModelTest {
     // 密度档位走真 DataStore 文件（临时文件独立实例）：隔离每个用例、避开进程级单例状态泄漏。
     private val prefsScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val prefsTmp = File.createTempFile("photos-vm-prefs", ".preferences_pb").also { it.delete() }
+
+    private val context: Context = ApplicationProvider.getApplicationContext()
 
     @Before
     fun setup() {
@@ -217,5 +222,25 @@ class PhotosViewModelTest {
         // 同 graph（同 DataStore）新建第二个 VM：首帧默认，init 回填持久档 DAY_3。
         val vm2 = PhotosViewModel(graph)
         assertEquals(DensityTier.DAY_3, vm2.densityTier.first { it != DensityTier.DEFAULT })
+    }
+
+    @Test
+    fun `导出分块_超500拆多批保序尾批余数`() = runTest {
+        // spec §6.1 分批防 Data 10KB 上限（加固轮 F9）：1001 张按 EXPORT_BATCH=500 切 500+500+1
+        // 三批，经 DeviceExportManager 以唯一工作名 device-export-<serverId> APPEND_OR_REPLACE
+        // 顺序成链。WorkInfo 不暴露 inputData，链长 3 即锁「>500 必拆批 + 尾批余数单独成节」；
+        // CONNECTED 约束在 test 模式默认不满足，work 停在队列不执行，正好只验入队形状。
+        // WorkManager 于装配处按需初始化（manifest 默认初始化器已移除，见 robolectric.properties）；
+        // 仅本用例触 WorkManager，不进 setup 免波及其余用例环境。
+        WorkManagerTestInitHelper.initializeTestWorkManager(context)
+        val serverId = graph.serverRepository.addAndActivate("a", "http://a", "k")
+        val vm = PhotosViewModel(graph)
+        vm.exportSelectedToDevice((1L..1001L).toList(), "Pictures/Yande/")
+        advanceUntilIdle()
+        // 入队前经真 Room（activeServer 查询）回环：awaitValue 轮询等链落定（TestAwait 惯例）
+        val infos = awaitValue({
+            WorkManager.getInstance(context).getWorkInfosForUniqueWork("device-export-$serverId").get()
+        }) { it.size == 3 }
+        assertEquals(3, infos.size)   // 500+500+1，APPEND_OR_REPLACE 链三节
     }
 }
