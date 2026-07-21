@@ -17,6 +17,7 @@ import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.db.buildGalleryImagesQuery
 import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.data.image.thumbnailUrl
 import com.bluskysoftware.yandegallery.data.mirror.LocalImage
@@ -26,6 +27,7 @@ import com.bluskysoftware.yandegallery.di.AppGraph
 import com.bluskysoftware.yandegallery.domain.ConnState
 import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import com.bluskysoftware.yandegallery.ui.common.DeviceCopyTargets
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -212,13 +214,35 @@ class ViewerViewModel(
     suspend fun removeTags(imageId: Long, names: List<String>): WriteResult =
         graph.writeRepository.removeTags(imageId, names)
 
-    /** 加入相册（更多菜单）。 */
+    /** 加入相册（更多菜单「复制到」桌面相册节）。 */
     suspend fun addToGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.addToGallery(galleryId, listOf(imageId))
 
     /** 移出相册（更多菜单，仅相册上下文可用）。 */
     suspend fun removeFromGallery(galleryId: Long, imageId: Long): WriteResult =
         graph.writeRepository.removeFromGallery(galleryId, listOf(imageId))
+
+    /** 单张移动到目标相册（更多菜单「移动到」，仅相册上下文；spec §6.2）：目标加入 + 当前移除。 */
+    suspend fun moveTo(targetGalleryId: Long, imageId: Long): WriteResult {
+        val from = contextGalleryId ?: return WriteResult.Failed("无相册上下文")
+        return graph.writeRepository.moveToGallery(from, targetGalleryId, listOf(imageId))
+    }
+
+    // ---- Task 11「复制到」手机相册节：数据源/内联新建/导出入队 ----
+
+    private val deviceTargets = DeviceCopyTargets(graph.deviceMediaGateway, graph.prefsStore, viewModelScope)
+
+    /** 手机相册节候选（CopyTargetPicker Copy 模式，spec §6.1）：真实相册 + 待落地占位。 */
+    suspend fun deviceAlbumTargets(): List<DeviceAlbum> = deviceTargets.targets()
+
+    /** picker 内联新建手机相册（spec §5.5）：错误文案就地显示；null=成功（写入待落地占位）。 */
+    fun createDeviceAlbum(name: String): String? = deviceTargets.create(name)
+
+    /** 桌面→手机导出入队（spec §6.1 单张版）：唯一工作名顺序排队；无激活服务器 no-op。 */
+    fun exportToDevice(imageId: Long, targetPath: String) {
+        val serverId = activeServer.value?.id ?: return
+        graph.deviceExportManager.enqueue(serverId, listOf(imageId), targetPath)
+    }
 
     /** 查看原图：入队下载（T8 唯一工作名 KEEP，重复点击不叠加；无激活服务器不入队）。 */
     fun enqueueDownload(image: ImageEntity) {

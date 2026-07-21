@@ -74,4 +74,18 @@ class AppNavTest {
         compose.onNodeWithTag("selection_bottom_bar").assertDoesNotExist()
         compose.onNodeWithTag("tab_photos").assertIsDisplayed()
     }
+
+    @Test
+    fun `底导含手机相册tab_点击落到device_albums路由`() {
+        compose.setContent { AppNavForTest() }
+        compose.onNodeWithTag("tab_device_albums").performClick()
+        compose.onNodeWithText("手机相册占位").assertIsDisplayed()
+    }
+
+    @Test
+    fun `手机相册tab上底部导航栏保持可见`() {
+        compose.setContent { AppNavForTest() }
+        compose.onNodeWithTag("tab_device_albums").performClick()
+        compose.onNodeWithTag("tab_photos").assertIsDisplayed()   // 底导仍在
+    }
 }

@@ -230,6 +230,24 @@ class WriteRepository(
         )
     }
 
+    /**
+     * 移动到相册（本机相册 spec §6.2）：目标加入成功 → 当前移除；移除失败补偿回滚（撤销目标加入）。
+     * 两步各自复用 addToGallery/removeFromGallery 的乐观镜像与 404-当成功语义——404 语义组合出的
+     * 边界（目标已删=加入404当成功→移除照走）与 spec 一致；补偿调用自身失败不再级联处理，
+     * 交给每步写成功后已触发的对账 nudge 收敛（BUG-02 同族口径）。
+     */
+    suspend fun moveToGallery(fromGalleryId: Long, toGalleryId: Long, imageIds: List<Long>): WriteResult {
+        if (imageIds.isEmpty()) return WriteResult.Success
+        val added = addToGallery(toGalleryId, imageIds)
+        if (added is WriteResult.Failed) return added
+        val removed = removeFromGallery(fromGalleryId, imageIds)
+        if (removed is WriteResult.Failed) {
+            removeFromGallery(toGalleryId, imageIds)   // 补偿：撤销目标加入（结果不再分流）
+            return removed
+        }
+        return WriteResult.Success
+    }
+
     /** 批删（M4-T14 加固）：去重 + 按 900 分块调 batch 端点；某块失败回滚该块与未发块，已成块保持。 */
     suspend fun batchDeleteImages(imageIds: List<Long>): WriteResult {
         val unique = imageIds.distinct()

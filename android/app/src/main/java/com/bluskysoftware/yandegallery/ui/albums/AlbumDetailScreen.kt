@@ -39,12 +39,14 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.compose.LazyPagingItems
 import androidx.paging.compose.collectAsLazyPagingItems
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
+import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.image.thumbnailRequest
 import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.data.prefs.PhotoSortField
 import com.bluskysoftware.yandegallery.data.prefs.ViewPrefs
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
-import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.CopyTargetPicker
 import com.bluskysoftware.yandegallery.ui.common.MiuiChoiceRow
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.MiuiMenuGroupRow
@@ -52,6 +54,7 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiMoreMenu
 import com.bluskysoftware.yandegallery.ui.common.MiuiSortRow
 import com.bluskysoftware.yandegallery.ui.common.photoSortPreview
 import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
+import com.bluskysoftware.yandegallery.ui.common.PickerMode
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
@@ -64,7 +67,7 @@ import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
-/** 相册详情：4 列网格 + 居中双行顶栏（标题+数量副标题，spec §4.2）；T13 加多选（长按进入，批量下载/分享/删除/加入/移出相册）。 */
+/** 相册详情：4 列网格 + 居中双行顶栏（标题+数量副标题，spec §4.2）；T13 加多选（长按进入，批量下载/分享/删除/复制到/移动到/移出相册）。 */
 @Composable
 fun AlbumDetailScreen(
     viewModel: AlbumDetailViewModel,
@@ -113,7 +116,13 @@ fun AlbumDetailScreen(
     var confirmBatchDelete by rememberSaveable { mutableStateOf(false) }
     // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
     var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
-    var showGalleryPicker by rememberSaveable { mutableStateOf(false) }
+    // 目标选择器模式（Task 11）：null=关闭；Copy=「复制到」两节；Move=「移动到」仅桌面相册节
+    var pickerMode by rememberSaveable { mutableStateOf<PickerMode?>(null) }
+    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）
+    var deviceAlbums by remember { mutableStateOf<List<DeviceAlbum>>(emptyList()) }
+    LaunchedEffect(pickerMode) {
+        if (pickerMode == PickerMode.Copy) deviceAlbums = viewModel.deviceAlbumTargets()
+    }
 
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
     BackHandler(enabled = selectionActive) { viewModel.selection.clear() }
@@ -225,7 +234,9 @@ fun AlbumDetailScreen(
                             confirmBatchDelete = true
                         }
                     },
-                    onAddToGallery = { showGalleryPicker = true },
+                    onCopyTo = { pickerMode = PickerMode.Copy },
+                    // 「移动到」仅相册详情有（spec §6.2：需要「当前相册」语义作移出端）
+                    onMoveTo = { pickerMode = PickerMode.Move },
                     // 设为封面（v0.6 spec §5.3）：恰选 1 张才出现；先服务端后本地，失败零残留
                     onSetCover = if (selected.size == 1) {
                         {
@@ -331,25 +342,49 @@ fun AlbumDetailScreen(
         )
     }
 
-    // 「加入相册」选择器（复用 T11 GalleryPickerDialog，已迁至 ui/common）：相册内也可加入其它相册
-    if (showGalleryPicker) {
-        GalleryPickerDialog(
+    // 「复制到」/「移动到」目标选择器（Task 11，spec §6.1/§6.2）：Copy 双节；Move 仅桌面相册节
+    // （组件内硬编码）。两模式都 excludeIds 排除当前所在相册防自指（D12A）。
+    pickerMode?.let { mode ->
+        CopyTargetPicker(
+            mode = mode,
             galleries = galleries,
-            excludeIds = setOf(viewModel.currentGalleryId),   // 排除当前所在相册，避免「加入自身」自指（D12A）
-            onPick = { galleryId ->
-                showGalleryPicker = false
+            deviceAlbums = deviceAlbums,
+            deviceEnabled = DeviceCapabilities.canCopy() && connState.online,
+            canCreateDeviceAlbum = DeviceCapabilities.canCreateAlbum(),
+            excludeIds = setOf(viewModel.currentGalleryId),
+            onPickGallery = { galleryId ->
+                pickerMode = null
                 val ids = viewModel.selection.selected.toList()
                 scope.launch {
-                    when (val r = viewModel.addSelectedToGallery(galleryId, ids)) {
-                        WriteResult.Success -> {
-                            snackbarHostState.showSnackbar("已加入相册（${ids.size} 张）")
-                            viewModel.selection.clear()
+                    if (mode == PickerMode.Copy) {
+                        when (val r = viewModel.addSelectedToGallery(galleryId, ids)) {
+                            WriteResult.Success -> {
+                                snackbarHostState.showSnackbar("已复制到相册（${ids.size} 张）")
+                                viewModel.selection.clear()
+                            }
+                            is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("复制到相册失败", r))
                         }
-                        is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("加入相册失败", r))
+                    } else {
+                        val targetName = galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
+                        when (val r = viewModel.moveTo(galleryId, ids)) {
+                            WriteResult.Success -> {
+                                viewModel.selection.clear()
+                                snackbarHostState.showSnackbar("已移动到「$targetName」")
+                            }
+                            is WriteResult.Failed -> snackbarHostState.showSnackbar(writeFailText("移动失败", r))
+                        }
                     }
                 }
             },
-            onDismiss = { showGalleryPicker = false },
+            onPickDeviceAlbum = { path ->
+                pickerMode = null
+                val ids = viewModel.selection.selected.toList()
+                viewModel.exportSelectedToDevice(ids, path)
+                viewModel.selection.clear()
+                scope.launch { snackbarHostState.showSnackbar("已开始复制到手机相册") }
+            },
+            onCreateDeviceAlbum = viewModel::createDeviceAlbum,
+            onDismiss = { pickerMode = null },
         )
     }
 }

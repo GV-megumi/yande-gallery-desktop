@@ -36,13 +36,16 @@ import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 
 /**
- * 大图页底部操作栏（Task 11，spec §7.3）：分享 / 查看原图 / 删除 / 详情 / 更多（加入相册、移出当前相册）。
+ * 大图页底部操作栏（Task 11，spec §7.3；桌面域 Task 11 改名收口）：分享 / 查看原图 / 删除 / 详情 /
+ * 更多（复制到、移动到、移出当前相册）。
  *
  * - 查看原图三态：未下载「查看原图」可点入队；下载中「下载中」置灰；已下载「已保存」置灰（已直读本地）。
  * - online=false 时写动作（删除/更多）置灰——离线写操作不排队（spec §8）；分享/详情读本地仍可用。
  * - [highZoom]（装配层判定：scale>2.5x 且无本机原图）时显「当前清晰度不足，可查看原图」轻提示
  *   （预览档下线后占位为缩略图/HQ 档，高倍放大仍可能糊）。
- * - [onRemoveFromGallery] 为 null 表示无相册上下文（时间轴进入），菜单项置灰。
+ * - [onCopyTo] 打开 CopyTargetPicker（Copy 模式，spec §6.1）。
+ * - [onMoveTo]/[onRemoveFromGallery] 为 null 表示无相册上下文（时间轴进入），菜单项置灰
+ *   （移动/移出都需要「当前相册」语义，spec §6.2）。
  */
 @Composable
 fun ViewerActionBar(
@@ -55,7 +58,8 @@ fun ViewerActionBar(
     onViewOriginal: () -> Unit,
     onDelete: () -> Unit,
     onDetail: () -> Unit,
-    onAddToGallery: () -> Unit,
+    onCopyTo: () -> Unit,
+    onMoveTo: (() -> Unit)?,
     onRemoveFromGallery: (() -> Unit)?,
     modifier: Modifier = Modifier,
 ) {
@@ -92,12 +96,21 @@ fun ViewerActionBar(
                 }
                 DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
                     DropdownMenuItem(
-                        text = { Text("加入相册") },
+                        text = { Text("复制到") },
                         onClick = {
                             menuOpen = false
-                            onAddToGallery()
+                            onCopyTo()
                         },
-                        modifier = Modifier.testTag("viewer_menu_add_to_gallery"),
+                        modifier = Modifier.testTag("viewer_menu_copy_to"),
+                    )
+                    DropdownMenuItem(
+                        text = { Text("移动到") },
+                        enabled = onMoveTo != null,
+                        onClick = {
+                            menuOpen = false
+                            onMoveTo?.invoke()
+                        },
+                        modifier = Modifier.testTag("viewer_menu_move_to"),
                     )
                     DropdownMenuItem(
                         text = { Text("移出当前相册") },

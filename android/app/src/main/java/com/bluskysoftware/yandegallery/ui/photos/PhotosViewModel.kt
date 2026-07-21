@@ -16,6 +16,7 @@ import com.bluskysoftware.yandegallery.data.db.GalleryEntity
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.data.db.ServerEntity
 import com.bluskysoftware.yandegallery.data.db.buildTimelineQuery
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.data.prefs.PhotoSort
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -24,6 +25,7 @@ import com.bluskysoftware.yandegallery.domain.download.ShareCoordinator
 import com.bluskysoftware.yandegallery.domain.sync.SyncPhase
 import com.bluskysoftware.yandegallery.domain.write.WriteRepository
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
+import com.bluskysoftware.yandegallery.ui.common.DeviceCopyTargets
 import com.bluskysoftware.yandegallery.ui.common.SelectionActions
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import java.time.LocalDate
@@ -196,9 +198,29 @@ class PhotosViewModel(
     /** 选中项是否含本机原图（删除确认文案分支依据，D12A；镜像层改查 image_files）。 */
     suspend fun anyDownloaded(ids: List<Long>): Boolean = actions.anyDownloaded(ids)
 
-    /** 批量加入相册。 */
+    /** 批量加入相册（CopyTargetPicker 桌面相册节选定后）。 */
     suspend fun addSelectedToGallery(galleryId: Long, ids: List<Long>): WriteResult =
         actions.addToGallery(galleryId, ids)
+
+    // ---- Task 11「复制到」手机相册节：数据源/内联新建/导出入队 ----
+
+    private val deviceTargets = DeviceCopyTargets(graph.deviceMediaGateway, graph.prefsStore, viewModelScope)
+
+    /** 手机相册节候选（CopyTargetPicker Copy 模式，spec §6.1）：真实相册 + 待落地占位。 */
+    suspend fun deviceAlbumTargets(): List<DeviceAlbum> = deviceTargets.targets()
+
+    /** picker 内联新建手机相册（spec §5.5）：错误文案就地显示；null=成功（写入待落地占位）。 */
+    fun createDeviceAlbum(name: String): String? = deviceTargets.create(name)
+
+    /** 桌面→手机导出入队（spec §6.1）：>500 张分批防 Data 10KB 上限，唯一工作名顺序排队；无激活服务器 no-op。 */
+    fun exportSelectedToDevice(ids: List<Long>, targetPath: String) {
+        viewModelScope.launch {
+            val serverId = graph.serverRepository.activeServer()?.id ?: return@launch
+            ids.chunked(DeviceCopyTargets.EXPORT_BATCH).forEach { batch ->
+                graph.deviceExportManager.enqueue(serverId, batch, targetPath)
+            }
+        }
+    }
 
     companion object {
         fun factory(graph: AppGraph): ViewModelProvider.Factory = viewModelFactory {

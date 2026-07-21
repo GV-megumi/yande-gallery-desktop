@@ -68,9 +68,12 @@ import androidx.paging.compose.collectAsLazyPagingItems
 import androidx.work.WorkInfo
 import coil3.ImageLoader
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
+import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.domain.write.WriteResult
-import com.bluskysoftware.yandegallery.ui.common.GalleryPickerDialog
+import com.bluskysoftware.yandegallery.ui.common.CopyTargetPicker
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
+import com.bluskysoftware.yandegallery.ui.common.PickerMode
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import com.bluskysoftware.yandegallery.ui.photos.viewerDateLabel
@@ -119,7 +122,16 @@ fun ViewerScreen(
     var confirmDeleteId by rememberSaveable { mutableStateOf<Long?>(null) }
     var confirmDeleteName by rememberSaveable { mutableStateOf("") }
     var confirmDeleteHasLocal by rememberSaveable { mutableStateOf(false) }
-    var pickGalleryFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    // 目标选择器（Task 11）：pickTargetFor=当前图 id（null=关闭）+ 模式（Copy=「复制到」两节 / Move=「移动到」）
+    var pickTargetFor by rememberSaveable { mutableStateOf<Long?>(null) }
+    var pickTargetMode by rememberSaveable { mutableStateOf(PickerMode.Copy) }
+    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）
+    var deviceAlbums by remember { mutableStateOf<List<DeviceAlbum>>(emptyList()) }
+    LaunchedEffect(pickTargetFor, pickTargetMode) {
+        if (pickTargetFor != null && pickTargetMode == PickerMode.Copy) {
+            deviceAlbums = viewModel.deviceAlbumTargets()
+        }
+    }
 
     /** detailOf 对同步中途被删的行抛 IllegalArgumentException（T9 KDoc 契约）——捕获降级：关面板 + 提示。 */
     fun openDetail(imageId: Long) {
@@ -250,7 +262,17 @@ fun ViewerScreen(
                             showTagEditor = false
                             openDetail(image.id)
                         },
-                        onAddToGallery = { pickGalleryFor = image.id },
+                        onCopyTo = {
+                            pickTargetMode = PickerMode.Copy
+                            pickTargetFor = image.id
+                        },
+                        // 「移动到」仅相册上下文非 null（时间轴进入置灰——移动需「当前相册」作移出端，spec §6.2）
+                        onMoveTo = viewModel.contextGalleryId?.let {
+                            {
+                                pickTargetMode = PickerMode.Move
+                                pickTargetFor = image.id
+                            }
+                        },
                         onRemoveFromGallery = viewModel.contextGalleryId?.let { galleryId ->
                             {
                                 scope.launch {
@@ -295,20 +317,41 @@ fun ViewerScreen(
         )
     }
 
-    // 「加入相册」选择器（更多菜单）
-    pickGalleryFor?.let { imageId ->
-        GalleryPickerDialog(
+    // 「复制到」/「移动到」目标选择器（更多菜单，Task 11 spec §6.1/§6.2）：Copy 双节；Move 仅
+    // 桌面相册节（组件内硬编码）且 excludeIds 排除当前相册防自指（移动去自己所在相册无意义）。
+    pickTargetFor?.let { imageId ->
+        val mode = pickTargetMode
+        CopyTargetPicker(
+            mode = mode,
             galleries = galleries,
-            onPick = { galleryId ->
-                pickGalleryFor = null
+            deviceAlbums = deviceAlbums,
+            deviceEnabled = DeviceCapabilities.canCopy() && connState.online,
+            canCreateDeviceAlbum = DeviceCapabilities.canCreateAlbum(),
+            excludeIds = if (mode == PickerMode.Move) setOfNotNull(viewModel.contextGalleryId) else emptySet(),
+            onPickGallery = { galleryId ->
+                pickTargetFor = null
                 scope.launch {
-                    when (val r = viewModel.addToGallery(galleryId, imageId)) {
-                        WriteResult.Success -> snackbar.showSnackbar("已加入相册")
-                        is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("加入相册失败", r))
+                    if (mode == PickerMode.Copy) {
+                        when (val r = viewModel.addToGallery(galleryId, imageId)) {
+                            WriteResult.Success -> snackbar.showSnackbar("已复制到相册")
+                            is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("复制到相册失败", r))
+                        }
+                    } else {
+                        val targetName = galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
+                        when (val r = viewModel.moveTo(galleryId, imageId)) {
+                            WriteResult.Success -> snackbar.showSnackbar("已移动到「$targetName」")
+                            is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移动失败", r))
+                        }
                     }
                 }
             },
-            onDismiss = { pickGalleryFor = null },
+            onPickDeviceAlbum = { path ->
+                pickTargetFor = null
+                viewModel.exportToDevice(imageId, path)
+                scope.launch { snackbar.showSnackbar("已开始复制到手机相册") }
+            },
+            onCreateDeviceAlbum = viewModel::createDeviceAlbum,
+            onDismiss = { pickTargetFor = null },
         )
     }
 

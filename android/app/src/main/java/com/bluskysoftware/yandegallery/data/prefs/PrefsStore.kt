@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -85,6 +86,17 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         dataStore.edit { it[KEY_MIRROR_CELLULAR] = allow }
     }
 
+    /** 待落地相册名集合（本机相册 spec §5.5）：已命名但尚无文件的手机相册占位。 */
+    val devicePendingAlbums: Flow<Set<String>> = safeData.map { it[KEY_DEVICE_PENDING_ALBUMS] ?: emptySet() }
+
+    suspend fun addPendingAlbum(name: String) {
+        dataStore.edit { it[KEY_DEVICE_PENDING_ALBUMS] = (it[KEY_DEVICE_PENDING_ALBUMS] ?: emptySet()) + name }
+    }
+
+    suspend fun removePendingAlbum(name: String) {
+        dataStore.edit { it[KEY_DEVICE_PENDING_ALBUMS] = (it[KEY_DEVICE_PENDING_ALBUMS] ?: emptySet()) - name }
+    }
+
     companion object {
         private val KEY_DENSITY = stringPreferencesKey("timeline_density")
         private val KEY_PHOTOS_SORT = stringPreferencesKey("photos_sort")
@@ -93,5 +105,6 @@ class PrefsStore(private val dataStore: DataStore<Preferences>) {
         private val KEY_DETAIL_COLUMNS = intPreferencesKey("album_detail_columns")
         private val KEY_IMAGE_SAVE_MODE = stringPreferencesKey("image_save_mode")
         private val KEY_MIRROR_CELLULAR = booleanPreferencesKey("mirror_sync_cellular")
+        private val KEY_DEVICE_PENDING_ALBUMS = stringSetPreferencesKey("device_pending_albums")
     }
 }

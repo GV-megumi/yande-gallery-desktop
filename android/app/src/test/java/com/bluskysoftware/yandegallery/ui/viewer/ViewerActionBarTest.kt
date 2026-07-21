@@ -6,6 +6,7 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import com.bluskysoftware.yandegallery.data.db.ImageEntity
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import org.junit.Assert.assertEquals
@@ -30,6 +31,7 @@ class ViewerActionBarTest {
         isDownloaded: Boolean = false,
         downloading: Boolean = false,
         highZoom: Boolean = false,
+        onMoveTo: (() -> Unit)? = null,
     ) {
         compose.setContent {
             ViewerActionBar(
@@ -42,7 +44,8 @@ class ViewerActionBarTest {
                 onViewOriginal = {},
                 onDelete = {},
                 onDetail = {},
-                onAddToGallery = {},
+                onCopyTo = {},
+                onMoveTo = onMoveTo,
                 onRemoveFromGallery = null,
             )
         }
@@ -75,6 +78,34 @@ class ViewerActionBarTest {
     fun `highZoom 显示清晰度不足提示`() {
         setBar(highZoom = true)
         compose.onNodeWithTag("viewer_zoom_hint").assertIsDisplayed()
+    }
+
+    @Test
+    fun `更多菜单含复制到项_旧加入相册tag不存在`() {
+        setBar()
+        compose.onNodeWithTag("viewer_action_more").performClick()
+        compose.onNodeWithTag("viewer_menu_copy_to").assertIsDisplayed()
+        compose.onNodeWithText("复制到").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_menu_add_to_gallery").assertDoesNotExist()
+        compose.onNodeWithText("加入相册").assertDoesNotExist()
+    }
+
+    @Test
+    fun `移动到菜单项_onMoveTo为null置灰`() {
+        setBar(onMoveTo = null)
+        compose.onNodeWithTag("viewer_action_more").performClick()
+        compose.onNodeWithTag("viewer_menu_move_to").assertIsDisplayed()
+        compose.onNodeWithTag("viewer_menu_move_to").assertIsNotEnabled()
+    }
+
+    @Test
+    fun `移动到菜单项_相册上下文非null可点且回调`() {
+        var moved = 0
+        setBar(onMoveTo = { moved++ })
+        compose.onNodeWithTag("viewer_action_more").performClick()
+        compose.onNodeWithTag("viewer_menu_move_to").assertIsEnabled()
+        compose.onNodeWithTag("viewer_menu_move_to").performClick()
+        assertEquals(1, moved)
     }
 
     @Test

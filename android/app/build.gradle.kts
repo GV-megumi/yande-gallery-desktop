@@ -14,8 +14,8 @@ android {
         applicationId = "com.bluskysoftware.yandegallery"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "0.7.0"
+        versionCode = 9
+        versionName = "0.8.0"
     }
 
     buildTypes {
@@ -87,6 +87,7 @@ dependencies {
 
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.video)
 
     implementation(libs.mlkit.barcode)
     implementation(libs.camera.camera2)

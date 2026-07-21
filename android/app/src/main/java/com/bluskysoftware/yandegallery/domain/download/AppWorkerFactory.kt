@@ -7,6 +7,8 @@ import androidx.work.WorkerParameters
 import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.export.AndroidDeviceExportNotifier
+import com.bluskysoftware.yandegallery.domain.export.DeviceExportWorker
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncWorker
 import kotlinx.coroutines.flow.first
 
@@ -40,6 +42,19 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                 activeServerId = { graph.serverRepository.activeServer()?.id },
                 monitor = graph.mirrorSyncMonitor,
                 notifier = AndroidMirrorSyncNotifier(appContext),
+            )
+        } else if (workerClassName == DeviceExportWorker::class.java.name) {
+            DeviceExportWorker(
+                appContext,
+                workerParameters,
+                // ORIGINAL 档位在此柯里化烘焙（spec §6.1 导出即升原图档），worker 不感知 tier
+                ensureOriginal = { serverId, imageId ->
+                    graph.imageMirrorStore.ensure(serverId, imageId, MirrorTier.ORIGINAL)
+                },
+                insertCopy = graph.deviceMediaGateway::insertCopy,
+                findCopy = graph.deviceMediaGateway::findCopy,
+                activeServerId = { graph.serverRepository.activeServer()?.id },
+                notifier = AndroidDeviceExportNotifier(appContext),
             )
         } else {
             null

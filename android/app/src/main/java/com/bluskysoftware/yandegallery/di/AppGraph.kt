@@ -16,6 +16,7 @@ import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.NetworkMonitor
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
+import com.bluskysoftware.yandegallery.domain.export.DeviceExportManager
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncManager
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncMonitor
 import com.bluskysoftware.yandegallery.domain.sync.RetrofitSyncApi
@@ -141,8 +142,23 @@ class AppGraph(
         )
     }
 
+    /** 手机域 MediaStore 网关（本机相册 spec §4）：UI/worker 全经此接口，测试注入 fake。 */
+    val deviceMediaGateway: com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway by lazy {
+        com.bluskysoftware.yandegallery.data.device.MediaStoreDeviceGateway(appContext)
+    }
+
+    /** 手机域图片 loader：content:// 走 Coil 默认数据源 + 视频海报帧解码；与镜像域两 loader 互不干扰。 */
+    val deviceLoader by lazy {
+        coil3.ImageLoader.Builder(appContext)
+            .components { add(coil3.video.VideoFrameDecoder.Factory()) }
+            .build()
+    }
+
     /** 原图下载入队 + WorkInfo 状态观察（唯一工作名 KEEP，避免重复入队）。 */
     val downloadManager by lazy { DownloadManager(appContext) }
+
+    /** 桌面→手机导出入队（本机相册 spec §6.1）：唯一工作名按服务器 APPEND_OR_REPLACE 排队。 */
+    val deviceExportManager by lazy { DeviceExportManager(appContext) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {
