@@ -167,7 +167,7 @@ private fun PickerSectionHeader(label: String, tag: String) {
  * 手机相册节数据源（Task 11，Photos/AlbumDetail/Viewer 三 VM 共用载体）：[targets] 查一轮
  * `queryAlbums` + `devicePendingAlbums` 合成（复用 [buildWritableTargets] 的收编去重/排序 +
  * 可写过滤，无聚合卡——v0.8.1 A5：候选与重名校验快照统一到已过滤层，与不可写 bucket 同名的
- * 新建三入口一致拒绝），查询异常兜底空列表（对照 DeviceAlbumDetailViewModel.targetAlbums——
+ * 新建不再被重名校验拦截，三入口一致放行），查询异常兜底空列表（对照 DeviceAlbumDetailViewModel.targetAlbums——
  * CancellationException 原样重抛，结构化并发要求）。[create] 对最近一次候选快照做重名校验
  * （picker 打开前必先走一遍 targets，快照必然新鲜），通过即写入待落地占位并返回 null，
  * 错误文案由 picker 就地显示。

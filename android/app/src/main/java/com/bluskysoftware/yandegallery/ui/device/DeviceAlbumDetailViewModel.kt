@@ -181,8 +181,8 @@ class DeviceAlbumDetailViewModel(
     /**
      * 复制/移动目标候选（picker 数据源）：真实相册 + 未收编待落地占位，复用 DeviceAlbumsViewModel
      * 的 [buildWritableTargets] 组装（收编去重/排序后再按可写路径过滤，无聚合卡——v0.8.1 A5：
-     * 候选与重名校验快照统一到已过滤层，与不可写 bucket 同名的新建三入口一致拒绝）；
-     * 查询异常兜底同 [refreshTitleAndCount]。
+     * 候选与重名校验快照统一到已过滤层，与不可写 bucket 同名的新建不再被重名校验拦截，
+     * 三入口一致放行）；查询异常兜底同 [refreshTitleAndCount]。
      */
     suspend fun targetAlbums(): List<DeviceAlbum> {
         val real = runCatching { gateway.queryAlbums() }

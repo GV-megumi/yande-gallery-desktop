@@ -138,8 +138,8 @@ internal fun buildTargetAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<
  * 可写目标候选（v0.8.1 A5，终审 N3 收敛）：[buildTargetAlbums] 再按可写路径过滤——待落地占位
  * 路径恒 Pictures/<名>/（构造保证）直接放行，真实相册限 [isWritableAlbumPath]（DCIM/ 与
  * Pictures/ 下）。目标候选与重名校验快照统一到本「已过滤」层：与不可写 bucket（Download/ 等）
- * 同名的新建，三入口（网格页/大图页/桌面「复制到」）一致拒绝——不可写 bucket 不在候选、
- * 不参与重名判定。
+ * 同名的新建不再被重名校验拦截，三入口（网格页/大图页/桌面「复制到」）一致放行——
+ * 不可写 bucket 不在候选、不参与重名判定。
  */
 internal fun buildWritableTargets(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): List<DeviceAlbum> =
     buildTargetAlbums(realAlbums, pendingNames).filter { it.isPending || it.relativePath?.let(::isWritableAlbumPath) == true }
