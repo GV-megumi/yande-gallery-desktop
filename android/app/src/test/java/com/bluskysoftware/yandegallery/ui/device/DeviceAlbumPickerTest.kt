@@ -155,4 +155,16 @@ class DeviceAlbumPickerTest {
         compose.onNodeWithTag("device_pick_b1").performClick()
         assertEquals("DCIM/Camera/", picked)
     }
+
+    @Test
+    fun `重名校验_与不可写bucket同名的新建被拒`() {
+        // A5 统一后：Download/ 下的同名 bucket 也参与重名判定？——否。统一口径 = 校验对「可写候选」进行，
+        // 不可写 bucket 不在候选、不参与重名；三入口一致（此前 DeviceViewer 已如此，另两入口对齐）
+        val real = listOf(
+            album(1, "Pics", "Download/Pics/"),   // 不可写
+            album(2, "Cam", "DCIM/Cam/"),
+        )
+        val targets = buildWritableTargets(real, emptySet())
+        assertEquals(listOf("Cam"), targets.map { it.name })   // Download 项不入候选
+    }
 }
