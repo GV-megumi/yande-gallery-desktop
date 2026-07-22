@@ -845,4 +845,74 @@ class WriteRepositoryTest {
         assertEquals(listOf(10L to listOf(1L)), api.removeFromGalleryInputs)  // 仅 A 移除一次，无 B 补偿
         assertTrue(monitor.state.value.online)                           // 404 走 reportSuccess，仍 online
     }
+
+    // ---- moveToGallery 边界锁定（加固轮 F8：空集守护 / add-404 / 补偿双杀 / 补偿路径 nudge）----
+
+    @Test
+    fun `移动到相册_空集直接成功不触API`() = runTest {
+        val api = FakeWriteApi()
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 5, toGalleryId = 6, imageIds = emptyList())
+
+        assertEquals(WriteResult.Success, result)
+        assertEquals(emptyList<String>(), api.calls)   // add/remove 均未发（BUG-14 同门守护）
+    }
+
+    @Test
+    fun `移动到相册_目标已删加入404当成功移除照走`() = runTest {
+        // spec §6.2/KDoc 钉过的边界：目标相册 6 已在桌面被删 → add 404 当成功 → remove 照走 → 整体 Success
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "A"))   // 目标 6 不建本地行：模拟已在桌面被删
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        val api = FakeWriteApi().apply { failAddToGallery = ApiException("NOT_FOUND", "相册已删", 404) }
+        val (repo, monitor) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 5, toGalleryId = 6, imageIds = listOf(1))
+
+        assertEquals(WriteResult.Success, result)
+        // 404 当成功不回滚（同 deleteImage 404 用例口径）：乐观加入的 (6,1) 幻影链保留、交
+        // requestSync 对账收敛——按现状钉 [6]（计划 brief 预期空集，以代码为准修断言，见任务报告）
+        assertEquals(listOf(6L), db.imageDao().galleryIdsOf(1))          // 已离开 A（5 链已删）
+        assertNotNull(db.imageDao().byId(1))                             // 图片本体保留
+        assertEquals(listOf(5L to listOf(1L)), api.removeFromGalleryInputs)  // remove 照走且仅发 A，无补偿
+        assertTrue(monitor.state.value.online)                           // 404 走 reportSuccess
+    }
+
+    @Test
+    fun `移动到相册_补偿自身失败镜像与服务端一致`() = runTest {
+        // 双杀：remove(A) 失败 → 补偿 remove(B) 也失败 → 镜像终态 1 在 A+B（与服务端真相一致，交对账收敛）
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "A"))
+        db.galleryDao().insertOne(gallery(6, "g6"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        // 全局失败连炸补偿（对照 failRemoveFromGalleryOnCallIndex 只炸首刀的既有用例）
+        val api = FakeWriteApi().apply { failRemoveFromGallery = ApiException("INTERNAL_ERROR", "boom", 500) }
+        val (repo, _) = build(api, AtomicInteger(0))
+
+        val result = repo.moveToGallery(fromGalleryId = 5, toGalleryId = 6, imageIds = listOf(1))
+
+        assertTrue(result is WriteResult.Failed)
+        // 服务端真相：加入 B 已成、移出 A 未成——镜像终态同为 A+B，无幻影分歧
+        assertEquals(listOf(5L, 6L), db.imageDao().galleryIdsOf(1).sorted())
+        // 调用序：A 移除（失败）→ B 补偿移除（也失败但确曾尝试）
+        assertEquals(listOf(5L to listOf(1L), 6L to listOf(1L)), api.removeFromGalleryInputs)
+    }
+
+    @Test
+    fun `移动到相册_补偿路径触发对账nudge`() = runTest {
+        db.imageDao().upsertAll(listOf(image(1)))
+        db.galleryDao().insertOne(gallery(5, "A"))
+        db.galleryDao().insertOne(gallery(6, "g6"))
+        db.imageDao().insertGalleryLinks(listOf(GalleryImageEntity(5, 1)))
+        val api = FakeWriteApi().apply { failRemoveFromGalleryOnCallIndex = 0 }   // 仅首刀 A 移除失败，B 补偿成功
+        val sync = AtomicInteger(0)
+        val (repo, _) = build(api, sync)
+
+        val result = repo.moveToGallery(fromGalleryId = 5, toGalleryId = 6, imageIds = listOf(1))
+
+        assertTrue(result is WriteResult.Failed)
+        // add 成功 + 补偿链路均应 nudge（实际 3 次：add 成功/A 移除应答式失败对账/B 补偿成功各一）
+        assertEquals("补偿路径精确 nudge 3 次：add 成功/A 移除应答式失败对账/B 补偿成功各一", 3, sync.get())
+    }
 }

@@ -16,7 +16,7 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
 import com.bluskysoftware.yandegallery.data.device.DeviceSource
-import com.bluskysoftware.yandegallery.data.device.isWritableAlbumPath
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
@@ -99,15 +99,15 @@ class DeviceViewerViewModel(
         val ok = gateway.insertCopy(DeviceSource.Media(media), path).isSuccess
         if (ok) {
             val pending = prefsStore.devicePendingAlbums.first()
-            pending.firstOrNull { "Pictures/$it/" == path }?.let { prefsStore.removePendingAlbum(it) }
+            pending.firstOrNull { pendingAlbumPath(it) == path }?.let { prefsStore.removePendingAlbum(it) }
         }
         return ok
     }
 
     /**
-     * 复制/移动目标候选（picker 数据源）：真实相册 + 未收编待落地占位，复用 [buildTargetAlbums]
-     * 组装后**再按可写路径过滤**（brief Task 8 契约：albumTargets 只含可写路径相册——Task 7 把
-     * 该过滤留在 DeviceAlbumPicker 内，本方法前置一层，picker 侧的过滤退化为幂等兜底）；
+     * 复制/移动目标候选（picker 数据源）：真实相册 + 未收编待落地占位，复用 [buildWritableTargets]
+     * 组装（brief Task 8 契约：albumTargets 只含可写路径相册——原内联 filter 于 v0.8.1 A5 上收
+     * 为共享层，三入口候选/重名校验同口径，picker 侧的过滤退化为幂等兜底）；
      * 查询异常兜底同网格页（CancellationException 重抛、其余退化空列表）。
      */
     suspend fun albumTargets(): List<DeviceAlbum> {
@@ -115,9 +115,7 @@ class DeviceViewerViewModel(
             .onFailure { if (it is CancellationException) throw it }
             .getOrElse { emptyList() }
         val pending = prefsStore.devicePendingAlbums.first()
-        return buildTargetAlbums(real, pending)
-            .filter { album -> album.isPending || album.relativePath?.let(::isWritableAlbumPath) == true }
-            .also { lastTargetAlbums = it }
+        return buildWritableTargets(real, pending).also { lastTargetAlbums = it }
     }
 
     /** picker 内联新建（Task 7 同款语义）：对最近候选快照重名校验，通过即写待落地占位并返回 null。 */

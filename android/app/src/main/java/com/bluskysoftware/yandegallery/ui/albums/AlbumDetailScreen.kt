@@ -118,10 +118,17 @@ fun AlbumDetailScreen(
     var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
     // 目标选择器模式（Task 11）：null=关闭；Copy=「复制到」两节；Move=「移动到」仅桌面相册节
     var pickerMode by rememberSaveable { mutableStateOf<PickerMode?>(null) }
-    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）
+    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）；
+    // 打开先清列表挂加载态（v0.8.1 G1）——不清则第二次打开会先闪上一次的旧快照
     var deviceAlbums by remember { mutableStateOf<List<DeviceAlbum>>(emptyList()) }
+    var deviceLoading by remember { mutableStateOf(false) }
     LaunchedEffect(pickerMode) {
-        if (pickerMode == PickerMode.Copy) deviceAlbums = viewModel.deviceAlbumTargets()
+        if (pickerMode == PickerMode.Copy) {
+            deviceAlbums = emptyList()
+            deviceLoading = true
+            deviceAlbums = viewModel.deviceAlbumTargets()
+            deviceLoading = false
+        }
     }
 
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
@@ -304,6 +311,8 @@ fun AlbumDetailScreen(
                             contentDescription = image.filename,
                             contentScale = ContentScale.Crop,
                             modifier = Modifier.fillMaxSize(),
+                            // 手势让位（加固轮 C 类）：失败格点击/长按透传 SelectableCell 选择路由，重试走角标
+                            gesturePassthrough = true,
                         )
                     }
                 },
@@ -379,12 +388,20 @@ fun AlbumDetailScreen(
             onPickDeviceAlbum = { path ->
                 pickerMode = null
                 val ids = viewModel.selection.selected.toList()
-                viewModel.exportSelectedToDevice(ids, path)
-                viewModel.selection.clear()
-                scope.launch { snackbarHostState.showSnackbar("已开始复制到手机相册") }
+                scope.launch {
+                    // D1 防御（v0.8.1）：入队成败分流提示——失败（WorkManager 异常/无激活服务器）不再谎报成功
+                    val ok = viewModel.exportSelectedToDevice(ids, path)
+                    if (ok) {
+                        viewModel.selection.clear()
+                        snackbarHostState.showSnackbar("已开始复制到手机相册")
+                    } else {
+                        snackbarHostState.showSnackbar("复制启动失败")   // 不清选择，可重试
+                    }
+                }
             },
             onCreateDeviceAlbum = viewModel::createDeviceAlbum,
             onDismiss = { pickerMode = null },
+            deviceLoading = deviceLoading,
         )
     }
 }

@@ -9,6 +9,8 @@ import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAccessLevel
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
+import com.bluskysoftware.yandegallery.data.device.isWritableAlbumPath
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.sortDeviceAlbums
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
@@ -82,11 +84,16 @@ class DeviceAlbumsViewModel(
     }
 }
 
-/** 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。 */
-private fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
+/**
+ * 待落地占位中，名字已被真实 bucket（同名或同路径 Pictures/<名>/）命中、该收编的一批。
+ * 路径判据 [pendingAlbumPath] 去尾斜杠 == 原 `Pictures/$it`：占位名入库即 trim、realPaths 亦 trimEnd；
+ * 又因 [validateNewAlbumName] 禁路径分隔符（`/` `\`），可创建名内必无内嵌斜杠，[pendingAlbumPath] 仅补一道
+ * 尾斜杠、trimEnd 恰削回，故二式对**全部可创建名**逐字节等价（等价性由校验器禁分隔符保证，非现状巧合，v0.8.1 A3）。
+ */
+internal fun absorbedPendingNames(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): Set<String> {
     val realNames = realAlbums.map { it.name }.toSet()
     val realPaths = realAlbums.mapNotNull { it.relativePath?.trimEnd('/') }.toSet()
-    return pendingNames.filterTo(mutableSetOf()) { it in realNames || "Pictures/$it" in realPaths }
+    return pendingNames.filterTo(mutableSetOf()) { it in realNames || pendingAlbumPath(it).trimEnd('/') in realPaths }
 }
 
 /**
@@ -118,7 +125,7 @@ internal fun buildTargetAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<
         DeviceAlbum(
             key = BucketKey.Pending(name),
             name = name,
-            relativePath = "Pictures/$name/",
+            relativePath = pendingAlbumPath(name),
             count = 0,
             coverUri = null,
             isPending = true,
@@ -126,3 +133,13 @@ internal fun buildTargetAlbums(realAlbums: List<DeviceAlbum>, pendingNames: Set<
     }
     return sortDeviceAlbums(realAlbums + pendingCards)
 }
+
+/**
+ * 可写目标候选（v0.8.1 A5，终审 N3 收敛）：[buildTargetAlbums] 再按可写路径过滤——待落地占位
+ * 路径恒 Pictures/<名>/（构造保证）直接放行，真实相册限 [isWritableAlbumPath]（DCIM/ 与
+ * Pictures/ 下）。目标候选与重名校验快照统一到本「已过滤」层：与不可写 bucket（Download/ 等）
+ * 同名的新建不再被重名校验拦截，三入口（网格页/大图页/桌面「复制到」）一致放行——
+ * 不可写 bucket 不在候选、不参与重名判定。
+ */
+internal fun buildWritableTargets(realAlbums: List<DeviceAlbum>, pendingNames: Set<String>): List<DeviceAlbum> =
+    buildTargetAlbums(realAlbums, pendingNames).filter { it.isPending || it.relativePath?.let(::isWritableAlbumPath) == true }

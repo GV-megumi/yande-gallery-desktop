@@ -13,8 +13,8 @@ import com.bluskysoftware.yandegallery.awaitValue
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
-import com.bluskysoftware.yandegallery.data.device.DeviceSource
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -57,6 +57,20 @@ class DeviceActionsTest {
     private val prefsStore = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp })
     private val gateway = FakeDeviceGateway()
 
+    /**
+     * 记录型 DeviceCopyManager 替身（v0.8.1 B 类）：直断 copySelectedTo → enqueue(ids, path) 委派入参
+     * 与入队成败透传——override enqueue 不触 WorkManager（Robolectric 下未初始化）；[enqueueResult] 旋钮
+     * 切成败。批量复制的逐张 insert/查重/收编本体归 DeviceCopyWorkerTest（真 worker 链路），此处只验 VM 委派。
+     */
+    private val enqueueCalls = mutableListOf<Pair<List<Long>, String>>()
+    private var enqueueResult = true
+    private val copyManager = object : DeviceCopyManager(ApplicationProvider.getApplicationContext()) {
+        override fun enqueue(mediaIds: List<Long>, targetPath: String): Boolean {
+            enqueueCalls += mediaIds to targetPath
+            return enqueueResult
+        }
+    }
+
     @Before
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -82,7 +96,7 @@ class DeviceActionsTest {
         durationMs = null,
     )
 
-    private fun vm() = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+    private fun vm() = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
 
     /** Robolectric 下可构造的占位 PendingIntent（brief Step 1：fake 返回记录用）。 */
     private fun placeholderPendingIntent(): PendingIntent = PendingIntent.getActivity(
@@ -93,44 +107,40 @@ class DeviceActionsTest {
     )
 
     @Test
-    fun `复制到_逐张insert_计数成功数`() = runTest {
-        val m1 = media(1)
-        val m2 = media(2)
-        val m3 = media(3)
-        gateway.media = listOf(m1, m2, m3)
-        // 3 选 2 成功：第 2 张定向失败，其余成功
-        gateway.insertCopyHandler = { source, _ ->
-            val id = (source as DeviceSource.Media).media.mediaId
-            if (id == 2L) Result.failure(IllegalStateException("boom"))
-            else Result.success(Uri.parse("content://media/external/images/media/9$id"))
-        }
+    fun `复制到_委派入队管理器_ids与路径透传返回入队结果`() = runTest {
+        // v0.8.1 B 类：copySelectedTo 改为 deviceCopyManager.enqueue(selected, path) 委派——逐张 insert
+        // 计数/查重/待落地收编迁 DeviceCopyWorker（见 DeviceCopyWorkerTest）；VM 层只验委派与入队成败透传。
+        gateway.media = listOf(media(1), media(2), media(3))
         val vm = vm()
         vm.selection.selectAll(listOf(1, 2, 3))
 
         val ok = vm.copySelectedTo("Pictures/旅行/")
 
-        assertEquals(2, ok)
-        assertEquals(
-            listOf<DeviceSource>(DeviceSource.Media(m1), DeviceSource.Media(m2), DeviceSource.Media(m3)),
-            gateway.insertCopyCalls.map { it.first },
-        )
-        assertTrue(gateway.insertCopyCalls.all { it.second == "Pictures/旅行/" })
+        assertTrue("透传管理器入队结果 true", ok)
+        assertEquals(1, enqueueCalls.size)
+        assertEquals("选中 id 全量透传管理器", setOf(1L, 2L, 3L), enqueueCalls.single().first.toSet())
+        assertEquals("目标路径原样透传", "Pictures/旅行/", enqueueCalls.single().second)
+        assertTrue("批量复制不再走 gateway 同步 insert", gateway.insertCopyCalls.isEmpty())
+
+        // 入队失败如实透传 false（Screen 据此分流「复制启动失败」，不清选择可重试）
+        enqueueResult = false
+        assertFalse("入队失败如实返回 false", vm.copySelectedTo("Pictures/旅行/"))
     }
 
     @Test
-    fun `复制成功至少一张时清待落地占位名`() = runTest {
+    fun `复制入队_收编迁worker_VM不再同步清待落地占位`() = runTest {
+        // v0.8.1 B 类：收编（成功≥1张清占位）迁入 DeviceCopyWorker.removePendingIfMatch（工厂注入回调）——
+        // VM 入队后不再同步动 prefs（占位由 worker 成功路径清，见 DeviceCopyWorkerTest 收编用例）。
         prefsStore.addPendingAlbum("旅行")
-        gateway.media = listOf(media(1))
-        gateway.insertCopyHandler = { _, _ -> Result.success(Uri.parse("content://media/external/images/media/91")) }
         val vm = vm()
         vm.selection.selectAll(listOf(1))
 
         vm.copySelectedTo("Pictures/旅行/")
 
-        // review Finding 3 同款口径：awaitValue 超时不抛，必须外包一层断言
+        // review Finding 3 同款口径：awaitValue 超时不抛，必须外包一层断言——待落地占位应保留
         assertEquals(
-            emptySet<String>(),
-            awaitValue({ prefsStore.devicePendingAlbums.first() }) { it.isEmpty() },
+            setOf("旅行"),
+            awaitValue({ prefsStore.devicePendingAlbums.first() }) { it == setOf("旅行") },
         )
     }
 
@@ -155,6 +165,21 @@ class DeviceActionsTest {
         assertEquals(1, gateway.moveToCalls.size)
         assertEquals(listOf(m1.uri, m2.uri), gateway.moveToCalls.single().first)
         assertEquals("DCIM/Camera/", gateway.moveToCalls.single().second)
+    }
+
+    @Test
+    fun `移动到_部分行未生效时成功数按rows-affected对账`() = runTest {
+        // 网关 moveTo 计数 = resolver.update 返回行数之和；0 行的 uri 不计成败——
+        // UI 侧以 successCount vs 选中数 对账提示（T3(c) 语义钉板，加固轮 F3）
+        gateway.media = listOf(media(1), media(2), media(3))
+        gateway.moveToResult = Result.success(2)   // 3 选 2 行生效
+        val vm = vm()
+        vm.selection.selectAll(listOf(1, 2, 3))
+
+        val moved = vm.moveSelectedTo("Pictures/Target/").getOrDefault(0)
+
+        assertEquals(2, moved)
+        assertEquals(3, gateway.moveToCalls.single().first.size)   // 三 uri 全量传入
     }
 
     @Test

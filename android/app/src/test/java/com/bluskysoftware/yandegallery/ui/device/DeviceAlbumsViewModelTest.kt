@@ -106,6 +106,25 @@ class DeviceAlbumsViewModelTest {
     }
 
     @Test
+    fun `待落地收编_同路径不同名的真实bucket同样收编`() {
+        // absorbedPendingNames 双判据：同名 OR 同 Pictures/<名> 路径——上方既有收编用例走的是
+        // 「同名」分支，这里钉「路径命中」分支（加固轮 F4）：真实 bucket 名「旅拍」≠ 占位名
+        // 「Trip」，仅 relativePath=Pictures/Trip/ 命中。realAlbum 工厂路径固定 DCIM/，此处直构。
+        val real = listOf(
+            DeviceAlbum(
+                key = BucketKey.Bucket(1),
+                name = "旅拍",
+                relativePath = "Pictures/Trip/",
+                count = 1,
+                coverUri = null,
+                isPending = false,
+            ),
+        )
+        val pending = setOf("Trip")
+        assertEquals(listOf("Trip"), absorbedPendingNames(real, pending).toList())
+    }
+
+    @Test
     fun `queryAlbums抛异常时真实相册降级为空_仅剩聚合卡_不崩溃`() = runTest {
         // 权限收回竞态（review Finding 1）：MediaStoreDeviceGateway.queryAlbums 在权限会话中途被
         // 撤销时会抛 SecurityException——VM 必须接住降级（真实相册视为空），不能让异常穿透杀死

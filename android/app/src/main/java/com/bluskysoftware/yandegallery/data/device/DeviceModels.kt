@@ -105,3 +105,19 @@ fun formatDurationMs(ms: Long): String {
     val s = totalSec % 60
     return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
+
+/** 待落地相册的固定落盘路径（六处构造点收敛，v0.8.1 A3）：`Pictures/<名>/`，名先 trim。 */
+fun pendingAlbumPath(name: String): String = "Pictures/${name.trim()}/"
+
+/**
+ * 单批 WorkManager Data id 上限（导出/复制双域共用，v0.8.1 B 类抽到公共下游）：`KEY_*_IDS` 走
+ * WorkManager Data 有 10KB 硬上限（约 1200+ id 即崩 enqueue）——超限切多批，唯一工作名
+ * APPEND_OR_REPLACE 保证按提交顺序排队。消费方：桌面→手机导出 `PhotosViewModel.exportSelectedToDevice`
+ * 与手机→手机复制 `DeviceCopyManager.enqueue`；`ui.common.DeviceCopyTargets.EXPORT_BATCH` 为兼容
+ * ui 调用面保留的别名。domain 层（DeviceCopyManager）取此处，不反向依赖 ui 包（同 mimeOf 迁址理由）。
+ */
+const val EXPORT_BATCH = 500
+
+/** 分享用 mime（原 DeviceAlbumDetailScreen internal 件迁址，v0.8.1 A4）：视频通配，图片按扩展名。 */
+fun DeviceMedia.mime(): String =
+    if (isVideo) "video/*" else mimeOf(displayName.substringAfterLast('.', ""))

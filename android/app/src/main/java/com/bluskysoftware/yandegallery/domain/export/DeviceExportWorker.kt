@@ -2,8 +2,6 @@ package com.bluskysoftware.yandegallery.domain.export
 
 import android.content.Context
 import android.net.Uri
-import android.system.ErrnoException
-import android.system.OsConstants
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
@@ -11,6 +9,7 @@ import com.bluskysoftware.yandegallery.data.api.ApiException
 import com.bluskysoftware.yandegallery.data.device.DeviceSource
 import com.bluskysoftware.yandegallery.data.device.mimeOf
 import com.bluskysoftware.yandegallery.data.mirror.ImageMirrorStore
+import com.bluskysoftware.yandegallery.domain.copy.isDiskFull
 import com.bluskysoftware.yandegallery.domain.download.shouldUpdateNotification
 import kotlinx.coroutines.CancellationException
 import java.io.File
@@ -118,7 +117,8 @@ class DeviceExportWorker(
         // 全成功不发（前台进度通知已展示到 total/total）；retry/切服丢弃路径不发（非终态/非本批）。
         // runCatching 同 setForeground 口径：33+ 未授权等通知失败不反噬工作结果，唯取消重抛。
         if (failed > 0) {
-            runCatching { notifier.notifyCompleted(done - failed, failed, targetPath) }
+            // serverId 透传（v0.8.1 H7）：实现层按服务器加盐通知 id，多服务器汇总互不顶替
+            runCatching { notifier.notifyCompleted(serverId, done - failed, failed, targetPath) }
                 .onFailure { if (it is CancellationException) throw it }
         }
         return Result.success(workDataOf(KEY_FAILED_COUNT to failed))
@@ -129,21 +129,6 @@ class DeviceExportWorker(
         const val KEY_IMAGE_IDS = "imageIds"
         const val KEY_TARGET_PATH = "targetPath"
         const val KEY_FAILED_COUNT = "failedCount"
-
-        /**
-         * 满盘判读（insert 侧）：MediaStore 输出流写满盘抛出的 IOException 在 cause 链上包
-         * ErrnoException(ENOSPC)（镜像层 DiskFullException 一并识别，防未来网关实现转包）。
-         * 深度上限防御异常自环；ENOSPC 之外的 errno 不揽——其余本地错误按普通失败计。
-         */
-        internal fun Throwable?.isDiskFull(): Boolean {
-            var t = this
-            var depth = 0
-            while (t != null && depth++ < 10) {
-                if (t is ImageMirrorStore.DiskFullException) return true
-                if (t is ErrnoException && t.errno == OsConstants.ENOSPC) return true
-                t = t.cause
-            }
-            return false
-        }
+        // 满盘判读（Throwable?.isDiskFull）v0.8.1 B 类抽至 domain/copy/DiskFull.kt，与 DeviceCopyWorker 共用。
     }
 }

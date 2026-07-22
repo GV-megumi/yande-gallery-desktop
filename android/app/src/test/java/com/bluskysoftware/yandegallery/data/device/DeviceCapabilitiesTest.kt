@@ -45,4 +45,18 @@ class DeviceCapabilitiesTest {
         )
         assertEquals(DeviceAccessLevel.DENIED, DeviceCapabilities.accessLevelOf(30, emptySet()))
     }
+
+    @Test
+    fun `访问级别_sdk33单权限授予视为拒绝`() {
+        // 33 无「部分授权」概念（34+ 才有 READ_MEDIA_VISUAL_USER_SELECTED）——
+        // 双媒体权限缺一即 DENIED，不得误判 PARTIAL
+        assertEquals(
+            DeviceAccessLevel.DENIED,
+            DeviceCapabilities.accessLevelOf(33, setOf(DeviceCapabilities.READ_MEDIA_IMAGES)),
+        )
+        assertEquals(
+            DeviceAccessLevel.DENIED,
+            DeviceCapabilities.accessLevelOf(33, setOf(DeviceCapabilities.READ_MEDIA_VIDEO)),
+        )
+    }
 }

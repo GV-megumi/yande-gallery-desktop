@@ -1,8 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.theme
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
@@ -14,6 +11,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
+import com.bluskysoftware.yandegallery.ui.common.findActivity
 
 private val LightColors = lightColorScheme(
     primary = LightPrimary,
@@ -86,10 +84,4 @@ fun YandeGalleryTheme(content: @Composable () -> Unit) {
         }
     }
     MaterialTheme(colorScheme = colors, typography = AppTypography, shapes = AppShapes, content = content)
-}
-
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

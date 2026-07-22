@@ -1,8 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.viewer
 
-import android.app.Activity
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
@@ -58,9 +55,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.paging.LoadState
 import androidx.paging.compose.LazyPagingItems
@@ -74,13 +68,18 @@ import com.bluskysoftware.yandegallery.domain.write.WriteResult
 import com.bluskysoftware.yandegallery.ui.common.CopyTargetPicker
 import com.bluskysoftware.yandegallery.ui.common.MiuiDialog
 import com.bluskysoftware.yandegallery.ui.common.PickerMode
+import com.bluskysoftware.yandegallery.ui.common.applySystemBars
+import com.bluskysoftware.yandegallery.ui.common.awaitPagingRefreshSettled
+import com.bluskysoftware.yandegallery.ui.common.findActivity
 import com.bluskysoftware.yandegallery.ui.common.mimeOf
+import com.bluskysoftware.yandegallery.ui.common.setSystemBarAppearanceLight
 import com.bluskysoftware.yandegallery.ui.common.writeFailText
 import com.bluskysoftware.yandegallery.ui.photos.viewerDateLabel
 import com.bluskysoftware.yandegallery.ui.photos.viewerTimeLabel
 import java.time.LocalDate
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /** 高倍缩放提示阈值（spec §7.3：scale 超约 2.5x 且无本机原图时提示清晰度不足，可查看原图）。 */
 private const val HIGH_ZOOM_THRESHOLD = 2.5f
@@ -125,11 +124,16 @@ fun ViewerScreen(
     // 目标选择器（Task 11）：pickTargetFor=当前图 id（null=关闭）+ 模式（Copy=「复制到」两节 / Move=「移动到」）
     var pickTargetFor by rememberSaveable { mutableStateOf<Long?>(null) }
     var pickTargetMode by rememberSaveable { mutableStateOf(PickerMode.Copy) }
-    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）
+    // 手机相册节候选：仅 Copy 模式需要，打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）；
+    // 打开先清列表挂加载态（v0.8.1 G1）——不清则第二次打开会先闪上一次的旧快照
     var deviceAlbums by remember { mutableStateOf<List<DeviceAlbum>>(emptyList()) }
+    var deviceLoading by remember { mutableStateOf(false) }
     LaunchedEffect(pickTargetFor, pickTargetMode) {
         if (pickTargetFor != null && pickTargetMode == PickerMode.Copy) {
+            deviceAlbums = emptyList()
+            deviceLoading = true
             deviceAlbums = viewModel.deviceAlbumTargets()
+            deviceLoading = false
         }
     }
 
@@ -339,7 +343,15 @@ fun ViewerScreen(
                     } else {
                         val targetName = galleries.firstOrNull { it.id == galleryId }?.name.orEmpty()
                         when (val r = viewModel.moveTo(galleryId, imageId)) {
-                            WriteResult.Success -> snackbar.showSnackbar("已移动到「$targetName」")
+                            WriteResult.Success -> {
+                                // 移空 auto-back（v0.8.1 G3）：相册上下文移走最后一张后列表清空，
+                                // 留在本页只剩黑屏——对齐删除成功即 onBack 的语义。等新世代 refresh
+                                // 落定再判空（旧快照仍含被移图，立判必非空）；withTimeoutOrNull 兜
+                                // 「收集启动前落定已完成」的错相位（settle 助手会一直挂起），超时后
+                                // 以当刻计数判定，两相位殊途同归。
+                                withTimeoutOrNull(2_000) { awaitPagingRefreshSettled(items) }
+                                if (items.itemCount == 0) onBack() else snackbar.showSnackbar("已移动到「$targetName」")
+                            }
                             is WriteResult.Failed -> snackbar.showSnackbar(writeFailText("移动失败", r))
                         }
                     }
@@ -347,11 +359,15 @@ fun ViewerScreen(
             },
             onPickDeviceAlbum = { path ->
                 pickTargetFor = null
-                viewModel.exportToDevice(imageId, path)
-                scope.launch { snackbar.showSnackbar("已开始复制到手机相册") }
+                scope.launch {
+                    // D1 防御（v0.8.1）：入队成败分流提示（单张无选择可清，失败可直接重试）
+                    val ok = viewModel.exportToDevice(imageId, path)
+                    snackbar.showSnackbar(if (ok) "已开始复制到手机相册" else "复制启动失败")
+                }
             },
             onCreateDeviceAlbum = viewModel::createDeviceAlbum,
             onDismiss = { pickTargetFor = null },
+            deviceLoading = deviceLoading,
         )
     }
 
@@ -621,28 +637,4 @@ fun ViewerPager(
             }
         }
     }
-}
-
-/** 隐/显系统栏（沉浸模式）；window 取不到（非 Activity 宿主）时静默跳过。 */
-private fun applySystemBars(activity: Activity?, view: android.view.View, hide: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    if (hide) controller.hide(WindowInsetsCompat.Type.systemBars())
-    else controller.show(WindowInsetsCompat.Type.systemBars())
-}
-
-/** 写系统栏（状态栏+导航栏）图标深浅：light=true 深色图标（浅底页用）；window 取不到时静默跳过。 */
-private fun setSystemBarAppearanceLight(activity: Activity?, view: android.view.View, light: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.isAppearanceLightStatusBars = light
-    controller.isAppearanceLightNavigationBars = light
-}
-
-/** 从 Compose 视图上下文向上剥 ContextWrapper 找宿主 Activity（拿 window 用）。 */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
 }

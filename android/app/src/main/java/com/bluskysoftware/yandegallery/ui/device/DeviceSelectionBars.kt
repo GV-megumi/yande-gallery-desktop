@@ -1,6 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.device
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -29,6 +28,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.bluskysoftware.yandegallery.ui.common.debouncedClickable
 
 /**
  * 手机域多选底栏桥（Task 7，对照 PhotosSelectionBars 同款 swap-bridge 模式）：
@@ -92,7 +92,8 @@ fun DeviceSelectionBottomBar(model: DeviceSelectionBars.Model, modifier: Modifie
     }
 }
 
-/** 单个动作项：图标 + 小字标签（照片域 SelectionAction 同款观感；本域无置灰态，能渲染即可点）。 */
+/** 单个动作项：图标 + 小字标签（照片域 SelectionAction 同款观感；本域无置灰态，能渲染即可点）；
+ *  连点防抖（v0.8.1 G2）——300ms 窗口吞双击，防删除/复制等系统弹窗动作双发。 */
 @Composable
 private fun DeviceSelectionAction(
     icon: ImageVector,
@@ -104,7 +105,7 @@ private fun DeviceSelectionAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick)
+            .debouncedClickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag(tag),
     ) {

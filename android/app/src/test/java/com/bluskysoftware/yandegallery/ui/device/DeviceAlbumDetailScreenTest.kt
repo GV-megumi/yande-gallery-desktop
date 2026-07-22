@@ -1,6 +1,21 @@
 package com.bluskysoftware.yandegallery.ui.device
 
+import android.app.Activity
+import android.app.Application
+import android.app.PendingIntent
+import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.LocalActivityResultRegistryOwner
+import androidx.activity.result.ActivityResultRegistry
+import androidx.activity.result.ActivityResultRegistryOwner
+import androidx.activity.result.contract.ActivityResultContract
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Scaffold
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -10,6 +25,8 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
+import androidx.core.app.ActivityOptionsCompat
+import androidx.core.content.IntentCompat
 import coil3.ColorImage
 import coil3.ImageLoader
 import coil3.Uri as CoilUri
@@ -18,11 +35,15 @@ import coil3.fetch.Fetcher
 import coil3.fetch.ImageFetchResult
 import coil3.request.Options
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
+import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.data.device.BucketKey
+import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import java.io.File
+import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -33,11 +54,14 @@ import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowSystemClock
 
 /**
  * [DeviceAlbumDetailScreen] compose 契约（Task 6，spec §2.2）：网格渲染、视频角标文案、单击/
@@ -55,6 +79,10 @@ class DeviceAlbumDetailScreenTest {
     private val prefsTmp = File.createTempFile("device_detail_screen_test", ".preferences_pb").also { it.delete() }
     private val prefsStore = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp })
     private lateinit var gateway: FakeDeviceGateway
+
+    // v0.8.1 B 类：VM 新增 deviceCopyManager 构造参数（copySelectedTo 改入队）——本文件测网格渲染/交互，
+    // 不测复制入队，注真实惰性 manager（enqueue 从不被调，不触 WorkManager）满足构造即可。
+    private val copyManager = DeviceCopyManager(ApplicationProvider.getApplicationContext())
 
     @Before
     fun setup() {
@@ -92,7 +120,7 @@ class DeviceAlbumDetailScreenTest {
      * 不含真实 IO，Unconfined 下与调用方同线程同步跑完，请求在合成当帧内确定性落定，消除竞态。
      */
     private fun setScreen(onOpenViewer: (Long) -> Unit = {}): DeviceAlbumDetailViewModel {
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
         compose.setContent {
             val context = LocalContext.current
             DeviceAlbumDetailScreen(
@@ -107,6 +135,98 @@ class DeviceAlbumDetailScreenTest {
             )
         }
         return vm
+    }
+
+    /**
+     * 分享装配（加固轮 F6）：真屏 + 桥动作栏同挂——DeviceSelectionBottomBar 生产中由壳
+     * （AppScaffold bottomBar 槽）按桥 model 渲染，本测试复刻该 swap 渲染以打通「长按进多选 →
+     * 点分享 → chooser intent」全链；loader/fetcher 同 [setScreen]。桥 model 的读取**必须**留在
+     * bottomBar 独立槽（照生产 AppScaffold 结构）：若读在包含屏本体的同一重组域，屏内 SideEffect
+     * 每轮回填新 Model（lambda 非结构相等）会自失效该域→无限重组（AppNotIdleException 实测）。
+     */
+    private fun setScreenWithBars(registryOwner: ActivityResultRegistryOwner? = null): DeviceAlbumDetailViewModel {
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
+        val bars = DeviceSelectionBars()
+        compose.setContent {
+            val context = LocalContext.current
+            // loader 必须 remember：桥写入会致本装配重组，重建 loader 会让屏永不 skippable，
+            // 与上述 SideEffect 回填互激成环
+            val loader = remember {
+                ImageLoader.Builder(context)
+                    .components { add(AlwaysSucceedFetcherFactory()) }
+                    .coroutineContext(Dispatchers.Unconfined)
+                    .build()
+            }
+            val body: @Composable () -> Unit = {
+                Scaffold(
+                    bottomBar = { bars.model?.let { DeviceSelectionBottomBar(it) } },
+                ) { padding ->
+                    Box(Modifier.padding(padding)) {
+                        DeviceAlbumDetailScreen(
+                            viewModel = vm,
+                            loader = loader,
+                            onOpenViewer = {},
+                            onBack = {},
+                            selectionBars = bars,
+                        )
+                    }
+                }
+            }
+            // E1 用例（v0.8.1）注入假 registry 接管 rememberLauncherForActivityResult；缺省走宿主 Activity
+            if (registryOwner != null) {
+                CompositionLocalProvider(LocalActivityResultRegistryOwner provides registryOwner) { body() }
+            } else {
+                body()
+            }
+        }
+        return vm
+    }
+
+    /** Robolectric 下可构造的占位 PendingIntent（DeviceActionsTest 同款，写授权意图 fake 返回用）。 */
+    private fun placeholderPendingIntent(): PendingIntent = PendingIntent.getActivity(
+        ApplicationProvider.getApplicationContext(),
+        0,
+        Intent(),
+        PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    @Test
+    fun `分享_单张实际mime_多张SEND_MULTIPLE通配`() {
+        // 单张：ACTION_SEND + 实际 mime；多张：ACTION_SEND_MULTIPLE + */* + FLAG_GRANT_READ_URI_PERMISSION。
+        // chooser 包装（Intent.createChooser）经 EXTRA_INTENT 解包取内层断言。
+        gateway.media = listOf(media(1), media(2, isVideo = true, durationMs = 5_000))
+        setScreenWithBars()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_cell_1").fetchSemanticsNodes().isNotEmpty()
+        }
+        val shadowApp = shadowOf(ApplicationProvider.getApplicationContext<Application>())
+
+        // 长按 1 号（图片 img1.jpg）进多选 → 分享；shareSelected 经 scope.launch 异步组 intent，
+        // 用 peek 轮询等 startActivity 真发生（waitForIdle 不追踪协程完成，防时序 flake）
+        compose.onNodeWithTag("device_cell_1").performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_action_share").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { shadowApp.peekNextStartedActivity() != null }
+        val single = shadowApp.nextStartedActivity
+        assertEquals(Intent.ACTION_CHOOSER, single.action)
+        val singleInner = IntentCompat.getParcelableExtra(single, Intent.EXTRA_INTENT, Intent::class.java)!!
+        assertEquals(Intent.ACTION_SEND, singleInner.action)
+        assertEquals("image/jpeg", singleInner.type)   // 按实际扩展名映射，非通配
+        assertTrue(singleInner.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)   // 单张也须授临时读权（与多张一致）
+
+        // 补选 2 号（视频）→ 分享不清选择（现状语义），选中成 {1,2}
+        compose.onNodeWithTag("device_cell_2").performClick()
+        compose.waitForIdle()
+        // G2 防抖跟随（v0.8.1）：动作项接 300ms 防抖后，Robolectric 冻结的 uptimeMillis 会把本次
+        // 二次分享误判为连点——推进影子时钟越过窗口（真机上两次点击间隔以秒计），断言零改动
+        ShadowSystemClock.advanceBy(Duration.ofMillis(301))
+        compose.onNodeWithTag("device_action_share").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { shadowApp.peekNextStartedActivity() != null }
+        val multi = shadowApp.nextStartedActivity
+        val multiInner = IntentCompat.getParcelableExtra(multi, Intent.EXTRA_INTENT, Intent::class.java)!!
+        assertEquals(Intent.ACTION_SEND_MULTIPLE, multiInner.action)
+        assertEquals("*/*", multiInner.type)
+        assertTrue(multiInner.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)
     }
 
     @Test
@@ -158,6 +278,69 @@ class DeviceAlbumDetailScreenTest {
         }
         compose.onNodeWithTag("device_empty").assertIsDisplayed()
         compose.onNodeWithText("相册还没有照片", substring = true).assertExists()
+    }
+
+    @Test
+    fun `移动授权回调_空选中静默放弃不弹提示`() {
+        // E1 进程重建守护（v0.8.1，spec H3 诚实降级）：授权弹窗悬窗期间进程被杀重建后
+        // pendingMovePath 经 rememberSaveable 存活、VM 选中集已消亡——RESULT_OK 回调须静默放弃
+        // （不调 moveTo、不弹「已移动 0 张」误导提示）。launcher 结果经假 ActivityResultRegistry
+        // 直接驱动（onLaunch 只记 requestCode 不真跳系统弹窗，dispatchResult 模拟授权返回）；
+        // 授权悬窗期间清空选中模拟重建丢失。
+        gateway.media = listOf(media(1))
+        gateway.writeRequestResult = placeholderPendingIntent()
+        gateway.albums = listOf(
+            DeviceAlbum(
+                key = BucketKey.Bucket(10),
+                name = "Target",
+                relativePath = "Pictures/Target/",
+                count = 1,
+                coverUri = null,
+                isPending = false,
+            ),
+        )
+        val registry = object : ActivityResultRegistry() {
+            var lastRequestCode: Int? = null
+            override fun <I, O> onLaunch(
+                requestCode: Int,
+                contract: ActivityResultContract<I, O>,
+                input: I,
+                options: ActivityOptionsCompat?,
+            ) {
+                lastRequestCode = requestCode
+            }
+        }
+        val owner = object : ActivityResultRegistryOwner {
+            override val activityResultRegistry: ActivityResultRegistry = registry
+        }
+        val vm = setScreenWithBars(registryOwner = owner)
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_cell_1").fetchSemanticsNodes().isNotEmpty()
+        }
+
+        // 长按进多选 → 底栏「移动到」 → picker 选目标 → moveWriteRequest 发起授权（落在假 registry）；
+        // targetAlbums 经真 DataStore IO 回环异步开 picker，waitUntil 等节点（waitForIdle 不追踪协程）
+        compose.onNodeWithTag("device_cell_1").performTouchInput { longClick() }
+        compose.waitForIdle()
+        compose.onNodeWithTag("device_action_move_to").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) {
+            compose.onAllNodesWithTag("device_pick_b10").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithTag("device_pick_b10").performClick()
+        compose.waitUntil(timeoutMillis = 5_000) { registry.lastRequestCode != null }
+        assertEquals("授权发起时恰一次 writeRequest", 1, gateway.writeRequestCalls.size)
+
+        // 授权悬窗期间进程重建：选中集丢失（pendingMovePath 属 rememberSaveable 存活，无需模拟丢）
+        vm.selection.clear()
+        compose.runOnIdle {
+            registry.dispatchResult(registry.lastRequestCode!!, Activity.RESULT_OK, Intent())
+        }
+        compose.waitForIdle()
+        compose.waitForIdle()   // 二连：回调 scope.launch 的续体在 AndroidUiDispatcher 上，再排一轮防假绿
+
+        // 静默放弃：不触 gateway.moveTo、无任何「已移动」snackbar（含「已移动 0 张」）
+        assertTrue("空选中授权回调不得调 moveTo", gateway.moveToCalls.isEmpty())
+        compose.onNodeWithText("已移动", substring = true).assertDoesNotExist()
     }
 
     @Test

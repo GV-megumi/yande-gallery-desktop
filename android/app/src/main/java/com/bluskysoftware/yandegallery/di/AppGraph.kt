@@ -15,6 +15,7 @@ import com.bluskysoftware.yandegallery.data.repo.RoomMirrorStore
 import com.bluskysoftware.yandegallery.data.repo.ServerRepository
 import com.bluskysoftware.yandegallery.domain.ConnectionMonitor
 import com.bluskysoftware.yandegallery.domain.NetworkMonitor
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import com.bluskysoftware.yandegallery.domain.download.DownloadManager
 import com.bluskysoftware.yandegallery.domain.export.DeviceExportManager
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncManager
@@ -159,6 +160,9 @@ class AppGraph(
 
     /** 桌面→手机导出入队（本机相册 spec §6.1）：唯一工作名按服务器 APPEND_OR_REPLACE 排队。 */
     val deviceExportManager by lazy { DeviceExportManager(appContext) }
+
+    /** 手机→手机批量复制入队（本机相册 spec §5.3，v0.8.1 B 类）：唯一工作名 device-copy，APPEND_OR_REPLACE 串行。 */
+    val deviceCopyManager by lazy { DeviceCopyManager(appContext) }
 
     suspend fun api(): DesktopApi? {
         val active = serverRepository.activeServer() ?: run {

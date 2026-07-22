@@ -4,7 +4,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -163,7 +162,8 @@ fun SelectionBottomBar(
     }
 }
 
-/** 单个动作项：图标 + 小字标签；禁用整体降透明度（主题配色，非大图页黑底风格）。 */
+/** 单个动作项：图标 + 小字标签；禁用整体降透明度（主题配色，非大图页黑底风格）；
+ *  连点防抖（v0.8.1 G2）——300ms 窗口吞双击，防下载/导出等批量动作双发。 */
 @Composable
 private fun SelectionAction(
     icon: ImageVector,
@@ -181,7 +181,7 @@ private fun SelectionAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
-            .clickable(enabled = enabled, onClick = onClick)
+            .debouncedClickable(enabled = enabled, onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 6.dp)
             .testTag(tag),
     ) {

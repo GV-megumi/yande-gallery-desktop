@@ -2,8 +2,6 @@ package com.bluskysoftware.yandegallery.ui.device
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
-import android.content.Context
-import android.content.ContextWrapper
 import android.content.Intent
 import android.text.format.Formatter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -70,9 +68,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import androidx.paging.LoadState
 import androidx.paging.compose.collectAsLazyPagingItems
 import coil3.ImageLoader
@@ -80,7 +75,11 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.formatDurationMs
+import com.bluskysoftware.yandegallery.data.device.mime
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
+import com.bluskysoftware.yandegallery.ui.common.applySystemBars
+import com.bluskysoftware.yandegallery.ui.common.findActivity
+import com.bluskysoftware.yandegallery.ui.common.setSystemBarAppearanceLight
 import com.bluskysoftware.yandegallery.ui.photos.weekdayCn
 import com.bluskysoftware.yandegallery.ui.viewer.ZoomableImage
 import com.bluskysoftware.yandegallery.ui.viewer.ZoomableImageState
@@ -142,6 +141,8 @@ fun DeviceViewerScreen(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { }
     // 移动：系统写授权 RESULT_OK 后才真正 moveTo（spec §5.3 两段式）；取消则丢中继、无操作。
+    // v0.8.1 E1 走查确认：pendingMove 是 plain remember——授权弹窗期间进程重建即重置 null，
+    // RESULT_OK 回调经 `pending != null` 天然静默放弃（与 DeviceAlbumDetailScreen 空选中守护同语义），不需改码。
     val moveLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult(),
     ) { result ->
@@ -210,12 +211,14 @@ fun DeviceViewerScreen(
     // 页面 settle：其余页缩放重置（回看回到适配大小，ViewerPager 同款；本页无相邻预取需求——
     // 手机域 content uri 由 Coil 按需加载，无镜像 ensure 类前置动作）。仅保留 settle 页那张的
     // mediaId 一项，map 不随长列表滑动膨胀；settle 页 id 在 snapshotFlow 内取——删除收缩后同
-    // 下标换了内容也会触发清理，被删那张的残项即时移除；快照瞬时取不到（空表/越界）则全清兜底。
+    // 下标换了内容也会触发清理，被删那张的残项即时移除。
     LaunchedEffect(pagerState) {
         snapshotFlow {
             val settled = pagerState.settledPage
             if (settled in 0 until items.itemCount) items.peek(settled)?.mediaId else null
         }.collect { settledId ->
+            // 快照瞬空（invalidate 重拉窗口）时跳过清理——避免放大态被外部 MediaStore 脉冲误清（终审复核裁定）
+            if (settledId == null) return@collect
             zoomStates.keys.filter { it != settledId }.forEach { zoomStates.remove(it) }
         }
     }
@@ -550,27 +553,3 @@ internal fun deviceViewerDateLabel(takenAtMs: Long, today: LocalDate): String {
 internal fun deviceViewerTimeLabel(takenAtMs: Long): String =
     Instant.ofEpochMilli(takenAtMs).atZone(ZoneId.systemDefault())
         .format(DateTimeFormatter.ofPattern("HH:mm"))
-
-/** 隐/显系统栏（沉浸模式，ViewerScreen 私有件同款复刻——跨包不可引用）；非 Activity 宿主静默跳过。 */
-private fun applySystemBars(activity: Activity?, view: android.view.View, hide: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-    if (hide) controller.hide(WindowInsetsCompat.Type.systemBars())
-    else controller.show(WindowInsetsCompat.Type.systemBars())
-}
-
-/** 写系统栏图标深浅（ViewerScreen 私有件同款复刻）；window 取不到时静默跳过。 */
-private fun setSystemBarAppearanceLight(activity: Activity?, view: android.view.View, light: Boolean) {
-    val window = activity?.window ?: return
-    val controller = WindowCompat.getInsetsController(window, view)
-    controller.isAppearanceLightStatusBars = light
-    controller.isAppearanceLightNavigationBars = light
-}
-
-/** 从 Compose 视图上下文向上剥 ContextWrapper 找宿主 Activity（ViewerScreen 私有件同款复刻）。 */
-private tailrec fun Context.findActivity(): Activity? = when (this) {
-    is Activity -> this
-    is ContextWrapper -> baseContext.findActivity()
-    else -> null
-}

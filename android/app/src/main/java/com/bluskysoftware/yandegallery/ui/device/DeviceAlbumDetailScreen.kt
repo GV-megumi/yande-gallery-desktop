@@ -48,13 +48,13 @@ import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceCapabilities
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.formatDurationMs
+import com.bluskysoftware.yandegallery.data.device.mime
 import com.bluskysoftware.yandegallery.ui.common.MiuiSubPageTopBar
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import com.bluskysoftware.yandegallery.ui.common.RetryableAsyncImage
 import com.bluskysoftware.yandegallery.ui.common.SelectableCell
 import com.bluskysoftware.yandegallery.ui.common.SelectionTopBar
 import com.bluskysoftware.yandegallery.ui.common.detectPinchStep
-import com.bluskysoftware.yandegallery.ui.common.mimeOf
 import com.bluskysoftware.yandegallery.ui.theme.MiuiTokens
 import kotlinx.coroutines.launch
 
@@ -112,6 +112,10 @@ fun DeviceAlbumDetailScreen(
         val path = pendingMovePath
         pendingMovePath = null
         if (result.resultCode == Activity.RESULT_OK && path != null) {
+            // E1 进程重建守护（v0.8.1，spec H3 诚实降级）：授权弹窗悬窗期间进程被杀重建后
+            // pendingMovePath 经 rememberSaveable 存活，而 VM 选中集已随进程消亡——空选中即静默
+            // 放弃（不调 moveSelectedTo、不弹「已移动 0 张」误导提示），用户可重新选择重发起。
+            if (viewModel.selection.selected.isEmpty()) return@rememberLauncherForActivityResult
             scope.launch {
                 val totalCount = viewModel.selection.count
                 val moved = viewModel.moveSelectedTo(path).getOrDefault(0)
@@ -273,13 +277,19 @@ fun DeviceAlbumDetailScreen(
             onPick = { path ->
                 pickerMode = null
                 when (mode) {
-                    DevicePickerMode.COPY -> scope.launch {
-                        val totalCount = viewModel.selection.count
+                    DevicePickerMode.COPY -> {
+                        // v0.8.1 B 类：批量复制改 WorkManager 入队（离屏/杀进程续跑）——同步拿入队成败，
+                        // 成功清选择 + toast「已开始复制到手机相册」（与桌面导出侧文案/行为对齐，实际逐张
+                        // 落地/失败汇总由 DeviceCopyWorker 通知反馈）；入队失败保留选择可重试（D1 口径）。
                         val ok = viewModel.copySelectedTo(path)
-                        viewModel.selection.clear()
-                        snackbarHostState.showSnackbar(
-                            if (ok >= totalCount) "已复制 $ok 张" else "已复制 $ok 张，${totalCount - ok} 张失败",
-                        )
+                        scope.launch {
+                            if (ok) {
+                                viewModel.selection.clear()
+                                snackbarHostState.showSnackbar("已开始复制到手机相册")
+                            } else {
+                                snackbarHostState.showSnackbar("复制启动失败")
+                            }
+                        }
                     }
                     DevicePickerMode.MOVE -> scope.launch {
                         // 两段式：先记目标路径，系统写授权 RESULT_OK 回调里才真正 moveTo
@@ -295,11 +305,6 @@ fun DeviceAlbumDetailScreen(
         )
     }
 }
-
-/** 分享 mime（brief 契约）：视频通配 video；图片按实际扩展名映射（未知回退 image 通配）。
- *  Task 8 起 internal 共享给 DeviceViewerScreen 的单张分享（同域同语义，不各自复制）。 */
-internal fun DeviceMedia.mime(): String =
-    if (isVideo) "video/*" else mimeOf(displayName.substringAfterLast('.', ""))
 
 /** 网格格子：SelectableCell 包图 + 选中态角标；视频额外叠右下角时长角标（黑 55% 圆角底白字）。 */
 @Composable
@@ -329,6 +334,8 @@ private fun DeviceMediaCell(
                 contentDescription = media.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+                // 手势让位（加固轮 C 类）：失败格点击/长按透传 SelectableCell 选择路由，重试走角标
+                gesturePassthrough = true,
             )
             if (media.isVideo) {
                 Text(
@@ -336,7 +343,9 @@ private fun DeviceMediaCell(
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
+                        // 让位失败重试角标（加固轮 C 类终审补强）：重试角标固定右下角（BottomEnd），
+                        // 时长角标同角会在失败视频格上互相遮挡——挪到左下角（BottomStart，选中勾在 TopEnd，此角空闲）。
+                        .align(Alignment.BottomStart)
                         .padding(4.dp)
                         .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
