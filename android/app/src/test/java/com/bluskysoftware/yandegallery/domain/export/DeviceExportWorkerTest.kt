@@ -52,6 +52,11 @@ class DeviceExportWorkerTest {
             completedServerIds += serverId
             completedCalls += Triple(ok, failed, targetPath)
         }
+        // v0.8.1 B 类 notifier 泛化后接口新增复制域方法——导出 worker 不调，throw 兜底误用即红灯。
+        override fun copyForegroundInfo(done: Int, total: Int, targetPath: String) =
+            throw IllegalStateException("导出 worker 不调复制进度")
+        override fun notifyCopyCompleted(ok: Int, failed: Int, targetPath: String): Unit =
+            throw IllegalStateException("导出 worker 不调复制汇总")
     }
 
     /** insertCopy/findCopy 入参记录（对照 FakeDeviceGateway 口径），按调用顺序追加。 */

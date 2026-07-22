@@ -15,11 +15,10 @@ import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.device.DeviceMediaGateway
-import com.bluskysoftware.yandegallery.data.device.DeviceSource
-import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.device.validateNewAlbumName
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import com.bluskysoftware.yandegallery.ui.common.SelectionState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
@@ -51,6 +50,7 @@ import kotlinx.coroutines.launch
 class DeviceAlbumDetailViewModel(
     private val gateway: DeviceMediaGateway,
     private val prefsStore: PrefsStore,
+    private val deviceCopyManager: DeviceCopyManager,
     bucketKeyRaw: String,
 ) : ViewModel() {
 
@@ -160,23 +160,14 @@ class DeviceAlbumDetailViewModel(
     }
 
     /**
-     * 复制到目标相册（spec §5.3/§6.1）：逐张 `insertCopy(DeviceSource.Media, path)` 计成功数并返回
-     * （失败数 = 选中数 - 返回值，由 Screen 提示）。成功 ≥1 张且目标恰为某待落地占位的
-     * `Pictures/<名>/` 路径时顺手清占位记录——真实 bucket 已随首张落地诞生（Task 5 的收编逻辑
-     * 对「下一轮相册查询才发现」的时序兜底，这里是即时清理的快路径，spec §5.5）。
+     * 复制到目标相册（spec §5.3，v0.8.1 B 类改 WorkManager 化）：把选中 id 交 [DeviceCopyManager]
+     * 入队——多选批量复制不再随 composition scope 存活，离屏/进程被杀后 WorkManager 续跑。逐张
+     * insertCopy、查重防重跑、待落地占位收编全迁入 DeviceCopyWorker（收编经工厂注入的
+     * removePendingIfMatch 回调）。返回是否入队成功（false=入队启动失败，Screen 分流「复制启动失败」）。
+     * **大图页单张 DeviceViewerViewModel.copyTo 保持同步不动**（spec H2：单张就地反馈无离屏续跑需求）。
      */
-    suspend fun copySelectedTo(path: String): Int {
-        val medias = selectedMedia()
-        var ok = 0
-        for (m in medias) {
-            if (gateway.insertCopy(DeviceSource.Media(m), path).isSuccess) ok++
-        }
-        if (ok > 0) {
-            val pending = prefsStore.devicePendingAlbums.first()
-            pending.firstOrNull { pendingAlbumPath(it) == path }?.let { prefsStore.removePendingAlbum(it) }
-        }
-        return ok
-    }
+    fun copySelectedTo(path: String): Boolean =
+        deviceCopyManager.enqueue(selection.selected.toList(), path)
 
     /**
      * 复制/移动目标候选（picker 数据源）：真实相册 + 未收编待落地占位，复用 DeviceAlbumsViewModel
@@ -213,7 +204,9 @@ class DeviceAlbumDetailViewModel(
         private const val ALL_TITLE = "全部照片"
 
         fun factory(graph: AppGraph, bucketKeyRaw: String): ViewModelProvider.Factory = viewModelFactory {
-            initializer { DeviceAlbumDetailViewModel(graph.deviceMediaGateway, graph.prefsStore, bucketKeyRaw) }
+            initializer {
+                DeviceAlbumDetailViewModel(graph.deviceMediaGateway, graph.prefsStore, graph.deviceCopyManager, bucketKeyRaw)
+            }
         }
     }
 }

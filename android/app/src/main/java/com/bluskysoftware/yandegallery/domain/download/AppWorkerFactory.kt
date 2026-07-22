@@ -4,9 +4,11 @@ import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.data.mirror.MirrorTier
 import com.bluskysoftware.yandegallery.data.mirror.mirrorTierOf
 import com.bluskysoftware.yandegallery.di.AppGraph
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyWorker
 import com.bluskysoftware.yandegallery.domain.export.AndroidDeviceExportNotifier
 import com.bluskysoftware.yandegallery.domain.export.DeviceExportWorker
 import com.bluskysoftware.yandegallery.domain.mirror.MirrorSyncWorker
@@ -54,6 +56,23 @@ class AppWorkerFactory(private val graph: AppGraph) : WorkerFactory() {
                 insertCopy = graph.deviceMediaGateway::insertCopy,
                 findCopy = graph.deviceMediaGateway::findCopy,
                 activeServerId = { graph.serverRepository.activeServer()?.id },
+                notifier = AndroidDeviceExportNotifier(appContext),
+            )
+        } else if (workerClassName == DeviceCopyWorker::class.java.name) {
+            DeviceCopyWorker(
+                appContext,
+                workerParameters,
+                mediaByIds = graph.deviceMediaGateway::mediaByIds,
+                insertCopy = graph.deviceMediaGateway::insertCopy,
+                findCopy = graph.deviceMediaGateway::findCopy,
+                // 收编（spec §5.5，从 DeviceAlbumDetailViewModel.copySelectedTo 迁入）：worker 成功
+                // ≥1 张后回调此处——目标恰为某待落地占位的 Pictures/<名>/ 路径时清占位记录（真实 bucket
+                // 已随首张落地诞生）；worker 本体不依赖 prefs，匹配/清除逻辑收在工厂注入闭包。
+                removePendingIfMatch = { targetPath ->
+                    val pending = graph.prefsStore.devicePendingAlbums.first()
+                    pending.firstOrNull { pendingAlbumPath(it) == targetPath }
+                        ?.let { graph.prefsStore.removePendingAlbum(it) }
+                },
                 notifier = AndroidDeviceExportNotifier(appContext),
             )
         } else {

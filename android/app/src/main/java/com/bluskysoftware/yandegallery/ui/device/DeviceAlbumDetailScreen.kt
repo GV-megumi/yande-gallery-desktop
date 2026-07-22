@@ -277,13 +277,19 @@ fun DeviceAlbumDetailScreen(
             onPick = { path ->
                 pickerMode = null
                 when (mode) {
-                    DevicePickerMode.COPY -> scope.launch {
-                        val totalCount = viewModel.selection.count
+                    DevicePickerMode.COPY -> {
+                        // v0.8.1 B 类：批量复制改 WorkManager 入队（离屏/杀进程续跑）——同步拿入队成败，
+                        // 成功清选择 + toast「已开始复制到手机相册」（与桌面导出侧文案/行为对齐，实际逐张
+                        // 落地/失败汇总由 DeviceCopyWorker 通知反馈）；入队失败保留选择可重试（D1 口径）。
                         val ok = viewModel.copySelectedTo(path)
-                        viewModel.selection.clear()
-                        snackbarHostState.showSnackbar(
-                            if (ok >= totalCount) "已复制 $ok 张" else "已复制 $ok 张，${totalCount - ok} 张失败",
-                        )
+                        scope.launch {
+                            if (ok) {
+                                viewModel.selection.clear()
+                                snackbarHostState.showSnackbar("已开始复制到手机相册")
+                            } else {
+                                snackbarHostState.showSnackbar("复制启动失败")
+                            }
+                        }
                     }
                     DevicePickerMode.MOVE -> scope.launch {
                         // 两段式：先记目标路径，系统写授权 RESULT_OK 回调里才真正 moveTo

@@ -40,6 +40,7 @@ import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import java.io.File
 import java.time.Duration
@@ -79,6 +80,10 @@ class DeviceAlbumDetailScreenTest {
     private val prefsStore = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp })
     private lateinit var gateway: FakeDeviceGateway
 
+    // v0.8.1 B 类：VM 新增 deviceCopyManager 构造参数（copySelectedTo 改入队）——本文件测网格渲染/交互，
+    // 不测复制入队，注真实惰性 manager（enqueue 从不被调，不触 WorkManager）满足构造即可。
+    private val copyManager = DeviceCopyManager(ApplicationProvider.getApplicationContext())
+
     @Before
     fun setup() {
         Dispatchers.setMain(UnconfinedTestDispatcher())
@@ -115,7 +120,7 @@ class DeviceAlbumDetailScreenTest {
      * 不含真实 IO，Unconfined 下与调用方同线程同步跑完，请求在合成当帧内确定性落定，消除竞态。
      */
     private fun setScreen(onOpenViewer: (Long) -> Unit = {}): DeviceAlbumDetailViewModel {
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
         compose.setContent {
             val context = LocalContext.current
             DeviceAlbumDetailScreen(
@@ -140,7 +145,7 @@ class DeviceAlbumDetailScreenTest {
      * 每轮回填新 Model（lambda 非结构相等）会自失效该域→无限重组（AppNotIdleException 实测）。
      */
     private fun setScreenWithBars(registryOwner: ActivityResultRegistryOwner? = null): DeviceAlbumDetailViewModel {
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
         val bars = DeviceSelectionBars()
         compose.setContent {
             val context = LocalContext.current

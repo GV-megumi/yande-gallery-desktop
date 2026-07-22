@@ -3,11 +3,13 @@ package com.bluskysoftware.yandegallery.ui.device
 import android.net.Uri
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.paging.testing.asSnapshot
+import androidx.test.core.app.ApplicationProvider
 import com.bluskysoftware.yandegallery.awaitValue
 import com.bluskysoftware.yandegallery.data.device.BucketKey
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
+import com.bluskysoftware.yandegallery.domain.copy.DeviceCopyManager
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,6 +43,10 @@ class DeviceAlbumDetailViewModelTest {
     private val prefsTmp = File.createTempFile("device_detail_vm_test", ".preferences_pb").also { it.delete() }
     private val prefsStore = PrefsStore(PreferenceDataStoreFactory.create(scope = prefsScope) { prefsTmp })
     private val gateway = FakeDeviceGateway()
+
+    // v0.8.1 B 类：VM 新增 deviceCopyManager 构造参数（copySelectedTo 改入队）——本文件不测复制入队，
+    // 注真实惰性 manager（enqueue 从不被调，不触 WorkManager）满足构造即可。复制委派断言在 DeviceActionsTest。
+    private val copyManager = DeviceCopyManager(ApplicationProvider.getApplicationContext())
 
     @Before
     fun setup() {
@@ -79,7 +85,7 @@ class DeviceAlbumDetailViewModelTest {
     @Test
     fun `bucketKey解码_Bucket上下文标题取相册名`() = runTest {
         gateway.albums = listOf(realAlbum(5, "Camera", 3))
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.Bucket(5).encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.Bucket(5).encode())
         assertEquals(BucketKey.Bucket(5), vm.bucketKey)
         assertEquals("Camera", awaitValue({ vm.title.value }) { it == "Camera" })
         assertEquals(3, awaitValue({ vm.count.value }) { it == 3 })
@@ -87,7 +93,7 @@ class DeviceAlbumDetailViewModelTest {
 
     @Test
     fun `decode失败回退All`() = runTest {
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, "garbage-raw-key")
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, "garbage-raw-key")
         assertEquals(BucketKey.All, vm.bucketKey)
         assertEquals("全部照片", vm.title.value)
     }
@@ -97,7 +103,7 @@ class DeviceAlbumDetailViewModelTest {
         // 待落地相册恒无成员（加固轮 F5）：FakeMediaPagingSource 的 Pending 分支与生产
         // DeviceMediaPagingSource 语义一致——即使网关 media 非空，Pending key 下快照必为空列表。
         gateway.media = listOf(media(1))
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.Pending("旅行").encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.Pending("旅行").encode())
         val snapshot = vm.media.asSnapshot { }
         assertEquals(emptyList<DeviceMedia>(), snapshot)
     }
@@ -105,7 +111,7 @@ class DeviceAlbumDetailViewModelTest {
     @Test
     fun `observeChanges脉冲触发invalidate`() = runTest {
         gateway.media = listOf(media(1), media(2))
-        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, BucketKey.All.encode())
+        val vm = DeviceAlbumDetailViewModel(gateway, prefsStore, copyManager, BucketKey.All.encode())
 
         // 驱动 Pager 首次调用 pagingSourceFactory，落地第一代 PagingSource
         vm.media.asSnapshot { }

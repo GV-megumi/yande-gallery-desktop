@@ -215,9 +215,10 @@ class DeviceCopyTargets(
 
     companion object {
         /**
-         * 导出单批 id 上限（Task 10 审查移交）：KEY_IMAGE_IDS 走 WorkManager Data，有 10KB 硬上限
-         * （约 1200+ id 即崩 enqueue）——超限切多批，APPEND_OR_REPLACE 唯一工作名保证按提交顺序排队。
+         * 导出单批 id 上限（Task 10 审查移交）：canonical 已于 v0.8.1 B 类迁至公共下游
+         * [com.bluskysoftware.yandegallery.data.device.EXPORT_BATCH]（导出/复制双域共用，domain 层
+         * 不反向依赖 ui 包）；此处保留别名不改动 ui 既有调用面（PhotosViewModel/AlbumDetailViewModel）。
          */
-        const val EXPORT_BATCH = 500
+        const val EXPORT_BATCH = com.bluskysoftware.yandegallery.data.device.EXPORT_BATCH
     }
 }
