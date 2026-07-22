@@ -211,12 +211,14 @@ fun DeviceViewerScreen(
     // 页面 settle：其余页缩放重置（回看回到适配大小，ViewerPager 同款；本页无相邻预取需求——
     // 手机域 content uri 由 Coil 按需加载，无镜像 ensure 类前置动作）。仅保留 settle 页那张的
     // mediaId 一项，map 不随长列表滑动膨胀；settle 页 id 在 snapshotFlow 内取——删除收缩后同
-    // 下标换了内容也会触发清理，被删那张的残项即时移除；快照瞬时取不到（空表/越界）则全清兜底。
+    // 下标换了内容也会触发清理，被删那张的残项即时移除。
     LaunchedEffect(pagerState) {
         snapshotFlow {
             val settled = pagerState.settledPage
             if (settled in 0 until items.itemCount) items.peek(settled)?.mediaId else null
         }.collect { settledId ->
+            // 快照瞬空（invalidate 重拉窗口）时跳过清理——避免放大态被外部 MediaStore 脉冲误清（终审复核裁定）
+            if (settledId == null) return@collect
             zoomStates.keys.filter { it != settledId }.forEach { zoomStates.remove(it) }
         }
     }

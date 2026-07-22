@@ -118,7 +118,8 @@ class DeviceExportWorker(
         // 全成功不发（前台进度通知已展示到 total/total）；retry/切服丢弃路径不发（非终态/非本批）。
         // runCatching 同 setForeground 口径：33+ 未授权等通知失败不反噬工作结果，唯取消重抛。
         if (failed > 0) {
-            runCatching { notifier.notifyCompleted(done - failed, failed, targetPath) }
+            // serverId 透传（v0.8.1 H7）：实现层按服务器加盐通知 id，多服务器汇总互不顶替
+            runCatching { notifier.notifyCompleted(serverId, done - failed, failed, targetPath) }
                 .onFailure { if (it is CancellationException) throw it }
         }
         return Result.success(workDataOf(KEY_FAILED_COUNT to failed))

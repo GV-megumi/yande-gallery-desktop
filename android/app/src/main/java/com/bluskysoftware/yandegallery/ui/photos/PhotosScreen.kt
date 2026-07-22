@@ -152,10 +152,17 @@ fun PhotosScreen(
     // 确认文案分支依据（M4-T9）：选中项里是否有已下载副本——点删除时快照一次，随对话框生命周期使用
     var batchHasLocalCopies by rememberSaveable { mutableStateOf(false) }
     var showCopyPicker by rememberSaveable { mutableStateOf(false) }
-    // 手机相册节候选（Task 11）：picker 打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）
+    // 手机相册节候选（Task 11）：picker 打开时 suspend 取一次快照（对话框生命周期内不追新脉冲）；
+    // 打开先清列表挂加载态（v0.8.1 G1）——不清则第二次打开会先闪上一次的旧快照
     var deviceAlbums by remember { mutableStateOf<List<DeviceAlbum>>(emptyList()) }
+    var deviceLoading by remember { mutableStateOf(false) }
     LaunchedEffect(showCopyPicker) {
-        if (showCopyPicker) deviceAlbums = viewModel.deviceAlbumTargets()
+        if (showCopyPicker) {
+            deviceAlbums = emptyList()
+            deviceLoading = true
+            deviceAlbums = viewModel.deviceAlbumTargets()
+            deviceLoading = false
+        }
     }
 
     // 多选激活时系统返回键只退出多选，不返回上一页（brief 裁定）。
@@ -523,6 +530,7 @@ fun PhotosScreen(
             },
             onCreateDeviceAlbum = viewModel::createDeviceAlbum,
             onDismiss = { showCopyPicker = false },
+            deviceLoading = deviceLoading,
         )
     }
 }

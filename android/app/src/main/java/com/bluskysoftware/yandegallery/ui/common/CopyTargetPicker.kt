@@ -50,6 +50,8 @@ enum class PickerMode { Copy, Move }
  *   宿主结构保留单 LazyColumn item{} 块与 copy_picker_* tag 命名）：只列可写路径
  *   （[isWritableAlbumPath]，DCIM 与 Pictures 之下）的真实相册 + 待落地占位——聚合卡
  *   （relativePath=null）与三方目录天然滤除；点选回调 [onPickDeviceAlbum]（relativePath）。
+ *   [deviceLoading] 为 true 时手机节显示「加载中…」行替代列表与新建行（v0.8.1 G1）——三宿主
+ *   打开 picker 后经 LaunchedEffect 异步取候选，不加载态会先闪上一次的旧快照。
  *   [canCreateDeviceAlbum] 时首行「新建相册」展开内联输入：[onCreateDeviceAlbum] 返回错误文案
  *   就地显示（null=成功），成功后顺带以 `Pictures/<名>/` 回调 onPickDeviceAlbum——新建即选中。
  * - 点选/新建成功后**不自关**：收尾（关弹窗、发请求、清选择、提示）由调用方编排。
@@ -66,6 +68,7 @@ fun CopyTargetPicker(
     onCreateDeviceAlbum: (name: String) -> String?,
     onDismiss: () -> Unit,
     excludeIds: Set<Long> = emptySet(),
+    deviceLoading: Boolean = false,
 ) {
     val visibleGalleries = galleries.filterNot { it.id in excludeIds }
     // Move 模式硬编码不渲染手机节（spec D5）；Copy 模式再看 deviceEnabled（canCopy && online）
@@ -121,27 +124,42 @@ fun CopyTargetPicker(
                 }
                 if (showDeviceSection) {
                     item(key = "section_device") { PickerSectionHeader("手机相册", "copy_picker_section_device") }
-                    if (canCreateDeviceAlbum) {
-                        item(key = "create_device") {
-                            if (creating) {
-                                DeviceCreateInline(
-                                    nameTag = "copy_picker_create_name",
-                                    confirmTag = "copy_picker_create_confirm",
-                                    onCreate = onCreateDeviceAlbum,
-                                    onPicked = onPickDeviceAlbum,
-                                )
-                            } else {
-                                DeviceCreateRow(tag = "copy_picker_create_device", onClick = { creating = true })
+                    if (deviceLoading) {
+                        // 加载态（v0.8.1 G1）：候选查询落定前整节只显本行——列表与新建行一并抑制，
+                        // 不闪上一次打开的旧快照（新建依赖新鲜候选做重名校验，同样等落定）
+                        item(key = "device_loading") {
+                            Text(
+                                "加载中…",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .padding(horizontal = 8.dp, vertical = 8.dp)
+                                    .testTag("copy_picker_device_loading"),
+                            )
+                        }
+                    } else {
+                        if (canCreateDeviceAlbum) {
+                            item(key = "create_device") {
+                                if (creating) {
+                                    DeviceCreateInline(
+                                        nameTag = "copy_picker_create_name",
+                                        confirmTag = "copy_picker_create_confirm",
+                                        onCreate = onCreateDeviceAlbum,
+                                        onPicked = onPickDeviceAlbum,
+                                    )
+                                } else {
+                                    DeviceCreateRow(tag = "copy_picker_create_device", onClick = { creating = true })
+                                }
                             }
                         }
-                    }
-                    items(visibleDevice, key = { "d${it.key.encode()}" }) { album ->
-                        DeviceAlbumRow(
-                            album = album,
-                            tag = "copy_picker_device_${album.key.encode()}",
-                            // visibleDevice 过滤保证 relativePath 非 null，此处 !! 安全（filter 谓词收口）
-                            onClick = { onPickDeviceAlbum(album.relativePath!!) },
-                        )
+                        items(visibleDevice, key = { "d${it.key.encode()}" }) { album ->
+                            DeviceAlbumRow(
+                                album = album,
+                                tag = "copy_picker_device_${album.key.encode()}",
+                                // visibleDevice 过滤保证 relativePath 非 null，此处 !! 安全（filter 谓词收口）
+                                onClick = { onPickDeviceAlbum(album.relativePath!!) },
+                            )
+                        }
                     }
                 }
             }

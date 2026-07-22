@@ -39,13 +39,17 @@ class DeviceExportWorkerTest {
     /**
      * 通知 fake：前台路径 runCatching 包裹照旧 no-op（对照 DownloadWorkerTest），
      * [completedCalls] 记录完成汇总调用入参——钉住「仅部分失败终态发汇总」（终审 Fix 1）。
+     * G4 加盐（v0.8.1 H7）签名 +serverId：并行记入 [completedServerIds]（既有 Triple 断言零改动），
+     * worker 层只验 serverId 透传——通知 id 加盐公式属 Android 实现，不在本层断言。
      */
     private val completedCalls = mutableListOf<Triple<Int, Int, String>>()
+    private val completedServerIds = mutableListOf<Long>()
     private val noopNotifier = object : DeviceExportNotifier {
         override fun ensureChannel() {}
         override fun foregroundInfo(done: Int, total: Int, targetPath: String) =
             throw IllegalStateException("测试不升前台")   // runCatching 降级路径
-        override fun notifyCompleted(ok: Int, failed: Int, targetPath: String) {
+        override fun notifyCompleted(serverId: Long, ok: Int, failed: Int, targetPath: String) {
+            completedServerIds += serverId
             completedCalls += Triple(ok, failed, targetPath)
         }
     }
@@ -71,11 +75,12 @@ class DeviceExportWorkerTest {
 
     private fun worker(
         activeId: Long? = 1L,
+        serverId: Long = 1L,
         ensure: suspend (Long, Long) -> Result<File>,
     ): DeviceExportWorker =
         TestListenableWorkerBuilder<DeviceExportWorker>(context)
             .setInputData(workDataOf(
-                DeviceExportWorker.KEY_SERVER_ID to 1L,
+                DeviceExportWorker.KEY_SERVER_ID to serverId,
                 DeviceExportWorker.KEY_IMAGE_IDS to longArrayOf(1L, 2L, 3L),
                 DeviceExportWorker.KEY_TARGET_PATH to "Pictures/Yande/",
             ))
@@ -177,6 +182,19 @@ class DeviceExportWorkerTest {
         val w = worker(ensure = { _, imageId -> Result.success(File("mirror/s1/i$imageId/$imageId.jpg")) })
         assertEquals(0, failedCountOf(w.doWork()))
         assertTrue("全成功不应发汇总通知", completedCalls.isEmpty())
+    }
+
+    @Test
+    fun `汇总通知_不同服务器id落不同通知位`() = runTest {
+        // G4 加盐（v0.8.1 H7）：两台服务器相继部分失败导出，notifyCompleted 须各携本批 serverId——
+        // id 加盐公式（SUMMARY - serverId % 64）在 Android 实现内，worker 层只验参数透传
+        val ensure404At2: suspend (Long, Long) -> Result<File> = { serverId, imageId ->
+            if (imageId == 2L) Result.failure(ApiException("NOT_FOUND", "原图已删", 404))
+            else Result.success(File("mirror/s$serverId/i$imageId/img-$imageId.jpg"))
+        }
+        assertEquals(1, failedCountOf(worker(activeId = 1L, serverId = 1L, ensure = ensure404At2).doWork()))
+        assertEquals(1, failedCountOf(worker(activeId = 7L, serverId = 7L, ensure = ensure404At2).doWork()))
+        assertEquals("两批汇总各携本批 serverId", listOf(1L, 7L), completedServerIds)
     }
 
     @Test

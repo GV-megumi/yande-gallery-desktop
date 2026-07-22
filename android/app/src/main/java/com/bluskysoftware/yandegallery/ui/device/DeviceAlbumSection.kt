@@ -1,6 +1,5 @@
 package com.bluskysoftware.yandegallery.ui.device
 
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.bluskysoftware.yandegallery.data.device.DeviceAlbum
 import com.bluskysoftware.yandegallery.data.device.pendingAlbumPath
 import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
+import com.bluskysoftware.yandegallery.ui.common.debouncedClickable
 
 /*
  * 手机相册节三件行组件（v0.8.1 A2）：DeviceAlbumPicker（手机域入口）与 CopyTargetPicker
@@ -35,7 +35,8 @@ import com.bluskysoftware.yandegallery.ui.common.MiuiTextField
  * **不抽整节**；testTag 经参数传入，两侧既有命名（device_pick_* / copy_picker_*）零变化。
  */
 
-/** 手机相册行（真实/待落地通用）：名称 + 待落地徽标 + 张数；tag 由调用方传入保留两侧既有命名。 */
+/** 手机相册行（真实/待落地通用）：名称 + 待落地徽标 + 张数；tag 由调用方传入保留两侧既有命名；
+ *  连点防抖（v0.8.1 G2）——点选即入队复制/导出，300ms 窗口吞双击防双发。 */
 @Composable
 fun DeviceAlbumRow(album: DeviceAlbum, tag: String, onClick: () -> Unit) {
     Row(
@@ -43,7 +44,7 @@ fun DeviceAlbumRow(album: DeviceAlbum, tag: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .clickable { onClick() }
+            .debouncedClickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 12.dp)
             .testTag(tag),
     ) {
@@ -67,7 +68,7 @@ fun DeviceAlbumRow(album: DeviceAlbum, tag: String, onClick: () -> Unit) {
     }
 }
 
-/** 「新建相册」入口行。 */
+/** 「新建相册」入口行（连点防抖同 [DeviceAlbumRow]——展开内联输入本身幂等，防抖统一口径）。 */
 @Composable
 fun DeviceCreateRow(tag: String, onClick: () -> Unit) {
     Row(
@@ -75,7 +76,7 @@ fun DeviceCreateRow(tag: String, onClick: () -> Unit) {
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(10.dp))
-            .clickable { onClick() }
+            .debouncedClickable { onClick() }
             .padding(horizontal = 8.dp, vertical = 12.dp)
             .testTag(tag),
     ) {

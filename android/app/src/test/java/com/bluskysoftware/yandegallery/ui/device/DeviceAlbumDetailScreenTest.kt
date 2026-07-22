@@ -42,6 +42,7 @@ import com.bluskysoftware.yandegallery.data.device.DeviceMedia
 import com.bluskysoftware.yandegallery.data.prefs.PrefsStore
 import com.bluskysoftware.yandegallery.ui.common.PinchStepState
 import java.io.File
+import java.time.Duration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -59,6 +60,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowSystemClock
 
 /**
  * [DeviceAlbumDetailScreen] compose 契约（Task 6，spec §2.2）：网格渲染、视频角标文案、单击/
@@ -209,6 +211,9 @@ class DeviceAlbumDetailScreenTest {
         // 补选 2 号（视频）→ 分享不清选择（现状语义），选中成 {1,2}
         compose.onNodeWithTag("device_cell_2").performClick()
         compose.waitForIdle()
+        // G2 防抖跟随（v0.8.1）：动作项接 300ms 防抖后，Robolectric 冻结的 uptimeMillis 会把本次
+        // 二次分享误判为连点——推进影子时钟越过窗口（真机上两次点击间隔以秒计），断言零改动
+        ShadowSystemClock.advanceBy(Duration.ofMillis(301))
         compose.onNodeWithTag("device_action_share").performClick()
         compose.waitUntil(timeoutMillis = 5_000) { shadowApp.peekNextStartedActivity() != null }
         val multi = shadowApp.nextStartedActivity

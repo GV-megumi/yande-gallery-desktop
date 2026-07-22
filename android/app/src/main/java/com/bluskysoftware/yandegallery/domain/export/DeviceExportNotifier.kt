@@ -13,8 +13,12 @@ interface DeviceExportNotifier {
     fun ensureChannel()
     fun foregroundInfo(done: Int, total: Int, targetPath: String): ForegroundInfo
 
-    /** 完成失败汇总（spec §6.1「失败项汇总提示」）：worker 仅在终态成功且 failed>0 时调用。 */
-    fun notifyCompleted(ok: Int, failed: Int, targetPath: String)
+    /**
+     * 完成失败汇总（spec §6.1「失败项汇总提示」）：worker 仅在终态成功且 failed>0 时调用。
+     * [serverId] 供实现层给通知 id 加盐（v0.8.1 H7）——多服务器相继导出各占独立通知位，
+     * 后一台的汇总不再顶掉前一台。
+     */
+    fun notifyCompleted(serverId: Long, ok: Int, failed: Int, targetPath: String)
 }
 
 /**
@@ -49,7 +53,7 @@ class AndroidDeviceExportNotifier(private val context: Context) : DeviceExportNo
         }
     }
 
-    override fun notifyCompleted(ok: Int, failed: Int, targetPath: String) {
+    override fun notifyCompleted(serverId: Long, ok: Int, failed: Int, targetPath: String) {
         // 沿用 device_export 渠道（IMPORTANCE_LOW 不响铃）；非前台常规通知，worker 结束后仍驻留，
         // 用户事后可见「y 张失败」——补上 KEY_FAILED_COUNT 无消费者的静默缺口（终审 Fix 1）
         val notification = NotificationCompat.Builder(context, CHANNEL_ID)
@@ -60,7 +64,11 @@ class AndroidDeviceExportNotifier(private val context: Context) : DeviceExportNo
             .setAutoCancel(true)
             .build()
         val nm = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        nm.notify(SUMMARY_NOTIFICATION_ID, notification)
+        // 汇总 id 按 serverId 加盐（v0.8.1 H7）：多服务器相继导出各占独立通知位，后一台不顶前一台。
+        // worker 已把 serverId <= 0 挡在 doWork 入口（Result.failure），此处 serverId ≥ 1 恒成立，
+        // `% 64` 落 [0, 63]、id 落 [-0x4559-63, -0x4559] 全负——不撞进度 id（-0x4558 在区间上方）、
+        // 不撞逐图下载 id（非负）、不撞 MirrorSync（-0x4D53 在区间下方）。
+        nm.notify(SUMMARY_NOTIFICATION_ID - (serverId % 64).toInt(), notification)
     }
 
     companion object {

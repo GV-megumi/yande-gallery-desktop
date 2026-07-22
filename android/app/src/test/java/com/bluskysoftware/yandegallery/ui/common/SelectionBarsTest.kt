@@ -139,6 +139,22 @@ class SelectionBarsTest {
     }
 
     @Test
+    fun `底栏动作_300ms内连点只触发一次`() {
+        // G2 防抖（v0.8.1）：动作项双击双发（导出入队两次等）——debouncedClickable 300ms 窗口内吞掉后续点击
+        var fired = 0
+        compose.setContent {
+            SelectionBottomBar(
+                online = true, inGallery = false,
+                onDownload = { fired++ }, onShare = {}, onDelete = {}, onCopyTo = {},
+            )
+        }
+        compose.onNodeWithTag("selection_action_download").performClick()
+        compose.onNodeWithTag("selection_action_download").performClick()   // 同帧连点
+        compose.waitForIdle()
+        assertEquals(1, fired)
+    }
+
+    @Test
     fun `格子非多选态——单击开大图，长按进多选`() {
         var open = 0
         var toggle = 0
