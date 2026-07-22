@@ -31,6 +31,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -115,7 +119,13 @@ fun ImageErrorPlaceholder(
             verticalArrangement = Arrangement.Center,
         ) {
             Icon(Icons.Filled.BrokenImage, contentDescription = null, tint = fg)
-            Text("加载失败，点按重试", style = MaterialTheme.typography.labelSmall, color = fg)
+            // 手势让位（加固轮 C 类）：passthrough 态下面点击=选中而非重试，文案不许再承诺「点按重试」
+            // （重试仅由右下角角标承载）；非 passthrough 整面可点重试，沿用既有文案。
+            Text(
+                if (gesturePassthrough) "加载失败" else "加载失败，点按重试",
+                style = MaterialTheme.typography.labelSmall,
+                color = fg,
+            )
         }
         Box(
             contentAlignment = Alignment.Center,
@@ -139,6 +149,11 @@ fun ImageErrorPlaceholder(
                         }
                     }
                 }
+                // a11y 点击语义（加固轮 C 类终审补强）：pointerInput 只喂触摸手势、不暴露无障碍动作，
+                // 三选择网格（gesturePassthrough=true，占位面故意不可点）里 TalkBack/开关扫描用户无从触发重试。
+                // 补语义 ACTION_CLICK 而非 .clickable：clickable 会消费 down 破坏长按透传设计；语义动作
+                // 复用 currentOnRetry（rememberUpdatedState 最新值，与 pointerInput 同源，不引入过期闭包）。
+                .semantics { role = Role.Button; onClick(label = "重试") { currentOnRetry(); true } }
                 .testTag("image_error_retry_badge"),
         ) {
             Icon(Icons.Filled.Refresh, contentDescription = "重试", tint = Color.White, modifier = Modifier.size(16.dp))

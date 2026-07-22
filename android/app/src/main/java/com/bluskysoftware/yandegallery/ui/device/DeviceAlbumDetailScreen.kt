@@ -343,7 +343,9 @@ private fun DeviceMediaCell(
                     color = Color.White,
                     style = MaterialTheme.typography.labelSmall,
                     modifier = Modifier
-                        .align(Alignment.BottomEnd)
+                        // 让位失败重试角标（加固轮 C 类终审补强）：重试角标固定右下角（BottomEnd），
+                        // 时长角标同角会在失败视频格上互相遮挡——挪到左下角（BottomStart，选中勾在 TopEnd，此角空闲）。
+                        .align(Alignment.BottomStart)
                         .padding(4.dp)
                         .background(Color.Black.copy(alpha = 0.55f), RoundedCornerShape(4.dp))
                         .padding(horizontal = 4.dp, vertical = 1.dp)
