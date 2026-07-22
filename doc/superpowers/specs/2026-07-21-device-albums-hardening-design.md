@@ -1,6 +1,6 @@
 # v0.8.1 手机相册加固轮设计（DEFER backlog 七类修复）
 
-状态：待评审
+状态：✅ 已实施（2026-07-22）
 分支：`feature/device-albums-hardening`（自 master@6abb2e5，v0.8.0 已合并）
 版本：versionCode 10 / versionName "0.8.1"
 来源：v0.8.0 终审 DEFER backlog（A-G）+ 真机复核新增两项（`.superpowers/sdd/progress.md` 归档）
