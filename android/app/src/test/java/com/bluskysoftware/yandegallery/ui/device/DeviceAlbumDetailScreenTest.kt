@@ -212,6 +212,7 @@ class DeviceAlbumDetailScreenTest {
         val singleInner = IntentCompat.getParcelableExtra(single, Intent.EXTRA_INTENT, Intent::class.java)!!
         assertEquals(Intent.ACTION_SEND, singleInner.action)
         assertEquals("image/jpeg", singleInner.type)   // 按实际扩展名映射，非通配
+        assertTrue(singleInner.flags and Intent.FLAG_GRANT_READ_URI_PERMISSION != 0)   // 单张也须授临时读权（与多张一致）
 
         // 补选 2 号（视频）→ 分享不清选择（现状语义），选中成 {1,2}
         compose.onNodeWithTag("device_cell_2").performClick()

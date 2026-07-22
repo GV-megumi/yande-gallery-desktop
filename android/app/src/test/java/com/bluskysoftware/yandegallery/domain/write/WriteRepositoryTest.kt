@@ -913,6 +913,6 @@ class WriteRepositoryTest {
 
         assertTrue(result is WriteResult.Failed)
         // add 成功 + 补偿链路均应 nudge（实际 3 次：add 成功/A 移除应答式失败对账/B 补偿成功各一）
-        assertTrue("补偿路径至少 nudge 两次，交对账收敛残差", sync.get() >= 2)
+        assertEquals("补偿路径精确 nudge 3 次：add 成功/A 移除应答式失败对账/B 补偿成功各一", 3, sync.get())
     }
 }
